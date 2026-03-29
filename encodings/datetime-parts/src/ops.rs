@@ -6,19 +6,19 @@ use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimeParts;
-use crate::DateTimePartsArray;
 use crate::timestamp;
 use crate::timestamp::TimestampParts;
 
 impl OperationsVTable<DateTimeParts> for DateTimeParts {
     fn scalar_at(
-        array: &DateTimePartsArray,
+        array: &Array<DateTimeParts>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

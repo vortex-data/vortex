@@ -8,9 +8,9 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::RLEData;
 use crate::rle::RLE;
 use crate::rle::RLEArray;
-
 impl CastReduce for RLE {
     fn cast(array: &RLEArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast RLE values.
@@ -27,7 +27,7 @@ impl CastReduce for RLE {
         };
 
         Ok(Some(unsafe {
-            RLEArray::new_unchecked(
+            RLEData::new_unchecked(
                 casted_values,
                 casted_indices,
                 array.values_idx_offsets().clone(),
@@ -63,7 +63,7 @@ mod tests {
             Buffer::from_iter([10u8, 20, 30, 40, 50]),
             Validity::from_iter([true, true, true, true, true]),
         );
-        let rle = RLEArray::encode(&primitive).unwrap();
+        let rle = RLEData::encode(&primitive).unwrap();
 
         let casted = rle
             .into_array()
@@ -79,7 +79,7 @@ mod tests {
             Buffer::from_iter([10u8, 20, 30, 40, 50]),
             Validity::from_iter([true, false, true, true, false]),
         );
-        let rle = RLEArray::encode(&primitive).unwrap();
+        let rle = RLEData::encode(&primitive).unwrap();
         rle.into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
@@ -136,7 +136,7 @@ mod tests {
         )
     )]
     fn test_cast_rle_conformance(#[case] primitive: PrimitiveArray) {
-        let rle_array = RLEArray::encode(&primitive).unwrap();
+        let rle_array = RLEData::encode(&primitive).unwrap();
         test_cast_conformance(&rle_array.into_array());
     }
 }

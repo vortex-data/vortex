@@ -24,7 +24,7 @@ pub fn canonical_primitive_to_arrow<T: ArrowPrimitiveType>(
 where
     T::Native: NativePType,
 {
-    let validity = array.validity_mask()?;
+    let validity = array.validity_mask();
     let null_buffer = to_null_buffer(validity);
     let buffer = array.into_buffer::<T::Native>().into_arrow_scalar_buffer();
     Ok(Arc::new(ArrowPrimitiveArray::<T>::new(buffer, null_buffer)))

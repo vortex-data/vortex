@@ -199,7 +199,7 @@ impl CudaExecute for ZstdExecutor {
     ) -> VortexResult<Canonical> {
         let zstd = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ZstdArray"))?;
 
-        match zstd.as_ref().dtype() {
+        match zstd.dtype() {
             DType::Binary(_) | DType::Utf8(_) => decode_zstd(zstd, ctx).await,
             _other => {
                 debug!(
@@ -222,7 +222,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         dictionary,
         slice_start,
         slice_stop,
-    } = array.into_parts();
+    } = array.into_inner().into_parts();
 
     // nvCOMP doesn't support ZSTD dictionaries.
     if dictionary.is_some() {

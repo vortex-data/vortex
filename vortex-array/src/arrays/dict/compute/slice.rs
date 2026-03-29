@@ -13,9 +13,10 @@ use crate::arrays::Dict;
 use crate::arrays::DictArray;
 use crate::arrays::slice::SliceReduce;
 use crate::scalar::Scalar;
+use crate::vtable::Array;
 
 impl SliceReduce for Dict {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let sliced_code = array.codes().slice(range)?;
         // TODO(joe): if the range is size 1 replace with a constant array
         if let Some(code) = sliced_code.as_opt::<Constant>() {

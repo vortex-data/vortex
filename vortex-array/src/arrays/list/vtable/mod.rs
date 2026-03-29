@@ -18,7 +18,7 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
-use crate::arrays::ListArray;
+use crate::arrays::list::ListData;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
@@ -31,7 +31,7 @@ use crate::hash::ArrayHash;
 use crate::metadata::DeserializeMetadata;
 use crate::metadata::SerializeMetadata;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
@@ -42,7 +42,7 @@ use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 mod operations;
 mod validity;
-vtable!(List);
+vtable!(List, List, ListData);
 
 #[derive(Clone, prost::Message)]
 pub struct ListMetadata {
@@ -53,12 +53,12 @@ pub struct ListMetadata {
 }
 
 impl VTable for List {
-    type Array = ListArray;
+    type Array = ListData;
 
     type Metadata = ProstMetadata<ListMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &ListData) -> &Self {
         &List
     }
 
@@ -66,49 +66,49 @@ impl VTable for List {
         Self::ID
     }
 
-    fn len(array: &ListArray) -> usize {
+    fn len(array: &ListData) -> usize {
         array.offsets.len().saturating_sub(1)
     }
 
-    fn dtype(array: &ListArray) -> &DType {
+    fn dtype(array: &ListData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &ListArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &ListData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ListArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.elements.array_hash(state, precision);
         array.offsets.array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &ListArray, other: &ListArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.elements.array_eq(&other.elements, precision)
             && array.offsets.array_eq(&other.offsets, precision)
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(_array: &ListArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &ListArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ListArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &ListArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         vortex_panic!("ListArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &ListArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         2 + validity_nchildren(&array.validity)
     }
 
-    fn child(array: &ListArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.elements().clone(),
             1 => array.offsets().clone(),
@@ -118,7 +118,7 @@ impl VTable for List {
         }
     }
 
-    fn child_name(_array: &ListArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "elements".to_string(),
             1 => "offsets".to_string(),
@@ -135,7 +135,7 @@ impl VTable for List {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn metadata(array: &ListArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(ListMetadata {
             elements_len: array.elements().len() as u64,
             offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
@@ -164,7 +164,7 @@ impl VTable for List {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ListArray> {
+    ) -> VortexResult<ListData> {
         let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
         } else if children.len() == 3 {
@@ -189,7 +189,7 @@ impl VTable for List {
             len + 1,
         )?;
 
-        ListArray::try_new(elements, offsets, validity)
+        ListData::try_new(elements, offsets, validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -212,14 +212,14 @@ impl VTable for List {
             Validity::from(array.dtype.nullability())
         };
 
-        let new_array = ListArray::try_new(elements, offsets, validity)?;
+        let new_array = ListData::try_new(elements, offsets, validity)?;
         *array = new_array;
         Ok(())
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            list_view_from_list(ListArray::clone(&array), ctx)?.into_array(),
+            list_view_from_list((*array).clone(), ctx)?.into_array(),
         ))
     }
 

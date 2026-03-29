@@ -19,6 +19,7 @@ use vortex_error::vortex_panic;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
+use crate::RLEData;
 
 /// Decompresses an RLE array back into a primitive array.
 #[expect(

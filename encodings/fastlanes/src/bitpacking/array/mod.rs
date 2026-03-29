@@ -33,7 +33,7 @@ pub struct BitPackedArrayParts {
 }
 
 #[derive(Clone, Debug)]
-pub struct BitPackedArray {
+pub struct BitPackedData {
     /// The offset within the first block (created with a slice).
     /// 0 <= offset < 1024
     pub(super) offset: u16,
@@ -46,7 +46,7 @@ pub struct BitPackedArray {
     pub(super) stats_set: ArrayStats,
 }
 
-impl BitPackedArray {
+impl BitPackedData {
     /// Create a new bitpacked array using a buffer of packed data.
     ///
     /// The packed data should be interpreted as a sequence of values with size `bit_width`.
@@ -199,6 +199,35 @@ impl BitPackedArray {
         Ok(())
     }
 
+    /// Returns the length of the array.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns `true` if the array is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Returns the dtype of the array.
+    #[inline]
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns the validity of the array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> &Validity {
+        &self.validity
+    }
+
+    /// Returns the validity as a [`Mask`](vortex_mask::Mask).
+    pub fn validity_mask(&self) -> vortex_mask::Mask {
+        self.validity.to_mask(self.len())
+    }
+
     pub fn ptype(&self) -> PType {
         self.dtype.as_ptype()
     }
@@ -305,8 +334,6 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
 
-    use crate::BitPackedArray;
-
     #[test]
     fn test_encode() {
         let values = [
@@ -319,7 +346,7 @@ mod test {
             Some(u64::MAX),
         ];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let packed = BitPackedArray::encode(&uncompressed.into_array(), 1).unwrap();
+        let packed = BitPackedData::encode(&uncompressed.into_array(), 1).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
         assert_arrays_eq!(packed.to_primitive(), expected);
     }
@@ -328,9 +355,9 @@ mod test {
     fn test_encode_too_wide() {
         let values = [Some(1u8), None, Some(1), None, Some(1), None];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let _packed = BitPackedArray::encode(&uncompressed.clone().into_array(), 8)
+        let _packed = BitPackedData::encode(&uncompressed.clone().into_array(), 8)
             .expect_err("Cannot pack value into the same width");
-        let _packed = BitPackedArray::encode(&uncompressed.into_array(), 9)
+        let _packed = BitPackedData::encode(&uncompressed.into_array(), 9)
             .expect_err("Cannot pack value into larger width");
     }
 
@@ -339,7 +366,7 @@ mod test {
         let values: Buffer<i32> = (0i32..=512).collect();
         let parray = values.clone().into_array();
 
-        let packed_with_patches = BitPackedArray::encode(&parray, 9).unwrap();
+        let packed_with_patches = BitPackedData::encode(&parray, 9).unwrap();
         assert!(packed_with_patches.patches().is_some());
         assert_arrays_eq!(
             packed_with_patches.to_primitive(),

@@ -19,17 +19,17 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
-use crate::arrays::VariantArray;
+use crate::arrays::variant::VariantData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 
-vtable!(Variant);
+vtable!(Variant, Variant, VariantData);
 
 #[derive(Clone, Debug)]
 pub struct Variant;
@@ -39,7 +39,7 @@ impl Variant {
 }
 
 impl VTable for Variant {
-    type Array = VariantArray;
+    type Array = VariantData;
 
     type Metadata = EmptyMetadata;
 
@@ -63,49 +63,49 @@ impl VTable for Variant {
         array.child.dtype()
     }
 
-    fn stats(array: &Self::Array) -> StatsSetRef<'_> {
-        array.child.statistics()
+    fn stats(array: &Self::Array) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: Hasher>(array: &Self::Array, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.child.array_hash(state, precision);
     }
 
-    fn array_eq(array: &Self::Array, other: &Self::Array, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.child.array_eq(&other.child, precision)
     }
 
-    fn nbuffers(_array: &Self::Array) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Self::Array, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("VariantArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.child.clone(),
             _ => vortex_panic!("VariantArray child index {idx} out of bounds"),
         }
     }
 
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "child".to_string(),
             _ => vortex_panic!("VariantArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -138,7 +138,7 @@ impl VTable for Variant {
         );
         // The child carries the nullability for the whole VariantArray.
         let child = children.get(0, dtype, len)?;
-        Ok(VariantArray::new(child))
+        Ok(VariantData::new(child))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

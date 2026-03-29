@@ -7,10 +7,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ToCanonical;
+use crate::arrays::VarBin;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -19,9 +21,10 @@ use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::Array;
 
 #[derive(Clone, Debug)]
-pub struct VarBinArray {
+pub struct VarBinData {
     pub(super) dtype: DType,
     pub(super) bytes: BufferHandle,
     pub(super) offsets: ArrayRef,
@@ -29,7 +32,7 @@ pub struct VarBinArray {
     pub(super) stats_set: ArrayStats,
 }
 
-impl VarBinArray {
+impl VarBinData {
     /// Creates a new [`VarBinArray`].
     ///
     /// # Panics
@@ -257,6 +260,32 @@ impl VarBinArray {
         Ok(())
     }
 
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.offsets().len().saturating_sub(1)
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the [`Validity`] of this array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> &Validity {
+        &self.validity
+    }
+
+    /// Returns the validity as a [`Mask`].
+    pub fn validity_mask(&self) -> Mask {
+        self.validity.to_mask(self.len())
+    }
+
     #[inline]
     pub fn offsets(&self) -> &ArrayRef {
         &self.offsets
@@ -307,7 +336,7 @@ impl VarBinArray {
         for v in vec {
             builder.append_value(v.as_ref());
         }
-        builder.finish(dtype)
+        builder.finish(dtype).into_inner()
     }
 
     #[expect(
@@ -323,7 +352,7 @@ impl VarBinArray {
         for v in iter {
             builder.append(v.as_ref().map(|o| o.as_ref()));
         }
-        builder.finish(dtype)
+        builder.finish(dtype).into_inner()
     }
 
     pub fn from_iter_nonnull<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(
@@ -335,9 +364,56 @@ impl VarBinArray {
         for v in iter {
             builder.append_value(v);
         }
-        builder.finish(dtype)
+        builder.finish(dtype).into_inner()
+    }
+}
+
+/// Forwarding constructors for `VarBinArray` (= `Array<VarBin>`).
+impl Array<VarBin> {
+    pub fn from_vec<T: AsRef<[u8]>>(vec: Vec<T>, dtype: DType) -> Self {
+        Array::from_inner(VarBinData::from_vec(vec, dtype))
     }
 
+    #[expect(
+        clippy::same_name_method,
+        reason = "intentionally named from_iter like Iterator::from_iter"
+    )]
+    pub fn from_iter<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
+        iter: I,
+        dtype: DType,
+    ) -> Self {
+        Array::from_inner(VarBinData::from_iter(iter, dtype))
+    }
+
+    pub fn from_iter_nonnull<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(
+        iter: I,
+        dtype: DType,
+    ) -> Self {
+        Array::from_inner(VarBinData::from_iter_nonnull(iter, dtype))
+    }
+
+    /// Create from a vector of string slices.
+    pub fn from_strs(value: Vec<&str>) -> Self {
+        Self::from_vec(value, DType::Utf8(Nullability::NonNullable))
+    }
+
+    /// Create from a vector of optional string slices.
+    pub fn from_nullable_strs(value: Vec<Option<&str>>) -> Self {
+        Self::from_iter(value, DType::Utf8(Nullability::Nullable))
+    }
+
+    /// Create from a vector of byte slices.
+    pub fn from_bytes(value: Vec<&[u8]>) -> Self {
+        Self::from_vec(value, DType::Binary(Nullability::NonNullable))
+    }
+
+    /// Create from a vector of optional byte slices.
+    pub fn from_nullable_bytes(value: Vec<Option<&[u8]>>) -> Self {
+        Self::from_iter(value, DType::Binary(Nullability::Nullable))
+    }
+}
+
+impl VarBinData {
     /// Get value offset at a given index
     ///
     /// Note: There's 1 more offsets than the elements in the array, thus last offset is at array length index
@@ -375,73 +451,117 @@ impl VarBinArray {
     }
 }
 
-impl From<Vec<&[u8]>> for VarBinArray {
+impl Array<VarBin> {
+    /// Creates a new [`VarBinArray`] without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`VarBinData::new_unchecked`].
+    pub unsafe fn new_unchecked(
+        offsets: ArrayRef,
+        bytes: ByteBuffer,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Array::from_inner(unsafe { VarBinData::new_unchecked(offsets, bytes, dtype, validity) })
+    }
+
+    /// Creates a new [`VarBinArray`] without validation from a [`BufferHandle`].
+    ///
+    /// # Safety
+    ///
+    /// See [`VarBinData::new_unchecked_from_handle`].
+    pub unsafe fn new_unchecked_from_handle(
+        offsets: ArrayRef,
+        bytes: BufferHandle,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Array::from_inner(unsafe {
+            VarBinData::new_unchecked_from_handle(offsets, bytes, dtype, validity)
+        })
+    }
+
+    /// Constructs a new `VarBinArray`.
+    pub fn try_new(
+        offsets: ArrayRef,
+        bytes: ByteBuffer,
+        dtype: DType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Ok(Array::from_inner(VarBinData::try_new(
+            offsets, bytes, dtype, validity,
+        )?))
+    }
+}
+
+impl From<Vec<&[u8]>> for VarBinData {
     fn from(value: Vec<&[u8]>) -> Self {
         Self::from_vec(value, DType::Binary(Nullability::NonNullable))
     }
 }
 
-impl From<Vec<Vec<u8>>> for VarBinArray {
+impl From<Vec<Vec<u8>>> for VarBinData {
     fn from(value: Vec<Vec<u8>>) -> Self {
         Self::from_vec(value, DType::Binary(Nullability::NonNullable))
     }
 }
 
-impl From<Vec<String>> for VarBinArray {
+impl From<Vec<String>> for VarBinData {
     fn from(value: Vec<String>) -> Self {
         Self::from_vec(value, DType::Utf8(Nullability::NonNullable))
     }
 }
 
-impl From<Vec<&str>> for VarBinArray {
+impl From<Vec<&str>> for VarBinData {
     fn from(value: Vec<&str>) -> Self {
         Self::from_vec(value, DType::Utf8(Nullability::NonNullable))
     }
 }
 
-impl From<Vec<Option<&[u8]>>> for VarBinArray {
+impl From<Vec<Option<&[u8]>>> for VarBinData {
     fn from(value: Vec<Option<&[u8]>>) -> Self {
         Self::from_iter(value, DType::Binary(Nullability::Nullable))
     }
 }
 
-impl From<Vec<Option<Vec<u8>>>> for VarBinArray {
+impl From<Vec<Option<Vec<u8>>>> for VarBinData {
     fn from(value: Vec<Option<Vec<u8>>>) -> Self {
         Self::from_iter(value, DType::Binary(Nullability::Nullable))
     }
 }
 
-impl From<Vec<Option<String>>> for VarBinArray {
+impl From<Vec<Option<String>>> for VarBinData {
     fn from(value: Vec<Option<String>>) -> Self {
         Self::from_iter(value, DType::Utf8(Nullability::Nullable))
     }
 }
 
-impl From<Vec<Option<&str>>> for VarBinArray {
+impl From<Vec<Option<&str>>> for VarBinData {
     fn from(value: Vec<Option<&str>>) -> Self {
         Self::from_iter(value, DType::Utf8(Nullability::Nullable))
     }
 }
 
-impl<'a> FromIterator<Option<&'a [u8]>> for VarBinArray {
+impl<'a> FromIterator<Option<&'a [u8]>> for VarBinData {
     fn from_iter<T: IntoIterator<Item = Option<&'a [u8]>>>(iter: T) -> Self {
         Self::from_iter(iter, DType::Binary(Nullability::Nullable))
     }
 }
 
-impl FromIterator<Option<Vec<u8>>> for VarBinArray {
+impl FromIterator<Option<Vec<u8>>> for VarBinData {
     fn from_iter<T: IntoIterator<Item = Option<Vec<u8>>>>(iter: T) -> Self {
         Self::from_iter(iter, DType::Binary(Nullability::Nullable))
     }
 }
 
-impl FromIterator<Option<String>> for VarBinArray {
+impl FromIterator<Option<String>> for VarBinData {
     fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
         Self::from_iter(iter, DType::Utf8(Nullability::Nullable))
     }
 }
 
-impl<'a> FromIterator<Option<&'a str>> for VarBinArray {
+impl<'a> FromIterator<Option<&'a str>> for VarBinData {
     fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
         Self::from_iter(iter, DType::Utf8(Nullability::Nullable))
     }

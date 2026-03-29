@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::arrays::PrimitiveArray;
@@ -12,9 +11,7 @@ use crate::arrays::filter::execute::filter_validity;
 use crate::match_each_native_ptype;
 
 pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> PrimitiveArray {
-    let validity = array
-        .validity()
-        .vortex_expect("missing PrimitiveArray validity");
+    let validity = array.validity().clone();
     let filtered_validity = filter_validity(validity, mask);
 
     match_each_native_ptype!(array.ptype(), |T| {

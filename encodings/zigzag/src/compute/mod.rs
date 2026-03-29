@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::ZigZagData;
 mod cast;
 
 use vortex_array::ArrayRef;
@@ -22,7 +23,7 @@ use crate::ZigZagArray;
 impl FilterReduce for ZigZag {
     fn filter(array: &ZigZagArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let encoded = array.encoded().filter(mask.clone())?;
-        Ok(Some(ZigZagArray::try_new(encoded)?.into_array()))
+        Ok(Some(ZigZagData::try_new(encoded)?.into_array()))
     }
 }
 
@@ -33,7 +34,7 @@ impl TakeExecute for ZigZag {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let encoded = array.encoded().take(indices.to_array())?;
-        Ok(Some(ZigZagArray::try_new(encoded)?.into_array()))
+        Ok(Some(ZigZagData::try_new(encoded)?.into_array()))
     }
 }
 
@@ -44,7 +45,7 @@ impl MaskReduce for ZigZag {
             EmptyOptions,
             [array.encoded().clone(), mask.clone()],
         )?;
-        Ok(Some(ZigZagArray::try_new(masked_encoded)?.into_array()))
+        Ok(Some(ZigZagData::try_new(masked_encoded)?.into_array()))
     }
 }
 

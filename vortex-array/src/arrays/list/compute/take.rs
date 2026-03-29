@@ -9,6 +9,7 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::List;
 use crate::arrays::ListArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::builders::ArrayBuilder;
@@ -18,7 +19,7 @@ use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_smallest_offset_type;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
 // the `ListView::take` compute function once `ListView` is more stable.
@@ -31,7 +32,7 @@ impl TakeExecute for List {
     /// non-contiguous indices would violate this requirement.
     #[expect(clippy::cognitive_complexity)]
     fn take(
-        array: &ListArray,
+        array: &Array<List>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -50,12 +51,12 @@ impl TakeExecute for List {
 }
 
 fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
-    array: &ListArray,
-    indices_array: &PrimitiveArray,
+    array: &Array<List>,
+    indices_array: &Array<Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let data_validity = array.validity_mask()?;
-    let indices_validity = indices_array.validity_mask()?;
+    let data_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
 
     if !indices_validity.all_true() || !data_validity.all_true() {
         return _take_nullable::<I, O, OutputOffsetType>(array, indices_array, ctx);
@@ -115,15 +116,15 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
 }
 
 fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
-    array: &ListArray,
-    indices_array: &PrimitiveArray,
+    array: &Array<List>,
+    indices_array: &Array<Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let offsets_array = array.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
-    let data_validity = array.validity_mask()?;
-    let indices_validity = indices_array.validity_mask()?;
+    let data_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
 
     let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
         Nullability::NonNullable,

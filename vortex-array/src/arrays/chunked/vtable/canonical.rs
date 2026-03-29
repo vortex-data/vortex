@@ -52,7 +52,10 @@ pub(super) fn _canonicalize(
         )?),
         _ => {
             let mut builder = builder_with_capacity(array.dtype(), array.len());
-            array.append_to_builder(builder.as_mut(), ctx)?;
+            array
+                .clone()
+                .into_array()
+                .append_to_builder(builder.as_mut(), ctx)?;
             builder.finish_into_canonical()
         }
     })

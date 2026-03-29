@@ -14,10 +14,11 @@ use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::like::LikeReduce;
+use crate::vtable::Array;
 
 impl LikeReduce for Dict {
     fn like(
-        array: &DictArray,
+        array: &Array<Dict>,
         pattern: &ArrayRef,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {

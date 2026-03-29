@@ -12,12 +12,13 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::StatsSetRef;
+use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
@@ -29,7 +30,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::FoRArray;
+use crate::FoRData;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::kernels::PARENT_KERNELS;
 use crate::r#for::vtable::rules::PARENT_RULES;
@@ -40,17 +41,17 @@ mod rules;
 mod slice;
 mod validity;
 
-vtable!(FoR);
+vtable!(FoR, FoR, FoRData);
 
 impl VTable for FoR {
-    type Array = FoRArray;
+    type Array = FoRData;
 
     type Metadata = Scalar;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &FoRData) -> &Self {
         &FoR
     }
 
@@ -58,59 +59,59 @@ impl VTable for FoR {
         Self::ID
     }
 
-    fn len(array: &FoRArray) -> usize {
+    fn len(array: &FoRData) -> usize {
         array.encoded().len()
     }
 
-    fn dtype(array: &FoRArray) -> &DType {
+    fn dtype(array: &FoRData) -> &DType {
         array.reference_scalar().dtype()
     }
 
-    fn stats(array: &FoRArray) -> StatsSetRef<'_> {
-        array.stats_set().to_ref(array.as_ref())
+    fn stats(array: &FoRData) -> &ArrayStats {
+        array.stats_set()
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &FoRArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.encoded().array_hash(state, precision);
         array.reference_scalar().hash(state);
     }
 
-    fn array_eq(array: &FoRArray, other: &FoRArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.encoded().array_eq(other.encoded(), precision)
             && array.reference_scalar() == other.reference_scalar()
     }
 
-    fn nbuffers(_array: &FoRArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &FoRArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("FoRArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &FoRArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &FoRArray) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn child(array: &FoRArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.encoded().clone(),
             _ => vortex_panic!("FoRArray child index {idx} out of bounds"),
         }
     }
 
-    fn child_name(_array: &FoRArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "encoded".to_string(),
             _ => vortex_panic!("FoRArray child name index {idx} out of bounds"),
         }
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut FoRData, children: Vec<ArrayRef>) -> VortexResult<()> {
         // FoRArray children order (from visit_children):
         // 1. encoded
 
@@ -125,7 +126,7 @@ impl VTable for FoR {
         Ok(())
     }
 
-    fn metadata(array: &FoRArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(array.reference_scalar().clone())
     }
 
@@ -151,7 +152,7 @@ impl VTable for FoR {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<FoRArray> {
+    ) -> VortexResult<FoRData> {
         if children.len() != 1 {
             vortex_bail!(
                 "Expected 1 child for FoR encoding, found {}",
@@ -161,7 +162,7 @@ impl VTable for FoR {
 
         let encoded = children.get(0, dtype, len)?;
 
-        FoRArray::try_new(encoded, metadata.clone())
+        FoRData::try_new(encoded, metadata.clone())
     }
 
     fn reduce_parent(
@@ -191,4 +192,14 @@ pub struct FoR;
 
 impl FoR {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.for");
+
+    /// Construct a new FoR array from an encoded array and a reference scalar.
+    pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
+        Ok(Array::from_inner(FoRData::try_new(encoded, reference)?))
+    }
+
+    /// Encode a primitive array using Frame of Reference encoding.
+    pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
+        Ok(Array::from_inner(FoRData::encode(array)?))
+    }
 }

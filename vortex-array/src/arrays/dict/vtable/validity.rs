@@ -6,15 +6,16 @@ use vortex_error::VortexResult;
 use super::Dict;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::arrays::DictArray;
+use crate::arrays::DictData;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+use crate::vtable::Array;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<Dict> for Dict {
-    fn validity(array: &DictArray) -> VortexResult<Validity> {
+    fn validity(array: &Array<Dict>) -> VortexResult<Validity> {
         Ok(
             match (array.codes().validity()?, array.values().validity()?) {
                 (
@@ -32,13 +33,13 @@ impl ValidityVTable<Dict> for Dict {
                     // We know codes are all valid, so the cast is free.
                     let codes = array.codes().cast(array.codes().dtype().as_nonnullable())?;
                     Validity::Array(
-                        unsafe { DictArray::new_unchecked(codes, values_validity) }.into_array(),
+                        unsafe { DictData::new_unchecked(codes, values_validity) }.into_array(),
                     )
                 }
                 (Validity::Array(_codes_validity), Validity::Array(values_validity)) => {
                     // Create a mask representing "is the value at codes[i] valid?"
                     let values_valid_mask =
-                        unsafe { DictArray::new_unchecked(array.codes().clone(), values_validity) }
+                        unsafe { DictData::new_unchecked(array.codes().clone(), values_validity) }
                             .into_array();
                     let values_valid_mask = values_valid_mask
                         .fill_null(Scalar::bool(false, Nullability::NonNullable))?;

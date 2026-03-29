@@ -20,6 +20,7 @@ use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::stats::StatsSet;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 
 pub trait TakeReduce: VTable {
@@ -32,7 +33,7 @@ pub trait TakeReduce: VTable {
     /// # Preconditions
     ///
     /// The indices are guaranteed to be non-empty.
-    fn take(array: &Self::Array, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
+    fn take(array: &Array<Self>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
 }
 
 pub trait TakeExecute: VTable {
@@ -45,7 +46,7 @@ pub trait TakeExecute: VTable {
     ///
     /// The indices are guaranteed to be non-empty.
     fn take(
-        array: &Self::Array,
+        array: &Array<Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -55,20 +56,19 @@ pub trait TakeExecute: VTable {
 ///
 /// Returns `Some(result)` if the precondition short-circuits the take operation,
 /// or `None` if the take should proceed normally.
-fn precondition<V: VTable>(array: &V::Array, indices: &ArrayRef) -> Option<ArrayRef> {
+fn precondition<V: VTable>(array: &Array<V>, indices: &ArrayRef) -> Option<ArrayRef> {
     // Fast-path for empty indices.
     if indices.is_empty() {
-        let result_dtype = array
-            .dtype()
+        let result_dtype = V::dtype(array)
             .clone()
             .union_nullability(indices.dtype().nullability());
         return Some(Canonical::empty(&result_dtype).into_array());
     }
 
     // Fast-path for empty arrays: all indices must be null, return all-invalid result.
-    if array.is_empty() {
+    if V::len(array) == 0 {
         return Some(
-            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+            ConstantArray::new(Scalar::null(V::dtype(array).as_nullable()), indices.len())
                 .into_array(),
         );
     }
@@ -87,7 +87,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: &DictArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -100,7 +100,7 @@ where
         }
         let result = <V as TakeReduce>::take(array, parent.codes())?;
         if let Some(ref taken) = result {
-            propagate_take_stats(&array.to_array(), taken, parent.codes())?;
+            propagate_take_stats(&array.clone().into_array(), taken, parent.codes())?;
         }
         Ok(result)
     }
@@ -117,7 +117,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: <Self::Parent as Matcher>::Match<'_>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -131,7 +131,7 @@ where
         }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
         if let Some(ref taken) = result {
-            propagate_take_stats(&array.to_array(), taken, parent.codes())?;
+            propagate_take_stats(&array.clone().into_array(), taken, parent.codes())?;
         }
         Ok(result)
     }

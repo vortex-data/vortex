@@ -26,6 +26,7 @@ use tracing::info;
 use tracing::trace;
 use url::Url;
 use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -371,7 +372,7 @@ impl PBIData {
                                 &mut File::create(output_path)
                                     .await
                                     .map_err(|e| anyhow::anyhow!("Failed to create file: {}", e))?,
-                                data.to_array_stream(),
+                                data.into_array().to_array_stream(),
                             )
                             .await
                             .map_err(|e| anyhow::anyhow!("Failed to write vortex file: {}", e))?;

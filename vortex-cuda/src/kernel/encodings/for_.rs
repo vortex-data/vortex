@@ -10,6 +10,7 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::DynArray;
+use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Slice;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
@@ -68,7 +69,11 @@ impl CudaExecute for FoRExecutor {
                 decode_bitpacked(bitpacked.clone(), reference, ctx).await?
             });
 
-            return unpacked.into_primitive().slice(slice_range)?.to_canonical();
+            return unpacked
+                .into_primitive()
+                .into_array()
+                .slice(slice_range)?
+                .to_canonical();
         }
 
         match_each_native_simd_ptype!(array.ptype(), |P| { decode_for::<P>(array, ctx).await })
@@ -94,7 +99,7 @@ where
     let primitive = canonical.into_primitive();
     let PrimitiveArrayParts {
         buffer, validity, ..
-    } = primitive.into_parts();
+    } = primitive.into_inner().into_parts();
 
     let device_buffer = ctx.ensure_on_device(buffer).await?;
 

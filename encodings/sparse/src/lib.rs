@@ -28,7 +28,6 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
-use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
@@ -60,7 +59,7 @@ mod ops;
 mod rules;
 mod slice;
 
-vtable!(Sparse);
+vtable!(Sparse, Sparse, SparseData);
 
 #[derive(Debug)]
 pub struct SparseMetadata {
@@ -76,7 +75,7 @@ pub struct ProstPatchesMetadata {
 }
 
 impl VTable for Sparse {
-    type Array = SparseArray;
+    type Array = SparseData;
 
     type Metadata = SparseMetadata;
     type OperationsVTable = Self;
@@ -90,32 +89,32 @@ impl VTable for Sparse {
         Self::ID
     }
 
-    fn len(array: &SparseArray) -> usize {
+    fn len(array: &SparseData) -> usize {
         array.patches.array_len()
     }
 
-    fn dtype(array: &SparseArray) -> &DType {
+    fn dtype(array: &SparseData) -> &DType {
         array.fill_scalar().dtype()
     }
 
-    fn stats(array: &SparseArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &SparseData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &SparseArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.patches.array_hash(state, precision);
         array.fill_value.hash(state);
     }
 
-    fn array_eq(array: &SparseArray, other: &SparseArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.patches.array_eq(&other.patches, precision) && array.fill_value == other.fill_value
     }
 
-    fn nbuffers(_array: &SparseArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn buffer(array: &SparseArray, idx: usize) -> BufferHandle {
+    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => {
                 let fill_value_buffer =
@@ -126,26 +125,26 @@ impl VTable for Sparse {
         }
     }
 
-    fn buffer_name(_array: &SparseArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("fill_value".to_string()),
             _ => vortex_panic!("SparseArray buffer_name index {idx} out of bounds"),
         }
     }
 
-    fn nchildren(array: &SparseArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         patches_nchildren(array.patches())
     }
 
-    fn child(array: &SparseArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         patches_child(array.patches(), idx)
     }
 
-    fn child_name(_array: &SparseArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         patches_child_name(idx).to_string()
     }
 
-    fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         let patches = array.patches().to_metadata(array.len(), array.dtype())?;
 
         Ok(SparseMetadata {
@@ -194,7 +193,7 @@ impl VTable for Sparse {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<SparseArray> {
+    ) -> VortexResult<SparseData> {
         vortex_ensure_eq!(
             children.len(),
             2,
@@ -209,7 +208,7 @@ impl VTable for Sparse {
         )?;
         let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
 
-        SparseArray::try_new_from_patches(
+        SparseData::try_new_from_patches(
             Patches::new(
                 len,
                 metadata.patches.offset()?,
@@ -267,7 +266,7 @@ impl VTable for Sparse {
 }
 
 #[derive(Clone, Debug)]
-pub struct SparseArray {
+pub struct SparseData {
     patches: Patches,
     fill_value: Scalar,
     stats_set: ArrayStats,
@@ -278,9 +277,26 @@ pub struct Sparse;
 
 impl Sparse {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.sparse");
+
+    /// Construct a new [`SparseArray`] from indices, values, length, and fill value.
+    pub fn try_new(
+        indices: ArrayRef,
+        values: ArrayRef,
+        len: usize,
+        fill_value: Scalar,
+    ) -> VortexResult<SparseArray> {
+        Ok(Array::from_inner(SparseData::try_new(
+            indices, values, len, fill_value,
+        )?))
+    }
+
+    /// Encode the given array as a [`SparseArray`].
+    pub fn encode(array: &ArrayRef, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
+        SparseData::encode(array, fill_value)
+    }
 }
 
-impl SparseArray {
+impl SparseData {
     pub fn try_new(
         indices: ArrayRef,
         values: ArrayRef,
@@ -343,6 +359,24 @@ impl SparseArray {
             fill_value,
             stats_set: Default::default(),
         }
+    }
+
+    /// Returns the length of the array.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.patches.array_len()
+    }
+
+    /// Returns whether the array is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.patches.array_len() == 0
+    }
+
+    /// Returns the logical data type of the array.
+    #[inline]
+    pub fn dtype(&self) -> &DType {
+        self.fill_scalar().dtype()
     }
 
     #[inline]
@@ -417,7 +451,7 @@ impl SparseArray {
                 }
             };
 
-            return Ok(SparseArray::try_new(
+            return Ok(SparseData::try_new(
                 non_null_indices,
                 non_null_values,
                 array.len(),
@@ -465,13 +499,13 @@ impl SparseArray {
             Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
         };
 
-        SparseArray::try_new(indices.into_array(), non_top_values, array.len(), fill)
+        SparseData::try_new(indices.into_array(), non_top_values, array.len(), fill)
             .map(|a| a.into_array())
     }
 }
 
 impl ValidityVTable<Sparse> for Sparse {
-    fn validity(array: &SparseArray) -> VortexResult<Validity> {
+    fn validity(array: &Array<Sparse>) -> VortexResult<Validity> {
         let patches = unsafe {
             Patches::new_unchecked(
                 array.patches.array_len(),
@@ -488,7 +522,7 @@ impl ValidityVTable<Sparse> for Sparse {
         };
 
         Ok(Validity::Array(
-            unsafe { SparseArray::new_unchecked(patches, array.fill_value.is_valid().into()) }
+            unsafe { SparseData::new_unchecked(patches, array.fill_value.is_valid().into()) }
                 .into_array(),
         ))
     }
@@ -526,7 +560,7 @@ mod test {
         let mut values = buffer![100i32, 200, 300].into_array();
         values = values.cast(fill_value.dtype().clone()).unwrap();
 
-        SparseArray::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value)
+        SparseData::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value)
             .unwrap()
             .into_array()
     }
@@ -549,7 +583,7 @@ mod test {
 
     #[test]
     pub fn test_scalar_at_again() {
-        let arr = SparseArray::try_new(
+        let arr = SparseData::try_new(
             ConstantArray::new(10u32, 1).into_array(),
             ConstantArray::new(Scalar::primitive(1234u32, Nullability::Nullable), 1).into_array(),
             100,
@@ -585,7 +619,7 @@ mod test {
 
     #[test]
     pub fn validity_mask_sliced_nonnull_fill() {
-        let sliced = SparseArray::try_new(
+        let sliced = SparseData::try_new(
             buffer![2u64, 5, 8].into_array(),
             ConstantArray::new(
                 Scalar::null(DType::Primitive(PType::F32, Nullability::Nullable)),
@@ -648,7 +682,7 @@ mod test {
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
-        SparseArray::try_new(indices, values, 100, 0_u32.into()).unwrap();
+        SparseData::try_new(indices, values, 100, 0_u32.into()).unwrap();
     }
 
     #[test]
@@ -656,7 +690,7 @@ mod test {
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
-        SparseArray::try_new(indices, values, 101, 0_u32.into()).unwrap();
+        SparseData::try_new(indices, values, 101, 0_u32.into()).unwrap();
     }
 
     #[test]
@@ -667,8 +701,8 @@ mod test {
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ]),
         );
-        let sparse = SparseArray::encode(&original.clone().into_array(), None)
-            .vortex_expect("SparseArray::encode should succeed for test data");
+        let sparse = SparseData::encode(&original.clone().into_array(), None)
+            .vortex_expect("SparseData::encode should succeed for test data");
         assert_eq!(
             sparse.validity_mask().unwrap(),
             Mask::from_iter(vec![
@@ -683,8 +717,7 @@ mod test {
         let indices = buffer![0u8, 2, 4, 6, 8].into_array();
         let values = PrimitiveArray::from_option_iter([Some(0i16), Some(1), None, None, Some(4)])
             .into_array();
-        let array =
-            SparseArray::try_new(indices, values, 10, Scalar::null_native::<i16>()).unwrap();
+        let array = SparseData::try_new(indices, values, 10, Scalar::null_native::<i16>()).unwrap();
         let actual = array.validity_mask().unwrap();
         let expected = Mask::from_iter([
             true, false, true, false, false, false, false, false, true, false,

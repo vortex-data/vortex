@@ -12,7 +12,7 @@ use vortex_mask::Mask;
 
 use crate::FSST;
 use crate::FSSTArray;
-
+use crate::FSSTData;
 impl FilterKernel for FSST {
     fn filter(
         array: &FSSTArray,
@@ -27,7 +27,7 @@ impl FilterKernel for FSST {
             .vortex_expect("must be VarBin");
 
         Ok(Some(
-            FSSTArray::try_new(
+            FSSTData::try_new(
                 array.dtype().clone(),
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),
@@ -62,7 +62,7 @@ mod test {
         let varbin = builder.finish(DType::Utf8(Nullability::NonNullable));
 
         let compressor = fsst_train_compressor(&varbin);
-        let array = fsst_compress(&varbin, &compressor);
+        let array = fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor);
         test_filter_conformance(&array.into_array());
 
         // Test with longer strings that benefit from compression
@@ -75,7 +75,7 @@ mod test {
         let varbin = builder.finish(DType::Utf8(Nullability::NonNullable));
 
         let compressor = fsst_train_compressor(&varbin);
-        let array = fsst_compress(&varbin, &compressor);
+        let array = fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor);
         test_filter_conformance(&array.into_array());
 
         // Test with nullable strings
@@ -88,7 +88,7 @@ mod test {
         let varbin = builder.finish(DType::Utf8(Nullability::Nullable));
 
         let compressor = fsst_train_compressor(&varbin);
-        let array = fsst_compress(&varbin, &compressor);
+        let array = fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor);
         test_filter_conformance(&array.into_array());
     }
 }

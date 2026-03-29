@@ -16,6 +16,7 @@
 //!   result. If compression did not shrink the array, the original is returned.
 
 use vortex_array::ArrayRef;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;
@@ -148,16 +149,20 @@ where
         ctx: CompressorContext,
         excludes: &[<Self::SchemeType as Scheme>::CodeType],
     ) -> VortexResult<ArrayRef> {
+        let array_ref = array.clone().into_array();
+
         // Avoid compressing empty arrays.
-        if array.is_empty() {
-            return Ok(array.to_array());
+        if array_ref.is_empty() {
+            return Ok(array_ref);
         }
 
         // Avoid compressing all-null arrays.
-        if array.all_invalid()? {
-            return Ok(
-                ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
-            );
+        if array_ref.all_invalid()? {
+            return Ok(ConstantArray::new(
+                Scalar::null(array_ref.dtype().clone()),
+                array_ref.len(),
+            )
+            .into_array());
         }
 
         // Generate stats on the array directly.
@@ -165,11 +170,11 @@ where
         let best_scheme = self.choose_scheme(btr_blocks_compressor, &stats, ctx, excludes)?;
 
         let output = best_scheme.compress(btr_blocks_compressor, &stats, ctx, excludes)?;
-        if output.nbytes() < array.nbytes() {
+        if output.nbytes() < array_ref.nbytes() {
             Ok(output)
         } else {
             tracing::debug!("resulting tree too large: {}", output.encoding_id());
-            Ok(array.to_array())
+            Ok(array_ref)
         }
     }
 }

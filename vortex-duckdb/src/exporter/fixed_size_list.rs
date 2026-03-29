@@ -38,7 +38,7 @@ pub(crate) fn new_exporter(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let list_size = array.list_size();
     let len = array.len();
-    let (elements, validity, dtype) = array.into_parts();
+    let (elements, validity, dtype) = array.into_inner().into_parts();
     let mask = validity.to_array(len).execute::<Mask>(ctx)?;
     let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
 

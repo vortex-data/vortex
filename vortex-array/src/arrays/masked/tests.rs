@@ -47,7 +47,7 @@ fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
 
     let canonical = array.to_canonical()?;
-    assert_eq!(canonical.as_ref().dtype(), array.dtype());
+    assert_eq!(canonical.dtype(), array.dtype());
     Ok(())
 }
 

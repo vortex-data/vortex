@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::vtable::Array;
 pub(crate) mod compute;
 mod rules;
 mod slice;
@@ -31,9 +32,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
-use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
-use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -50,7 +49,7 @@ use vortex_session::VortexSession;
 use crate::decimal_byte_parts::compute::kernel::PARENT_KERNELS;
 use crate::decimal_byte_parts::rules::PARENT_RULES;
 
-vtable!(DecimalByteParts);
+vtable!(DecimalByteParts, DecimalByteParts, DecimalBytePartsData);
 
 #[derive(Clone, prost::Message)]
 pub struct DecimalBytesPartsMetadata {
@@ -61,7 +60,7 @@ pub struct DecimalBytesPartsMetadata {
 }
 
 impl VTable for DecimalByteParts {
-    type Array = DecimalBytePartsArray;
+    type Array = DecimalBytePartsData;
 
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
     type OperationsVTable = Self;
@@ -75,66 +74,58 @@ impl VTable for DecimalByteParts {
         Self::ID
     }
 
-    fn len(array: &DecimalBytePartsArray) -> usize {
+    fn len(array: &DecimalBytePartsData) -> usize {
         array.msp.len()
     }
 
-    fn dtype(array: &DecimalBytePartsArray) -> &DType {
+    fn dtype(array: &DecimalBytePartsData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &DecimalBytePartsArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &DecimalBytePartsData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: &DecimalBytePartsArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.msp.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: &DecimalBytePartsArray,
-        other: &DecimalBytePartsArray,
-        precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype && array.msp.array_eq(&other.msp, precision)
     }
 
-    fn nbuffers(_array: &DecimalBytePartsArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &DecimalBytePartsArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("DecimalBytePartsArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &DecimalBytePartsArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         vortex_panic!("DecimalBytePartsArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: &DecimalBytePartsArray) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn child(array: &DecimalBytePartsArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.msp.clone(),
             _ => vortex_panic!("DecimalBytePartsArray child index {idx} out of bounds"),
         }
     }
 
-    fn child_name(_array: &DecimalBytePartsArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "msp".to_string(),
             _ => vortex_panic!("DecimalBytePartsArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DecimalBytesPartsMetadata {
             zeroth_child_ptype: PType::try_from(array.msp.dtype())? as i32,
             lower_part_count: 0,
@@ -161,7 +152,7 @@ impl VTable for DecimalByteParts {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<DecimalBytePartsArray> {
+    ) -> VortexResult<DecimalBytePartsData> {
         let Some(decimal_dtype) = dtype.as_decimal_opt() else {
             vortex_bail!("decoding decimal but given non decimal dtype {}", dtype)
         };
@@ -175,7 +166,7 @@ impl VTable for DecimalByteParts {
             "lower_part_count > 0 not currently supported"
         );
 
-        DecimalBytePartsArray::try_new(msp, *decimal_dtype)
+        DecimalBytePartsData::try_new(msp, *decimal_dtype)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -216,7 +207,7 @@ impl VTable for DecimalByteParts {
 ///
 /// e.g. for a decimal i128 \[ 127..64 | 64..0 \] msp = 127..64 and lower_part\[0\] = 64..0
 #[derive(Clone, Debug)]
-pub struct DecimalBytePartsArray {
+pub struct DecimalBytePartsData {
     msp: ArrayRef,
     // NOTE: the lower_parts is currently unused, we reserve this field so that it is properly
     //  read/written during serde, but provide no constructor to initialize this to anything
@@ -232,7 +223,7 @@ pub struct DecimalBytePartsArrayParts {
     pub dtype: DType,
 }
 
-impl DecimalBytePartsArray {
+impl DecimalBytePartsData {
     pub fn try_new(msp: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         if !msp.dtype().is_signed_int() {
             vortex_bail!("decimal bytes parts, first part must be a signed array")
@@ -265,6 +256,21 @@ impl DecimalBytePartsArray {
         }
     }
 
+    /// Returns the number of elements in the array.
+    pub fn len(&self) -> usize {
+        self.msp.len()
+    }
+
+    /// Returns `true` if the array contains no elements.
+    pub fn is_empty(&self) -> bool {
+        self.msp.len() == 0
+    }
+
+    /// Returns the logical data type of the array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
     pub fn decimal_dtype(&self) -> &DecimalDType {
         self.dtype
             .as_decimal_opt()
@@ -281,6 +287,17 @@ pub struct DecimalByteParts;
 
 impl DecimalByteParts {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
+
+    /// Construct a new [`DecimalBytePartsArray`] from an MSP array and decimal dtype.
+    pub fn try_new(
+        msp: ArrayRef,
+        decimal_dtype: DecimalDType,
+    ) -> VortexResult<DecimalBytePartsArray> {
+        Ok(Array::from_inner(DecimalBytePartsData::try_new(
+            msp,
+            decimal_dtype,
+        )?))
+    }
 }
 
 /// Converts a DecimalBytePartsArray to its canonical DecimalArray representation.
@@ -309,7 +326,7 @@ fn to_canonical_decimal(
 
 impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
     fn scalar_at(
-        array: &DecimalBytePartsArray,
+        array: &Array<DecimalByteParts>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -328,7 +345,7 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
 }
 
 impl ValidityChild<DecimalByteParts> for DecimalByteParts {
-    fn validity_child(array: &DecimalBytePartsArray) -> &ArrayRef {
+    fn validity_child(array: &DecimalBytePartsData) -> &ArrayRef {
         // validity stored in 0th child
         &array.msp
     }
@@ -355,7 +372,7 @@ mod tests {
     fn test_scalar_at_decimal_parts() {
         let decimal_dtype = DecimalDType::new(8, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
-        let array = DecimalBytePartsArray::try_new(
+        let array = DecimalBytePartsData::try_new(
             PrimitiveArray::new(
                 buffer![100i32, 200i32, 400i32],
                 Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array()),

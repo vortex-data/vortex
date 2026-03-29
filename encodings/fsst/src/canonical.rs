@@ -151,7 +151,10 @@ mod tests {
             .map(|_| {
                 let (array, data) = make_data();
                 let compressor = fsst_train_compressor(&array);
-                (fsst_compress(&array, &compressor).into_array(), data)
+                (
+                    fsst_compress(&array, array.len(), array.dtype(), &compressor).into_array(),
+                    data,
+                )
             })
             .unzip();
 

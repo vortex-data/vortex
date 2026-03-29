@@ -7,6 +7,7 @@ use std::hash::Hasher;
 use enum_iterator::Sequence;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
@@ -18,18 +19,17 @@ use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinView;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbinview::VarBinViewData;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_fsst::FSSTArray;
+use vortex_fsst::FSST;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_sparse::Sparse;
-use vortex_sparse::SparseArray;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use super::integer::DictScheme as IntDictScheme;
@@ -81,6 +81,8 @@ impl StringStats {
         opts: GenerateStatsOptions,
     ) -> VortexResult<Self> {
         let null_count = input
+            .clone()
+            .into_array()
             .statistics()
             .compute_null_count()
             .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
@@ -103,12 +105,13 @@ impl StringStats {
 impl CompressorStats for StringStats {
     type ArrayVTable = VarBinView;
 
-    fn generate_opts(input: &VarBinViewArray, opts: GenerateStatsOptions) -> Self {
-        Self::generate_opts_fallible(input, opts)
+    fn generate_opts(input: &VarBinViewData, opts: GenerateStatsOptions) -> Self {
+        let array = VarBinViewArray::from_inner(input.clone());
+        Self::generate_opts_fallible(&array, opts)
             .vortex_expect("StringStats::generate_opts should not fail")
     }
 
-    fn source(&self) -> &VarBinViewArray {
+    fn source(&self) -> &VarBinViewData {
         &self.src
     }
 
@@ -359,7 +362,7 @@ impl Scheme for FSSTScheme {
     ) -> VortexResult<ArrayRef> {
         let fsst = {
             let compressor = fsst_train_compressor(&stats.src);
-            fsst_compress(&stats.src, &compressor)
+            fsst_compress(&stats.src, stats.src.len(), stats.src.dtype(), &compressor)
         };
 
         let compressed_original_lengths = compressor.compress_canonical(
@@ -380,7 +383,7 @@ impl Scheme for FSSTScheme {
             fsst.codes().validity().clone(),
         )?;
 
-        let fsst = FSSTArray::try_new(
+        let fsst = FSST::try_new(
             fsst.dtype().clone(),
             fsst.symbols().clone(),
             fsst.symbol_lengths().clone(),
@@ -433,14 +436,15 @@ impl Scheme for ConstantScheme {
         _ctx: CompressorContext,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
+        let source_ref = stats.source().clone().into_array();
         let scalar_idx =
-            (0..stats.source().len()).position(|idx| stats.source().is_valid(idx).unwrap_or(false));
+            (0..stats.source().len()).position(|idx| source_ref.is_valid(idx).unwrap_or(false));
 
         match scalar_idx {
             Some(idx) => {
-                let scalar = stats.source().scalar_at(idx)?;
+                let scalar = source_ref.scalar_at(idx)?;
                 let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
-                if !stats.source().all_valid()? {
+                if !source_ref.all_valid()? {
                     Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
                 } else {
                     Ok(const_arr)
@@ -499,7 +503,7 @@ impl Scheme for NullDominated {
         assert!(ctx.allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated string arrays
-        let sparse_encoded = SparseArray::encode(&stats.src.clone().into_array(), None)?;
+        let sparse_encoded = Sparse::encode(&stats.src.clone().into_array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings)
@@ -512,7 +516,7 @@ impl Scheme for NullDominated {
                 Excludes::int_only(&new_excludes),
             )?;
 
-            SparseArray::try_new(
+            Sparse::try_new(
                 compressed_indices,
                 sparse.patches().values().clone(),
                 sparse.len(),
@@ -541,11 +545,8 @@ impl Scheme for ZstdScheme {
         _ctx: CompressorContext,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        let compacted = stats.source().compact_buffers()?;
-        Ok(
-            vortex_zstd::ZstdArray::from_var_bin_view_without_dict(&compacted, 3, 8192)?
-                .into_array(),
-        )
+        let compacted = stats.src.compact_buffers()?;
+        Ok(vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192)?.into_array())
     }
 }
 
@@ -566,7 +567,7 @@ impl Scheme for ZstdBuffersScheme {
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
         Ok(
-            vortex_zstd::ZstdBuffersArray::compress(&stats.source().clone().into_array(), 3)?
+            vortex_zstd::ZstdBuffersData::compress(&stats.src.clone().into_array(), 3)?
                 .into_array(),
         )
     }

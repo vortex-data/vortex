@@ -17,7 +17,7 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -39,10 +39,10 @@ use crate::Precision;
 use crate::arrays::bool::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
 
-vtable!(Bool);
+vtable!(Bool, Bool, BoolData);
 
 #[derive(prost::Message)]
 pub struct BoolMetadata {
@@ -52,7 +52,7 @@ pub struct BoolMetadata {
 }
 
 impl VTable for Bool {
-    type Array = BoolArray;
+    type Array = BoolData;
 
     type Metadata = ProstMetadata<BoolMetadata>;
     type OperationsVTable = Self;
@@ -66,25 +66,25 @@ impl VTable for Bool {
         Self::ID
     }
 
-    fn len(array: &BoolArray) -> usize {
+    fn len(array: &BoolData) -> usize {
         array.len
     }
 
-    fn dtype(array: &BoolArray) -> &DType {
+    fn dtype(array: &BoolData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &BoolArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &BoolData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &BoolArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.to_bit_buffer().array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &BoolArray, other: &BoolArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         if array.dtype != other.dtype {
             return false;
         }
@@ -94,29 +94,29 @@ impl VTable for Bool {
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(_array: &BoolArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn buffer(array: &BoolArray, idx: usize) -> BufferHandle {
+    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.bits.clone(),
             _ => vortex_panic!("BoolArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &BoolArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("bits".to_string()),
             _ => None,
         }
     }
 
-    fn nchildren(array: &BoolArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         validity_nchildren(&array.validity)
     }
 
-    fn child(array: &BoolArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => validity_to_child(&array.validity, array.len())
                 .vortex_expect("BoolArray child index out of bounds"),
@@ -124,11 +124,11 @@ impl VTable for Bool {
         }
     }
 
-    fn child_name(_array: &BoolArray, _idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, _idx: usize) -> String {
         "validity".to_string()
     }
 
-    fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
         Ok(ProstMetadata(BoolMetadata {
             offset: u32::try_from(array.offset).vortex_expect("checked"),
@@ -156,7 +156,7 @@ impl VTable for Bool {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<BoolArray> {
+    ) -> VortexResult<BoolData> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -172,7 +172,7 @@ impl VTable for Bool {
 
         let buffer = buffers[0].clone();
 
-        BoolArray::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
+        BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

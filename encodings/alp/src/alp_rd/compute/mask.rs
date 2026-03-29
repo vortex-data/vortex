@@ -20,7 +20,7 @@ impl MaskReduce for ALPRD {
             [array.left_parts().clone(), mask.clone()],
         )?;
         Ok(Some(
-            ALPRDArray::try_new(
+            ALPRD::try_new(
                 array.dtype().as_nullable(),
                 masked_left_parts,
                 array.left_parts_dictionary().clone(),

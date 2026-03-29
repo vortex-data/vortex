@@ -27,6 +27,7 @@ use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::Array;
 
 /// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
 ///
@@ -81,7 +82,7 @@ use crate::validity::Validity;
 /// assert!(third_list.is_empty()); // []
 /// ```
 #[derive(Clone, Debug)]
-pub struct ListArray {
+pub struct ListData {
     pub(super) dtype: DType,
     pub(super) elements: ArrayRef,
     pub(super) offsets: ArrayRef,
@@ -96,7 +97,7 @@ pub struct ListArrayParts {
     pub validity: Validity,
 }
 
-impl ListArray {
+impl ListData {
     /// Creates a new [`ListArray`].
     ///
     /// # Panics
@@ -251,6 +252,32 @@ impl ListArray {
         }
     }
 
+    /// Returns the dtype of the array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns the length of the array.
+    pub fn len(&self) -> usize {
+        self.offsets.len().saturating_sub(1)
+    }
+
+    /// Returns `true` if the array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the validity of the array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> &Validity {
+        &self.validity
+    }
+
+    /// Returns the validity as a [`Mask`](vortex_mask::Mask).
+    pub fn validity_mask(&self) -> vortex_mask::Mask {
+        self.validity.to_mask(self.len())
+    }
+
     /// Returns the offset at the given index from the list array.
     ///
     /// Returns an error if the index is out of bounds or scalar_at fails.
@@ -313,9 +340,36 @@ impl ListArray {
     // where `reset_offsets` is infallible.
     // Also, `reset_offsets` can be made more efficient by replacing `sub_scalar` with a match on
     // the offset type and manual subtraction and fast path where `offsets[0] == 0`.
+}
 
-    /// Create a copy of this array by adjusting `offsets` to start at `0` and removing elements not
-    /// referenced by the `offsets`.
+impl Array<List> {
+    /// Creates a new [`ListArray`].
+    pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+        Array::from_inner(ListData::new(elements, offsets, validity))
+    }
+
+    /// Constructs a new `ListArray`.
+    pub fn try_new(
+        elements: ArrayRef,
+        offsets: ArrayRef,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Ok(Array::from_inner(ListData::try_new(
+            elements, offsets, validity,
+        )?))
+    }
+
+    /// Creates a new [`ListArray`] without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`ListData::new_unchecked`].
+    pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+        Array::from_inner(unsafe { ListData::new_unchecked(elements, offsets, validity) })
+    }
+}
+
+impl ListData {
     pub fn reset_offsets(&self, recurse: bool) -> VortexResult<Self> {
         let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {

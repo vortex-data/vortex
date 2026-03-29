@@ -21,15 +21,17 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::vtable::Array;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use super::DecimalBytePartsData;
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
 impl CompareKernel for DecimalByteParts {
     fn compare(
-        lhs: &Self::Array,
+        lhs: &Array<Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
@@ -62,7 +64,7 @@ impl CompareKernel for DecimalByteParts {
                 // (depending on the `sign`) than all values in MSP.
                 // If the LHS or the RHS contain nulls, then we must fallback to the canonicalized
                 // implementation which does null-checking instead.
-                if lhs.all_valid()? && rhs.all_valid()? {
+                if lhs.clone().into_array().all_valid()? && rhs.all_valid()? {
                     Ok(Some(
                         ConstantArray::new(
                             unconvertible_value(sign, operator, nullability),
@@ -164,7 +166,7 @@ mod tests {
     fn compare_decimal_const() {
         let decimal_dtype = DecimalDType::new(8, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
-        let lhs = DecimalBytePartsArray::try_new(
+        let lhs = DecimalBytePartsData::try_new(
             PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).into_array(),
             decimal_dtype,
         )
@@ -184,7 +186,7 @@ mod tests {
     #[test]
     fn test_byteparts_compare_nullable() -> VortexResult<()> {
         let decimal_type = DecimalDType::new(19, -11);
-        let lhs = DecimalBytePartsArray::try_new(
+        let lhs = DecimalBytePartsData::try_new(
             PrimitiveArray::new(
                 buffer![1i64, 2i64, 3i64, 4i64],
                 Validity::Array(BoolArray::from_iter([false, true, true, true]).into_array()),
@@ -215,7 +217,7 @@ mod tests {
     fn compare_decimal_const_unconvertible_comparison() {
         let decimal_dtype = DecimalDType::new(40, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
-        let lhs = DecimalBytePartsArray::try_new(
+        let lhs = DecimalBytePartsData::try_new(
             PrimitiveArray::new(buffer![100i32, 200i32, 400i32], Validity::AllValid).into_array(),
             decimal_dtype,
         )

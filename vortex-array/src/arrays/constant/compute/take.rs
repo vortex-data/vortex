@@ -15,9 +15,10 @@ use crate::arrays::dict::TakeReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+use crate::vtable::Array;
 
 impl TakeReduce for Constant {
-    fn take(array: &ConstantArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: &Array<Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let result = match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
                 let scalar = Scalar::try_new(

@@ -11,14 +11,15 @@ use vortex_error::VortexResult;
 use crate::RunEnd;
 use crate::RunEndArray;
 use crate::RunEndArrayParts;
+use crate::RunEndData;
 
 impl FillNullReduce for RunEnd {
     fn fill_null(array: &RunEndArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
-        let RunEndArrayParts { values, ends } = array.clone().into_parts();
+        let RunEndArrayParts { values, ends } = array.clone().into_inner().into_parts();
         let new_values = values.fill_null(fill_value.clone())?;
         // SAFETY: modifying values only, does not affect ends
         Ok(Some(
-            unsafe { RunEndArray::new_unchecked(ends, new_values, array.offset(), array.len()) }
+            unsafe { RunEndData::new_unchecked(ends, new_values, array.offset(), array.len()) }
                 .into_array(),
         ))
     }

@@ -301,7 +301,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn finish_into_canonical(&mut self) -> Canonical {
-        Canonical::List(self.finish_into_list().to_listview())
+        Canonical::List(self.finish_into_list().into_array().to_listview())
     }
 }
 

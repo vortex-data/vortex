@@ -14,12 +14,13 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::StatsSetRef;
+use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
@@ -30,7 +31,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::DeltaArray;
+use crate::DeltaData;
 use crate::delta::array::delta_decompress::delta_decompress;
 
 mod operations;
@@ -38,7 +39,7 @@ mod rules;
 mod slice;
 mod validity;
 
-vtable!(Delta);
+vtable!(Delta, Delta, DeltaData);
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]
@@ -50,14 +51,14 @@ pub struct DeltaMetadata {
 }
 
 impl VTable for Delta {
-    type Array = DeltaArray;
+    type Array = DeltaData;
 
     type Metadata = ProstMetadata<DeltaMetadata>;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &DeltaData) -> &Self {
         &Delta
     }
 
@@ -65,19 +66,19 @@ impl VTable for Delta {
         Self::ID
     }
 
-    fn len(array: &DeltaArray) -> usize {
+    fn len(array: &DeltaData) -> usize {
         array.len()
     }
 
-    fn dtype(array: &DeltaArray) -> &DType {
+    fn dtype(array: &DeltaData) -> &DType {
         array.dtype()
     }
 
-    fn stats(array: &DeltaArray) -> StatsSetRef<'_> {
-        array.stats_set().to_ref(array.as_ref())
+    fn stats(array: &DeltaData) -> &ArrayStats {
+        array.stats_set()
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DeltaArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.offset().hash(state);
         array.len().hash(state);
         array.dtype().hash(state);
@@ -85,7 +86,7 @@ impl VTable for Delta {
         array.deltas().array_hash(state, precision);
     }
 
-    fn array_eq(array: &DeltaArray, other: &DeltaArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.offset() == other.offset()
             && array.len() == other.len()
             && array.dtype() == other.dtype()
@@ -93,23 +94,23 @@ impl VTable for Delta {
             && array.deltas().array_eq(other.deltas(), precision)
     }
 
-    fn nbuffers(_array: &DeltaArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &DeltaArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("DeltaArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &DeltaArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &DeltaArray) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         2
     }
 
-    fn child(array: &DeltaArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.bases().clone(),
             1 => array.deltas().clone(),
@@ -117,7 +118,7 @@ impl VTable for Delta {
         }
     }
 
-    fn child_name(_array: &DeltaArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "bases".to_string(),
             1 => "deltas".to_string(),
@@ -133,7 +134,7 @@ impl VTable for Delta {
         rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut DeltaData, children: Vec<ArrayRef>) -> VortexResult<()> {
         // DeltaArray children order (from visit_children):
         // 1. bases
         // 2. deltas
@@ -150,7 +151,7 @@ impl VTable for Delta {
         Ok(())
     }
 
-    fn metadata(array: &DeltaArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DeltaMetadata {
             deltas_len: array.deltas().len() as u64,
             offset: array.offset() as u32,
@@ -177,7 +178,7 @@ impl VTable for Delta {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<DeltaArray> {
+    ) -> VortexResult<DeltaData> {
         assert_eq!(children.len(), 2);
         let ptype = PType::try_from(dtype)?;
         let lanes = match_each_unsigned_integer_ptype!(ptype, |T| { <T as FastLanes>::LANES });
@@ -192,7 +193,7 @@ impl VTable for Delta {
         let bases = children.get(0, dtype, bases_len)?;
         let deltas = children.get(1, dtype, deltas_len)?;
 
-        DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
+        DeltaData::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -207,6 +208,16 @@ pub struct Delta;
 
 impl Delta {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.delta");
+
+    /// Compress a primitive array using Delta encoding.
+    pub fn try_from_primitive_array(
+        array: &PrimitiveArray,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<DeltaArray> {
+        Ok(Array::from_inner(DeltaData::try_from_primitive_array(
+            array, ctx,
+        )?))
+    }
 }
 
 #[cfg(test)]

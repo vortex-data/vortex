@@ -27,7 +27,6 @@ use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
-use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
@@ -48,7 +47,7 @@ use crate::decompress_bool::runend_decode_bools;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
-vtable!(RunEnd);
+vtable!(RunEnd, RunEnd, RunEndData);
 
 #[derive(Clone, prost::Message)]
 pub struct RunEndMetadata {
@@ -61,7 +60,7 @@ pub struct RunEndMetadata {
 }
 
 impl VTable for RunEnd {
-    type Array = RunEndArray;
+    type Array = RunEndData;
 
     type Metadata = ProstMetadata<RunEndMetadata>;
     type OperationsVTable = Self;
@@ -75,49 +74,49 @@ impl VTable for RunEnd {
         Self::ID
     }
 
-    fn len(array: &RunEndArray) -> usize {
+    fn len(array: &RunEndData) -> usize {
         array.length
     }
 
-    fn dtype(array: &RunEndArray) -> &DType {
+    fn dtype(array: &RunEndData) -> &DType {
         array.values.dtype()
     }
 
-    fn stats(array: &RunEndArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &RunEndData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &RunEndArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.ends.array_hash(state, precision);
         array.values.array_hash(state, precision);
         array.offset.hash(state);
         array.length.hash(state);
     }
 
-    fn array_eq(array: &RunEndArray, other: &RunEndArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.ends.array_eq(&other.ends, precision)
             && array.values.array_eq(&other.values, precision)
             && array.offset == other.offset
             && array.length == other.length
     }
 
-    fn nbuffers(_array: &RunEndArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &RunEndArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("RunEndArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &RunEndArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         vortex_panic!("RunEndArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: &RunEndArray) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         2
     }
 
-    fn child(array: &RunEndArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.ends().clone(),
             1 => array.values().clone(),
@@ -125,7 +124,7 @@ impl VTable for RunEnd {
         }
     }
 
-    fn child_name(_array: &RunEndArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "ends".to_string(),
             1 => "values".to_string(),
@@ -133,7 +132,7 @@ impl VTable for RunEnd {
         }
     }
 
-    fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(RunEndMetadata {
             ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")
                 as i32,
@@ -163,14 +162,14 @@ impl VTable for RunEnd {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<RunEndArray> {
+    ) -> VortexResult<RunEndData> {
         let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
         let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
         let ends = children.get(0, &ends_dtype, runs)?;
 
         let values = children.get(1, dtype, runs)?;
 
-        RunEndArray::try_new_offset_length(
+        RunEndData::try_new_offset_length(
             ends,
             values,
             usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
@@ -215,7 +214,7 @@ impl VTable for RunEnd {
 }
 
 #[derive(Clone, Debug)]
-pub struct RunEndArray {
+pub struct RunEndData {
     ends: ArrayRef,
     values: ArrayRef,
     offset: usize,
@@ -233,9 +232,39 @@ pub struct RunEnd;
 
 impl RunEnd {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.runend");
+
+    /// Build a new [`RunEndArray`] without validation.
+    ///
+    /// # Safety
+    /// See [`RunEndData::new_unchecked`] for preconditions.
+    pub unsafe fn new_unchecked(
+        ends: ArrayRef,
+        values: ArrayRef,
+        offset: usize,
+        length: usize,
+    ) -> RunEndArray {
+        Array::from_inner(unsafe { RunEndData::new_unchecked(ends, values, offset, length) })
+    }
+
+    /// Build a new [`RunEndArray`] from ends and values.
+    pub fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<RunEndArray> {
+        Ok(Array::from_inner(RunEndData::try_new(ends, values)?))
+    }
+
+    /// Build a new [`RunEndArray`] from ends, values, offset, and length.
+    pub fn try_new_offset_length(
+        ends: ArrayRef,
+        values: ArrayRef,
+        offset: usize,
+        length: usize,
+    ) -> VortexResult<RunEndArray> {
+        Ok(Array::from_inner(RunEndData::try_new_offset_length(
+            ends, values, offset, length,
+        )?))
+    }
 }
 
-impl RunEndArray {
+impl RunEndData {
     fn validate(
         ends: &ArrayRef,
         values: &ArrayRef,
@@ -311,10 +340,10 @@ impl RunEndArray {
     }
 }
 
-impl RunEndArray {
+impl RunEndData {
     /// Build a new `RunEndArray` from an array of run `ends` and an array of `values`.
     ///
-    /// Panics if any of the validation conditions described in [`RunEndArray::try_new`] is
+    /// Panics if any of the validation conditions described in [`RunEndData::try_new`] is
     /// not satisfied.
     ///
     /// # Examples
@@ -328,7 +357,7 @@ impl RunEndArray {
     /// # fn main() -> VortexResult<()> {
     /// let ends = buffer![2u8, 3u8].into_array();
     /// let values = BoolArray::from_iter([false, true]).into_array();
-    /// let run_end = RunEndArray::new(ends, values);
+    /// let run_end = RunEndData::new(ends, values);
     ///
     /// // Array encodes
     /// assert_eq!(run_end.scalar_at(0)?, false.into());
@@ -358,7 +387,7 @@ impl RunEndArray {
 
     /// Construct a new sliced `RunEndArray` with the provided offset and length.
     ///
-    /// This performs all the same validation as [`RunEndArray::try_new`].
+    /// This performs all the same validation as [`RunEndData::try_new`].
     pub fn try_new_offset_length(
         ends: ArrayRef,
         values: ArrayRef,
@@ -380,10 +409,10 @@ impl RunEndArray {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that all the validation performed in [`RunEndArray::try_new`] is
+    /// The caller must ensure that all the validation performed in [`RunEndData::try_new`] is
     /// satisfied before calling this function.
     ///
-    /// See [`RunEndArray::try_new`] for the preconditions needed to build a new array.
+    /// See [`RunEndData::try_new`] for the preconditions needed to build a new array.
     pub unsafe fn new_unchecked(
         ends: ArrayRef,
         values: ArrayRef,
@@ -429,6 +458,24 @@ impl RunEndArray {
         }
     }
 
+    /// Returns the length of the array.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    /// Returns whether the array is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+
+    /// Returns the logical data type of the array.
+    #[inline]
+    pub fn dtype(&self) -> &DType {
+        self.values.dtype()
+    }
+
     /// The offset that the `ends` is relative to.
     ///
     /// This is generally zero for a "new" array, and non-zero after a slicing operation.
@@ -466,12 +513,12 @@ impl RunEndArray {
 }
 
 impl ValidityVTable<RunEnd> for RunEnd {
-    fn validity(array: &RunEndArray) -> VortexResult<Validity> {
+    fn validity(array: &Array<RunEnd>) -> VortexResult<Validity> {
         Ok(match array.values().validity()? {
             Validity::NonNullable | Validity::AllValid => Validity::AllValid,
             Validity::AllInvalid => Validity::AllInvalid,
             Validity::Array(values_validity) => Validity::Array(unsafe {
-                RunEndArray::new_unchecked(
+                RunEndData::new_unchecked(
                     array.ends().clone(),
                     values_validity,
                     array.offset(),
@@ -524,7 +571,7 @@ mod tests {
 
     #[test]
     fn test_runend_constructor() {
-        let arr = RunEndArray::new(
+        let arr = RunEndData::new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         );
@@ -544,7 +591,7 @@ mod tests {
     #[test]
     fn test_runend_utf8() {
         let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
-        let arr = RunEndArray::new(buffer![2u32, 5, 10].into_array(), values);
+        let arr = RunEndData::new(buffer![2u32, 5, 10].into_array(), values);
         assert_eq!(arr.len(), 10);
         assert_eq!(arr.dtype(), &DType::Utf8(Nullability::NonNullable));
 
@@ -561,7 +608,7 @@ mod tests {
         let dict = DictArray::try_new(dict_codes, dict_values).unwrap();
 
         let arr =
-            RunEndArray::try_new(buffer![2u32, 5, 10].into_array(), dict.into_array()).unwrap();
+            RunEndData::try_new(buffer![2u32, 5, 10].into_array(), dict.into_array()).unwrap();
         assert_eq!(arr.len(), 10);
 
         let expected =

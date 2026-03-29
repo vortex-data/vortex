@@ -27,7 +27,7 @@ impl TryFrom<&dyn DynArray> for RecordBatch {
         };
 
         vortex_ensure!(
-            struct_array.all_valid()?,
+            struct_array.clone().into_array().all_valid()?,
             "RecordBatch can only be constructed from StructArray with no nulls"
         );
 

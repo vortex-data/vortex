@@ -15,7 +15,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
 /// The threshold for triggering a rebuild of the [`ListViewArray`].
@@ -42,7 +42,7 @@ const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 /// The trade-off is that we may keep unreferenced elements in memory, but this is acceptable since
 /// we're optimizing for read performance and the data isn't being copied.
 impl TakeReduce for ListView {
-    fn take(array: &ListViewArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: &Array<ListView>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let elements = array.elements();
         let offsets = array.offsets();
         let sizes = array.sizes();

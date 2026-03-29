@@ -66,7 +66,7 @@ pub fn vortex_zstd::Zstd::reduce_parent(array: &vortex_array::vtable::typed::Arr
 
 pub fn vortex_zstd::Zstd::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_zstd::Zstd::stats(array: &vortex_zstd::ZstdArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_zstd::Zstd::stats(array: &vortex_zstd::ZstdArray) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_zstd::Zstd::vtable(_array: &Self::Array) -> &Self
 

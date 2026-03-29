@@ -17,7 +17,7 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::ConstantArray;
+use crate::arrays::ConstantData;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
@@ -35,7 +35,7 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
@@ -44,7 +44,7 @@ pub(crate) mod canonical;
 mod operations;
 mod validity;
 
-vtable!(Constant);
+vtable!(Constant, Constant, ConstantData);
 
 #[derive(Clone, Debug)]
 pub struct Constant;
@@ -54,7 +54,7 @@ impl Constant {
 }
 
 impl VTable for Constant {
-    type Array = ConstantArray;
+    type Array = ConstantData;
 
     type Metadata = Scalar;
     type OperationsVTable = Self;
@@ -68,36 +68,32 @@ impl VTable for Constant {
         Self::ID
     }
 
-    fn len(array: &ConstantArray) -> usize {
+    fn len(array: &ConstantData) -> usize {
         array.len
     }
 
-    fn dtype(array: &ConstantArray) -> &DType {
+    fn dtype(array: &ConstantData) -> &DType {
         array.scalar.dtype()
     }
 
-    fn stats(array: &ConstantArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &ConstantData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: &ConstantArray,
-        state: &mut H,
-        _precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, _precision: Precision) {
         array.scalar.hash(state);
         array.len.hash(state);
     }
 
-    fn array_eq(array: &ConstantArray, other: &ConstantArray, _precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, _precision: Precision) -> bool {
         array.scalar == other.scalar && array.len == other.len
     }
 
-    fn nbuffers(_array: &ConstantArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn buffer(array: &ConstantArray, idx: usize) -> BufferHandle {
+    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => BufferHandle::new_host(
                 ScalarValue::to_proto_bytes::<ByteBufferMut>(array.scalar.value()).freeze(),
@@ -106,26 +102,26 @@ impl VTable for Constant {
         }
     }
 
-    fn buffer_name(_array: &ConstantArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("scalar".to_string()),
             _ => None,
         }
     }
 
-    fn nchildren(_array: &ConstantArray) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn child(_array: &ConstantArray, idx: usize) -> ArrayRef {
+    fn child(_array: &Array<Self>, idx: usize) -> ArrayRef {
         vortex_panic!("ConstantArray child index {idx} out of bounds")
     }
 
-    fn child_name(_array: &ConstantArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray child_name index {idx} out of bounds")
     }
 
-    fn metadata(array: &ConstantArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(array.scalar().clone())
     }
 
@@ -163,8 +159,8 @@ impl VTable for Constant {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-    ) -> VortexResult<ConstantArray> {
-        Ok(ConstantArray::new(metadata.clone(), len))
+    ) -> VortexResult<ConstantData> {
+        Ok(ConstantData::new(metadata.clone(), len))
     }
 
     fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -191,7 +187,7 @@ impl VTable for Constant {
     }
 
     fn append_to_builder(
-        array: &ConstantArray,
+        array: &Array<Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {

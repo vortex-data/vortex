@@ -35,7 +35,7 @@ impl FlatLayoutFixture for StructNestedFixture {
             FieldNames::from(["a", "b"]),
             vec![
                 PrimitiveArray::new(buffer![10i32, 20, 30], Validity::NonNullable).into_array(),
-                VarBinArray::from(vec!["x", "y", "z"]).into_array(),
+                VarBinArray::from_strs(vec!["x", "y", "z"]).into_array(),
             ],
             3,
             Validity::NonNullable,

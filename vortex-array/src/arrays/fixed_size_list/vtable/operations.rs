@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
 use crate::arrays::FixedSizeList;
-use crate::arrays::fixed_size_list::vtable::FixedSizeListArray;
 use crate::scalar::Scalar;
+use crate::vtable::Array;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<FixedSizeList> for FixedSizeList {
     fn scalar_at(
-        array: &FixedSizeListArray,
+        array: &Array<FixedSizeList>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

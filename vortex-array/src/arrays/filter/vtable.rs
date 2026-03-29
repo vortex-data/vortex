@@ -20,7 +20,7 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::filter::array::FilterArray;
+use crate::arrays::filter::array::FilterData;
 use crate::arrays::filter::execute::execute_filter;
 use crate::arrays::filter::execute::execute_filter_fast_paths;
 use crate::arrays::filter::rules::PARENT_RULES;
@@ -31,7 +31,7 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
@@ -40,7 +40,7 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
-vtable!(Filter);
+vtable!(Filter, Filter, FilterData);
 
 #[derive(Clone, Debug)]
 pub struct Filter;
@@ -50,11 +50,11 @@ impl Filter {
 }
 
 impl VTable for Filter {
-    type Array = FilterArray;
+    type Array = FilterData;
     type Metadata = FilterMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &FilterData) -> &Self {
         &Filter
     }
 
@@ -62,58 +62,58 @@ impl VTable for Filter {
         Self::ID
     }
 
-    fn len(array: &FilterArray) -> usize {
+    fn len(array: &FilterData) -> usize {
         array.mask.true_count()
     }
 
-    fn dtype(array: &FilterArray) -> &DType {
+    fn dtype(array: &FilterData) -> &DType {
         array.child.dtype()
     }
 
-    fn stats(array: &FilterArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+    fn stats(array: &FilterData) -> &ArrayStats {
+        &array.stats
     }
 
-    fn array_hash<H: Hasher>(array: &FilterArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.child.array_hash(state, precision);
         array.mask.array_hash(state, precision);
     }
 
-    fn array_eq(array: &FilterArray, other: &FilterArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.child.array_eq(&other.child, precision) && array.mask.array_eq(&other.mask, precision)
     }
 
-    fn nbuffers(_array: &Self::Array) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, _idx: usize) -> BufferHandle {
         vortex_panic!("FilterArray has no buffers")
     }
 
-    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.child.clone(),
             _ => vortex_panic!("FilterArray child index {idx} out of bounds"),
         }
     }
 
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "child".to_string(),
             _ => vortex_panic!("FilterArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(FilterMetadata(array.mask.clone()))
     }
 
@@ -138,10 +138,10 @@ impl VTable for Filter {
         metadata: &FilterMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array> {
+    ) -> VortexResult<FilterData> {
         assert_eq!(len, metadata.0.true_count());
         let child = children.get(0, dtype, metadata.0.len())?;
-        Ok(FilterArray {
+        Ok(FilterData {
             child,
             mask: metadata.0.clone(),
             stats: Default::default(),
@@ -190,7 +190,7 @@ impl VTable for Filter {
 }
 impl OperationsVTable<Filter> for Filter {
     fn scalar_at(
-        array: &FilterArray,
+        array: &Array<Filter>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -200,7 +200,7 @@ impl OperationsVTable<Filter> for Filter {
 }
 
 impl ValidityVTable<Filter> for Filter {
-    fn validity(array: &FilterArray) -> VortexResult<Validity> {
+    fn validity(array: &Array<Filter>) -> VortexResult<Validity> {
         array.child.validity()?.filter(&array.mask)
     }
 }

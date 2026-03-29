@@ -71,12 +71,12 @@ pub(crate) async fn execute_patches<
     let PrimitiveArrayParts {
         buffer: indices_buffer,
         ..
-    } = indices.into_parts();
+    } = indices.into_inner().into_parts();
 
     let PrimitiveArrayParts {
         buffer: values_buffer,
         ..
-    } = values.into_parts();
+    } = values.into_inner().into_parts();
 
     let d_patch_indices = ctx.ensure_on_device(indices_buffer).await?;
     let d_patch_values = ctx.ensure_on_device(values_buffer).await?;

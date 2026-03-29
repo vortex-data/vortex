@@ -7,13 +7,13 @@ use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
 use crate::arrays::ListView;
-use crate::arrays::listview::vtable::ListViewArray;
 use crate::scalar::Scalar;
+use crate::vtable::Array;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ListView> for ListView {
     fn scalar_at(
-        array: &ListViewArray,
+        array: &Array<ListView>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

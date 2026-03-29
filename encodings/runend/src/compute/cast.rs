@@ -10,7 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::RunEndArray;
-
+use crate::RunEndData;
 impl CastReduce for RunEnd {
     fn cast(array: &RunEndArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast the values array to the target type
@@ -19,7 +19,7 @@ impl CastReduce for RunEnd {
         // SAFETY: casting does not affect the ends being valid
         unsafe {
             Ok(Some(
-                RunEndArray::new_unchecked(
+                RunEndData::new_unchecked(
                     array.ends().clone(),
                     casted_values,
                     array.offset(),
@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn test_cast_runend_i32_to_i64() {
-        let runend = RunEndArray::try_new(
+        let runend = RunEndData::try_new(
             buffer![3u64, 5, 8, 10].into_array(),
             buffer![100i32, 200, 100, 300].into_array(),
         )
@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_cast_runend_nullable() {
-        let runend = RunEndArray::try_new(
+        let runend = RunEndData::try_new(
             buffer![2u64, 4, 7].into_array(),
             PrimitiveArray::from_option_iter([Some(10i32), None, Some(20)]).into_array(),
         )
@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn test_cast_runend_with_offset() {
         // Create a RunEndArray: [100, 100, 100, 200, 200, 300, 300, 300, 300, 300]
-        let runend = RunEndArray::try_new(
+        let runend = RunEndData::try_new(
             buffer![3u64, 5, 10].into_array(),
             buffer![100i32, 200, 300].into_array(),
         )
@@ -134,23 +134,23 @@ mod tests {
     }
 
     #[rstest]
-    #[case(RunEndArray::try_new(
+    #[case(RunEndData::try_new(
         buffer![3u64, 5, 8].into_array(),
         buffer![100i32, 200, 300].into_array()
     ).unwrap())]
-    #[case(RunEndArray::try_new(
+    #[case(RunEndData::try_new(
         buffer![1u64, 4, 10].into_array(),
         buffer![1.5f32, 2.5, 3.5].into_array()
     ).unwrap())]
-    #[case(RunEndArray::try_new(
+    #[case(RunEndData::try_new(
         buffer![2u64, 3, 5].into_array(),
         PrimitiveArray::from_option_iter([Some(42i32), None, Some(84)]).into_array()
     ).unwrap())]
-    #[case(RunEndArray::try_new(
+    #[case(RunEndData::try_new(
         buffer![10u64].into_array(),
         buffer![255u8].into_array()
     ).unwrap())]
-    #[case(RunEndArray::try_new(
+    #[case(RunEndData::try_new(
         buffer![2u64, 4, 6, 8, 10].into_array(),
         BoolArray::from_iter(vec![true, false, true, false, true]).into_array()
     ).unwrap())]

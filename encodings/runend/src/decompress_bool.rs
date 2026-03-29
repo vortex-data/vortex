@@ -35,7 +35,7 @@ pub fn runend_decode_bools(
     offset: usize,
     length: usize,
 ) -> VortexResult<ArrayRef> {
-    let validity = values.validity_mask()?;
+    let validity = values.validity_mask();
     let values_buf = values.to_bit_buffer();
     let nullability = values.dtype().nullability();
 

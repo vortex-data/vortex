@@ -19,15 +19,15 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
-use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::VarBinViewData;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
@@ -39,7 +39,7 @@ use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
-vtable!(VarBinView);
+vtable!(VarBinView, VarBinView, VarBinViewData);
 
 #[derive(Clone, Debug)]
 pub struct VarBinView;
@@ -49,12 +49,12 @@ impl VarBinView {
 }
 
 impl VTable for VarBinView {
-    type Array = VarBinViewArray;
+    type Array = VarBinViewData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &VarBinViewData) -> &Self {
         &VarBinView
     }
 
@@ -62,23 +62,19 @@ impl VTable for VarBinView {
         Self::ID
     }
 
-    fn len(array: &VarBinViewArray) -> usize {
+    fn len(array: &VarBinViewData) -> usize {
         array.views_handle().len() / size_of::<BinaryView>()
     }
 
-    fn dtype(array: &VarBinViewArray) -> &DType {
+    fn dtype(array: &VarBinViewData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &VarBinViewArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &VarBinViewData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: &VarBinViewArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         for buffer in array.buffers.iter() {
             buffer.array_hash(state, precision);
@@ -87,7 +83,7 @@ impl VTable for VarBinView {
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &VarBinViewArray, other: &VarBinViewArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.buffers.len() == other.buffers.len()
             && array
@@ -99,11 +95,11 @@ impl VTable for VarBinView {
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(array: &VarBinViewArray) -> usize {
+    fn nbuffers(array: &Array<Self>) -> usize {
         array.buffers().len() + 1
     }
 
-    fn buffer(array: &VarBinViewArray, idx: usize) -> BufferHandle {
+    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
         let ndata = array.buffers().len();
         if idx < ndata {
             array.buffers()[idx].clone()
@@ -114,7 +110,7 @@ impl VTable for VarBinView {
         }
     }
 
-    fn buffer_name(array: &VarBinViewArray, idx: usize) -> Option<String> {
+    fn buffer_name(array: &Array<Self>, idx: usize) -> Option<String> {
         let ndata = array.buffers().len();
         if idx < ndata {
             Some(format!("buffer_{idx}"))
@@ -125,11 +121,11 @@ impl VTable for VarBinView {
         }
     }
 
-    fn nchildren(array: &VarBinViewArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         validity_nchildren(&array.validity)
     }
 
-    fn child(array: &VarBinViewArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => validity_to_child(&array.validity, array.len())
                 .vortex_expect("VarBinViewArray validity child out of bounds"),
@@ -137,14 +133,14 @@ impl VTable for VarBinView {
         }
     }
 
-    fn child_name(_array: &VarBinViewArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "validity".to_string(),
             _ => vortex_panic!("VarBinViewArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(_array: &VarBinViewArray) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -168,7 +164,7 @@ impl VTable for VarBinView {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<VarBinViewArray> {
+    ) -> VortexResult<VarBinViewData> {
         let Some((views_handle, data_handles)) = buffers.split_last() else {
             vortex_bail!("Expected at least 1 buffer, got 0");
         };
@@ -196,7 +192,7 @@ impl VTable for VarBinView {
 
         // If any buffer is on device, skip host validation and use try_new_handle.
         if buffers.iter().any(|b| b.is_on_device()) {
-            return VarBinViewArray::try_new_handle(
+            return VarBinViewData::try_new_handle(
                 views_handle.clone(),
                 Arc::from(data_handles.to_vec()),
                 dtype.clone(),
@@ -210,7 +206,7 @@ impl VTable for VarBinView {
             .collect::<Vec<_>>();
         let views = Buffer::<BinaryView>::from_byte_buffer(views_handle.clone().as_host().clone());
 
-        VarBinViewArray::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)
+        VarBinViewData::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

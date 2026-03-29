@@ -4,15 +4,15 @@
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ValidityVTable;
 use vortex_error::VortexResult;
 
 use crate::Delta;
-use crate::DeltaArray;
 use crate::bit_transpose::untranspose_validity;
 
 impl ValidityVTable<Delta> for Delta {
-    fn validity(array: &DeltaArray) -> VortexResult<Validity> {
+    fn validity(array: &Array<Delta>) -> VortexResult<Validity> {
         let start = array.offset();
         let end = start + array.len();
 

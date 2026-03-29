@@ -12,13 +12,14 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 /// Take implementation for [`FixedSizeListArray`].
 ///
@@ -27,7 +28,7 @@ use crate::vtable::ValidityHelper;
 /// into element indices and push them down to the child elements array.
 impl TakeExecute for FixedSizeList {
     fn take(
-        array: &FixedSizeListArray,
+        array: &Array<FixedSizeList>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -40,7 +41,7 @@ impl TakeExecute for FixedSizeList {
 
 /// Dispatches to the appropriate take implementation based on list size and nullability.
 fn take_with_indices<I: IntegerPType>(
-    array: &FixedSizeListArray,
+    array: &Array<FixedSizeList>,
     indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -83,8 +84,8 @@ fn take_with_indices<I: IntegerPType>(
 
 /// Takes from an array when both the array and indices are non-nullable.
 fn take_non_nullable_fsl<I: IntegerPType>(
-    array: &FixedSizeListArray,
-    indices_array: &PrimitiveArray,
+    array: &Array<FixedSizeList>,
+    indices_array: &Array<Primitive>,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
     let indices: &[I] = indices_array.as_slice::<I>();
@@ -132,15 +133,15 @@ fn take_non_nullable_fsl<I: IntegerPType>(
 
 /// Takes from an array when either the array or indices are nullable.
 fn take_nullable_fsl<I: IntegerPType>(
-    array: &FixedSizeListArray,
-    indices_array: &PrimitiveArray,
+    array: &Array<FixedSizeList>,
+    indices_array: &Array<Primitive>,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
     let indices: &[I] = indices_array.as_slice::<I>();
     let new_len = indices.len();
 
-    let array_validity = array.validity_mask()?;
-    let indices_validity = indices_array.validity_mask()?;
+    let array_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
 
     // We must use placeholder zeros for null lists to maintain the array length without
     // propagating nullability to the element array's take operation.

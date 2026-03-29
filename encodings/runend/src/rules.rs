@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::RunEndArray;
+use crate::RunEndData;
 
 pub(super) const RULES: ParentRuleSet<RunEnd> = ParentRuleSet::new(&[
     // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed
@@ -79,7 +80,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
 
         Ok(Some(
             unsafe {
-                RunEndArray::new_unchecked(
+                RunEndData::new_unchecked(
                     run_end.ends().clone(),
                     new_values,
                     run_end.offset(),

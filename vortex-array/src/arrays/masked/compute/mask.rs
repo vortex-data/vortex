@@ -5,16 +5,15 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl MaskReduce for Masked {
-    fn mask(array: &MaskedArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &Array<Masked>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // AND the existing validity mask with the new mask and push into child.
         let combined_mask = array
             .validity()

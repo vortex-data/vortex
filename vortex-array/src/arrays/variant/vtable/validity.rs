@@ -5,11 +5,11 @@ use vortex_error::VortexResult;
 
 use crate::arrays::Variant;
 use crate::validity::Validity;
-use crate::vtable::VTable;
+use crate::vtable::Array;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<Variant> for Variant {
-    fn validity(array: &<Variant as VTable>::Array) -> VortexResult<Validity> {
+    fn validity(array: &Array<Variant>) -> VortexResult<Validity> {
         array.child().validity()
     }
 }

@@ -13,7 +13,7 @@ use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 pub(crate) const RULES: ParentRuleSet<Primitive> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&PrimitiveMaskedValidityRule),
@@ -33,7 +33,7 @@ impl ArrayParentReduceRule<Primitive> for PrimitiveMaskedValidityRule {
 
     fn reduce_parent(
         &self,
-        array: &PrimitiveArray,
+        array: &Array<Primitive>,
         parent: &MaskedArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

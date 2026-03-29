@@ -15,13 +15,13 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
-use crate::arrays::SharedArray;
+use crate::arrays::shared::SharedData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
@@ -30,7 +30,7 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
-vtable!(Shared);
+vtable!(Shared, Shared, SharedData);
 
 // TODO(ngates): consider hooking Shared into the iterative execution model. Cache either the
 //  most executed, or after each iteration, and return a shared cache for each execution.
@@ -42,11 +42,11 @@ impl Shared {
 }
 
 impl VTable for Shared {
-    type Array = SharedArray;
+    type Array = SharedData;
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &SharedData) -> &Self {
         &Shared
     }
 
@@ -54,61 +54,61 @@ impl VTable for Shared {
         Self::ID
     }
 
-    fn len(array: &SharedArray) -> usize {
+    fn len(array: &SharedData) -> usize {
         array.current_array_ref().len()
     }
 
-    fn dtype(array: &SharedArray) -> &DType {
+    fn dtype(array: &SharedData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &SharedArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+    fn stats(array: &SharedData) -> &ArrayStats {
+        &array.stats
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &SharedArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         let current = array.current_array_ref();
         current.array_hash(state, precision);
         array.dtype.hash(state);
     }
 
-    fn array_eq(array: &SharedArray, other: &SharedArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         let current = array.current_array_ref();
         let other_current = other.current_array_ref();
         current.array_eq(other_current, precision) && array.dtype == other.dtype
     }
 
-    fn nbuffers(_array: &Self::Array) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, _idx: usize) -> BufferHandle {
         vortex_panic!("SharedArray has no buffers")
     }
 
-    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.current_array_ref().clone(),
             _ => vortex_panic!("SharedArray child index {idx} out of bounds"),
         }
     }
 
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "source".to_string(),
             _ => vortex_panic!("SharedArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -132,9 +132,9 @@ impl VTable for Shared {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn crate::serde::ArrayChildren,
-    ) -> VortexResult<SharedArray> {
+    ) -> VortexResult<SharedData> {
         let child = children.get(0, dtype, len)?;
-        Ok(SharedArray::new(child))
+        Ok(SharedData::new(child))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -159,7 +159,7 @@ impl VTable for Shared {
 }
 impl OperationsVTable<Shared> for Shared {
     fn scalar_at(
-        array: &SharedArray,
+        array: &Array<Shared>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -168,7 +168,7 @@ impl OperationsVTable<Shared> for Shared {
 }
 
 impl ValidityVTable<Shared> for Shared {
-    fn validity(array: &SharedArray) -> VortexResult<Validity> {
+    fn validity(array: &Array<Shared>) -> VortexResult<Validity> {
         array.current_array_ref().validity()
     }
 }

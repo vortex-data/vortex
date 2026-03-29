@@ -17,7 +17,7 @@ pub(super) fn accumulate_bool(partial: &mut MinMaxPartial, array: &BoolArray) ->
         return Ok(());
     }
 
-    let mask = array.validity_mask()?;
+    let mask = array.validity_mask();
     let true_non_null = match &mask {
         Mask::AllTrue(_) => array.to_bit_buffer(),
         Mask::AllFalse(_) => return Ok(()),

@@ -38,7 +38,9 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
         Validity::AllInvalid => {
             // We can trivially return an all-null REE array
             let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable);
-            ends.statistics()
+            ends.clone()
+                .into_array()
+                .statistics()
                 .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
             return (
                 ends,
@@ -70,12 +72,11 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
         }
     };
 
-    let ends = ends
-        .narrow()
-        .vortex_expect("Ends must succeed downcasting")
-        .to_primitive();
+    let ends = ends.narrow().vortex_expect("Ends must succeed downcasting");
 
-    ends.statistics()
+    ends.clone()
+        .into_array()
+        .statistics()
         .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
 
     (ends, values)
@@ -174,7 +175,7 @@ pub fn runend_decode_primitive(
     offset: usize,
     length: usize,
 ) -> VortexResult<PrimitiveArray> {
-    let validity_mask = values.validity_mask()?;
+    let validity_mask = values.validity_mask();
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
@@ -274,7 +275,7 @@ pub fn runend_decode_varbinview(
     offset: usize,
     length: usize,
 ) -> VortexResult<VarBinViewArray> {
-    let validity_mask = values.validity_mask()?;
+    let validity_mask = values.validity_mask();
     let views = values.views();
 
     let (decoded_views, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
@@ -287,7 +288,7 @@ pub fn runend_decode_varbinview(
         )
     });
 
-    let parts = values.into_parts();
+    let parts = values.into_inner().into_parts();
     let view_handle = BufferHandle::new_host(decoded_views.into_byte_buffer());
 
     // SAFETY: we are expanding views from a valid VarBinViewArray with the same

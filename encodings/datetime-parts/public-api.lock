@@ -84,7 +84,7 @@ pub fn vortex_datetime_parts::DateTimeParts::reduce_parent(array: &vortex_array:
 
 pub fn vortex_datetime_parts::DateTimeParts::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_datetime_parts::DateTimeParts::stats(array: &vortex_datetime_parts::DateTimePartsArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_datetime_parts::DateTimeParts::stats(array: &vortex_datetime_parts::DateTimePartsArray) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_datetime_parts::DateTimeParts::vtable(_array: &Self::Array) -> &Self
 

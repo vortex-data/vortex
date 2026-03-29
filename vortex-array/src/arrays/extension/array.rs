@@ -5,9 +5,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::arrays::Extension;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::stats::ArrayStats;
+use crate::vtable::Array;
 
 /// An extension array that wraps another array with additional type information.
 ///
@@ -48,7 +50,7 @@ use crate::stats::ArrayStats;
 /// - Slicing preserves the extension type
 /// - Scalar access wraps storage scalars with extension metadata
 #[derive(Clone, Debug)]
-pub struct ExtensionArray {
+pub struct ExtensionData {
     /// The storage dtype. This **must** be a [`Extension::DType`] variant.
     pub(super) dtype: DType,
 
@@ -59,7 +61,7 @@ pub struct ExtensionArray {
     pub(super) stats_set: ArrayStats,
 }
 
-impl ExtensionArray {
+impl ExtensionData {
     /// Constructs a new `ExtensionArray`.
     ///
     /// # Panics
@@ -113,6 +115,21 @@ impl ExtensionArray {
         }
     }
 
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.storage_array.len()
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// The extension dtype of this array.
     pub fn ext_dtype(&self) -> &ExtDTypeRef {
         let DType::Extension(ext) = &self.dtype else {
@@ -124,5 +141,24 @@ impl ExtensionArray {
 
     pub fn storage_array(&self) -> &ArrayRef {
         &self.storage_array
+    }
+}
+
+impl Array<Extension> {
+    /// Constructs a new `ExtensionArray`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the storage array is not compatible with the extension dtype.
+    pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
+        Array::from_inner(ExtensionData::new(ext_dtype, storage_array))
+    }
+
+    /// Tries to construct a new `ExtensionArray`.
+    pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
+        Ok(Array::from_inner(ExtensionData::try_new(
+            ext_dtype,
+            storage_array,
+        )?))
     }
 }

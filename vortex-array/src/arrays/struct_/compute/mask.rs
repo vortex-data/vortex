@@ -9,10 +9,10 @@ use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl MaskReduce for Struct {
-    fn mask(array: &StructArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &Array<Struct>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         StructArray::try_new_with_dtype(
             array.unmasked_fields().clone(),
             array.struct_fields().clone(),

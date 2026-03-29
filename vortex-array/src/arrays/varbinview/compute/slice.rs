@@ -12,9 +12,10 @@ use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::varbinview::BinaryView;
+use crate::vtable::Array;
 
 impl SliceReduce for VarBinView {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             VarBinViewArray::new_handle(
                 array
@@ -22,7 +23,7 @@ impl SliceReduce for VarBinView {
                     .slice_typed::<BinaryView>(range.clone()),
                 Arc::clone(array.buffers()),
                 array.dtype().clone(),
-                array.validity()?.slice(range)?,
+                array.validity().slice(range)?,
             )
             .into_array(),
         ))

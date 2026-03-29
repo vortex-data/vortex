@@ -4,9 +4,9 @@
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 
-use crate::BitPackedArray;
+use crate::BitPackedData;
 
-impl ValidityHelper for BitPackedArray {
+impl ValidityHelper for BitPackedData {
     fn validity(&self) -> &Validity {
         &self.validity
     }

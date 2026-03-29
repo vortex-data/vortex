@@ -47,7 +47,7 @@ impl FlatLayoutFixture for ListViewFixture {
         )?;
 
         // ListView of strings: [["a","b"], ["hello"], [], ["x","y","z"]]
-        let str_elements = VarBinArray::from(vec!["a", "b", "hello", "x", "y", "z"]);
+        let str_elements = VarBinArray::from_strs(vec!["a", "b", "hello", "x", "y", "z"]);
         let str_offsets = PrimitiveArray::new(buffer![0u32, 2, 3, 3], Validity::NonNullable);
         let str_sizes = PrimitiveArray::new(buffer![2u32, 1, 0, 3], Validity::NonNullable);
         let str_listview = ListViewArray::try_new(

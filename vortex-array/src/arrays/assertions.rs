@@ -21,9 +21,15 @@ pub fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display
 /// ```
 #[macro_export]
 macro_rules! assert_nth_scalar {
-    ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n).unwrap(), $expected.try_into().unwrap());
-    };
+    ($arr:expr, $n:expr, $expected:expr) => {{
+        use $crate::DynArray as _;
+        use $crate::IntoArray as _;
+        let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
+        assert_eq!(
+            arr_ref.scalar_at($n).unwrap(),
+            $expected.try_into().unwrap()
+        );
+    }};
 }
 
 /// Asserts that the scalar at position `$n` in array `$arr` is null.
@@ -36,21 +42,26 @@ macro_rules! assert_nth_scalar {
 /// ```
 #[macro_export]
 macro_rules! assert_nth_scalar_is_null {
-    ($arr:expr, $n:expr) => {
+    ($arr:expr, $n:expr) => {{
+        use $crate::DynArray as _;
+        use $crate::IntoArray as _;
+        let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
         assert!(
-            $arr.scalar_at($n).unwrap().is_null(),
+            arr_ref.scalar_at($n).unwrap().is_null(),
             "expected scalar at index {} to be null, but was {:?}",
             $n,
-            $arr.scalar_at($n).unwrap()
+            arr_ref.scalar_at($n).unwrap()
         );
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($left:expr, $right:expr) => {{
-        let left = $left.clone();
-        let right = $right.clone();
+
+        use $crate::DynArray as _;
+        let left: $crate::ArrayRef = $crate::IntoArray::into_array($left.clone());
+        let right: $crate::ArrayRef = $crate::IntoArray::into_array($right.clone());
         if left.dtype() != right.dtype() {
             panic!(
                 "assertion left == right failed: arrays differ in type: {} != {}.\n  left: {}\n right: {}",

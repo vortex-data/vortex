@@ -9,16 +9,16 @@ use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
-use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::columnar::Columnar;
 use crate::scalar::Scalar;
 use crate::scalar_fn::VecExecutionArgs;
+use crate::vtable::Array;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn scalar_at(
-        array: &ScalarFnArray,
+        array: &Array<ScalarFnVTable>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -38,7 +38,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
                     array.scalar_fn(),
                 );
-                arr.as_ref().scalar_at(0)?
+                arr.to_array_ref().scalar_at(0)?
             }
             Columnar::Constant(constant) => constant.scalar().clone(),
         };

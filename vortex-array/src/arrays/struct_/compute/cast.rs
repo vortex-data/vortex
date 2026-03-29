@@ -15,11 +15,11 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl CastKernel for Struct {
     fn cast(
-        array: &StructArray,
+        array: &Array<Struct>,
         dtype: &DType,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

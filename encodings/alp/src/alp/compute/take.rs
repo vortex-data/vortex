@@ -32,7 +32,7 @@ impl TakeExecute for ALP {
             })
             .transpose()?;
         Ok(Some(
-            ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array(),
+            ALP::new(taken_encoded, array.exponents(), taken_patches).into_array(),
         ))
     }
 }

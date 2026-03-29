@@ -9,7 +9,6 @@ use crate::arrays::DecimalArray;
 use crate::arrays::filter::execute::buffer;
 use crate::arrays::filter::execute::filter_validity;
 use crate::match_each_decimal_value_type;
-use crate::vtable::ValidityHelper;
 
 pub fn filter_decimal(array: &DecimalArray, mask: &Arc<MaskValues>) -> DecimalArray {
     let filtered_validity = filter_validity(array.validity().clone(), mask);

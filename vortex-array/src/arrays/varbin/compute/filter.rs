@@ -23,11 +23,11 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl FilterKernel for VarBin {
     fn filter(
-        array: &VarBinArray,
+        array: &Array<VarBin>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -36,7 +36,7 @@ impl FilterKernel for VarBin {
 }
 
 fn filter_select_var_bin(
-    arr: &VarBinArray,
+    arr: &Array<VarBin>,
     mask: &Mask,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinArray> {
@@ -55,7 +55,7 @@ fn filter_select_var_bin(
 }
 
 fn filter_select_var_bin_by_slice(
-    values: &VarBinArray,
+    values: &Array<VarBin>,
     mask_slices: &[(usize, usize)],
     selection_count: usize,
     ctx: &mut ExecutionCtx,
@@ -67,7 +67,7 @@ fn filter_select_var_bin_by_slice(
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_slices,
-            values.validity_mask()?,
+            values.validity_mask(),
             selection_count,
         )
     })
@@ -154,7 +154,7 @@ fn update_non_nullable_slice<O>(
 }
 
 fn filter_select_var_bin_by_index(
-    values: &VarBinArray,
+    values: &Array<VarBin>,
     mask_indices: &[usize],
     selection_count: usize,
     ctx: &mut ExecutionCtx,

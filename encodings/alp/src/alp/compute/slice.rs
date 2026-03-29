@@ -7,6 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceKernel;
+use vortex_array::vtable::Array;
 use vortex_error::VortexResult;
 
 use crate::ALP;
@@ -14,11 +15,11 @@ use crate::ALPArray;
 
 impl SliceKernel for ALP {
     fn slice(
-        array: &Self::Array,
+        array: &Array<Self>,
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let sliced_alp = ALPArray::new(
+        let sliced_alp = ALP::new(
             array.encoded().slice(range.clone())?,
             array.exponents(),
             array

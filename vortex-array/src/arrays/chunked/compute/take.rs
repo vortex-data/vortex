@@ -18,11 +18,12 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
+use crate::vtable::Array;
 
 // TODO(joe): this is pretty unoptimized but better than before. We want canonical using a builder
 // we also want to return a chunked array ideally.
 fn take_chunked(
-    array: &ChunkedArray,
+    array: &Array<Chunked>,
     indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -31,7 +32,7 @@ fn take_chunked(
         .cast(DType::Primitive(PType::U64, indices.dtype().nullability()))?
         .execute::<PrimitiveArray>(ctx)?;
 
-    let indices_mask = indices.validity_mask()?;
+    let indices_mask = indices.validity_mask();
     let indices_values = indices.as_slice::<u64>();
     let n = indices_values.len();
 
@@ -101,7 +102,7 @@ fn take_chunked(
 
 impl TakeExecute for Chunked {
     fn take(
-        array: &ChunkedArray,
+        array: &Array<Chunked>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

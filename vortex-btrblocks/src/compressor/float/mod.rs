@@ -9,11 +9,11 @@ use std::hash::Hasher;
 
 use enum_iterator::Sequence;
 use vortex_alp::ALP;
-use vortex_alp::ALPArray;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
@@ -24,11 +24,9 @@ use vortex_array::arrays::dict::DictArrayParts;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_sparse::Sparse;
-use vortex_sparse::SparseArray;
 
 use self::dictionary::dictionary_encode;
 pub use self::stats::FloatStats;
@@ -262,14 +260,15 @@ impl Scheme for ConstantScheme {
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
+        let source_ref = stats.source().clone().into_array();
         let scalar_idx =
-            (0..stats.source().len()).position(|idx| stats.source().is_valid(idx).unwrap_or(false));
+            (0..stats.source().len()).position(|idx| source_ref.is_valid(idx).unwrap_or(false));
 
         match scalar_idx {
             Some(idx) => {
-                let scalar = stats.source().scalar_at(idx)?;
+                let scalar = source_ref.scalar_at(idx)?;
                 let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
-                if !stats.source().all_valid()? {
+                if !source_ref.all_valid()? {
                     Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
                 } else {
                     Ok(const_arr)
@@ -320,9 +319,8 @@ impl Scheme for ALPScheme {
         ctx: CompressorContext,
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = alp_encode(&stats.source().to_primitive(), None)?;
-        let alp = alp_encoded.as_::<ALP>();
-        let alp_ints = alp.encoded().to_primitive();
+        let alp_encoded = alp_encode(&stats.source().clone().into_array().to_primitive(), None)?;
+        let alp_ints = alp_encoded.encoded().to_primitive();
 
         // Compress the ALP ints.
         // Patches are not compressed. They should be infrequent, and if they are not then we want
@@ -341,9 +339,9 @@ impl Scheme for ALPScheme {
             Excludes::int_only(&int_excludes),
         )?;
 
-        let patches = alp.patches().map(compress_patches).transpose()?;
+        let patches = alp_encoded.patches().map(compress_patches).transpose()?;
 
-        Ok(ALPArray::new(compressed_alp_ints, alp.exponents(), patches).into_array())
+        Ok(ALP::new(compressed_alp_ints, alp_encoded.exponents(), patches).into_array())
     }
 }
 
@@ -376,13 +374,13 @@ impl Scheme for ALPRDScheme {
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let encoder = match stats.source().ptype() {
-            PType::F32 => RDEncoder::new(stats.source().as_slice::<f32>()),
-            PType::F64 => RDEncoder::new(stats.source().as_slice::<f64>()),
+        let encoder = match stats.src.ptype() {
+            PType::F32 => RDEncoder::new(stats.src.as_slice::<f32>()),
+            PType::F64 => RDEncoder::new(stats.src.as_slice::<f64>()),
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        let mut alp_rd = encoder.encode(stats.source());
+        let mut alp_rd = encoder.encode(&stats.src);
 
         let patches = alp_rd
             .left_parts_patches()
@@ -431,7 +429,7 @@ impl Scheme for DictScheme {
     ) -> VortexResult<ArrayRef> {
         let dict = dictionary_encode(stats);
         let has_all_values_referenced = dict.has_all_values_referenced();
-        let DictArrayParts { codes, values, .. } = dict.into_parts();
+        let DictArrayParts { codes, values, .. } = dict.into_inner().into_parts();
 
         let compressed_codes = compressor.compress_canonical(
             Canonical::Primitive(codes.to_primitive()),
@@ -501,7 +499,7 @@ impl Scheme for NullDominated {
         assert!(ctx.allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated float arrays
-        let sparse_encoded = SparseArray::encode(&stats.src.clone().into_array(), None)?;
+        let sparse_encoded = Sparse::encode(&stats.src.clone().into_array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the values
@@ -511,12 +509,12 @@ impl Scheme for NullDominated {
 
             let indices = sparse.patches().indices().to_primitive().narrow()?;
             let compressed_indices = compressor.compress_canonical(
-                Canonical::Primitive(indices.to_primitive()),
+                Canonical::Primitive(indices),
                 ctx.descend(),
                 Excludes::int_only(&new_excludes),
             )?;
 
-            SparseArray::try_new(
+            Sparse::try_new(
                 compressed_indices,
                 sparse.patches().values().clone(),
                 sparse.len(),
@@ -545,12 +543,10 @@ impl Scheme for PcoScheme {
         _ctx: CompressorContext,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(vortex_pco::PcoArray::from_primitive(
-            stats.source(),
-            pco::DEFAULT_COMPRESSION_LEVEL,
-            8192,
-        )?
-        .into_array())
+        Ok(
+            vortex_pco::Pco::from_primitive(&stats.src, pco::DEFAULT_COMPRESSION_LEVEL, 8192)?
+                .into_array(),
+        )
     }
 }
 

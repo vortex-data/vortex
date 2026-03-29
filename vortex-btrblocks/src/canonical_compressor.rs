@@ -23,7 +23,6 @@ use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::extension::datetime::TemporalMetadata;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -282,7 +281,7 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                     let mut ctx = LEGACY_SESSION.create_execution_ctx();
                     if is_constant(&ext_array.clone().into_array(), &mut ctx)? {
                         return Ok(ConstantArray::new(
-                            temporal_array.as_ref().scalar_at(0)?,
+                            temporal_array.clone().into_array().scalar_at(0)?,
                             ext_array.len(),
                         )
                         .into_array());

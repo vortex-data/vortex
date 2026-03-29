@@ -119,8 +119,8 @@ impl ScalarFnVTable for Cast {
                     Some(result) => Ok(result),
                     None => vortex_bail!(
                         "No CastKernel to cast canonical array {} from {} to {}",
-                        canonical.as_ref().encoding_id(),
-                        canonical.as_ref().dtype(),
+                        canonical.to_array_ref().encoding_id(),
+                        canonical.to_array_ref().dtype(),
                         target_dtype,
                     ),
                 }

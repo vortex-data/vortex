@@ -17,6 +17,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
+use crate::vtable::Array;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(Chunked)),
@@ -33,7 +34,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
 
     fn reduce_parent(
         &self,
-        array: &ChunkedArray,
+        array: &Array<Chunked>,
         parent: &ScalarFnArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -69,7 +70,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
 
     fn reduce_parent(
         &self,
-        array: &ChunkedArray,
+        array: &Array<Chunked>,
         parent: &ScalarFnArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

@@ -84,7 +84,7 @@ pub fn vortex_sequence::Sequence::reduce_parent(array: &vortex_array::vtable::ty
 
 pub fn vortex_sequence::Sequence::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_sequence::Sequence::stats(array: &vortex_sequence::SequenceArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_sequence::Sequence::stats(array: &vortex_sequence::SequenceArray) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_sequence::Sequence::vtable(_array: &Self::Array) -> &Self
 

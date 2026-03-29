@@ -2,8 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::FilterArray;
 pub use array::FilterArrayParts;
+pub use array::FilterData;
+pub use vtable::FilterArray;
 
 mod execute;
 

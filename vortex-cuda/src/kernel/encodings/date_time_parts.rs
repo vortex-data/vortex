@@ -150,15 +150,15 @@ where
     let PrimitiveArrayParts {
         buffer: days_buffer,
         ..
-    } = days.into_parts();
+    } = days.into_inner().into_parts();
     let PrimitiveArrayParts {
         buffer: seconds_buffer,
         ..
-    } = seconds.into_parts();
+    } = seconds.into_inner().into_parts();
     let PrimitiveArrayParts {
         buffer: subseconds_buffer,
         ..
-    } = subseconds.into_parts();
+    } = subseconds.into_inner().into_parts();
 
     // Move buffers to device if not already there
     let days_device = ctx.ensure_on_device(days_buffer).await?;

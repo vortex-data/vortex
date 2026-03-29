@@ -16,7 +16,7 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::arrays::StructArray;
+use crate::arrays::StructData;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -36,13 +36,13 @@ use std::hash::Hash;
 use crate::Precision;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
 
-vtable!(Struct);
+vtable!(Struct, Struct, StructData);
 
 impl VTable for Struct {
-    type Array = StructArray;
+    type Array = StructData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
@@ -55,19 +55,19 @@ impl VTable for Struct {
         Self::ID
     }
 
-    fn len(array: &StructArray) -> usize {
+    fn len(array: &StructData) -> usize {
         array.len
     }
 
-    fn dtype(array: &StructArray) -> &DType {
+    fn dtype(array: &StructData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &StructArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &StructData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &StructArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.len.hash(state);
         array.dtype.hash(state);
         for field in array.fields.iter() {
@@ -76,7 +76,7 @@ impl VTable for Struct {
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &StructArray, other: &StructArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.len == other.len
             && array.dtype == other.dtype
             && array.fields.len() == other.fields.len()
@@ -88,23 +88,23 @@ impl VTable for Struct {
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(_array: &StructArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &StructArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("StructArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &StructArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         vortex_panic!("StructArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &StructArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         validity_nchildren(&array.validity) + array.unmasked_fields().len()
     }
 
-    fn child(array: &StructArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         let vc = validity_nchildren(&array.validity);
         if idx < vc {
             validity_to_child(&array.validity, array.len())
@@ -114,7 +114,7 @@ impl VTable for Struct {
         }
     }
 
-    fn child_name(array: &StructArray, idx: usize) -> String {
+    fn child_name(array: &Array<Self>, idx: usize) -> String {
         let vc = validity_nchildren(&array.validity);
         if idx < vc {
             "validity".to_string()
@@ -123,7 +123,7 @@ impl VTable for Struct {
         }
     }
 
-    fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -147,7 +147,7 @@ impl VTable for Struct {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<StructArray> {
+    ) -> VortexResult<StructData> {
         let DType::Struct(struct_dtype, nullability) = dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", dtype)
         };
@@ -176,7 +176,7 @@ impl VTable for Struct {
             })
             .try_collect()?;
 
-        StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
+        StructData::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

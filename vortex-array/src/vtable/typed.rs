@@ -6,7 +6,10 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::ops::Deref;
+use std::ops::DerefMut;
 use std::sync::Arc;
+
+use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -34,12 +37,24 @@ pub struct Array<V: VTable> {
 
 #[allow(clippy::same_name_method)]
 impl<V: VTable> Array<V> {
+    /// Create a new typed array from inner encoding-specific data.
+    ///
+    /// Extracts dtype, len, vtable, and stats from the inner array via [`VTable`] methods.
+    pub fn from_inner(array: V::Array) -> Self {
+        let vtable = V::vtable(&array).clone();
+        let dtype = V::dtype(&array).clone();
+        let len = V::len(&array);
+        let stats = V::stats(&array).clone();
+        // SAFETY: dtype and len are extracted from `array` via VTable methods.
+        unsafe { Self::from_parts_unchecked(vtable, dtype, len, array, stats) }
+    }
+
     /// Create a new typed array without validating that the inner array's dtype/len match.
     ///
     /// # Safety
     ///
     /// The caller must ensure that `V::dtype(&array) == &dtype` and `V::len(&array) == len`.
-    pub unsafe fn new_unchecked(
+    pub unsafe fn from_parts_unchecked(
         vtable: V,
         dtype: DType,
         len: usize,
@@ -106,11 +121,98 @@ impl<V: VTable> Array<V> {
     }
 }
 
+impl<V: VTable> Array<V>
+where
+    V::Array: crate::vtable::ValidityHelper,
+{
+    /// Returns a reference to the validity of this array.
+    ///
+    /// This inherent method shadows `DynArray::validity()` to provide direct access
+    /// to the concrete validity without going through `VortexResult`.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> &crate::validity::Validity {
+        crate::vtable::ValidityHelper::validity(&self.array)
+    }
+
+    /// Returns the validity mask for this array.
+    ///
+    /// This inherent method shadows `DynArray::validity_mask()` to provide direct access
+    /// to the concrete validity mask without going through `VortexResult`.
+    #[allow(clippy::same_name_method)]
+    pub fn validity_mask(&self) -> vortex_mask::Mask {
+        self.validity().to_mask(self.len)
+    }
+}
+
+/// Public API methods on `Array<V>` — these shadow the `DynArray` trait methods
+/// so callers don't need to import `DynArray`.
+impl<V: VTable> Array<V> {
+    /// Performs a constant-time slice of the array.
+    #[allow(clippy::same_name_method)]
+    pub fn slice(&self, range: std::ops::Range<usize>) -> VortexResult<ArrayRef> {
+        <Self as crate::DynArray>::slice(self, range)
+    }
+
+    /// Fetch the scalar at the given index.
+    #[allow(clippy::same_name_method)]
+    pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
+        <Self as crate::DynArray>::scalar_at(self, index)
+    }
+
+    /// Wraps the array in a FilterArray such that it is logically filtered by the given mask.
+    #[allow(clippy::same_name_method)]
+    pub fn filter(&self, mask: vortex_mask::Mask) -> VortexResult<ArrayRef> {
+        <Self as crate::DynArray>::filter(self, mask)
+    }
+
+    /// Wraps the array in a DictArray such that it is logically taken by the given indices.
+    #[allow(clippy::same_name_method)]
+    pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
+        <Self as crate::DynArray>::take(self, indices)
+    }
+
+    /// Returns whether the item at `index` is valid.
+    #[allow(clippy::same_name_method)]
+    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        <Self as crate::DynArray>::is_valid(self, index)
+    }
+
+    /// Returns whether the item at `index` is invalid.
+    #[allow(clippy::same_name_method)]
+    pub fn is_invalid(&self, index: usize) -> VortexResult<bool> {
+        <Self as crate::DynArray>::is_invalid(self, index)
+    }
+
+    /// Returns whether all items in the array are valid.
+    #[allow(clippy::same_name_method)]
+    pub fn all_valid(&self) -> VortexResult<bool> {
+        <Self as crate::DynArray>::all_valid(self)
+    }
+
+    /// Returns whether all items in the array are invalid.
+    #[allow(clippy::same_name_method)]
+    pub fn all_invalid(&self) -> VortexResult<bool> {
+        <Self as crate::DynArray>::all_invalid(self)
+    }
+
+    /// Returns the canonical representation of the array.
+    #[allow(clippy::same_name_method)]
+    pub fn to_canonical(&self) -> VortexResult<crate::Canonical> {
+        <Self as crate::DynArray>::to_canonical(self)
+    }
+}
+
 impl<V: VTable> Deref for Array<V> {
     type Target = V::Array;
 
     fn deref(&self) -> &V::Array {
         &self.array
+    }
+}
+
+impl<V: VTable> DerefMut for Array<V> {
+    fn deref_mut(&mut self) -> &mut V::Array {
+        &mut self.array
     }
 }
 

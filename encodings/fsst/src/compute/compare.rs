@@ -154,7 +154,9 @@ mod tests {
             DType::Utf8(Nullability::Nullable),
         );
         let compressor = fsst_train_compressor(&lhs);
-        let lhs = fsst_compress(lhs, &compressor);
+        let len = lhs.len();
+        let dtype = lhs.dtype().clone();
+        let lhs = fsst_compress(lhs, len, &dtype, &compressor);
 
         let rhs = ConstantArray::new("world", lhs.len());
 

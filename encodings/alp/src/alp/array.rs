@@ -23,7 +23,6 @@ use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
-use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
@@ -47,10 +46,10 @@ use crate::alp::decompress::execute_decompress;
 use crate::alp::rules::PARENT_KERNELS;
 use crate::alp::rules::RULES;
 
-vtable!(ALP);
+vtable!(ALP, ALP, ALPData);
 
 impl VTable for ALP {
-    type Array = ALPArray;
+    type Array = ALPData;
 
     type Metadata = ProstMetadata<ALPMetadata>;
     type OperationsVTable = Self;
@@ -64,49 +63,49 @@ impl VTable for ALP {
         Self::ID
     }
 
-    fn len(array: &ALPArray) -> usize {
+    fn len(array: &ALPData) -> usize {
         array.encoded.len()
     }
 
-    fn dtype(array: &ALPArray) -> &DType {
+    fn dtype(array: &ALPData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &ALPArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &ALPData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ALPArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.encoded.array_hash(state, precision);
         array.exponents.hash(state);
         array.patches.array_hash(state, precision);
     }
 
-    fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.encoded.array_eq(&other.encoded, precision)
             && array.exponents == other.exponents
             && array.patches.array_eq(&other.patches, precision)
     }
 
-    fn nbuffers(_array: &ALPArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &ALPArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ALPArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &ALPArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(array: &ALPArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         1 + array.patches().map_or(0, patches_nchildren)
     }
 
-    fn child(array: &ALPArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.encoded().clone(),
             _ => {
@@ -118,7 +117,7 @@ impl VTable for ALP {
         }
     }
 
-    fn child_name(array: &ALPArray, idx: usize) -> String {
+    fn child_name(array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "encoded".to_string(),
             _ => {
@@ -130,7 +129,7 @@ impl VTable for ALP {
         }
     }
 
-    fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         let exponents = array.exponents();
         Ok(ProstMetadata(ALPMetadata {
             exp_e: exponents.e as u32,
@@ -164,7 +163,7 @@ impl VTable for ALP {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ALPArray> {
+    ) -> VortexResult<ALPData> {
         let encoded_ptype = match &dtype {
             DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
             DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
@@ -186,7 +185,7 @@ impl VTable for ALP {
             })
             .transpose()?;
 
-        ALPArray::try_new(
+        ALPData::try_new(
             encoded,
             Exponents {
                 e: u8::try_from(metadata.exp_e)?,
@@ -243,7 +242,7 @@ impl VTable for ALP {
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            execute_decompress(Arc::unwrap_or_clone(array).into_inner(), ctx)?.into_array(),
+            execute_decompress(Arc::unwrap_or_clone(array), ctx)?.into_array(),
         ))
     }
 
@@ -266,7 +265,7 @@ impl VTable for ALP {
 }
 
 #[derive(Clone, Debug)]
-pub struct ALPArray {
+pub struct ALPData {
     encoded: ArrayRef,
     patches: Option<Patches>,
     dtype: DType,
@@ -291,7 +290,7 @@ pub struct ALPMetadata {
     pub(crate) patches: Option<PatchesMetadata>,
 }
 
-impl ALPArray {
+impl ALPData {
     fn validate(
         encoded: &ArrayRef,
         exponents: Exponents,
@@ -363,10 +362,10 @@ impl ALPArray {
     }
 }
 
-impl ALPArray {
+impl ALPData {
     /// Build a new `ALPArray` from components, panicking on validation failure.
     ///
-    /// See [`ALPArray::try_new`] for reference on preconditions that must pass before
+    /// See [`ALPData::try_new`] for reference on preconditions that must pass before
     /// calling this method.
     pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> Self {
         Self::try_new(encoded, exponents, patches).vortex_expect("ALPArray new")
@@ -399,7 +398,7 @@ impl ALPArray {
     /// # use vortex_buffer::buffer;
     ///
     /// // Returns error because buffer has wrong PType.
-    /// let result = ALPArray::try_new(
+    /// let result = ALPData::try_new(
     ///     buffer![1i8].into_array(),
     ///     Exponents { e: 1, f: 1 },
     ///     None
@@ -407,7 +406,7 @@ impl ALPArray {
     /// assert!(result.is_err());
     ///
     /// // Returns error because Exponents are out of bounds for f32
-    /// let result = ALPArray::try_new(
+    /// let result = ALPData::try_new(
     ///     buffer![1i32, 2i32].into_array(),
     ///     Exponents { e: 100, f: 100 },
     ///     None
@@ -415,7 +414,7 @@ impl ALPArray {
     /// assert!(result.is_err());
     ///
     /// // Success!
-    /// let value = ALPArray::try_new(
+    /// let value = ALPData::try_new(
     ///     buffer![0i32].into_array(),
     ///     Exponents { e: 1, f: 1 },
     ///     None
@@ -447,7 +446,7 @@ impl ALPArray {
 
     /// Build a new `ALPArray` from components without validation.
     ///
-    /// See [`ALPArray::try_new`] for information about the preconditions that should be checked
+    /// See [`ALPData::try_new`] for information about the preconditions that should be checked
     /// **before** calling this method.
     pub(crate) unsafe fn new_unchecked(
         encoded: ArrayRef,
@@ -462,6 +461,51 @@ impl ALPArray {
             patches,
             stats_set: Default::default(),
         }
+    }
+}
+
+/// Constructors for [`ALPArray`].
+impl ALP {
+    pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> ALPArray {
+        Array::from_inner(ALPData::new(encoded, exponents, patches))
+    }
+
+    pub fn try_new(
+        encoded: ArrayRef,
+        exponents: Exponents,
+        patches: Option<Patches>,
+    ) -> VortexResult<ALPArray> {
+        Ok(Array::from_inner(ALPData::try_new(
+            encoded, exponents, patches,
+        )?))
+    }
+
+    /// # Safety
+    /// See [`ALPData::try_new`] for preconditions.
+    pub unsafe fn new_unchecked(
+        encoded: ArrayRef,
+        exponents: Exponents,
+        patches: Option<Patches>,
+        dtype: DType,
+    ) -> ALPArray {
+        Array::from_inner(unsafe { ALPData::new_unchecked(encoded, exponents, patches, dtype) })
+    }
+}
+
+impl ALPData {
+    /// Returns the number of elements in the array.
+    pub fn len(&self) -> usize {
+        self.encoded.len()
+    }
+
+    /// Returns `true` if the array contains no elements.
+    pub fn is_empty(&self) -> bool {
+        self.encoded.len() == 0
+    }
+
+    /// Returns the logical data type of the array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
     }
 
     pub fn ptype(&self) -> PType {
@@ -489,7 +533,7 @@ impl ALPArray {
 }
 
 impl ValidityChild<ALP> for ALP {
-    fn validity_child(array: &ALPArray) -> &ArrayRef {
+    fn validity_child(array: &ALPData) -> &ArrayRef {
         array.encoded()
     }
 }
@@ -809,7 +853,7 @@ mod tests {
         .unwrap();
 
         // Build a new ALPArray with the same encoded data but patches without chunk_offsets.
-        let alp_without_chunk_offsets = ALPArray::new(
+        let alp_without_chunk_offsets = ALPData::new(
             normally_encoded.encoded().clone(),
             normally_encoded.exponents(),
             Some(patches_without_chunk_offsets),

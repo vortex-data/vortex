@@ -12,15 +12,17 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::arrays::Shared;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
+use crate::vtable::Array;
 
 /// A lazily-executing array wrapper with a one-way transition from source to cached form.
 ///
 /// Before materialization, operations delegate to the source array.
 /// After materialization (via `get_or_compute`), operations delegate to the cached result.
 #[derive(Debug, Clone)]
-pub struct SharedArray {
+pub struct SharedData {
     source: ArrayRef,
     cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
     async_compute_lock: Arc<AsyncMutex<()>>,
@@ -28,7 +30,7 @@ pub struct SharedArray {
     pub(super) stats: ArrayStats,
 }
 
-impl SharedArray {
+impl SharedData {
     pub fn new(source: ArrayRef) -> Self {
         Self {
             dtype: source.dtype().clone(),
@@ -91,6 +93,30 @@ impl SharedArray {
         result.clone().map_err(Into::into)
     }
 
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.current_array_ref().len()
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl Array<Shared> {
+    /// Creates a new `SharedArray`.
+    pub fn new(source: ArrayRef) -> Self {
+        Array::from_inner(SharedData::new(source))
+    }
+}
+
+impl SharedData {
     pub(super) fn set_source(&mut self, source: ArrayRef) {
         self.dtype = source.dtype().clone();
         self.source = source;

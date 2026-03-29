@@ -12,6 +12,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 
 /// Mask an array without reading buffers.
@@ -27,7 +28,7 @@ use crate::vtable::VTable;
 /// The mask is guaranteed to have the same length as the array. Trivial cases
 /// (`AllValid`, `AllInvalid`, `NonNullable`) are handled by the caller before dispatch.
 pub trait MaskReduce: VTable {
-    fn mask(array: &Self::Array, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
+    fn mask(array: &Array<Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Mask an array, potentially reading buffers.
@@ -43,7 +44,7 @@ pub trait MaskReduce: VTable {
 /// (`AllValid`, `AllInvalid`, `NonNullable`) are handled by the caller before dispatch.
 pub trait MaskKernel: VTable {
     fn mask(
-        array: &Self::Array,
+        array: &Array<Self>,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -61,7 +62,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: ScalarFnArrayView<'_, MaskExpr>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -93,7 +94,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: ScalarFnArrayView<'_, MaskExpr>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

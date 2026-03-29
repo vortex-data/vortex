@@ -307,8 +307,8 @@ impl dyn DynArray + '_ {
         M::try_match(self)
     }
 
-    /// Returns the array downcast to the given `V::Array` as an owned object.
-    pub fn try_into<V: VTable>(self: Arc<Self>) -> Result<V::Array, Arc<Self>> {
+    /// Returns the array downcast to the given `Array<V>` as an owned object.
+    pub fn try_into<V: VTable>(self: Arc<Self>) -> Result<Array<V>, Arc<Self>> {
         if !self.is::<V>() {
             return Err(self);
         }
@@ -318,9 +318,14 @@ impl dyn DynArray + '_ {
             .map_err(|_| vortex_err!("failed to downcast"))
             .vortex_expect("Failed to downcast");
         Ok(match Arc::try_unwrap(typed) {
-            Ok(array) => array.into_inner(),
-            Err(arc) => arc.deref().inner().clone(),
+            Ok(array) => array,
+            Err(arc) => arc.deref().clone(),
         })
+    }
+
+    /// Returns a reference to the typed `Array<V>` if this array matches the given vtable type.
+    pub fn as_typed<V: VTable>(&self) -> Option<&Array<V>> {
+        DynArray::as_any(self).downcast_ref::<Array<V>>()
     }
 
     pub fn as_constant(&self) -> Option<Scalar> {
@@ -383,7 +388,6 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for Array<V> {}
-    impl<V: VTable> Sealed for ArrayAdapter<V> {}
     impl Sealed for Arc<dyn DynArray> {}
 }
 
@@ -492,7 +496,7 @@ impl<V: VTable> DynArray for Array<V> {
             return Ok(Scalar::null(self.dtype.clone()));
         }
         let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
-            &self.array,
+            self,
             index,
             &mut LEGACY_SESSION.create_execution_ctx(),
         )?;
@@ -566,7 +570,7 @@ impl<V: VTable> DynArray for Array<V> {
 
     fn validity(&self) -> VortexResult<Validity> {
         if self.dtype.is_nullable() {
-            let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(&self.array)?;
+            let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(self)?;
             if let Validity::Array(array) = &validity {
                 vortex_ensure!(array.len() == self.len, "Validity array length mismatch");
                 vortex_ensure!(
@@ -608,7 +612,7 @@ impl<V: VTable> DynArray for Array<V> {
         }
         let len = builder.len();
 
-        V::append_to_builder(&self.array, builder, ctx)?;
+        V::append_to_builder(self, builder, ctx)?;
 
         assert_eq!(
             len + self.len,
@@ -628,7 +632,7 @@ impl<V: VTable> DynArray for Array<V> {
         V::with_children(&mut inner, children)?;
         // SAFETY: with_children preserves dtype and len.
         Ok(unsafe {
-            Array::new_unchecked(
+            Array::from_parts_unchecked(
                 self.typed_vtable().clone(),
                 self.dtype.clone(),
                 self.len,
@@ -643,79 +647,73 @@ impl<V: VTable> DynArray for Array<V> {
 impl<V: VTable> ArrayHash for Array<V> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
         self.typed_vtable().id().hash(state);
-        V::array_hash(&self.array, state, precision);
+        V::array_hash(self, state, precision);
     }
 }
 
 impl<V: VTable> ArrayEq for Array<V> {
     fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
-        V::array_eq(&self.array, &other.array, precision)
+        V::array_eq(self, other, precision)
     }
 }
 
 impl<V: VTable> ArrayVisitor for Array<V> {
     fn children(&self) -> Vec<ArrayRef> {
-        (0..V::nchildren(&self.array))
-            .map(|i| V::child(&self.array, i))
-            .collect()
+        (0..V::nchildren(self)).map(|i| V::child(self, i)).collect()
     }
 
     fn nchildren(&self) -> usize {
-        V::nchildren(&self.array)
+        V::nchildren(self)
     }
 
     fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        (idx < V::nchildren(&self.array)).then(|| V::child(&self.array, idx))
+        (idx < V::nchildren(self)).then(|| V::child(self, idx))
     }
 
     fn children_names(&self) -> Vec<String> {
-        (0..V::nchildren(&self.array))
-            .map(|i| V::child_name(&self.array, i))
+        (0..V::nchildren(self))
+            .map(|i| V::child_name(self, i))
             .collect()
     }
 
     fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        (0..V::nchildren(&self.array))
-            .map(|i| (V::child_name(&self.array, i), V::child(&self.array, i)))
+        (0..V::nchildren(self))
+            .map(|i| (V::child_name(self, i), V::child(self, i)))
             .collect()
     }
 
     fn buffers(&self) -> Vec<ByteBuffer> {
-        (0..V::nbuffers(&self.array))
-            .map(|i| V::buffer(&self.array, i).to_host_sync())
+        (0..V::nbuffers(self))
+            .map(|i| V::buffer(self, i).to_host_sync())
             .collect()
     }
 
     fn buffer_handles(&self) -> Vec<BufferHandle> {
-        (0..V::nbuffers(&self.array))
-            .map(|i| V::buffer(&self.array, i))
-            .collect()
+        (0..V::nbuffers(self)).map(|i| V::buffer(self, i)).collect()
     }
 
     fn buffer_names(&self) -> Vec<String> {
-        (0..V::nbuffers(&self.array))
-            .filter_map(|i| V::buffer_name(&self.array, i))
+        (0..V::nbuffers(self))
+            .filter_map(|i| V::buffer_name(self, i))
             .collect()
     }
 
     fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
-        (0..V::nbuffers(&self.array))
-            .filter_map(|i| {
-                V::buffer_name(&self.array, i).map(|name| (name, V::buffer(&self.array, i)))
-            })
+        (0..V::nbuffers(self))
+            .filter_map(|i| V::buffer_name(self, i).map(|name| (name, V::buffer(self, i))))
             .collect()
     }
 
     fn nbuffers(&self) -> usize {
-        V::nbuffers(&self.array)
+        V::nbuffers(self)
     }
 
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
-        V::serialize(V::metadata(&self.array)?)
+        V::serialize(V::metadata(self)?)
     }
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match V::metadata(&self.array) {
+        match V::metadata(self) {
             Err(e) => write!(f, "<serde error: {e}>"),
             Ok(metadata) => Debug::fmt(&metadata, f),
         }
@@ -741,8 +739,7 @@ impl<V: VTable> ReduceNode for Array<V> {
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        // Access as_opt via inner's Deref to dyn DynArray.
-        (*self.array)
+        (self as &dyn DynArray)
             .as_opt::<ScalarFnVTable>()
             .map(|a| a.scalar_fn())
     }
@@ -757,403 +754,14 @@ impl<V: VTable> ReduceNode for Array<V> {
     }
 }
 
-// =============================================================================
-// Legacy path: ArrayAdapter<V>
-// =============================================================================
-
-/// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynArray`]
-/// implementation.
-///
-/// Since this is a unit struct with `repr(transparent)`, we are able to turn un-adapted array
-/// structs into [`dyn Array`] using some cheeky casting inside [`std::ops::Deref`] and
-/// [`AsRef`]. See the `vtable!` macro for more details.
-#[repr(transparent)]
-pub struct ArrayAdapter<V: VTable>(V::Array);
-
-impl<V: VTable> ArrayAdapter<V> {
-    /// Provide a reference to the underlying array held within the adapter.
-    pub fn as_inner(&self) -> &V::Array {
-        &self.0
-    }
-
-    /// Consume the adapter and return the underlying array.
-    pub fn into_inner(self) -> V::Array {
-        self.0
-    }
-}
-
-impl<V: VTable> Debug for ArrayAdapter<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl<V: VTable> ReduceNode for ArrayAdapter<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(V::dtype(&self.0).clone())
-    }
-
-    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        self.0.as_opt::<ScalarFnVTable>().map(|a| a.scalar_fn())
-    }
-
-    fn child(&self, idx: usize) -> ReduceNodeRef {
-        self.nth_child(idx)
-            .unwrap_or_else(|| vortex_panic!("Child index out of bounds: {}", idx))
-    }
-
-    fn child_count(&self) -> usize {
-        self.nchildren()
-    }
-}
-
-impl<V: VTable> DynArray for ArrayAdapter<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-        self
-    }
-
-    fn to_array(&self) -> ArrayRef {
-        self.0.clone().into_array()
-    }
-
-    fn len(&self) -> usize {
-        V::len(&self.0)
-    }
-
-    fn dtype(&self) -> &DType {
-        V::dtype(&self.0)
-    }
-
-    fn vtable(&self) -> &dyn DynVTable {
-        V::vtable(self.as_inner())
-    }
-
-    fn encoding_id(&self) -> ArrayId {
-        V::vtable(&self.0).id()
-    }
-
-    fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
-        let start = range.start;
-        let stop = range.end;
-
-        if start == 0 && stop == self.len() {
-            return Ok(self.to_array());
-        }
-
-        vortex_ensure!(
-            start <= self.len(),
-            "OutOfBounds: start {start} > length {}",
-            self.len()
-        );
-        vortex_ensure!(
-            stop <= self.len(),
-            "OutOfBounds: stop {stop} > length {}",
-            self.len()
-        );
-
-        vortex_ensure!(start <= stop, "start ({start}) must be <= stop ({stop})");
-
-        if start == stop {
-            return Ok(Canonical::empty(self.dtype()).into_array());
-        }
-
-        let sliced = SliceArray::try_new(self.to_array(), range)?
-            .into_array()
-            .optimize()?;
-
-        // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value.as_ref().as_exact().is_some_and(|v| {
-                        Scalar::try_new(DType::Bool(Nullability::NonNullable), Some(v.clone()))
-                            .vortex_expect("A stat that was expected to be a boolean stat was not")
-                            .as_bool()
-                            .value()
-                            .unwrap_or_default()
-                    })
-                }));
-            });
-        }
-
-        Ok(sliced)
-    }
-
-    fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        FilterArray::try_new(self.to_array(), mask)?
-            .into_array()
-            .optimize()
-    }
-
-    fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        DictArray::try_new(indices, self.to_array())?
-            .into_array()
-            .optimize()
-    }
-
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        if self.is_invalid(index)? {
-            return Ok(Scalar::null(self.dtype().clone()));
-        }
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let scalar =
-            <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index, &mut ctx)?;
-        vortex_ensure!(self.dtype() == scalar.dtype(), "Scalar dtype mismatch");
-        Ok(scalar)
-    }
-
-    fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        match self.validity()? {
-            Validity::NonNullable | Validity::AllValid => Ok(true),
-            Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => a
-                .scalar_at(index)?
-                .as_bool()
-                .value()
-                .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
-        }
-    }
-
-    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        Ok(!self.is_valid(index)?)
-    }
-
-    fn all_valid(&self) -> VortexResult<bool> {
-        match self.validity()? {
-            Validity::NonNullable | Validity::AllValid => Ok(true),
-            Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>().unwrap_or(false)),
-        }
-    }
-
-    fn all_invalid(&self) -> VortexResult<bool> {
-        match self.validity()? {
-            Validity::NonNullable | Validity::AllValid => Ok(false),
-            Validity::AllInvalid => Ok(true),
-            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>().unwrap_or(true)),
-        }
-    }
-
-    // TODO(ngates): deprecate this function since it requires compute.
-    fn valid_count(&self) -> VortexResult<usize> {
-        if let Some(Precision::Exact(invalid_count)) =
-            self.statistics().get_as::<usize>(Stat::NullCount)
-        {
-            return Ok(self.len() - invalid_count);
-        }
-
-        let count = match self.validity()? {
-            Validity::NonNullable | Validity::AllValid => self.len(),
-            Validity::AllInvalid => 0,
-            Validity::Array(a) => {
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
-                let array_sum = sum(&a, &mut ctx)?;
-                array_sum
-                    .as_primitive()
-                    .as_::<usize>()
-                    .ok_or_else(|| vortex_err!("sum of validity array is null"))?
-            }
-        };
-        vortex_ensure!(count <= self.len(), "Valid count exceeds array length");
-
-        self.statistics()
-            .set(Stat::NullCount, Precision::exact(self.len() - count));
-
-        Ok(count)
-    }
-
-    fn invalid_count(&self) -> VortexResult<usize> {
-        Ok(self.len() - self.valid_count()?)
-    }
-
-    fn validity(&self) -> VortexResult<Validity> {
-        if self.dtype().is_nullable() {
-            let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(&self.0)?;
-            if let Validity::Array(array) = &validity {
-                vortex_ensure!(array.len() == self.len(), "Validity array length mismatch");
-                vortex_ensure!(
-                    matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
-                    "Validity array is not non-nullable boolean: {}",
-                    self.encoding_id(),
-                );
-            }
-            Ok(validity)
-        } else {
-            Ok(Validity::NonNullable)
-        }
-    }
-
-    fn validity_mask(&self) -> VortexResult<Mask> {
-        match self.validity()? {
-            Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len())),
-            Validity::AllInvalid => Ok(Mask::new_false(self.len())),
-            Validity::Array(a) => Ok(a.to_bool().to_mask()),
-        }
-    }
-
-    fn to_canonical(&self) -> VortexResult<Canonical> {
-        self.to_array()
-            .execute(&mut LEGACY_SESSION.create_execution_ctx())
-    }
-
-    fn append_to_builder(
-        &self,
-        builder: &mut dyn ArrayBuilder,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<()> {
-        if builder.dtype() != self.dtype() {
-            vortex_panic!(
-                "Builder dtype mismatch: expected {}, got {}",
-                self.dtype(),
-                builder.dtype(),
-            );
-        }
-        let len = builder.len();
-
-        V::append_to_builder(&self.0, builder, ctx)?;
-
-        assert_eq!(
-            len + self.len(),
-            builder.len(),
-            "Builder length mismatch after writing array for encoding {}",
-            self.encoding_id(),
-        );
-        Ok(())
-    }
-
-    fn statistics(&self) -> StatsSetRef<'_> {
-        V::stats(&self.0)
-    }
-
-    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        let mut this = self.0.clone();
-        V::with_children(&mut this, children)?;
-        Ok(this.into_array())
-    }
-}
-
-impl<V: VTable> ArrayHash for ArrayAdapter<V> {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
-        self.0.encoding_id().hash(state);
-        V::array_hash(&self.0, state, precision);
-    }
-}
-
-impl<V: VTable> ArrayEq for ArrayAdapter<V> {
-    fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
-        V::array_eq(&self.0, &other.0, precision)
-    }
-}
-
-impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
-    fn children(&self) -> Vec<ArrayRef> {
-        (0..V::nchildren(&self.0))
-            .map(|i| V::child(&self.0, i))
-            .collect()
-    }
-
-    fn nchildren(&self) -> usize {
-        V::nchildren(&self.0)
-    }
-
-    fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        (idx < V::nchildren(&self.0)).then(|| V::child(&self.0, idx))
-    }
-
-    fn children_names(&self) -> Vec<String> {
-        (0..V::nchildren(&self.0))
-            .map(|i| V::child_name(&self.0, i))
-            .collect()
-    }
-
-    fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        (0..V::nchildren(&self.0))
-            .map(|i| (V::child_name(&self.0, i), V::child(&self.0, i)))
-            .collect()
-    }
-
-    fn buffers(&self) -> Vec<ByteBuffer> {
-        (0..V::nbuffers(&self.0))
-            .map(|i| V::buffer(&self.0, i).to_host_sync())
-            .collect()
-    }
-
-    fn buffer_handles(&self) -> Vec<BufferHandle> {
-        (0..V::nbuffers(&self.0))
-            .map(|i| V::buffer(&self.0, i))
-            .collect()
-    }
-
-    fn buffer_names(&self) -> Vec<String> {
-        (0..V::nbuffers(&self.0))
-            .filter_map(|i| V::buffer_name(&self.0, i))
-            .collect()
-    }
-
-    fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
-        (0..V::nbuffers(&self.0))
-            .filter_map(|i| V::buffer_name(&self.0, i).map(|name| (name, V::buffer(&self.0, i))))
-            .collect()
-    }
-
-    fn nbuffers(&self) -> usize {
-        V::nbuffers(&self.0)
-    }
-
-    fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
-        V::serialize(V::metadata(&self.0)?)
-    }
-
-    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match V::metadata(&self.0) {
-            Err(e) => write!(f, "<serde error: {e}>"),
-            Ok(metadata) => Debug::fmt(&metadata, f),
-        }
-    }
-
-    fn is_host(&self) -> bool {
-        for array in self.depth_first_traversal() {
-            if !array.buffer_handles().iter().all(BufferHandle::is_on_host) {
-                return false;
-            }
-        }
-
-        true
-    }
-}
-
-/// Implement a matcher for a specific VTable type.
-///
-/// During the migration, this tries both `Array<V>` (new path) and `ArrayAdapter<V>`
-/// (legacy path). Returns `&V::Array` for backward compatibility.
 impl<V: VTable> Matcher for V {
-    type Match<'a> = &'a V::Array;
+    type Match<'a> = &'a Array<V>;
 
     fn matches(array: &dyn DynArray) -> bool {
-        DynArray::as_any(array).is::<Array<V>>() || DynArray::as_any(array).is::<ArrayAdapter<V>>()
+        DynArray::as_any(array).is::<Array<V>>()
     }
 
     fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
-        // Try new Array<V> first.
-        if let Some(typed) = DynArray::as_any(array).downcast_ref::<Array<V>>() {
-            return Some(typed.inner());
-        }
-        // Fall back to legacy ArrayAdapter<V>.
-        DynArray::as_any(array)
-            .downcast_ref::<ArrayAdapter<V>>()
-            .map(|adapter| adapter.as_inner())
+        DynArray::as_any(array).downcast_ref::<Array<V>>()
     }
 }

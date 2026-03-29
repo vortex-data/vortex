@@ -12,10 +12,10 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::slice::SliceReduce;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl SliceReduce for Primitive {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let result = match_each_native_ptype!(array.ptype(), |T| {
             PrimitiveArray::from_buffer_handle(
                 array.buffer_handle().slice_typed::<T>(range.clone()),

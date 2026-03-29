@@ -3,15 +3,16 @@
 
 use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
-use crate::SparseArray;
+use crate::SparseData;
 
 impl OperationsVTable<Sparse> for Sparse {
     fn scalar_at(
-        array: &SparseArray,
+        array: &Array<Sparse>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -37,7 +38,7 @@ mod tests {
         let values = buffer![0u64].into_array();
         let indices = buffer![0u8].into_array();
 
-        let sparse = SparseArray::try_new(indices, values, 1000, 999u64.into()).unwrap();
+        let sparse = SparseData::try_new(indices, values, 1000, 999u64.into()).unwrap();
         let sliced = sparse.slice(0..1000).unwrap();
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;

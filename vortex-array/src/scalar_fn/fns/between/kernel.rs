@@ -15,6 +15,7 @@ use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 
 /// Reduce rule for between: restructure the array without reading buffers.
@@ -22,7 +23,7 @@ use crate::vtable::VTable;
 /// Returns `Ok(None)` if the rule doesn't apply or buffer access is needed.
 pub trait BetweenReduce: VTable {
     fn between(
-        array: &Self::Array,
+        array: &Array<Self>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -34,7 +35,7 @@ pub trait BetweenReduce: VTable {
 /// Returns `Ok(None)` if this kernel cannot handle the given inputs.
 pub trait BetweenKernel: VTable {
     fn between(
-        array: &Self::Array,
+        array: &Array<Self>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -54,7 +55,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: ScalarFnArrayView<'_, Between>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -88,7 +89,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: ScalarFnArrayView<'_, Between>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

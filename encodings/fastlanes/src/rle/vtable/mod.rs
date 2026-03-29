@@ -13,12 +13,13 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::StatsSetRef;
+use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
@@ -29,7 +30,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::RLEArray;
+use crate::RLEData;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::kernel::PARENT_KERNELS;
 use crate::rle::vtable::rules::RULES;
@@ -38,7 +39,7 @@ mod operations;
 mod rules;
 mod validity;
 
-vtable!(RLE);
+vtable!(RLE, RLE, RLEData);
 
 #[derive(Clone, prost::Message)]
 pub struct RLEMetadata {
@@ -57,14 +58,14 @@ pub struct RLEMetadata {
 }
 
 impl VTable for RLE {
-    type Array = RLEArray;
+    type Array = RLEData;
 
     type Metadata = ProstMetadata<RLEMetadata>;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &RLEData) -> &Self {
         &RLE
     }
 
@@ -72,19 +73,19 @@ impl VTable for RLE {
         Self::ID
     }
 
-    fn len(array: &RLEArray) -> usize {
+    fn len(array: &RLEData) -> usize {
         array.len()
     }
 
-    fn dtype(array: &RLEArray) -> &DType {
+    fn dtype(array: &RLEData) -> &DType {
         array.dtype()
     }
 
-    fn stats(array: &RLEArray) -> StatsSetRef<'_> {
-        array.stats_set().to_ref(array.as_ref())
+    fn stats(array: &RLEData) -> &ArrayStats {
+        array.stats_set()
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &RLEArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype().hash(state);
         array.values().array_hash(state, precision);
         array.indices().array_hash(state, precision);
@@ -93,7 +94,7 @@ impl VTable for RLE {
         array.len().hash(state);
     }
 
-    fn array_eq(array: &RLEArray, other: &RLEArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype() == other.dtype()
             && array.values().array_eq(other.values(), precision)
             && array.indices().array_eq(other.indices(), precision)
@@ -104,23 +105,23 @@ impl VTable for RLE {
             && array.len() == other.len()
     }
 
-    fn nbuffers(_array: &RLEArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &RLEArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("RLEArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &RLEArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &RLEArray) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         3
     }
 
-    fn child(array: &RLEArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.values().clone(),
             1 => array.indices().clone(),
@@ -129,7 +130,7 @@ impl VTable for RLE {
         }
     }
 
-    fn child_name(_array: &RLEArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "values".to_string(),
             1 => "indices".to_string(),
@@ -146,7 +147,7 @@ impl VTable for RLE {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut RLEData, children: Vec<ArrayRef>) -> VortexResult<()> {
         // RLEArray children order (from visit_children):
         // 1. values
         // 2. indices
@@ -165,7 +166,7 @@ impl VTable for RLE {
         Ok(())
     }
 
-    fn metadata(array: &RLEArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(RLEMetadata {
             values_len: array.values().len() as u64,
             indices_len: array.indices().len() as u64,
@@ -196,7 +197,7 @@ impl VTable for RLE {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<RLEArray> {
+    ) -> VortexResult<RLEData> {
         let metadata = &metadata.0;
         let values = children.get(
             0,
@@ -219,7 +220,7 @@ impl VTable for RLE {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        RLEArray::try_new(
+        RLEData::try_new(
             values,
             indices,
             values_idx_offsets,
@@ -249,6 +250,28 @@ pub struct RLE;
 
 impl RLE {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
+
+    /// Create a new RLE array without validation.
+    ///
+    /// # Safety
+    /// See [`RLEData::new_unchecked`] for preconditions.
+    pub unsafe fn new_unchecked(
+        values: ArrayRef,
+        indices: ArrayRef,
+        values_idx_offsets: ArrayRef,
+        dtype: DType,
+        offset: usize,
+        length: usize,
+    ) -> RLEArray {
+        Array::from_inner(unsafe {
+            RLEData::new_unchecked(values, indices, values_idx_offsets, dtype, offset, length)
+        })
+    }
+
+    /// Encode a primitive array using FastLanes RLE.
+    pub fn encode(array: &PrimitiveArray) -> VortexResult<RLEArray> {
+        Ok(Array::from_inner(RLEData::encode(array)?))
+    }
 }
 
 #[cfg(test)]

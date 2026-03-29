@@ -8,7 +8,7 @@ use super::IsSortedIteratorExt;
 use crate::arrays::BoolArray;
 
 pub(super) fn check_bool_sorted(array: &BoolArray, strict: bool) -> VortexResult<bool> {
-    match array.validity_mask()? {
+    match array.validity_mask() {
         Mask::AllFalse(_) => Ok(!strict),
         Mask::AllTrue(_) => {
             let values = array.to_bit_buffer();

@@ -15,6 +15,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::vtable::Array;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Extension> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ExtensionFilterPushDownRule),
@@ -33,7 +34,7 @@ impl ArrayParentReduceRule<Extension> for ExtensionFilterPushDownRule {
 
     fn reduce_parent(
         &self,
-        child: &ExtensionArray,
+        child: &Array<Extension>,
         parent: &FilterArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

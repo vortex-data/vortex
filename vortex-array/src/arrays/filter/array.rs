@@ -7,7 +7,10 @@ use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::arrays::Filter;
+use crate::dtype::DType;
 use crate::stats::ArrayStats;
+use crate::vtable::Array;
 
 /// Decomposed parts of the filter array.
 pub struct FilterArrayParts {
@@ -23,7 +26,7 @@ pub struct FilterArrayParts {
 ///
 /// The resulting array contains only the elements where the mask is true.
 #[derive(Clone, Debug)]
-pub struct FilterArray {
+pub struct FilterData {
     /// The source array being filtered.
     pub(super) child: ArrayRef,
 
@@ -34,7 +37,7 @@ pub struct FilterArray {
     pub(super) stats: ArrayStats,
 }
 
-impl FilterArray {
+impl FilterData {
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
         Self::try_new(array, mask).vortex_expect("FilterArray construction failed")
     }
@@ -55,6 +58,21 @@ impl FilterArray {
         })
     }
 
+    /// Returns the length of this array (number of elements after filtering).
+    pub fn len(&self) -> usize {
+        self.mask.true_count()
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        self.child.dtype()
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// The child array being filtered.
     pub fn child(&self) -> &ArrayRef {
         &self.child
@@ -64,7 +82,16 @@ impl FilterArray {
     pub fn filter_mask(&self) -> &Mask {
         &self.mask
     }
+}
 
+impl Array<Filter> {
+    /// Constructs a new `FilterArray`.
+    pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
+        Ok(Array::from_inner(FilterData::try_new(array, mask)?))
+    }
+}
+
+impl FilterData {
     /// Consume the array and return its individual components.
     pub fn into_parts(self) -> FilterArrayParts {
         FilterArrayParts {

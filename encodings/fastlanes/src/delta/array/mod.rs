@@ -34,7 +34,7 @@ pub mod delta_decompress;
 ///
 /// let session = VortexSession::empty().with::<ArraySession>();
 /// let primitive = PrimitiveArray::from_iter([1_u32, 2, 3, 5, 10, 11]);
-/// let array = DeltaArray::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
+/// let array = DeltaData::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
 /// ```
 ///
 /// # Details
@@ -57,7 +57,7 @@ pub mod delta_decompress;
 ///
 /// Note the validity is stored in the deltas array.
 #[derive(Clone, Debug)]
-pub struct DeltaArray {
+pub struct DeltaData {
     pub(super) offset: usize,
     pub(super) len: usize,
     pub(super) dtype: DType,
@@ -66,7 +66,7 @@ pub struct DeltaArray {
     pub(super) stats_set: ArrayStats,
 }
 
-impl DeltaArray {
+impl DeltaData {
     pub fn try_from_primitive_array(
         array: &PrimitiveArray,
         ctx: &mut ExecutionCtx,

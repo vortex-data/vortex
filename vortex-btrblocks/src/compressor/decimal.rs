@@ -8,8 +8,7 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
-use vortex_array::vtable::ValidityHelper;
-use vortex_decimal_byte_parts::DecimalBytePartsArray;
+use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_error::VortexResult;
 
 use crate::BtrBlocksCompressor;
@@ -39,5 +38,5 @@ pub fn compress_decimal(
         Excludes::none(),
     )?;
 
-    DecimalBytePartsArray::try_new(compressed, decimal.decimal_dtype()).map(|d| d.into_array())
+    DecimalByteParts::try_new(compressed, decimal.decimal_dtype()).map(|d| d.into_array())
 }

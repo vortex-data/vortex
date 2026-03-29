@@ -4,6 +4,7 @@
 use async_trait::async_trait;
 use tokio::fs::File;
 use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
@@ -69,7 +70,7 @@ impl Dataset for DownloadableDataset {
                     &mut File::create(path)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to create file: {}", e))?,
-                    data.to_array_stream(),
+                    data.into_array().to_array_stream(),
                 )
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to write vortex file: {}", e))?;

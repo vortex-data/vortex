@@ -5,14 +5,14 @@ use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
 use crate::arrays::VarBin;
-use crate::arrays::VarBinArray;
 use crate::arrays::varbin::varbin_scalar;
 use crate::scalar::Scalar;
+use crate::vtable::Array;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<VarBin> for VarBin {
     fn scalar_at(
-        array: &VarBinArray,
+        array: &Array<VarBin>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

@@ -7,12 +7,11 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
+use crate::BitPackedData;
 use crate::bitpacking::BitPacked;
 use crate::bitpacking::BitPackedArray;
-
 impl CastReduce for BitPacked {
     fn cast(array: &BitPackedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if array.dtype().eq_ignore_nullability(dtype) {
@@ -21,7 +20,7 @@ impl CastReduce for BitPacked {
                 .clone()
                 .cast_nullability(dtype.nullability(), array.len())?;
             return Ok(Some(
-                BitPackedArray::try_new(
+                BitPackedData::try_new(
                     array.packed().clone(),
                     dtype.as_ptype(),
                     new_validity,
@@ -63,12 +62,10 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
 
-    use crate::BitPackedArray;
-
     #[test]
     fn test_cast_bitpacked_u8_to_u32() {
         let packed =
-            BitPackedArray::encode(&buffer![10u8, 20, 30, 40, 50, 60].into_array(), 6).unwrap();
+            BitPackedData::encode(&buffer![10u8, 20, 30, 40, 50, 60].into_array(), 6).unwrap();
 
         let casted = packed
             .into_array()
@@ -88,7 +85,7 @@ mod tests {
     #[test]
     fn test_cast_bitpacked_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(5u16), None, Some(10), Some(15), None]);
-        let packed = BitPackedArray::encode(&values.into_array(), 4).unwrap();
+        let packed = BitPackedData::encode(&values.into_array(), 4).unwrap();
 
         let casted = packed
             .into_array()
@@ -101,10 +98,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(BitPackedArray::encode(&buffer![0u8, 10, 20, 30, 40, 50, 60, 63].into_array(), 6).unwrap())]
-    #[case(BitPackedArray::encode(&buffer![0u16, 100, 200, 300, 400, 500].into_array(), 9).unwrap())]
-    #[case(BitPackedArray::encode(&buffer![0u32, 1000, 2000, 3000, 4000].into_array(), 12).unwrap())]
-    #[case(BitPackedArray::encode(&PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).into_array(), 4).unwrap())]
+    #[case(BitPackedData::encode(&buffer![0u8, 10, 20, 30, 40, 50, 60, 63].into_array(), 6).unwrap())]
+    #[case(BitPackedData::encode(&buffer![0u16, 100, 200, 300, 400, 500].into_array(), 9).unwrap())]
+    #[case(BitPackedData::encode(&buffer![0u32, 1000, 2000, 3000, 4000].into_array(), 12).unwrap())]
+    #[case(BitPackedData::encode(&PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).into_array(), 4).unwrap())]
     fn test_cast_bitpacked_conformance(#[case] array: BitPackedArray) {
         test_cast_conformance(&array.into_array());
     }

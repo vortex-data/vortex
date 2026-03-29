@@ -11,15 +11,14 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
+use crate::DeltaData;
 use crate::FL_CHUNK_SIZE;
 use crate::bit_transpose::transpose_validity;
 use crate::fill_forward_nulls;
-
 pub fn delta_compress(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
@@ -105,7 +104,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::DeltaArray;
     use crate::bitpack_compress::bitpack_encode;
     use crate::delta::array::delta_decompress::delta_decompress;
     use crate::delta_compress;
@@ -121,7 +119,7 @@ mod tests {
     ))]
     fn test_compress(#[case] array: PrimitiveArray) -> VortexResult<()> {
         let delta =
-            DeltaArray::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())?;
+            DeltaData::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())?;
         assert_eq!(delta.len(), array.len());
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, array);
@@ -138,7 +136,7 @@ mod tests {
         );
         let (bases, deltas) = delta_compress(&array, &mut SESSION.create_execution_ctx()).unwrap();
         let bitpacked_deltas = bitpack_encode(&deltas, 1, None).unwrap();
-        let packed_delta = DeltaArray::try_new(
+        let packed_delta = DeltaData::try_new(
             bases.into_array(),
             bitpacked_deltas.into_array(),
             0,

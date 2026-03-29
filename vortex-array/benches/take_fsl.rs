@@ -66,6 +66,8 @@ fn take_fsl_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize)
         .with_inputs(|| (&fsl, &indices_array, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, execution_ctx)| {
             array
+                .clone()
+                .into_array()
                 .take(indices.to_array())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)
@@ -91,6 +93,8 @@ fn take_fsl_nullable_random<const LIST_SIZE: usize>(bencher: Bencher, num_indice
         .with_inputs(|| (&fsl, &indices_array, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, execution_ctx)| {
             array
+                .clone()
+                .into_array()
                 .take(indices.to_array())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)

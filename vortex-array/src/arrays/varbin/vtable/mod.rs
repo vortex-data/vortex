@@ -16,7 +16,7 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::VarBinArray;
+use crate::arrays::varbin::VarBinData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -44,9 +44,9 @@ use crate::Precision;
 use crate::arrays::varbin::compute::rules::PARENT_RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 
-vtable!(VarBin);
+vtable!(VarBin, VarBin, VarBinData);
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
@@ -55,12 +55,12 @@ pub struct VarBinMetadata {
 }
 
 impl VTable for VarBin {
-    type Array = VarBinArray;
+    type Array = VarBinData;
 
     type Metadata = ProstMetadata<VarBinMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &VarBinData) -> &Self {
         &VarBin
     }
 
@@ -68,55 +68,55 @@ impl VTable for VarBin {
         Self::ID
     }
 
-    fn len(array: &VarBinArray) -> usize {
+    fn len(array: &VarBinData) -> usize {
         array.offsets().len().saturating_sub(1)
     }
 
-    fn dtype(array: &VarBinArray) -> &DType {
+    fn dtype(array: &VarBinData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &VarBinArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &VarBinData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &VarBinArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.bytes().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &VarBinArray, other: &VarBinArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.bytes().array_eq(other.bytes(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(_array: &VarBinArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn buffer(array: &VarBinArray, idx: usize) -> BufferHandle {
+    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.bytes_handle().clone(),
             _ => vortex_panic!("VarBinArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &VarBinArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("bytes".to_string()),
             _ => vortex_panic!("VarBinArray buffer_name index {idx} out of bounds"),
         }
     }
 
-    fn nchildren(array: &VarBinArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         1 + validity_nchildren(&array.validity)
     }
 
-    fn child(array: &VarBinArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.offsets().clone(),
             1 => validity_to_child(&array.validity, array.len())
@@ -125,7 +125,7 @@ impl VTable for VarBin {
         }
     }
 
-    fn child_name(_array: &VarBinArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "offsets".to_string(),
             1 => "validity".to_string(),
@@ -133,7 +133,7 @@ impl VTable for VarBin {
         }
     }
 
-    fn metadata(array: &VarBinArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(VarBinMetadata {
             offsets_ptype: PType::try_from(array.offsets().dtype())
                 .vortex_expect("Must be a valid PType") as i32,
@@ -162,7 +162,7 @@ impl VTable for VarBin {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<VarBinArray> {
+    ) -> VortexResult<VarBinData> {
         let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
         } else if children.len() == 2 {
@@ -183,7 +183,7 @@ impl VTable for VarBin {
         }
         let bytes = buffers[0].clone().try_to_host_sync()?;
 
-        VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
+        VarBinData::try_new(offsets, bytes, dtype.clone(), validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

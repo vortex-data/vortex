@@ -11,9 +11,10 @@ use crate::IntoArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
+use crate::vtable::Array;
 
 impl CastReduce for Dict {
-    fn cast(array: &DictArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: &Array<Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Can have un-reference null values making the cast of values fail without a possible mask.
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
         if !dtype.is_nullable()

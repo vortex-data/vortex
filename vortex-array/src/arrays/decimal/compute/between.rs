@@ -10,7 +10,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
-use crate::arrays::DecimalArray;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
@@ -18,11 +17,11 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl BetweenKernel for Decimal {
     fn between(
-        arr: &DecimalArray,
+        arr: &Array<Decimal>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -46,7 +45,7 @@ impl BetweenKernel for Decimal {
 }
 
 fn between_unpack<T: NativeDecimalType>(
-    arr: &DecimalArray,
+    arr: &Array<Decimal>,
     lower: Scalar,
     upper: Scalar,
     nullability: Nullability,
@@ -94,7 +93,7 @@ fn between_unpack<T: NativeDecimalType>(
 }
 
 fn between_impl<T: NativeDecimalType>(
-    arr: &DecimalArray,
+    arr: &Array<Decimal>,
     lower: T,
     upper: T,
     nullability: Nullability,

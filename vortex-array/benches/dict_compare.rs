@@ -6,6 +6,7 @@
 use std::str::from_utf8;
 
 use vortex_array::Canonical;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
@@ -123,7 +124,7 @@ fn bench_compare_sliced_dict_primitive(
 ) {
     let primitive_arr = gen_primitive_for_dict::<i32>(codes_len.max(values_len), values_len);
     let dict = dict_encode(&primitive_arr.clone().into_array()).unwrap();
-    let dict = dict.slice(0..codes_len).unwrap();
+    let dict = dict.into_array().slice(0..codes_len).unwrap();
     let value = primitive_arr.as_slice::<i32>()[0];
     let session = VortexSession::empty();
 
@@ -144,7 +145,7 @@ fn bench_compare_sliced_dict_varbinview(
 ) {
     let varbin_arr = VarBinArray::from(gen_varbin_words(codes_len.max(values_len), values_len));
     let dict = dict_encode(&varbin_arr.clone().into_array()).unwrap();
-    let dict = dict.slice(0..codes_len).unwrap();
+    let dict = dict.into_array().slice(0..codes_len).unwrap();
     let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
     let session = VortexSession::empty();

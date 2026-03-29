@@ -12,7 +12,9 @@ use divan::Bencher;
 use rand::distr::Uniform;
 use rand::prelude::*;
 use rand_distr::Zipf;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
+use vortex_array::ToCanonical;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 
@@ -40,7 +42,7 @@ fn dict_canonicalize_uniform<const NUM_VALUES: usize>(bencher: Bencher, num_indi
 
     bencher
         .with_inputs(|| &dict)
-        .bench_refs(|dict| dict.to_canonical());
+        .bench_refs(|dict| dict.clone().into_array().to_canonical());
 }
 
 #[divan::bench(args = NUM_INDICES, consts = VECTOR_SIZE, sample_count = 100_000)]
@@ -59,5 +61,5 @@ fn dict_canonicalize_zipfian<const NUM_VALUES: usize>(bencher: Bencher, num_indi
 
     bencher
         .with_inputs(|| &dict)
-        .bench_refs(|dict| dict.to_canonical());
+        .bench_refs(|dict| dict.clone().into_array().to_canonical());
 }

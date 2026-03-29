@@ -16,7 +16,6 @@ use crate::match_each_native_ptype;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {

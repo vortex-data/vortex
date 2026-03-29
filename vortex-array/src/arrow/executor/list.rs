@@ -30,7 +30,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex VarBinArray into an Arrow [`GenericListArray`](arrow_array:array::GenericListArray).
 pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
@@ -141,7 +140,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         sizes,
         validity,
         ..
-    } = array.into_parts();
+    } = array.into_inner().into_parts();
 
     // For ZCTL, we know that we only care about the final size.
     assert!(!sizes.is_empty());

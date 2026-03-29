@@ -113,7 +113,11 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .to_bool();
     let true_count = bool_result.to_bit_buffer().true_count();
     if true_count != expected_array.len()
-        && (bool_result.all_valid().vortex_expect("all_valid")
+        && (bool_result
+            .clone()
+            .into_array()
+            .all_valid()
+            .vortex_expect("all_valid")
             || expected_array.all_valid().vortex_expect("all_valid"))
     {
         vortex_panic!(

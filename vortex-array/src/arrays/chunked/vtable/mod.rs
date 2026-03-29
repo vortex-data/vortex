@@ -20,8 +20,8 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
-use crate::arrays::ChunkedArray;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::ChunkedData;
+use crate::arrays::PrimitiveData;
 use crate::arrays::chunked::compute::kernel::PARENT_KERNELS;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
@@ -33,7 +33,7 @@ use crate::dtype::PType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
@@ -42,7 +42,7 @@ use crate::vtable::VTable;
 mod canonical;
 mod operations;
 mod validity;
-vtable!(Chunked);
+vtable!(Chunked, Chunked, ChunkedData);
 
 #[derive(Clone, Debug)]
 pub struct Chunked;
@@ -52,7 +52,7 @@ impl Chunked {
 }
 
 impl VTable for Chunked {
-    type Array = ChunkedArray;
+    type Array = ChunkedData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
@@ -65,34 +65,39 @@ impl VTable for Chunked {
         Self::ID
     }
 
-    fn len(array: &ChunkedArray) -> usize {
+    fn len(array: &ChunkedData) -> usize {
         array.len
     }
 
-    fn dtype(array: &ChunkedArray) -> &DType {
+    fn dtype(array: &ChunkedData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &ChunkedArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &ChunkedData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ChunkedArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.len.hash(state);
-        array.chunk_offsets.as_ref().array_hash(state, precision);
+        array
+            .chunk_offsets
+            .clone()
+            .into_array()
+            .array_hash(state, precision);
         for chunk in &array.chunks {
             chunk.array_hash(state, precision);
         }
     }
 
-    fn array_eq(array: &ChunkedArray, other: &ChunkedArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.len == other.len
             && array
                 .chunk_offsets
-                .as_ref()
-                .array_eq(other.chunk_offsets.as_ref(), precision)
+                .clone()
+                .into_array()
+                .array_eq(&other.chunk_offsets.clone().into_array(), precision)
             && array.chunks.len() == other.chunks.len()
             && array
                 .chunks
@@ -101,37 +106,37 @@ impl VTable for Chunked {
                 .all(|(a, b)| a.array_eq(b, precision))
     }
 
-    fn nbuffers(_array: &ChunkedArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &ChunkedArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ChunkedArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &ChunkedArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &ChunkedArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         1 + array.chunks().len()
     }
 
-    fn child(array: &ChunkedArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.chunk_offsets.clone().into_array(),
             n => array.chunks()[n - 1].clone(),
         }
     }
 
-    fn child_name(_array: &ChunkedArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "chunk_offsets".to_string(),
             n => format!("chunks[{}]", n - 1),
         }
     }
 
-    fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -155,7 +160,7 @@ impl VTable for Chunked {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ChunkedArray> {
+    ) -> VortexResult<ChunkedData> {
         if children.is_empty() {
             vortex_bail!("Chunked array needs at least one child");
         }
@@ -186,7 +191,7 @@ impl VTable for Chunked {
             })
             .try_collect()?;
 
-        let chunk_offsets = PrimitiveArray::new(chunk_offsets_buf.clone(), Validity::NonNullable);
+        let chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
 
         let total_len = chunk_offsets_buf
             .last()
@@ -195,7 +200,7 @@ impl VTable for Chunked {
             .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
 
         // Construct directly using the struct fields to avoid recomputing chunk_offsets
-        Ok(ChunkedArray {
+        Ok(ChunkedData {
             dtype: dtype.clone(),
             len,
             chunk_offsets,
@@ -223,7 +228,7 @@ impl VTable for Chunked {
         );
 
         let chunks = children.into_iter().skip(1).collect();
-        array.chunk_offsets = PrimitiveArray::new(chunk_offsets_buf.clone(), Validity::NonNullable);
+        array.chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
         array.chunks = chunks;
 
         let total_len = chunk_offsets_buf
@@ -236,7 +241,7 @@ impl VTable for Chunked {
     }
 
     fn append_to_builder(
-        array: &ChunkedArray,
+        array: &Array<Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {

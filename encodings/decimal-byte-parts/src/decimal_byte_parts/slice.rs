@@ -8,6 +8,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
+use super::DecimalBytePartsData;
 use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
 
@@ -15,7 +16,7 @@ impl SliceReduce for DecimalByteParts {
     fn slice(array: &DecimalBytePartsArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: slicing encoded MSP does not change the encoded values
         Ok(Some(unsafe {
-            DecimalBytePartsArray::new_unchecked(array.msp().slice(range)?, *array.decimal_dtype())
+            DecimalBytePartsData::new_unchecked(array.msp().slice(range)?, *array.decimal_dtype())
                 .into_array()
         }))
     }

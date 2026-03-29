@@ -11,8 +11,10 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
 use crate::ToCanonical;
+use crate::arrays::Primitive;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -20,7 +22,7 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 mod accessor;
 mod cast;
@@ -69,7 +71,7 @@ use crate::buffer::BufferHandle;
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct PrimitiveArray {
+pub struct PrimitiveData {
     pub(super) dtype: DType,
     pub(super) buffer: BufferHandle,
     pub(super) validity: Validity,
@@ -83,7 +85,7 @@ pub struct PrimitiveArrayParts {
 }
 
 // TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
-impl PrimitiveArray {
+impl PrimitiveData {
     /// Create a new array from a buffer handle.
     ///
     /// # Safety
@@ -179,7 +181,76 @@ impl PrimitiveArray {
     }
 }
 
-impl PrimitiveArray {
+impl Array<Primitive> {
+    pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
+        Array::from_inner(PrimitiveData::empty::<T>(nullability))
+    }
+
+    /// Creates a new [`PrimitiveArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the provided components do not satisfy the invariants.
+    pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
+        Array::from_inner(PrimitiveData::new(buffer, validity))
+    }
+
+    /// Creates a new [`PrimitiveArray`] without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`PrimitiveData::new_unchecked`].
+    pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
+        Array::from_inner(unsafe { PrimitiveData::new_unchecked(buffer, validity) })
+    }
+
+    /// Create a new array from a buffer handle.
+    ///
+    /// # Safety
+    ///
+    /// See [`PrimitiveData::new_unchecked_from_handle`].
+    pub unsafe fn new_unchecked_from_handle(
+        handle: BufferHandle,
+        ptype: PType,
+        validity: Validity,
+    ) -> Self {
+        Array::from_inner(unsafe {
+            PrimitiveData::new_unchecked_from_handle(handle, ptype, validity)
+        })
+    }
+
+    /// Creates a new [`PrimitiveArray`] from a [`BufferHandle`].
+    pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
+        Array::from_inner(PrimitiveData::from_buffer_handle(handle, ptype, validity))
+    }
+
+    /// Creates a new [`PrimitiveArray`] from a [`ByteBuffer`].
+    pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
+        Array::from_inner(PrimitiveData::from_byte_buffer(buffer, ptype, validity))
+    }
+
+    /// Create a PrimitiveArray from a byte buffer containing only the valid elements.
+    pub fn from_values_byte_buffer(
+        valid_elems_buffer: ByteBuffer,
+        ptype: PType,
+        validity: Validity,
+        n_rows: usize,
+    ) -> Self {
+        Array::from_inner(PrimitiveData::from_values_byte_buffer(
+            valid_elems_buffer,
+            ptype,
+            validity,
+            n_rows,
+        ))
+    }
+
+    /// Validates the components that would be used to create a [`PrimitiveArray`].
+    pub fn validate<T: NativePType>(buffer: &Buffer<T>, validity: &Validity) -> VortexResult<()> {
+        PrimitiveData::validate(buffer, validity)
+    }
+}
+
+impl PrimitiveData {
     /// Consume the primitive array and returns its component parts.
     pub fn into_parts(self) -> PrimitiveArrayParts {
         let ptype = self.ptype();
@@ -191,7 +262,33 @@ impl PrimitiveArray {
     }
 }
 
-impl PrimitiveArray {
+impl PrimitiveData {
+    /// Returns the dtype of the array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns the length of the array.
+    pub fn len(&self) -> usize {
+        self.buffer.len() / self.ptype().byte_width()
+    }
+
+    /// Returns `true` if the array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the validity of the array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> &Validity {
+        &self.validity
+    }
+
+    /// Returns the validity as a [`Mask`](vortex_mask::Mask).
+    pub fn validity_mask(&self) -> vortex_mask::Mask {
+        self.validity.to_mask(self.len())
+    }
+
     pub fn ptype(&self) -> PType {
         self.dtype().as_ptype()
     }
@@ -244,13 +341,27 @@ impl PrimitiveArray {
         Self::from_byte_buffer(buffer, ptype, validity)
     }
 
+    /// Get a buffer in host memory holding all the values.
+    ///
+    /// NOTE: some values may be nonsense if the validity buffer indicates that the value is null.
+    pub fn to_buffer<T: NativePType>(&self) -> Buffer<T> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        Buffer::from_byte_buffer(self.buffer_handle().to_host_sync())
+    }
+
     /// Map each element in the array to a new value.
     ///
     /// This ignores validity and maps over all maybe-null elements.
     ///
     /// TODO(ngates): we could be smarter here if validity is sparse and only run the function
     ///   over the valid elements.
-    pub fn map_each<T, R, F>(self, f: F) -> PrimitiveArray
+    pub fn map_each<T, R, F>(self, f: F) -> Self
     where
         T: NativePType,
         R: NativePType,
@@ -261,14 +372,14 @@ impl PrimitiveArray {
             Ok(buffer_mut) => buffer_mut.map_each_in_place(f),
             Err(buffer) => BufferMut::from_iter(buffer.iter().copied().map(f)),
         };
-        PrimitiveArray::new(buffer.freeze(), validity)
+        PrimitiveData::new(buffer.freeze(), validity)
     }
 
     /// Map each element in the array to a new value.
     ///
     /// This doesn't ignore validity and maps over all maybe-null elements, with a bool true if
     /// valid and false otherwise.
-    pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<PrimitiveArray>
+    pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<Self>
     where
         T: NativePType,
         R: NativePType,
@@ -290,6 +401,38 @@ impl PrimitiveArray {
                 BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
             }
         };
-        Ok(PrimitiveArray::new(buffer.freeze(), validity.clone()))
+        Ok(PrimitiveData::new(buffer.freeze(), validity.clone()))
+    }
+
+    /// Consume the array and get a host Buffer containing the data values.
+    pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        Buffer::from_byte_buffer(self.buffer.into_host_sync())
+    }
+
+    /// Extract a mutable buffer from the PrimitiveData. Attempts to do this with zero-copy
+    /// if the buffer is uniquely owned, otherwise will make a copy.
+    pub fn into_buffer_mut<T: NativePType>(self) -> BufferMut<T> {
+        self.try_into_buffer_mut()
+            .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
+    }
+
+    /// Try to extract a mutable buffer from the PrimitiveData with zero copy.
+    pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, Buffer<T>> {
+        if T::PTYPE != self.ptype() {
+            vortex_panic!(
+                "Attempted to get buffer_mut of type {} from array of type {}",
+                T::PTYPE,
+                self.ptype()
+            )
+        }
+        let buffer = Buffer::<T>::from_byte_buffer(self.buffer.into_host_sync());
+        buffer.try_into_mut()
     }
 }

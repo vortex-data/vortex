@@ -9,9 +9,11 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::DynArray;
+use crate::arrays::FixedSizeList;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::Array;
 
 /// The canonical encoding for fixed-size list arrays.
 ///
@@ -61,7 +63,7 @@ use crate::validity::Validity;
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct FixedSizeListArray {
+pub struct FixedSizeListData {
     /// The [`DType`] of the fixed-size list.
     ///
     /// This type **must** be the variant [`DType::FixedSizeList`].
@@ -99,7 +101,7 @@ pub struct FixedSizeListArray {
     pub(super) stats_set: ArrayStats,
 }
 
-impl FixedSizeListArray {
+impl FixedSizeListData {
     /// Creates a new [`FixedSizeListArray`].
     ///
     /// # Panics
@@ -209,6 +211,32 @@ impl FixedSizeListArray {
         Ok(())
     }
 
+    /// Returns the dtype of the array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns the length of the array.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns `true` if the array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the validity of the array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> &Validity {
+        &self.validity
+    }
+
+    /// Returns the validity as a [`Mask`](vortex_mask::Mask).
+    pub fn validity_mask(&self) -> vortex_mask::Mask {
+        self.validity.to_mask(self.len())
+    }
+
     /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
@@ -218,12 +246,44 @@ impl FixedSizeListArray {
     pub const fn list_size(&self) -> u32 {
         self.list_size
     }
+}
 
-    /// Returns the elements of the fixed-size list scalar at the given index of the list array.
+impl Array<FixedSizeList> {
+    /// Creates a new [`FixedSizeListArray`].
+    pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
+        Array::from_inner(FixedSizeListData::new(elements, list_size, validity, len))
+    }
+
+    /// Constructs a new `FixedSizeListArray`.
+    pub fn try_new(
+        elements: ArrayRef,
+        list_size: u32,
+        validity: Validity,
+        len: usize,
+    ) -> VortexResult<Self> {
+        Ok(Array::from_inner(FixedSizeListData::try_new(
+            elements, list_size, validity, len,
+        )?))
+    }
+
+    /// Creates a new [`FixedSizeListArray`] without validation.
     ///
-    /// # Errors
+    /// # Safety
     ///
-    /// Returns an error if the index is out of bounds or the slice operation fails.
+    /// See [`FixedSizeListData::new_unchecked`].
+    pub unsafe fn new_unchecked(
+        elements: ArrayRef,
+        list_size: u32,
+        validity: Validity,
+        len: usize,
+    ) -> Self {
+        Array::from_inner(unsafe {
+            FixedSizeListData::new_unchecked(elements, list_size, validity, len)
+        })
+    }
+}
+
+impl FixedSizeListData {
     pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
             index < self.len,

@@ -3,16 +3,21 @@
 
 use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::RLE;
 use crate::FL_CHUNK_SIZE;
-use crate::RLEArray;
+use crate::RLEData;
 
 impl OperationsVTable<RLE> for RLE {
-    fn scalar_at(array: &RLEArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &Array<RLE>,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let offset_in_chunk = array.offset();
         let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index)?;
 
@@ -60,7 +65,7 @@ mod tests {
             .into_array();
             let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
 
-            RLEArray::try_new(
+            RLEData::try_new(
                 values,
                 indices.clone(),
                 values_idx_offsets,
@@ -95,7 +100,7 @@ mod tests {
             )
             .into_array();
 
-            RLEArray::try_new(
+            RLEData::try_new(
                 values,
                 indices.clone(),
                 values_idx_offsets,
@@ -163,7 +168,7 @@ mod tests {
         let expected: Vec<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
         let array = values.into_array();
 
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEData::encode(&array.to_primitive()).unwrap();
 
         // Access scalars from multiple chunks.
         for &idx in &[1023, 1024, 1025, 2047, 2048, 2049] {
@@ -269,7 +274,7 @@ mod tests {
         let expected: Vec<u32> = (0..2100).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
-        let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEData::encode(&array.to_primitive()).unwrap();
 
         // Slice across first and second chunk.
         let slice = encoded.slice(500..1500).unwrap();

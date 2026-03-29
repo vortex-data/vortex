@@ -15,10 +15,11 @@ use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::vtable::Array;
 
 impl CompareKernel for Dict {
     fn compare(
-        lhs: &DictArray,
+        lhs: &Array<Dict>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,

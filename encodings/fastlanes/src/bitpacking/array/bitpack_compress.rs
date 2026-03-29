@@ -14,7 +14,6 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
@@ -24,10 +23,10 @@ use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use crate::BitPackedArray;
+use crate::BitPackedData;
 use crate::bitpack_decompress;
 
-pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
+pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedData> {
     let bit_width_freq = bit_width_histogram(array)?;
     let best_bit_width = find_best_bit_width(array.ptype(), &bit_width_freq)?;
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
@@ -38,16 +37,21 @@ pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,
     bit_width_freq: Option<&[usize]>,
-) -> VortexResult<BitPackedArray> {
+) -> VortexResult<BitPackedData> {
     let bit_width_freq = match bit_width_freq {
         Some(freq) => freq,
         None => &bit_width_histogram(array)?,
     };
 
     // Check array contains no negative values.
+    let array_ref = array.clone().into_array();
     if array.ptype().is_signed_int() {
         let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
-            array.statistics().compute_min::<P>().unwrap_or_default() < 0
+            array_ref
+                .statistics()
+                .compute_min::<P>()
+                .unwrap_or_default()
+                < 0
         });
         if has_negative_values {
             vortex_bail!(InvalidArgument: "cannot bitpack_encode array containing negative integers")
@@ -73,7 +77,7 @@ pub fn bitpack_encode(
 
     // SAFETY: all components validated above
     let bitpacked = unsafe {
-        BitPackedArray::new_unchecked(
+        BitPackedData::new_unchecked(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
@@ -83,10 +87,13 @@ pub fn bitpack_encode(
             0,
         )
     };
-    bitpacked
-        .stats_set
-        .to_ref(bitpacked.as_ref())
-        .inherit_from(array.statistics());
+    {
+        let bp_ref = bitpacked.clone().into_array();
+        bitpacked
+            .stats_set
+            .to_ref(&*bp_ref)
+            .inherit_from(array_ref.statistics());
+    }
     Ok(bitpacked)
 }
 
@@ -101,13 +108,13 @@ pub fn bitpack_encode(
 pub unsafe fn bitpack_encode_unchecked(
     array: PrimitiveArray,
     bit_width: u8,
-) -> VortexResult<BitPackedArray> {
+) -> VortexResult<BitPackedData> {
     // SAFETY: non-negativity of input checked by caller.
     let packed = unsafe { bitpack_unchecked(&array, bit_width) };
 
     // SAFETY: checked by bitpack_unchecked
     let bitpacked = unsafe {
-        BitPackedArray::new_unchecked(
+        BitPackedData::new_unchecked(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
@@ -117,10 +124,14 @@ pub unsafe fn bitpack_encode_unchecked(
             0,
         )
     };
-    bitpacked
-        .stats_set
-        .to_ref(bitpacked.as_ref())
-        .inherit_from(array.statistics());
+    {
+        let bp_ref = bitpacked.clone().into_array();
+        let arr_ref = array.into_array();
+        bitpacked
+            .stats_set
+            .to_ref(&*bp_ref)
+            .inherit_from(arr_ref.statistics());
+    }
     Ok(bitpacked)
 }
 
@@ -207,7 +218,7 @@ pub fn gather_patches(
     };
 
     let array_len = parray.len();
-    let validity_mask = parray.validity_mask()?;
+    let validity_mask = parray.validity_mask();
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -309,7 +320,7 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
         |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
 
     let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
-    match array.validity_mask()?.bit_buffer() {
+    match array.validity_mask().bit_buffer() {
         AllOr::All => {
             // All values are valid.
             for v in array.as_slice::<T>() {
@@ -457,13 +468,12 @@ mod test {
             Validity::from_iter(valid_values),
         );
         assert!(values.ptype().is_unsigned_int());
-        let compressed = BitPackedArray::encode(&values.into_array(), 4).unwrap();
+        let compressed = BitPackedData::encode(&values.into_array(), 4).unwrap();
         assert!(compressed.patches().is_none());
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
                 .validity_mask()
-                .unwrap()
                 .to_bit_buffer()
                 .set_indices()
                 .collect::<Vec<_>>()
@@ -476,7 +486,7 @@ mod test {
         let array = PrimitiveArray::new(values, Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
-        let err = BitPackedArray::encode(&array.into_array(), 1024u32.ilog2() as u8).unwrap_err();
+        let err = BitPackedData::encode(&array.into_array(), 1024u32.ilog2() as u8).unwrap_err();
         assert!(matches!(err, VortexError::InvalidArgument(_, _)));
     }
 

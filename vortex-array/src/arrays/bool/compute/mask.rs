@@ -9,7 +9,6 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl MaskReduce for Bool {
     fn mask(array: &BoolArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

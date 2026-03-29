@@ -10,7 +10,6 @@ mod validity;
 
 use std::fmt::Debug;
 use std::hash::Hasher;
-use std::ops::Deref;
 use std::sync::Arc;
 
 pub use dyn_::*;
@@ -35,7 +34,7 @@ use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::patches::Patches;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
@@ -52,7 +51,7 @@ use crate::validity::Validity;
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
-    type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn DynArray> + IntoArray;
+    type Array: 'static + Send + Sync + Clone + Debug + IntoArray;
     type Metadata: Debug;
 
     type OperationsVTable: OperationsVTable<Self>;
@@ -73,43 +72,43 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn dtype(array: &Self::Array) -> &DType;
 
     /// Returns the stats set for the array.
-    fn stats(array: &Self::Array) -> StatsSetRef<'_>;
+    fn stats(array: &Self::Array) -> &ArrayStats;
 
     /// Hashes the array contents.
-    fn array_hash<H: Hasher>(array: &Self::Array, state: &mut H, precision: Precision);
+    fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision);
 
     /// Compares two arrays of the same type for equality.
-    fn array_eq(array: &Self::Array, other: &Self::Array, precision: Precision) -> bool;
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool;
 
     /// Returns the number of buffers in the array.
-    fn nbuffers(array: &Self::Array) -> usize;
+    fn nbuffers(array: &Array<Self>) -> usize;
 
     /// Returns the buffer at the given index.
     ///
     /// # Panics
     /// Panics if `idx >= nbuffers(array)`.
-    fn buffer(array: &Self::Array, idx: usize) -> BufferHandle;
+    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle;
 
     /// Returns the name of the buffer at the given index, or `None` if unnamed.
-    fn buffer_name(array: &Self::Array, idx: usize) -> Option<String>;
+    fn buffer_name(array: &Array<Self>, idx: usize) -> Option<String>;
 
     /// Returns the number of children in the array.
-    fn nchildren(array: &Self::Array) -> usize;
+    fn nchildren(array: &Array<Self>) -> usize;
 
     /// Returns the child at the given index.
     ///
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef;
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef;
 
     /// Returns the name of the child at the given index.
     ///
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
-    fn child_name(array: &Self::Array, idx: usize) -> String;
+    fn child_name(array: &Array<Self>, idx: usize) -> String;
 
     /// Exports metadata for an array.
-    fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata>;
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata>;
 
     /// Serialize metadata into a byte buffer for IPC or file storage.
     /// Return `None` if the array cannot be serialized.
@@ -126,7 +125,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Writes the array into a canonical builder.
     fn append_to_builder(
-        array: &Self::Array,
+        array: &Array<Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
@@ -235,44 +234,24 @@ pub fn patches_child_name(idx: usize) -> &'static str {
     }
 }
 
-/// vtable! macro — generates IntoArray, From, Deref, AsRef for inner array types.
+/// vtable! macro — generates IntoArray, From, and type alias for array types.
 ///
-/// During the migration, IntoArray creates [`Array<V>`] (the new typed wrapper) while
-/// Deref/AsRef go through AlsoArrayAdapter for backward-compatible DynArray access.
+/// Three forms:
+/// - `vtable!(Foo)` — short for `vtable!(Foo, Foo)` (legacy form)
+/// - `vtable!(Foo, FooVT)` — legacy form where `FooArray` is the inner struct name
+/// - `vtable!(Foo, FooVT, FooData)` — new form where `FooData` is the inner struct,
+///   and `FooArray` is generated as a type alias for `Array<FooVT>`
 #[macro_export]
 macro_rules! vtable {
     ($V:ident) => {
         $crate::vtable!($V, $V);
     };
+    // Legacy form: FooArray is the inner struct name, no type alias generated.
     ($Base:ident, $VT:ident) => {
         $crate::aliases::paste::paste! {
-            impl AsRef<dyn $crate::DynArray> for [<$Base Array>] {
-                fn as_ref(&self) -> &dyn $crate::DynArray {
-                    // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$Base Array>] as *const $crate::ArrayAdapter<$VT>) }
-                }
-            }
-
-            impl std::ops::Deref for [<$Base Array>] {
-                type Target = dyn $crate::DynArray;
-
-                fn deref(&self) -> &Self::Target {
-                    // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$Base Array>] as *const $crate::ArrayAdapter<$VT>) }
-                }
-            }
-
             impl $crate::IntoArray for [<$Base Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
-                    use $crate::vtable::VTable;
-                    let vtable = $VT::vtable(&self).clone();
-                    let dtype = $VT::dtype(&self).clone();
-                    let len = $VT::len(&self);
-                    let stats = $VT::stats(&self).to_array_stats();
-                    // SAFETY: dtype and len are extracted from `self` via VTable methods.
-                    std::sync::Arc::new(unsafe {
-                        $crate::vtable::Array::new_unchecked(vtable, dtype, len, self, stats)
-                    })
+                    std::sync::Arc::new($crate::vtable::Array::<$VT>::from_inner(self))
                 }
             }
 
@@ -288,6 +267,26 @@ macro_rules! vtable {
                 pub fn to_array(&self) -> $crate::ArrayRef {
                     use $crate::IntoArray;
                     self.clone().into_array()
+                }
+            }
+        }
+    };
+    // New form: Data is the inner struct, FooArray is a type alias for Array<VT>.
+    ($Base:ident, $VT:ident, $Data:ident) => {
+        $crate::aliases::paste::paste! {
+            /// Type alias: `FooArray = Array<Foo>`.
+            pub type [<$Base Array>] = $crate::vtable::Array<$VT>;
+
+            impl $crate::IntoArray for $Data {
+                fn into_array(self) -> $crate::ArrayRef {
+                    std::sync::Arc::new($crate::vtable::Array::<$VT>::from_inner(self))
+                }
+            }
+
+            impl From<$Data> for $crate::ArrayRef {
+                fn from(value: $Data) -> $crate::ArrayRef {
+                    use $crate::IntoArray;
+                    value.into_array()
                 }
             }
         }

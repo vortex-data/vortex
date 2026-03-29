@@ -9,18 +9,17 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
-use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl BetweenKernel for Primitive {
     fn between(
-        arr: &PrimitiveArray,
+        arr: &Array<Primitive>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -49,7 +48,7 @@ impl BetweenKernel for Primitive {
 }
 
 fn between_impl<T: NativePType + Copy>(
-    arr: &PrimitiveArray,
+    arr: &Array<Primitive>,
     lower: T,
     upper: T,
     nullability: Nullability,
@@ -93,7 +92,7 @@ fn between_impl<T: NativePType + Copy>(
 }
 
 fn between_impl_<T>(
-    arr: &PrimitiveArray,
+    arr: &Array<Primitive>,
     lower: T,
     lower_fn: impl Fn(T, T) -> bool,
     upper: T,

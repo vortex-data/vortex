@@ -5,19 +5,21 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::arrays::Masked;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::Array;
 
 #[derive(Clone, Debug)]
-pub struct MaskedArray {
+pub struct MaskedData {
     pub(super) child: ArrayRef,
     pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
 }
 
-impl MaskedArray {
+impl MaskedData {
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
         if matches!(validity, Validity::NonNullable) {
             vortex_bail!("MaskedArray must have nullable validity, got {validity:?}")
@@ -45,7 +47,40 @@ impl MaskedArray {
         })
     }
 
+    /// Returns the dtype of the array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns the length of the array.
+    pub fn len(&self) -> usize {
+        self.child.len()
+    }
+
+    /// Returns `true` if the array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the validity of the array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> &Validity {
+        &self.validity
+    }
+
+    /// Returns the validity as a [`Mask`](vortex_mask::Mask).
+    pub fn validity_mask(&self) -> vortex_mask::Mask {
+        self.validity.to_mask(self.len())
+    }
+
     pub fn child(&self) -> &ArrayRef {
         &self.child
+    }
+}
+
+impl Array<Masked> {
+    /// Constructs a new `MaskedArray`.
+    pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
+        Ok(Array::from_inner(MaskedData::try_new(child, validity)?))
     }
 }

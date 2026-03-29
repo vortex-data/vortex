@@ -17,7 +17,7 @@ use vortex_error::vortex_panic;
 
 use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-
+use crate::DateTimePartsData;
 fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
     let indices = indices.to_primitive();
@@ -36,13 +36,10 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> Vortex
     };
 
     if !taken_seconds.dtype().is_nullable() && !taken_subseconds.dtype().is_nullable() {
-        return Ok(DateTimePartsArray::try_new(
-            dtype,
-            taken_days,
-            taken_seconds,
-            taken_subseconds,
-        )?
-        .into_array());
+        return Ok(
+            DateTimePartsData::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
+                .into_array(),
+        );
     }
 
     // DateTimePartsArray requires seconds and subseconds to be non-nullable.
@@ -80,7 +77,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> Vortex
     let taken_subseconds = taken_subseconds.fill_null(subseconds_fill)?;
 
     Ok(
-        DateTimePartsArray::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
+        DateTimePartsData::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
             .into_array(),
     )
 }
@@ -106,9 +103,10 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::DateTimePartsArray;
+    use crate::DateTimePartsData;
 
     #[rstest]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         buffer![
             0i64,
             86_400_000,  // 1 day in ms
@@ -119,7 +117,7 @@ mod tests {
         TimeUnit::Milliseconds,
         Some("UTC".into())
     )).unwrap())]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
             Some(0i64),
             None,
@@ -130,7 +128,7 @@ mod tests {
         TimeUnit::Milliseconds,
         Some("UTC".into())
     )).unwrap())]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         buffer![86_400_000i64].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())

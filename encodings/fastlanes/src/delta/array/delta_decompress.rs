@@ -12,12 +12,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::DeltaArray;
+use crate::DeltaData;
 use crate::bit_transpose::untranspose_validity;
 
 pub fn delta_decompress(

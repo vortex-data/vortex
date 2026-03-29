@@ -13,6 +13,7 @@ use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::like::Like as LikeExpr;
 use crate::scalar_fn::fns::like::LikeOptions;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 
 /// Like pattern matching on an array without reading buffers.
@@ -25,7 +26,7 @@ use crate::vtable::VTable;
 /// the parent `ScalarFnArray`.
 pub trait LikeReduce: VTable {
     fn like(
-        array: &Self::Array,
+        array: &Array<Self>,
         pattern: &ArrayRef,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -40,7 +41,7 @@ pub trait LikeReduce: VTable {
 /// the parent `ScalarFnArray`.
 pub trait LikeKernel: VTable {
     fn like(
-        array: &Self::Array,
+        array: &Array<Self>,
         pattern: &ArrayRef,
         options: LikeOptions,
         ctx: &mut ExecutionCtx,
@@ -59,7 +60,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: ScalarFnArrayView<'_, LikeExpr>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -88,7 +89,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: ScalarFnArrayView<'_, LikeExpr>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

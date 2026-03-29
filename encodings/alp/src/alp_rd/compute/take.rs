@@ -39,7 +39,7 @@ impl TakeExecute for ALPRD {
             .fill_null(Scalar::zero_value(array.right_parts().dtype()))?;
 
         Ok(Some(
-            ALPRDArray::try_new(
+            ALPRD::try_new(
                 array
                     .dtype()
                     .with_nullability(taken_left_parts.dtype().nullability()),

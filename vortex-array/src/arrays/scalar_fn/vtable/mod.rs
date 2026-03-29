@@ -23,7 +23,7 @@ use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::scalar_fn::array::ScalarFnArray;
+use crate::arrays::scalar_fn::array::ScalarFnData;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
@@ -42,13 +42,13 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 
-vtable!(ScalarFn, ScalarFnVTable);
+vtable!(ScalarFn, ScalarFnVTable, ScalarFnData);
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnVTable {
@@ -56,12 +56,12 @@ pub struct ScalarFnVTable {
 }
 
 impl VTable for ScalarFnVTable {
-    type Array = ScalarFnArray;
+    type Array = ScalarFnData;
     type Metadata = ScalarFnMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(array: &Self::Array) -> &Self {
+    fn vtable(array: &ScalarFnData) -> &Self {
         &array.vtable
     }
 
@@ -69,19 +69,19 @@ impl VTable for ScalarFnVTable {
         self.scalar_fn.id()
     }
 
-    fn len(array: &ScalarFnArray) -> usize {
+    fn len(array: &ScalarFnData) -> usize {
         array.len
     }
 
-    fn dtype(array: &ScalarFnArray) -> &DType {
+    fn dtype(array: &ScalarFnData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &ScalarFnArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+    fn stats(array: &ScalarFnData) -> &ArrayStats {
+        &array.stats
     }
 
-    fn array_hash<H: Hasher>(array: &ScalarFnArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.len.hash(state);
         array.dtype.hash(state);
         array.scalar_fn().hash(state);
@@ -90,7 +90,7 @@ impl VTable for ScalarFnVTable {
         }
     }
 
-    fn array_eq(array: &ScalarFnArray, other: &ScalarFnArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         if array.len != other.len {
             return false;
         }
@@ -108,27 +108,27 @@ impl VTable for ScalarFnVTable {
         true
     }
 
-    fn nbuffers(_array: &ScalarFnArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &ScalarFnArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ScalarFnArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &ScalarFnArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         vortex_panic!("ScalarFnArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &ScalarFnArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         array.children.len()
     }
 
-    fn child(array: &ScalarFnArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         array.children[idx].clone()
     }
 
-    fn child_name(array: &ScalarFnArray, idx: usize) -> String {
+    fn child_name(array: &Array<Self>, idx: usize) -> String {
         array
             .scalar_fn()
             .signature()
@@ -137,7 +137,7 @@ impl VTable for ScalarFnVTable {
             .to_string()
     }
 
-    fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         let child_dtypes = array.children().iter().map(|c| c.dtype().clone()).collect();
         Ok(ScalarFnMetadata {
             scalar_fn: array.scalar_fn().clone(),
@@ -183,7 +183,7 @@ impl VTable for ScalarFnVTable {
             );
         }
 
-        Ok(ScalarFnArray {
+        Ok(ScalarFnData {
             vtable: ScalarFnVTable {
                 scalar_fn: metadata.scalar_fn.clone(),
             },
@@ -246,7 +246,7 @@ pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
         let child_dtypes = children.iter().map(|c| c.dtype().clone()).collect_vec();
         let dtype = scalar_fn.return_dtype(&child_dtypes)?;
 
-        Ok(ScalarFnArray {
+        Ok(ScalarFnData {
             vtable: ScalarFnVTable { scalar_fn },
             dtype,
             len,

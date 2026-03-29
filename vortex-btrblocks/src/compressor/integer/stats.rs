@@ -5,11 +5,13 @@ use std::hash::Hash;
 
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
+use vortex_array::arrays::primitive::PrimitiveData;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
@@ -177,12 +179,13 @@ impl IntegerStats {
 impl CompressorStats for IntegerStats {
     type ArrayVTable = Primitive;
 
-    fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
-        Self::generate_opts_fallible(input, opts)
+    fn generate_opts(input: &PrimitiveData, opts: GenerateStatsOptions) -> Self {
+        let array = PrimitiveArray::from_inner(input.clone());
+        Self::generate_opts_fallible(&array, opts)
             .vortex_expect("IntegerStats::generate_opts should not fail")
     }
 
-    fn source(&self) -> &PrimitiveArray {
+    fn source(&self) -> &PrimitiveData {
         &self.src
     }
 
@@ -234,7 +237,7 @@ where
             }
             .into(),
         });
-    } else if array.all_invalid()? {
+    } else if array.clone().into_array().all_invalid()? {
         return Ok(IntegerStats {
             src: array.clone(),
             null_count: u32::try_from(array.len())?,
@@ -252,7 +255,7 @@ where
         });
     }
 
-    let validity = array.validity_mask()?;
+    let validity = array.validity_mask();
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 
@@ -347,12 +350,13 @@ where
         u32::MAX
     };
 
-    let min = array
+    let array_ref = array.clone().into_array();
+    let min = array_ref
         .statistics()
         .compute_as::<T>(Stat::Min)
         .vortex_expect("min should be computed");
 
-    let max = array
+    let max = array_ref
         .statistics()
         .compute_as::<T>(Stat::Max)
         .vortex_expect("max should be computed");

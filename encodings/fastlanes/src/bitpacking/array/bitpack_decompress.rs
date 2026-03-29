@@ -5,6 +5,7 @@ use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
@@ -18,6 +19,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
+use crate::BitPackedData;
 use crate::unpack_iter::BitPacked;
 
 /// Unpacks a bit-packed array into a primitive array.
@@ -56,7 +58,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     // SAFETY: We later initialize the the uninitialized range of values with `copy_from_slice`.
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(array.validity_mask()?);
+        uninit_range.append_mask(array.validity_mask());
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -95,7 +97,10 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
 
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-    assert!(values.all_valid()?, "Patch values must be all valid");
+    assert!(
+        values.clone().into_array().all_valid()?,
+        "Patch values must be all valid"
+    );
     let values = values.as_slice::<T>();
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
@@ -177,7 +182,7 @@ mod tests {
 
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
-        let compressed = BitPackedArray::encode(&values.clone().into_array(), 11).unwrap();
+        let compressed = BitPackedData::encode(&values.clone().into_array(), 11).unwrap();
         assert_arrays_eq!(compressed, values);
 
         values

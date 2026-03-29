@@ -15,7 +15,7 @@ use vortex::array::RawMetadata;
 use vortex::array::SerializeMetadata;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::serde::ArrayChildren;
-use vortex::array::stats::StatsSetRef;
+use vortex::array::stats::ArrayStats;
 use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::array::vtable::Array;
@@ -64,49 +64,49 @@ impl VTable for PythonVTable {
         &array.dtype
     }
 
-    fn stats(array: &PythonArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+    fn stats(array: &PythonArray) -> &ArrayStats {
+        &array.stats
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, _precision: Precision) {
         Arc::as_ptr(&array.object).hash(state);
         array.vtable.id.hash(state);
         array.len.hash(state);
         array.dtype.hash(state);
     }
 
-    fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, _precision: Precision) -> bool {
         Arc::ptr_eq(&array.object, &other.object)
             && array.vtable.id == other.vtable.id // TODO(ngates): in the future this check is already done
             && array.len == other.len
             && array.dtype == other.dtype
     }
 
-    fn nbuffers(_array: &PythonArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &PythonArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("PythonArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &PythonArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &PythonArray) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn child(_array: &PythonArray, idx: usize) -> ArrayRef {
+    fn child(_array: &Array<Self>, idx: usize) -> ArrayRef {
         vortex_panic!("PythonArray child index {idx} out of bounds")
     }
 
-    fn child_name(_array: &PythonArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         vortex_panic!("PythonArray child_name index {idx} out of bounds")
     }
 
-    fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Python::attach(|py| {
             let obj = array.object.bind(py);
             if !obj
@@ -169,7 +169,7 @@ impl VTable for PythonVTable {
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
     fn scalar_at(
-        _array: &PythonArray,
+        _array: &Array<PythonVTable>,
         _index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -178,7 +178,7 @@ impl OperationsVTable<PythonVTable> for PythonVTable {
 }
 
 impl ValidityVTable<PythonVTable> for PythonVTable {
-    fn validity(_array: &PythonArray) -> VortexResult<Validity> {
+    fn validity(_array: &Array<PythonVTable>) -> VortexResult<Validity> {
         todo!()
     }
 }

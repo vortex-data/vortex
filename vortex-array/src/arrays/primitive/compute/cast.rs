@@ -21,11 +21,11 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl CastKernel for Primitive {
     fn cast(
-        array: &PrimitiveArray,
+        array: &Array<Primitive>,
         dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -79,7 +79,7 @@ impl CastKernel for Primitive {
             }));
         }
 
-        let mask = array.validity_mask()?;
+        let mask = array.validity_mask();
 
         // Otherwise, we need to cast the values one-by-one.
         Ok(Some(match_each_native_ptype!(new_ptype, |T| {
@@ -92,7 +92,7 @@ impl CastKernel for Primitive {
 }
 
 /// Returns `true` if all valid values in `array` are representable as `target_ptype`.
-fn values_fit_in(array: &PrimitiveArray, target_ptype: PType, ctx: &mut ExecutionCtx) -> bool {
+fn values_fit_in(array: &Array<Primitive>, target_ptype: PType, ctx: &mut ExecutionCtx) -> bool {
     let target_dtype = DType::Primitive(target_ptype, Nullability::NonNullable);
     aggregate_fn::fns::min_max::min_max(&array.clone().into_array(), ctx)
         .ok()

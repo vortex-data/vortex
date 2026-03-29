@@ -89,11 +89,12 @@ pub enum ColumnarView<'a> {
     Constant(&'a ConstantArray),
 }
 
-impl<'a> AsRef<dyn DynArray> for ColumnarView<'a> {
-    fn as_ref(&self) -> &dyn DynArray {
+impl ColumnarView<'_> {
+    /// Convert to a type-erased [`ArrayRef`].
+    pub fn to_array_ref(&self) -> ArrayRef {
         match self {
-            ColumnarView::Canonical(canonical) => canonical.as_ref(),
-            ColumnarView::Constant(constant) => constant.as_ref(),
+            ColumnarView::Canonical(canonical) => canonical.to_array_ref(),
+            ColumnarView::Constant(constant) => (*constant).clone().into_array(),
         }
     }
 }

@@ -9,10 +9,10 @@ use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl MaskReduce for List {
-    fn mask(array: &ListArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &Array<List>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         ListArray::try_new(
             array.elements().clone(),
             array.offsets().clone(),

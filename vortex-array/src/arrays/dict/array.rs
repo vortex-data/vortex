@@ -10,10 +10,12 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::ToCanonical;
+use crate::arrays::Dict;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
+use crate::vtable::Array;
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
@@ -32,7 +34,7 @@ pub struct DictMetadata {
 }
 
 #[derive(Debug, Clone)]
-pub struct DictArray {
+pub struct DictData {
     pub(super) codes: ArrayRef,
     pub(super) values: ArrayRef,
     pub(super) stats_set: ArrayStats,
@@ -51,7 +53,7 @@ pub struct DictArrayParts {
     pub dtype: DType,
 }
 
-impl DictArray {
+impl DictData {
     /// Build a new `DictArray` without validating the codes or values.
     ///
     /// # Safety
@@ -120,6 +122,21 @@ impl DictArray {
         Ok(unsafe { Self::new_unchecked(codes, values) })
     }
 
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.codes.len()
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn into_parts(self) -> DictArrayParts {
         DictArrayParts {
             codes: self.codes,
@@ -169,17 +186,42 @@ impl DictArray {
 
         Ok(())
     }
+}
 
-    /// Compute a mask indicating which values in the dictionary are referenced by at least one code.
+impl Array<Dict> {
+    /// Build a new `DictArray` from its components, `codes` and `values`.
+    pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
+        Array::from_inner(DictData::new(codes, values))
+    }
+
+    /// Build a new `DictArray` from its components, `codes` and `values`.
+    pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+        Ok(Array::from_inner(DictData::try_new(codes, values)?))
+    }
+
+    /// Build a new `DictArray` without validating the codes or values.
     ///
-    /// When `referenced = true`, returns a `BitBuffer` where set bits (true) correspond to
-    /// referenced values, and unset bits (false) correspond to unreferenced values.
+    /// # Safety
     ///
-    /// When `referenced = false` (default for unreferenced values), returns the inverse:
-    /// set bits (true) correspond to unreferenced values, and unset bits (false) correspond
-    /// to referenced values.
+    /// See [`DictData::new_unchecked`].
+    pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
+        Array::from_inner(unsafe { DictData::new_unchecked(codes, values) })
+    }
+
+    /// Set whether all values in the dictionary are referenced by at least one code.
     ///
-    /// This is useful for operations like min/max that need to ignore unreferenced values.
+    /// # Safety
+    ///
+    /// See [`DictData::set_all_values_referenced`].
+    pub unsafe fn set_all_values_referenced(self, all_values_referenced: bool) -> Self {
+        Array::from_inner(unsafe {
+            self.into_inner()
+                .set_all_values_referenced(all_values_referenced)
+        })
+    }
+}
+
+impl DictData {
     pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes_validity = self.codes().validity_mask()?;
         let codes_primitive = self.codes().to_primitive();

@@ -21,8 +21,8 @@ use vortex_mask::Mask;
 
 use crate::RunEnd;
 use crate::RunEndArray;
+use crate::RunEndData;
 use crate::compute::take::take_indices_unchecked;
-
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
 impl FilterKernel for RunEnd {
@@ -59,7 +59,7 @@ impl FilterKernel for RunEnd {
             // SAFETY: guaranteed by implementation of filter_run_end_primitive
             unsafe {
                 Ok(Some(
-                    RunEndArray::new_unchecked(
+                    RunEndData::new_unchecked(
                         run_ends.into_array(),
                         values,
                         0,
@@ -124,7 +124,7 @@ mod tests {
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(
+        RunEndData::encode(
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
         )
         .unwrap()
@@ -137,7 +137,7 @@ mod tests {
 
         assert_arrays_eq!(
             filtered,
-            RunEndArray::new(
+            RunEndData::new(
                 PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
                 PrimitiveArray::from_iter([1i32, 4, 2]).into_array()
             )

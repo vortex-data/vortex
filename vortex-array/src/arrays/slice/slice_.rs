@@ -10,9 +10,10 @@ use crate::IntoArray;
 use crate::arrays::Slice;
 use crate::arrays::SliceArray;
 use crate::arrays::slice::SliceReduce;
+use crate::vtable::Array;
 
 impl SliceReduce for Slice {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let inner_range = array.slice_range();
 
         let combined_start = inner_range.start + range.start;

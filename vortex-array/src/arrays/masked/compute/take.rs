@@ -11,10 +11,10 @@ use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl TakeReduce for Masked {
-    fn take(array: &MaskedArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: &Array<Masked>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let taken_child = if !indices.all_valid()? {
             // This is safe because we'll mask out these positions in the validity.
             let fill_scalar = Scalar::zero_value(indices.dtype());

@@ -96,7 +96,7 @@ pub fn vortex_runend::RunEnd::reduce_parent(array: &vortex_array::vtable::typed:
 
 pub fn vortex_runend::RunEnd::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_runend::RunEnd::stats(array: &vortex_runend::RunEndArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_runend::RunEnd::stats(array: &vortex_runend::RunEndArray) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_runend::RunEnd::vtable(_array: &Self::Array) -> &Self
 

@@ -72,7 +72,8 @@ impl LikeKernel for FSST {
         // directly without cloning the entire FSSTArray into an ArrayRef.
         let validity = array
             .codes()
-            .validity()?
+            .validity()
+            .clone()
             .union_nullability(pattern_scalar.dtype().nullability());
 
         Ok(Some(BoolArray::new(result, validity).into_array()))
@@ -111,7 +112,9 @@ mod tests {
     fn make_fsst(strings: &[Option<&str>], nullability: Nullability) -> FSSTArray {
         let varbin = VarBinArray::from_iter(strings.iter().copied(), DType::Utf8(nullability));
         let compressor = fsst_train_compressor(&varbin);
-        fsst_compress(varbin, &compressor)
+        let len = varbin.len();
+        let dtype = varbin.dtype().clone();
+        fsst_compress(varbin, len, &dtype, &compressor)
     }
 
     fn run_like(array: FSSTArray, pattern: &str, opts: LikeOptions) -> VortexResult<BoolArray> {

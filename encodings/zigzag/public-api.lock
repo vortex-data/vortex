@@ -80,7 +80,7 @@ pub fn vortex_zigzag::ZigZag::reduce_parent(array: &vortex_array::vtable::typed:
 
 pub fn vortex_zigzag::ZigZag::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_zigzag::ZigZag::stats(array: &vortex_zigzag::ZigZagArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_zigzag::ZigZag::stats(array: &vortex_zigzag::ZigZagArray) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_zigzag::ZigZag::vtable(_array: &Self::Array) -> &Self
 

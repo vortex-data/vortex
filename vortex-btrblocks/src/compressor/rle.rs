@@ -11,7 +11,7 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_error::VortexResult;
-use vortex_fastlanes::RLEArray;
+use vortex_fastlanes::RLE;
 
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
@@ -114,7 +114,7 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         ctx: CompressorContext,
         excludes: &[C::Code],
     ) -> VortexResult<ArrayRef> {
-        let rle_array = RLEArray::encode(RLEStats::source(stats))?;
+        let rle_array = RLE::encode(RLEStats::source(stats))?;
 
         if ctx.allowed_cascading == 0 {
             return Ok(rle_array.into_array());
@@ -155,7 +155,7 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
 
         // SAFETY: Recursive compression doesn't affect the invariants.
         unsafe {
-            Ok(RLEArray::new_unchecked(
+            Ok(RLE::new_unchecked(
                 compressed_values,
                 compressed_indices,
                 compressed_offsets,

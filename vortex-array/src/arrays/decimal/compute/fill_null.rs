@@ -21,11 +21,11 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl FillNullKernel for Decimal {
     fn fill_null(
-        array: &DecimalArray,
+        array: &Array<Decimal>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -57,7 +57,7 @@ impl FillNullKernel for Decimal {
 }
 
 fn fill_invalid_positions<T: NativeDecimalType>(
-    array: &DecimalArray,
+    array: &Array<Decimal>,
     is_invalid: &BitBuffer,
     decimal_value: &DecimalValue,
     result_validity: Validity,
@@ -75,7 +75,7 @@ fn fill_invalid_positions<T: NativeDecimalType>(
 }
 
 fn fill_buffer<T: NativeDecimalType>(
-    array: &DecimalArray,
+    array: &Array<Decimal>,
     is_invalid: &BitBuffer,
     fill_val: T,
     result_validity: Validity,

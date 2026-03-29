@@ -11,6 +11,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -19,7 +20,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::ArrayStats;
-use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
@@ -34,9 +34,10 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::ZstdBuffersData;
 use crate::ZstdBuffersMetadata;
 
-vtable!(ZstdBuffers);
+vtable!(ZstdBuffers, ZstdBuffers, ZstdBuffersData);
 
 #[derive(Clone, Debug)]
 pub struct ZstdBuffers;
@@ -51,7 +52,7 @@ impl ZstdBuffers {
 /// `ZstdBuffersArray` compresses each buffer independently. This enables zero-conversion
 /// GPU decompression since the original buffer layout is preserved after decompression.
 #[derive(Clone, Debug)]
-pub struct ZstdBuffersArray {
+pub struct ZstdBuffersData {
     inner_encoding_id: ArrayId,
     inner_metadata: Vec<u8>,
     compressed_buffers: Vec<BufferHandle>,
@@ -122,7 +123,25 @@ impl ZstdBuffersDecodePlan {
     }
 }
 
-impl ZstdBuffersArray {
+impl ZstdBuffersData {
+    /// Returns the length of the array.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns whether the array is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Returns the logical data type of the array.
+    #[inline]
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
     fn validate(&self) -> VortexResult<()> {
         vortex_ensure_eq!(
             self.compressed_buffers.len(),
@@ -178,9 +197,10 @@ impl ZstdBuffersArray {
             len: array.len(),
             stats_set: Default::default(),
         };
+        let compressed_ref = compressed.clone().into_array();
         compressed
             .stats_set
-            .to_ref(compressed.as_ref())
+            .to_ref(&*compressed_ref)
             .inherit_from(array.statistics());
         Ok(compressed)
     }
@@ -325,7 +345,7 @@ fn array_id_from_string(s: &str) -> ArrayId {
 }
 
 impl VTable for ZstdBuffers {
-    type Array = ZstdBuffersArray;
+    type Array = ZstdBuffersData;
 
     type Metadata = ProstMetadata<ZstdBuffersMetadata>;
     type OperationsVTable = Self;
@@ -339,23 +359,19 @@ impl VTable for ZstdBuffers {
         Self::ID
     }
 
-    fn len(array: &ZstdBuffersArray) -> usize {
+    fn len(array: &ZstdBuffersData) -> usize {
         array.len
     }
 
-    fn dtype(array: &ZstdBuffersArray) -> &DType {
+    fn dtype(array: &ZstdBuffersData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &ZstdBuffersArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &ZstdBuffersData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: &ZstdBuffersArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.inner_encoding_id.hash(state);
         array.inner_metadata.hash(state);
         for buf in &array.compressed_buffers {
@@ -370,7 +386,7 @@ impl VTable for ZstdBuffers {
         }
     }
 
-    fn array_eq(array: &ZstdBuffersArray, other: &ZstdBuffersArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.inner_encoding_id == other.inner_encoding_id
             && array.inner_metadata == other.inner_metadata
             && array.compressed_buffers.len() == other.compressed_buffers.len()
@@ -391,31 +407,31 @@ impl VTable for ZstdBuffers {
                 .all(|(a, b)| a.array_eq(b, precision))
     }
 
-    fn nbuffers(array: &ZstdBuffersArray) -> usize {
+    fn nbuffers(array: &Array<Self>) -> usize {
         array.compressed_buffers.len()
     }
 
-    fn buffer(array: &ZstdBuffersArray, idx: usize) -> BufferHandle {
+    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
         array.compressed_buffers[idx].clone()
     }
 
-    fn buffer_name(_array: &ZstdBuffersArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         Some(format!("compressed_{idx}"))
     }
 
-    fn nchildren(array: &ZstdBuffersArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         array.children.len()
     }
 
-    fn child(array: &ZstdBuffersArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         array.children[idx].clone()
     }
 
-    fn child_name(_array: &ZstdBuffersArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         format!("child_{idx}")
     }
 
-    fn metadata(array: &ZstdBuffersArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(ZstdBuffersMetadata {
             inner_encoding_id: array.inner_encoding_id.to_string(),
             inner_metadata: array.inner_metadata.clone(),
@@ -444,7 +460,7 @@ impl VTable for ZstdBuffers {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ZstdBuffersArray> {
+    ) -> VortexResult<ZstdBuffersData> {
         let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
 
         let child_arrays: Vec<ArrayRef> = (0..children.len())
@@ -483,7 +499,7 @@ impl VTable for ZstdBuffers {
 
 impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
     fn scalar_at(
-        array: &ZstdBuffersArray,
+        array: &Array<ZstdBuffers>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -496,7 +512,7 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
 }
 
 impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
-    fn validity(array: &ZstdBuffersArray) -> VortexResult<vortex_array::validity::Validity> {
+    fn validity(array: &Array<ZstdBuffers>) -> VortexResult<vortex_array::validity::Validity> {
         if !array.dtype.is_nullable() {
             return Ok(vortex_array::validity::Validity::NonNullable);
         }
@@ -563,7 +579,7 @@ mod tests {
     #[case::empty_primitive(make_empty_primitive_array())]
     #[case::inlined_varbinview(make_inlined_varbinview_array())]
     fn test_roundtrip(#[case] input: ArrayRef) -> VortexResult<()> {
-        let compressed = ZstdBuffersArray::compress(&input, 3)?;
+        let compressed = ZstdBuffersData::compress(&input, 3)?;
 
         assert_eq!(compressed.len, input.len());
         assert_eq!(&compressed.dtype, input.dtype());
@@ -580,7 +596,7 @@ mod tests {
         let input = make_primitive_array();
         input.statistics().set(Stat::Min, Precision::exact(0i32));
 
-        let compressed = ZstdBuffersArray::compress(&input, 3)?;
+        let compressed = ZstdBuffersData::compress(&input, 3)?;
 
         assert!(compressed.statistics().get(Stat::Min).is_some());
         Ok(())
@@ -589,7 +605,7 @@ mod tests {
     #[test]
     fn test_validity_delegates_for_nullable_input() -> VortexResult<()> {
         let input = make_nullable_primitive_array();
-        let compressed = ZstdBuffersArray::compress(&input, 3)?.into_array();
+        let compressed = ZstdBuffersData::compress(&input, 3)?.into_array();
 
         assert_eq!(compressed.all_valid()?, input.all_valid()?);
         assert_eq!(compressed.all_invalid()?, input.all_invalid()?);

@@ -28,7 +28,7 @@ use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 // Kernel selection happens on the first call to `take` and uses a combination of compile-time
 // and runtime feature detection to infer the best kernel for the platform.
@@ -55,8 +55,8 @@ static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(||
 trait TakeImpl: Send + Sync {
     fn take(
         &self,
-        array: &PrimitiveArray,
-        indices: &PrimitiveArray,
+        array: &Array<Primitive>,
+        indices: &Array<Primitive>,
         validity: Validity,
     ) -> VortexResult<ArrayRef>;
 }
@@ -67,8 +67,8 @@ struct TakeKernelScalar;
 impl TakeImpl for TakeKernelScalar {
     fn take(
         &self,
-        array: &PrimitiveArray,
-        indices: &PrimitiveArray,
+        array: &Array<Primitive>,
+        indices: &Array<Primitive>,
         validity: Validity,
     ) -> VortexResult<ArrayRef> {
         match_each_native_ptype!(array.ptype(), |T| {
@@ -82,7 +82,7 @@ impl TakeImpl for TakeKernelScalar {
 
 impl TakeExecute for Primitive {
     fn take(
-        array: &PrimitiveArray,
+        array: &Array<Primitive>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

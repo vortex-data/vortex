@@ -1033,7 +1033,7 @@ fn test_slice_aggregate_consistency(array: &ArrayRef) {
         .vortex_expect("slice should succeed in conformance test");
     let canonical = array.to_canonical().vortex_expect("to_canonical failed");
     let canonical_sliced = canonical
-        .as_ref()
+        .to_array_ref()
         .slice(start..end)
         .vortex_expect("slice should succeed in conformance test");
 
@@ -1281,7 +1281,7 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
 
             // Get the corresponding value from the canonical array (adjusted for slice offset)
             let canonical_val = canonical
-                .as_ref()
+                .to_array_ref()
                 .scalar_at(start + i)
                 .vortex_expect("scalar_at should succeed in conformance test");
 

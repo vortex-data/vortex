@@ -209,7 +209,12 @@ mod setup {
         // Train and compress unique values with FSST
         let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings);
         let fsst_compressor = fsst_train_compressor(&unique_varbinview);
-        let fsst_values = fsst_compress(&unique_varbinview, &fsst_compressor);
+        let fsst_values = fsst_compress(
+            &unique_varbinview,
+            unique_varbinview.len(),
+            unique_varbinview.dtype(),
+            &fsst_compressor,
+        );
 
         // Create codes array (random indices into unique values)
         let codes: Vec<u32> = (0..NUM_VALUES)
@@ -241,7 +246,12 @@ mod setup {
         // Train and compress unique values with FSST
         let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings);
         let fsst_compressor = fsst_train_compressor(&unique_varbinview);
-        let fsst = fsst_compress(&unique_varbinview, &fsst_compressor);
+        let fsst = fsst_compress(
+            &unique_varbinview,
+            unique_varbinview.len(),
+            unique_varbinview.dtype(),
+            &fsst_compressor,
+        );
 
         // Compress the VarBin offsets with BitPacked
         let codes = fsst.codes();

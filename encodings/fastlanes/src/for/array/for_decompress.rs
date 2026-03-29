@@ -12,14 +12,15 @@ use vortex_array::dtype::PhysicalPType;
 use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArray;
+use crate::BitPackedData;
 use crate::FoRArray;
+use crate::FoRData;
 use crate::bitpack_decompress;
 use crate::unpack_iter::UnpackStrategy;
 use crate::unpack_iter::UnpackedChunks;
@@ -108,7 +109,7 @@ pub(crate) fn fused_decompress<
     let mut uninit_range = builder.uninit_range(bp.len());
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(bp.validity_mask()?);
+        uninit_range.append_mask(bp.validity_mask());
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.

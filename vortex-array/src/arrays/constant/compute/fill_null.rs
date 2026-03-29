@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::arrays::Constant;
-use crate::arrays::ConstantArray;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullReduce;
 use crate::scalar_fn::fns::fill_null::fill_null_constant;
+use crate::vtable::Array;
 
 impl FillNullReduce for Constant {
-    fn fill_null(array: &ConstantArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
+    fn fill_null(array: &Array<Constant>, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
         fill_null_constant(array, fill_value).map(Some)
     }
 }

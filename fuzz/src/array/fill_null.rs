@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
@@ -175,6 +176,7 @@ fn fill_varbinview_array(
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
+    let array_ref = array.clone().into_array();
     match array.validity() {
         Validity::NonNullable | Validity::AllValid => array.clone().into_array(),
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
@@ -191,7 +193,7 @@ fn fill_varbinview_array(
                     let strings: Vec<String> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
-                                array
+                                array_ref
                                     .scalar_at(i)
                                     .vortex_expect("scalar_at")
                                     .as_utf8()
@@ -225,7 +227,7 @@ fn fill_varbinview_array(
                     let binaries: Vec<Vec<u8>> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
-                                array
+                                array_ref
                                     .scalar_at(i)
                                     .vortex_expect("scalar_at")
                                     .as_binary()

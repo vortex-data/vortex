@@ -19,19 +19,19 @@ use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl TakeExecute for VarBinView {
     /// Take involves creating a new array that references the old array, just with the given set of views.
     fn take(
-        array: &VarBinViewArray,
+        array: &Array<VarBinView>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().take(indices)?;
         let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
 
-        let indices_mask = indices.validity_mask()?;
+        let indices_mask = indices.validity_mask();
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
             take_views(array.views(), indices.as_slice::<I>(), &indices_mask)
         });

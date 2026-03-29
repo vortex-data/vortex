@@ -24,7 +24,6 @@ use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 /// TODO: replace usage of compute fn.
 /// Apply a validity mask to a canonical array, ANDing with existing validity.

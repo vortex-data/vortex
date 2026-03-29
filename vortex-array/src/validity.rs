@@ -21,6 +21,7 @@ use crate::Canonical;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -201,6 +202,17 @@ impl Validity {
                 Ok(v.clone())
             }
             Validity::Array(arr) => Ok(Validity::Array(arr.filter(mask.clone())?)),
+        }
+    }
+
+    /// Converts this validity into a [`Mask`] of the given length.
+    ///
+    /// Valid elements are `true` and invalid elements are `false`.
+    pub fn to_mask(&self, length: usize) -> Mask {
+        match self {
+            Self::NonNullable | Self::AllValid => Mask::new_true(length),
+            Self::AllInvalid => Mask::new_false(length),
+            Self::Array(a) => ToCanonical::to_bool(a.as_ref()).to_mask(),
         }
     }
 

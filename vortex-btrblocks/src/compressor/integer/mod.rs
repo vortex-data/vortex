@@ -11,6 +11,7 @@ use enum_iterator::Sequence;
 pub use stats::IntegerStats;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
@@ -20,21 +21,19 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_fastlanes::FoRArray;
+use vortex_fastlanes::FoR;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
-use vortex_runend::RunEndArray;
+use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
 use vortex_sequence::sequence_encode;
 use vortex_sparse::Sparse;
-use vortex_sparse::SparseArray;
-use vortex_zigzag::ZigZagArray;
+use vortex_zigzag::ZigZag;
 use vortex_zigzag::zigzag_encode;
 
 use self::dictionary::dictionary_encode;
@@ -294,14 +293,15 @@ impl Scheme for ConstantScheme {
         _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
+        let source_ref = stats.source().clone().into_array();
         let scalar_idx =
-            (0..stats.source().len()).position(|idx| stats.source().is_valid(idx).unwrap_or(false));
+            (0..stats.source().len()).position(|idx| source_ref.is_valid(idx).unwrap_or(false));
 
         match scalar_idx {
             Some(idx) => {
-                let scalar = stats.source().scalar_at(idx)?;
+                let scalar = source_ref.scalar_at(idx)?;
                 let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
-                if !stats.source().all_valid()? {
+                if !source_ref.all_valid()? {
                     Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
                 } else {
                     Ok(const_arr)
@@ -384,7 +384,7 @@ impl Scheme for FORScheme {
         ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        let for_array = FoRArray::encode(stats.src.clone())?;
+        let for_array = FoR::encode(stats.src.clone())?;
         let biased = for_array.encoded().to_primitive();
         let biased_stats = IntegerStats::generate_opts(
             &biased,
@@ -404,11 +404,12 @@ impl Scheme for FORScheme {
         let compressed =
             BitPackingScheme.compress(compressor, &biased_stats, leaf_ctx, excludes)?;
 
-        let for_compressed = FoRArray::try_new(compressed, for_array.reference_scalar().clone())?;
+        let for_compressed = FoR::try_new(compressed, for_array.reference_scalar().clone())?;
         for_compressed
-            .as_ref()
+            .clone()
+            .into_array()
             .statistics()
-            .inherit_from(for_array.as_ref().statistics());
+            .inherit_from(for_array.into_array().statistics());
         Ok(for_compressed.into_array())
     }
 }
@@ -476,7 +477,7 @@ impl Scheme for ZigZagScheme {
 
         tracing::debug!("zigzag output: {}", compressed.encoding_id());
 
-        Ok(ZigZagArray::try_new(compressed)?.into_array())
+        Ok(ZigZag::try_new(compressed)?.into_array())
     }
 }
 
@@ -515,13 +516,13 @@ impl Scheme for BitPackingScheme {
         _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        let histogram = bit_width_histogram(stats.source())?;
-        let bw = find_best_bit_width(stats.source().ptype(), &histogram)?;
+        let histogram = bit_width_histogram(&stats.src)?;
+        let bw = find_best_bit_width(stats.src.ptype(), &histogram)?;
         // If best bw is determined to be the current bit-width, return the original array.
-        if bw as usize == stats.source().ptype().bit_width() {
-            return Ok(stats.source().clone().into_array());
+        if bw as usize == stats.src.ptype().bit_width() {
+            return Ok(stats.src.clone().into_array());
         }
-        let mut packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
+        let mut packed = bitpack_encode(&stats.src, bw, Some(&histogram))?;
 
         let patches = packed.patches().map(compress_patches).transpose()?;
         packed.replace_patches(patches);
@@ -600,7 +601,7 @@ impl Scheme for SparseScheme {
             .into_array());
         }
 
-        let sparse_encoded = SparseArray::encode(
+        let sparse_encoded = Sparse::encode(
             &stats.src.clone().into_array(),
             Some(Scalar::primitive_value(
                 top_pvalue,
@@ -628,7 +629,7 @@ impl Scheme for SparseScheme {
                 Excludes::int_only(&new_excludes),
             )?;
 
-            SparseArray::try_new(
+            Sparse::try_new(
                 compressed_indices,
                 compressed_values,
                 sparse.len(),
@@ -769,7 +770,7 @@ impl Scheme for RunEndScheme {
         new_excludes.extend_from_slice(excludes);
 
         let compressed_ends = compressor.compress_canonical(
-            Canonical::Primitive(ends.to_primitive()),
+            Canonical::Primitive(ends),
             ctx.descend(),
             Excludes::int_only(&new_excludes),
         )?;
@@ -783,7 +784,7 @@ impl Scheme for RunEndScheme {
         // SAFETY: compression doesn't affect invariants
         unsafe {
             Ok(
-                RunEndArray::new_unchecked(compressed_ends, compressed_values, 0, stats.src.len())
+                RunEnd::new_unchecked(compressed_ends, compressed_values, 0, stats.src.len())
                     .into_array(),
             )
         }
@@ -872,12 +873,10 @@ impl Scheme for PcoScheme {
         _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        Ok(vortex_pco::PcoArray::from_primitive(
-            stats.source(),
-            pco::DEFAULT_COMPRESSION_LEVEL,
-            8192,
-        )?
-        .into_array())
+        Ok(
+            vortex_pco::Pco::from_primitive(&stats.src, pco::DEFAULT_COMPRESSION_LEVEL, 8192)?
+                .into_array(),
+        )
     }
 }
 

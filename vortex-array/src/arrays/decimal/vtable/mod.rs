@@ -18,7 +18,7 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::DecimalArray;
+use crate::arrays::DecimalData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -42,9 +42,9 @@ use crate::Precision;
 use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
-vtable!(Decimal);
+vtable!(Decimal, Decimal, DecimalData);
 
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]
@@ -54,7 +54,7 @@ pub struct DecimalMetadata {
 }
 
 impl VTable for Decimal {
-    type Array = DecimalArray;
+    type Array = DecimalData;
 
     type Metadata = ProstMetadata<DecimalMetadata>;
     type OperationsVTable = Self;
@@ -68,7 +68,7 @@ impl VTable for Decimal {
         Self::ID
     }
 
-    fn len(array: &DecimalArray) -> usize {
+    fn len(array: &DecimalData) -> usize {
         let divisor = match array.values_type {
             DecimalType::I8 => 1,
             DecimalType::I16 => 2,
@@ -80,51 +80,51 @@ impl VTable for Decimal {
         array.values.len() / divisor
     }
 
-    fn dtype(array: &DecimalArray) -> &DType {
+    fn dtype(array: &DecimalData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &DecimalArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &DecimalData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DecimalArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.values.array_hash(state, precision);
         std::mem::discriminant(&array.values_type).hash(state);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &DecimalArray, other: &DecimalArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(_array: &DecimalArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn buffer(array: &DecimalArray, idx: usize) -> BufferHandle {
+    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.values.clone(),
             _ => vortex_panic!("DecimalArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &DecimalArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("values".to_string()),
             _ => None,
         }
     }
 
-    fn nchildren(array: &DecimalArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         validity_nchildren(&array.validity)
     }
 
-    fn child(array: &DecimalArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => validity_to_child(&array.validity, array.len())
                 .vortex_expect("DecimalArray child index out of bounds"),
@@ -132,11 +132,11 @@ impl VTable for Decimal {
         }
     }
 
-    fn child_name(_array: &DecimalArray, _idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, _idx: usize) -> String {
         "validity".to_string()
     }
 
-    fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DecimalMetadata {
             values_type: array.values_type() as i32,
         }))
@@ -163,7 +163,7 @@ impl VTable for Decimal {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<DecimalArray> {
+    ) -> VortexResult<DecimalData> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -189,7 +189,7 @@ impl VTable for Decimal {
                 "DecimalArray buffer not aligned for values type {:?}",
                 D::DECIMAL_TYPE
             );
-            DecimalArray::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
+            DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
         })
     }
 

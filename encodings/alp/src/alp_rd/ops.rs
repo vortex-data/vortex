@@ -4,16 +4,16 @@
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
-use crate::ALPRDArray;
 
 impl OperationsVTable<ALPRD> for ALPRD {
     fn scalar_at(
-        array: &ALPRDArray,
+        array: &Array<ALPRD>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

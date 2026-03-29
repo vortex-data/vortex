@@ -18,12 +18,13 @@ use crate::arrays::varbinview::BinaryView;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
 use crate::scalar_fn::fns::zip::ZipKernel;
+use crate::vtable::Array;
 
 // A dedicated VarBinView zip kernel that builds the result directly by adjusting views and validity,
 // instead of routing through the generic builder (which would redo buffer lookups per mask slice).
 impl ZipKernel for VarBinView {
     fn zip(
-        if_true: &VarBinViewArray,
+        if_true: &Array<VarBinView>,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
@@ -52,8 +53,8 @@ impl ZipKernel for VarBinView {
         let mut views_builder = BufferMut::<BinaryView>::with_capacity(len);
         let mut validity_builder = LazyBitBufferBuilder::new(len);
 
-        let true_validity = if_true.validity_mask()?;
-        let false_validity = if_false.validity_mask()?;
+        let true_validity = if_true.validity_mask();
+        let false_validity = if_false.validity_mask();
 
         let mask = mask.try_to_mask_fill_null_false(ctx)?;
         match mask.slices() {
@@ -127,7 +128,7 @@ impl ZipKernel for VarBinView {
 }
 
 fn push_range(
-    array: &VarBinViewArray,
+    array: &Array<VarBinView>,
     buffer_lookup: &[u32],
     validity: &Mask,
     range: Range<usize>,

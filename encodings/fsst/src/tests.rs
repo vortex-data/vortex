@@ -28,7 +28,9 @@ pub(crate) fn build_fsst_array() -> ArrayRef {
     let input_array = input_array.finish(DType::Utf8(Nullability::NonNullable));
 
     let compressor = fsst_train_compressor(&input_array);
-    fsst_compress(input_array, &compressor).into_array()
+    let len = input_array.len();
+    let dtype = input_array.dtype().clone();
+    fsst_compress(input_array, len, &dtype, &compressor).into_array()
 }
 
 #[test]

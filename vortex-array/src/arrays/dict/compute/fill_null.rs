@@ -18,10 +18,11 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::vtable::Array;
 
 impl FillNullKernel for Dict {
     fn fill_null(
-        array: &DictArray,
+        array: &Array<Dict>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

@@ -6,11 +6,13 @@ use std::hash::Hash;
 use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
+use vortex_array::arrays::primitive::PrimitiveData;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::dtype::half::f16;
@@ -83,12 +85,13 @@ impl FloatStats {
 impl CompressorStats for FloatStats {
     type ArrayVTable = Primitive;
 
-    fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
-        Self::generate_opts_fallible(input, opts)
+    fn generate_opts(input: &PrimitiveData, opts: GenerateStatsOptions) -> Self {
+        let array = PrimitiveArray::from_inner(input.clone());
+        Self::generate_opts_fallible(&array, opts)
             .vortex_expect("FloatStats::generate_opts should not fail")
     }
 
-    fn source(&self) -> &PrimitiveArray {
+    fn source(&self) -> &PrimitiveData {
         &self.src
     }
 
@@ -135,7 +138,7 @@ where
             }
             .into(),
         });
-    } else if array.all_invalid()? {
+    } else if array.clone().into_array().all_invalid()? {
         return Ok(FloatStats {
             src: array.clone(),
             null_count: u32::try_from(array.len())?,
@@ -150,6 +153,8 @@ where
     }
 
     let null_count = array
+        .clone()
+        .into_array()
         .statistics()
         .compute_null_count()
         .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
@@ -163,7 +168,7 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.validity_mask()?;
+    let validity = array.validity_mask();
 
     let mut runs = 1;
     let head_idx = validity

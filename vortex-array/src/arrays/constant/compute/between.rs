@@ -10,17 +10,17 @@ use crate::arrays::ConstantArray;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::BetweenReduce;
+use crate::vtable::Array;
 
 impl BetweenReduce for Constant {
     fn between(
-        array: &ConstantArray,
+        array: &Array<Constant>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         // Can reduce if everything is constant
-        if let Some(((constant, lower), upper)) = array
-            .as_constant()
+        if let Some(((constant, lower), upper)) = Some(array.scalar().clone())
             .zip(lower.as_constant())
             .zip(upper.as_constant())
         {

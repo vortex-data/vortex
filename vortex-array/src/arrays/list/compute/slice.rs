@@ -10,10 +10,10 @@ use crate::IntoArray;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::slice::SliceReduce;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl SliceReduce for List {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ListArray::new(
                 array.elements().clone(),

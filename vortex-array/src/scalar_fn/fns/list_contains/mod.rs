@@ -51,7 +51,6 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 #[derive(Clone)]
 pub struct ListContains;
@@ -300,7 +299,7 @@ fn list_contains_scalar(
     let matches = matching_elements.execute::<BoolArray>(ctx)?;
 
     // Fast path: no elements match.
-    if let Some(pred) = matches.as_constant() {
+    if let Some(pred) = matches.clone().into_array().as_constant() {
         return match pred.as_bool().value() {
             // All comparisons are invalid (result in `null`), and search is not null because
             // we already checked for null above.

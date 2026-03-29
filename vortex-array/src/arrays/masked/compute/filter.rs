@@ -9,10 +9,10 @@ use crate::IntoArray;
 use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
 use crate::arrays::filter::FilterReduce;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl FilterReduce for Masked {
-    fn filter(array: &MaskedArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: &Array<Masked>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         // Filter the validity to get the new validity
         let filtered_validity = array.validity().filter(mask)?;
 

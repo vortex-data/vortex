@@ -273,7 +273,7 @@ impl RDEncoder {
             .vortex_expect("Patches construction in encode")
         });
 
-        ALPRDArray::try_new(
+        ALPRD::try_new(
             DType::Primitive(T::PTYPE, packed_left.dtype().nullability()),
             packed_left,
             Buffer::<u16>::copy_from(&self.codes),

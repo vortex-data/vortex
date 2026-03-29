@@ -9,17 +9,19 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::arrays::Struct;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 /// A struct array that stores multiple named fields as columns, similar to a database row.
 ///
@@ -140,7 +142,7 @@ use crate::vtable::ValidityHelper;
 /// assert_eq!(id_field.len(), 3);
 /// ```
 #[derive(Clone, Debug)]
-pub struct StructArray {
+pub struct StructData {
     pub(super) len: usize,
     pub(super) dtype: DType,
     pub(super) fields: Arc<[ArrayRef]>,
@@ -154,7 +156,33 @@ pub struct StructArrayParts {
     pub validity: Validity,
 }
 
-impl StructArray {
+impl StructData {
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the [`Validity`] of this array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> &Validity {
+        &self.validity
+    }
+
+    /// Returns the validity as a [`Mask`].
+    pub fn validity_mask(&self) -> Mask {
+        self.validity.to_mask(self.len())
+    }
+
     /// Return the struct fields without the validity of the struct applied
     pub fn unmasked_fields(&self) -> &Arc<[ArrayRef]> {
         &self.fields
@@ -419,7 +447,7 @@ impl StructArray {
             children.push(fields[idx].clone());
         }
 
-        StructArray::try_new(
+        StructData::try_new(
             FieldNames::from(names.as_slice()),
             children,
             self.len(),
@@ -455,8 +483,83 @@ impl StructArray {
         }
         None
     }
+}
 
-    /// Create a new StructArray by appending a new column onto the existing array.
+impl Array<Struct> {
+    /// Creates a new [`StructArray`].
+    pub fn new(
+        names: FieldNames,
+        fields: impl Into<Arc<[ArrayRef]>>,
+        length: usize,
+        validity: Validity,
+    ) -> Self {
+        Array::from_inner(StructData::new(names, fields, length, validity))
+    }
+
+    /// Constructs a new `StructArray`.
+    pub fn try_new(
+        names: FieldNames,
+        fields: impl Into<Arc<[ArrayRef]>>,
+        length: usize,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Ok(Array::from_inner(StructData::try_new(
+            names, fields, length, validity,
+        )?))
+    }
+
+    /// Creates a new [`StructArray`] without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`StructData::new_unchecked`].
+    pub unsafe fn new_unchecked(
+        fields: impl Into<Arc<[ArrayRef]>>,
+        dtype: StructFields,
+        length: usize,
+        validity: Validity,
+    ) -> Self {
+        Array::from_inner(unsafe { StructData::new_unchecked(fields, dtype, length, validity) })
+    }
+
+    /// Constructs a new `StructArray` with an explicit dtype.
+    pub fn try_new_with_dtype(
+        fields: impl Into<Arc<[ArrayRef]>>,
+        dtype: StructFields,
+        length: usize,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Ok(Array::from_inner(StructData::try_new_with_dtype(
+            fields, dtype, length, validity,
+        )?))
+    }
+
+    /// Construct a [`StructArray`] from named fields.
+    pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
+        Ok(Array::from_inner(StructData::from_fields(items)?))
+    }
+
+    /// Decompose this struct array into its constituent parts.
+    pub fn into_parts(self) -> StructArrayParts {
+        self.into_inner().into_parts()
+    }
+
+    /// Create a [`StructArray`] from an iterator of (name, array) pairs with validity.
+    pub fn try_from_iter_with_validity<
+        N: AsRef<str>,
+        A: IntoArray,
+        T: IntoIterator<Item = (N, A)>,
+    >(
+        iter: T,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Ok(Array::from_inner(StructData::try_from_iter_with_validity(
+            iter, validity,
+        )?))
+    }
+}
+
+impl StructData {
     pub fn with_column(&self, name: impl Into<FieldName>, array: ArrayRef) -> VortexResult<Self> {
         let name = name.into();
         let struct_dtype = self.struct_fields().clone();

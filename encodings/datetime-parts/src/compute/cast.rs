@@ -11,7 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
 use crate::DateTimePartsArray;
-
+use crate::DateTimePartsData;
 impl CastReduce for DateTimeParts {
     fn cast(array: &DateTimePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
@@ -19,7 +19,7 @@ impl CastReduce for DateTimeParts {
         };
 
         Ok(Some(
-            DateTimePartsArray::try_new(
+            DateTimePartsData::try_new(
                 dtype.clone(),
                 array
                     .days()
@@ -48,9 +48,10 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::DateTimePartsArray;
+    use crate::DateTimePartsData;
 
     fn date_time_array(validity: Validity) -> ArrayRef {
-        DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        DateTimePartsData::try_from(TemporalArray::new_timestamp(
             PrimitiveArray::new(
                 buffer![
                     86_400i64,            // element with only day component
@@ -105,7 +106,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         buffer![
             0i64,
             86_400_000,  // 1 day in ms
@@ -116,7 +117,7 @@ mod tests {
         TimeUnit::Milliseconds,
         Some("UTC".into())
     )).unwrap())]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
             Some(0i64),
             None,
@@ -127,7 +128,7 @@ mod tests {
         TimeUnit::Milliseconds,
         Some("UTC".into())
     )).unwrap())]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         buffer![86_400_000_000_000i64].into_array(), // 1 day in ns
         TimeUnit::Nanoseconds,
         Some("UTC".into())

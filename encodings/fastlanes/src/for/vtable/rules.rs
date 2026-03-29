@@ -15,6 +15,7 @@ use vortex_error::VortexResult;
 
 use crate::FoR;
 use crate::FoRArray;
+use crate::FoRData;
 
 pub(super) const PARENT_RULES: ParentRuleSet<FoR> = ParentRuleSet::new(&[
     // TODO: add BetweenReduceAdaptor(FoR)
@@ -37,7 +38,7 @@ impl ArrayParentReduceRule<FoR> for FoRFilterPushDownRule {
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let new_array = unsafe {
-            FoRArray::new_unchecked(
+            FoRData::new_unchecked(
                 child.encoded.filter(parent.filter_mask().clone())?,
                 child.reference.clone(),
             )

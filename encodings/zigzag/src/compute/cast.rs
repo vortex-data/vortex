@@ -10,7 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::ZigZag;
 use crate::ZigZagArray;
-
+use crate::ZigZagData;
 impl CastReduce for ZigZag {
     fn cast(array: &ZigZagArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_signed_int() {
@@ -20,7 +20,7 @@ impl CastReduce for ZigZag {
         let new_encoded_dtype =
             DType::Primitive(dtype.as_ptype().to_unsigned(), dtype.nullability());
         let new_encoded = array.encoded().cast(new_encoded_dtype)?;
-        Ok(Some(ZigZagArray::try_new(new_encoded)?.into_array()))
+        Ok(Some(ZigZagData::try_new(new_encoded)?.into_array()))
     }
 }
 

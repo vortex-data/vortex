@@ -30,7 +30,7 @@ where
     T: NativePType,
     PValue: From<T>,
 {
-    Ok(match array.validity_mask()? {
+    Ok(match array.validity_mask() {
         Mask::AllTrue(_) => compute_min_max(array.as_slice::<T>().iter()),
         Mask::AllFalse(_) => None,
         Mask::Values(v) => compute_min_max(

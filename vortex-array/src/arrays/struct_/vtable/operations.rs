@@ -6,13 +6,13 @@ use vortex_error::VortexResult;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::Struct;
-use crate::arrays::StructArray;
 use crate::scalar::Scalar;
+use crate::vtable::Array;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Struct> for Struct {
     fn scalar_at(
-        array: &StructArray,
+        array: &Array<Struct>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

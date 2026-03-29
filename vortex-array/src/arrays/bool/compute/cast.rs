@@ -9,7 +9,6 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::ValidityHelper;
 
 impl CastReduce for Bool {
     fn cast(array: &BoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

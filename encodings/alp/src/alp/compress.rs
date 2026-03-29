@@ -15,6 +15,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
+use crate::ALP;
 use crate::Exponents;
 use crate::alp::ALPArray;
 use crate::alp::ALPFloat;
@@ -48,7 +49,7 @@ pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> Vort
 
     // SAFETY: alp_encode_components_typed must return well-formed components
     unsafe {
-        Ok(ALPArray::new_unchecked(
+        Ok(ALP::new_unchecked(
             encoded,
             exponents,
             patches,
@@ -75,7 +76,7 @@ where
 
     let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
 
-    let validity = values.validity_mask()?;
+    let validity = values.validity_mask();
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
     // data). We remove null exceptions in order to keep the Patches small.
     let (valid_exceptional_positions, valid_exceptional_values): (Buffer<u64>, Buffer<T>) =

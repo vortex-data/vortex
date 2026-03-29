@@ -12,10 +12,11 @@ use crate::IntoArray;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::slice::SliceKernel;
+use crate::vtable::Array;
 
 impl SliceKernel for Chunked {
     fn slice(
-        array: &Self::Array,
+        array: &Array<Self>,
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

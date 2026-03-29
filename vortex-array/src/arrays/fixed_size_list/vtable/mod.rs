@@ -16,14 +16,14 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
-use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::FixedSizeListData;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
@@ -36,7 +36,7 @@ mod kernel;
 mod operations;
 mod validity;
 
-vtable!(FixedSizeList);
+vtable!(FixedSizeList, FixedSizeList, FixedSizeListData);
 
 #[derive(Clone, Debug)]
 pub struct FixedSizeList;
@@ -46,12 +46,12 @@ impl FixedSizeList {
 }
 
 impl VTable for FixedSizeList {
-    type Array = FixedSizeListArray;
+    type Array = FixedSizeListData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &FixedSizeListData) -> &Self {
         &FixedSizeList
     }
 
@@ -59,23 +59,19 @@ impl VTable for FixedSizeList {
         Self::ID
     }
 
-    fn len(array: &FixedSizeListArray) -> usize {
+    fn len(array: &FixedSizeListData) -> usize {
         array.len
     }
 
-    fn dtype(array: &FixedSizeListArray) -> &DType {
+    fn dtype(array: &FixedSizeListData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &FixedSizeListArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &FixedSizeListData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: &FixedSizeListArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.elements().array_hash(state, precision);
         array.list_size().hash(state);
@@ -83,11 +79,7 @@ impl VTable for FixedSizeList {
         array.len.hash(state);
     }
 
-    fn array_eq(
-        array: &FixedSizeListArray,
-        other: &FixedSizeListArray,
-        precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.elements().array_eq(other.elements(), precision)
             && array.list_size() == other.list_size()
@@ -95,23 +87,23 @@ impl VTable for FixedSizeList {
             && array.len == other.len
     }
 
-    fn nbuffers(_array: &FixedSizeListArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &FixedSizeListArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("FixedSizeListArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &FixedSizeListArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         vortex_panic!("FixedSizeListArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &FixedSizeListArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         1 + validity_nchildren(&array.validity)
     }
 
-    fn child(array: &FixedSizeListArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.elements().clone(),
             1 => validity_to_child(&array.validity, array.len())
@@ -120,7 +112,7 @@ impl VTable for FixedSizeList {
         }
     }
 
-    fn child_name(_array: &FixedSizeListArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "elements".to_string(),
             1 => "validity".to_string(),
@@ -145,7 +137,7 @@ impl VTable for FixedSizeList {
         Self::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -172,7 +164,7 @@ impl VTable for FixedSizeList {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<FixedSizeListArray> {
+    ) -> VortexResult<FixedSizeListData> {
         vortex_ensure!(
             buffers.is_empty(),
             "`FixedSizeList::build` expects no buffers"
@@ -199,7 +191,7 @@ impl VTable for FixedSizeList {
         let num_elements = len * (*list_size as usize);
         let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
-        FixedSizeListArray::try_new(elements, *list_size, validity, len)
+        FixedSizeListData::try_new(elements, *list_size, validity, len)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -220,7 +212,7 @@ impl VTable for FixedSizeList {
         };
 
         let new_array =
-            FixedSizeListArray::try_new(elements, array.list_size(), validity, array.len())?;
+            FixedSizeListData::try_new(elements, array.list_size(), validity, array.len())?;
         *array = new_array;
         Ok(())
     }

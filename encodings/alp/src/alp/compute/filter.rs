@@ -26,7 +26,7 @@ impl FilterKernel for ALP {
         // SAFETY: filtering the values does not change correctness
         unsafe {
             Ok(Some(
-                ALPArray::new_unchecked(
+                ALP::new_unchecked(
                     array.encoded().filter(mask.clone())?,
                     array.exponents(),
                     patches,

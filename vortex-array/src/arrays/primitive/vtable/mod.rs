@@ -14,7 +14,7 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -40,13 +40,13 @@ use crate::Precision;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
 
-vtable!(Primitive);
+vtable!(Primitive, Primitive, PrimitiveData);
 
 impl VTable for Primitive {
-    type Array = PrimitiveArray;
+    type Array = PrimitiveData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
@@ -60,53 +60,53 @@ impl VTable for Primitive {
         Self::ID
     }
 
-    fn len(array: &PrimitiveArray) -> usize {
+    fn len(array: &PrimitiveData) -> usize {
         array.buffer_handle().len() / array.ptype().byte_width()
     }
 
-    fn dtype(array: &PrimitiveArray) -> &DType {
+    fn dtype(array: &PrimitiveData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &PrimitiveArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &PrimitiveData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: Hasher>(array: &PrimitiveArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.buffer.array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &PrimitiveArray, other: &PrimitiveArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.buffer.array_eq(&other.buffer, precision)
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(_array: &PrimitiveArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         1
     }
 
-    fn buffer(array: &PrimitiveArray, idx: usize) -> BufferHandle {
+    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.buffer_handle().clone(),
             _ => vortex_panic!("PrimitiveArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &PrimitiveArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("values".to_string()),
             _ => None,
         }
     }
 
-    fn nchildren(array: &PrimitiveArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         validity_nchildren(&array.validity)
     }
 
-    fn child(array: &PrimitiveArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => validity_to_child(&array.validity, array.len())
                 .vortex_expect("PrimitiveArray child index out of bounds"),
@@ -114,11 +114,11 @@ impl VTable for Primitive {
         }
     }
 
-    fn child_name(_array: &PrimitiveArray, _idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, _idx: usize) -> String {
         "validity".to_string()
     }
 
-    fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -142,7 +142,7 @@ impl VTable for Primitive {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<PrimitiveArray> {
+    ) -> VortexResult<PrimitiveData> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -183,7 +183,7 @@ impl VTable for Primitive {
 
         // SAFETY: checked ahead of time
         unsafe {
-            Ok(PrimitiveArray::new_unchecked_from_handle(
+            Ok(PrimitiveData::new_unchecked_from_handle(
                 buffer, ptype, validity,
             ))
         }
@@ -197,7 +197,7 @@ impl VTable for Primitive {
         );
 
         array.validity = if children.is_empty() {
-            Validity::from(array.dtype().nullability())
+            Validity::from(array.dtype.nullability())
         } else {
             Validity::Array(children.into_iter().next().vortex_expect("checked"))
         };

@@ -4,7 +4,11 @@
 mod vtable;
 
 pub use self::vtable::Variant;
+pub use self::vtable::VariantArray;
 use crate::ArrayRef;
+use crate::dtype::DType;
+use crate::stats::ArrayStats;
+use crate::vtable::Array;
 
 /// The canonical in-memory representation of variant (semi-structured) data.
 ///
@@ -15,18 +19,42 @@ use crate::ArrayRef;
 /// always the child's dtype. The child's validity determines which rows are
 /// null.
 #[derive(Clone, Debug)]
-pub struct VariantArray {
+pub struct VariantData {
     child: ArrayRef,
+    pub(crate) stats_set: ArrayStats,
 }
 
-impl VariantArray {
+impl VariantData {
     /// Creates a new VariantArray. Nullability comes from the child's dtype.
     pub fn new(child: ArrayRef) -> Self {
-        Self { child }
+        let stats_set = child.statistics().to_array_stats();
+        Self { child, stats_set }
+    }
+
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.child.len()
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        self.child.dtype()
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Returns a reference to the underlying child array.
     pub fn child(&self) -> &ArrayRef {
         &self.child
+    }
+}
+
+impl Array<Variant> {
+    /// Creates a new `VariantArray`.
+    pub fn new(child: ArrayRef) -> Self {
+        Array::from_inner(VariantData::new(child))
     }
 }

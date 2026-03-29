@@ -76,7 +76,7 @@ pub fn vortex_bytebool::ByteBool::reduce_parent(array: &vortex_array::vtable::ty
 
 pub fn vortex_bytebool::ByteBool::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_bytebool::ByteBool::stats(array: &vortex_bytebool::ByteBoolArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_bytebool::ByteBool::stats(array: &vortex_bytebool::ByteBoolArray) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_bytebool::ByteBool::vtable(_array: &Self::Array) -> &Self
 

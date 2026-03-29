@@ -364,7 +364,7 @@ fn bench_fsst_compress_string(bencher: Bencher) {
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| &varbinview_arr)
-        .bench_refs(|a| fsst_compress(*a, &fsst_compressor));
+        .bench_refs(|a| fsst_compress(*a, a.len(), a.dtype(), &fsst_compressor));
 }
 
 #[divan::bench(name = "fsst_decompress_string")]
@@ -372,7 +372,12 @@ fn bench_fsst_decompress_string(bencher: Bencher) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let fsst_compressor = fsst_train_compressor(&varbinview_arr);
-    let fsst_array = fsst_compress(&varbinview_arr, &fsst_compressor);
+    let fsst_array = fsst_compress(
+        &varbinview_arr,
+        varbinview_arr.len(),
+        varbinview_arr.dtype(),
+        &fsst_compressor,
+    );
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)

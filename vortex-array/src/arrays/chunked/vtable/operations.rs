@@ -6,13 +6,13 @@ use vortex_error::VortexResult;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::Chunked;
-use crate::arrays::chunked::vtable::ChunkedArray;
 use crate::scalar::Scalar;
+use crate::vtable::Array;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Chunked> for Chunked {
     fn scalar_at(
-        array: &ChunkedArray,
+        array: &Array<Chunked>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

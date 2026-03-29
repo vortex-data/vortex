@@ -10,9 +10,10 @@ use crate::IntoArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::slice::SliceReduce;
+use crate::vtable::Array;
 
 impl SliceReduce for Extension {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ExtensionArray::new(
                 array.ext_dtype().clone(),

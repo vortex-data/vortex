@@ -301,6 +301,8 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         if !listview.is_zero_copy_to_list() {
             for i in 0..listview.len() {
                 let list = listview
+                    .clone()
+                    .into_array()
                     .scalar_at(i)
                     .vortex_expect("scalar_at failed in extend_from_array_unchecked");
 

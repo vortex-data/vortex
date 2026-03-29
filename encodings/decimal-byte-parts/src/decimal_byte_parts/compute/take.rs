@@ -8,6 +8,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
+use super::DecimalBytePartsData;
 use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
 
@@ -17,7 +18,7 @@ impl TakeExecute for DecimalByteParts {
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        DecimalBytePartsArray::try_new(array.msp.take(indices.to_array())?, *array.decimal_dtype())
+        DecimalBytePartsData::try_new(array.msp.take(indices.to_array())?, *array.decimal_dtype())
             .map(|a| Some(a.into_array()))
     }
 }

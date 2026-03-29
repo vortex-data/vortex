@@ -21,6 +21,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::SequenceArray;
+use crate::SequenceData;
 use crate::array::Sequence;
 
 impl CompareKernel for Sequence {
@@ -149,7 +150,7 @@ mod tests {
 
     #[test]
     fn test_compare_match() {
-        let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
+        let lhs = SequenceData::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(4i64, lhs.len());
         let result = lhs
             .into_array()
@@ -161,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_compare_match_scale() {
-        let lhs = SequenceArray::try_new_typed(2i64, 3, Nullable, 4).unwrap();
+        let lhs = SequenceData::try_new_typed(2i64, 3, Nullable, 4).unwrap();
         let rhs = ConstantArray::new(8i64, lhs.len());
         let result = lhs
             .into_array()
@@ -173,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_compare_no_match() {
-        let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
+        let lhs = SequenceData::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(1i64, lhs.len());
         let result = lhs
             .into_array()

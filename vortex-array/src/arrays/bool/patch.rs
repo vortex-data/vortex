@@ -10,7 +10,6 @@ use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
-use crate::vtable::ValidityHelper;
 
 impl BoolArray {
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
@@ -50,13 +49,14 @@ impl BoolArray {
 mod tests {
     use vortex_buffer::BitBuffer;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
 
     #[test]
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BitBuffer::new_set(12));
-        let sliced = arr.slice(4..12).unwrap();
+        let sliced = arr.into_array().slice(4..12).unwrap();
         let expected = BoolArray::from_iter([true; 8]);
         assert_arrays_eq!(sliced, expected);
     }
@@ -64,7 +64,7 @@ mod tests {
     #[test]
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BitBuffer::new_set(15));
-        let sliced = arr.slice(4..15).unwrap();
+        let sliced = arr.into_array().slice(4..15).unwrap();
         let expected = BoolArray::from_iter([true; 11]);
         assert_arrays_eq!(sliced, expected);
     }

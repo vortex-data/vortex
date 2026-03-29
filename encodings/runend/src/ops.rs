@@ -8,15 +8,16 @@ use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndArray;
+use crate::RunEndData;
 
 impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(
-        array: &RunEndArray,
+        array: &Array<RunEnd>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -63,7 +64,7 @@ mod tests {
 
     #[test]
     fn slice_array() {
-        let arr = RunEndArray::try_new(
+        let arr = RunEndData::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         )
@@ -82,7 +83,7 @@ mod tests {
 
     #[test]
     fn double_slice() {
-        let arr = RunEndArray::try_new(
+        let arr = RunEndData::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         )
@@ -99,7 +100,7 @@ mod tests {
 
     #[test]
     fn slice_end_inclusive() {
-        let arr = RunEndArray::try_new(
+        let arr = RunEndData::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         )
@@ -118,7 +119,7 @@ mod tests {
 
     #[test]
     fn slice_at_end() {
-        let re_array = RunEndArray::try_new(
+        let re_array = RunEndData::try_new(
             buffer![7_u64, 10].into_array(),
             buffer![2_u64, 3].into_array(),
         )
@@ -132,7 +133,7 @@ mod tests {
 
     #[test]
     fn slice_single_end() {
-        let re_array = RunEndArray::try_new(
+        let re_array = RunEndData::try_new(
             buffer![7_u64, 10].into_array(),
             buffer![2_u64, 3].into_array(),
         )
@@ -148,7 +149,7 @@ mod tests {
 
     #[test]
     fn ree_scalar_at_end() {
-        let scalar = RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
+        let scalar = RunEndData::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
             .unwrap()
             .scalar_at(11)
             .unwrap();
@@ -160,7 +161,7 @@ mod tests {
     fn slice_along_run_boundaries() {
         // Create a runend array with runs: [1, 1, 1] [4, 4, 4] [2, 2] [5, 5, 5, 5]
         // Run ends at indices: 3, 6, 8, 12
-        let arr = RunEndArray::try_new(
+        let arr = RunEndData::try_new(
             buffer![3u32, 6, 8, 12].into_array(),
             buffer![1i32, 4, 2, 5].into_array(),
         )

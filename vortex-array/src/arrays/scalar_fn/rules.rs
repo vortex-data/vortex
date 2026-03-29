@@ -17,6 +17,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
 use crate::arrays::FilterArray;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::ScalarFnData;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::Slice;
 use crate::arrays::SliceArray;
@@ -32,6 +33,7 @@ use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
+use crate::vtable::Array;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
     &ScalarFnPackToStructRule,
@@ -48,7 +50,7 @@ pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::ne
 #[derive(Debug)]
 struct ScalarFnPackToStructRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
-    fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: &Array<ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
         let Some(pack_options) = array.scalar_fn().as_opt::<Pack>() else {
             return Ok(None);
         };
@@ -73,14 +75,14 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
 #[derive(Debug)]
 struct ScalarFnConstantRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
-    fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: &Array<ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
         if !array.children.iter().all(|c| c.is::<Constant>()) {
             return Ok(None);
         }
         if array.is_empty() {
             Ok(Some(Canonical::empty(array.dtype()).into_array()))
         } else {
-            let result = array.scalar_at(0)?;
+            let result = array.clone().into_array().scalar_at(0)?;
             Ok(Some(ConstantArray::new(result, array.len).into_array()))
         }
     }
@@ -93,7 +95,7 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
 
     fn reduce_parent(
         &self,
-        array: &ScalarFnArray,
+        array: &Array<ScalarFnVTable>,
         parent: &SliceArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -106,14 +108,7 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
             .collect::<VortexResult<_>>()?;
 
         Ok(Some(
-            ScalarFnArray {
-                vtable: array.vtable.clone(),
-                dtype: array.dtype.clone(),
-                len: range.len(),
-                children,
-                stats: Default::default(),
-            }
-            .into_array(),
+            ScalarFnData::try_new(array.scalar_fn().clone(), children, range.len())?.into_array(),
         ))
     }
 }
@@ -121,7 +116,7 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
 #[derive(Debug)]
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
-    fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: &Array<ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
         if let Some(reduced) = array
             .scalar_fn()
             .reduce(array, &ArrayReduceCtx { len: array.len })?
@@ -138,7 +133,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     }
 }
 
-impl ReduceNode for ScalarFnArray {
+impl ReduceNode for ScalarFnData {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -149,7 +144,7 @@ impl ReduceNode for ScalarFnArray {
 
     #[allow(clippy::same_name_method)]
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        Some(ScalarFnArray::scalar_fn(self))
+        Some(ScalarFnData::scalar_fn(self))
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
@@ -220,7 +215,7 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
 
     fn reduce_parent(
         &self,
-        child: &ScalarFnArray,
+        child: &Array<ScalarFnVTable>,
         parent: &FilterArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

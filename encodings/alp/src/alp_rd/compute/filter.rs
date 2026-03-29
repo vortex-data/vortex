@@ -24,7 +24,7 @@ impl FilterKernel for ALPRD {
             .flatten();
 
         Ok(Some(
-            ALPRDArray::try_new(
+            ALPRD::try_new(
                 array.dtype().clone(),
                 array.left_parts().filter(mask.clone())?,
                 array.left_parts_dictionary().clone(),

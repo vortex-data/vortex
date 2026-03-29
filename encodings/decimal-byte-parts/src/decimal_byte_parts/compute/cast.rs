@@ -9,9 +9,9 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use super::DecimalBytePartsData;
 use crate::DecimalByteParts;
 use crate::DecimalBytePartsArray;
-
 impl CastReduce for DecimalByteParts {
     fn cast(array: &DecimalBytePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // DecimalBytePartsArray can only have Decimal dtype, so we only handle decimal-to-decimal casts
@@ -30,7 +30,7 @@ impl CastReduce for DecimalByteParts {
                 .cast(array.msp().dtype().with_nullability(*target_nullability))?;
 
             return Ok(Some(
-                DecimalBytePartsArray::try_new(new_msp, *target_decimal)?.into_array(),
+                DecimalBytePartsData::try_new(new_msp, *target_decimal)?.into_array(),
             ));
         }
 
@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn test_cast_decimal_byte_parts_nullability() {
         let decimal_dtype = DecimalDType::new(10, 2);
-        let array = DecimalBytePartsArray::try_new(
+        let array = DecimalBytePartsData::try_new(
             buffer![100i32, 200, 300, 400].into_array(),
             decimal_dtype,
         )
@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn test_cast_decimal_byte_parts_nullable_to_non_nullable() {
         let decimal_dtype = DecimalDType::new(10, 2);
-        let array = DecimalBytePartsArray::try_new(
+        let array = DecimalBytePartsData::try_new(
             PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
             decimal_dtype,
         )
@@ -96,24 +96,24 @@ mod tests {
     }
 
     #[rstest]
-    #[case::i32(DecimalBytePartsArray::try_new(
+    #[case::i32(DecimalBytePartsData::try_new(
         buffer![100i32, 200, 300, 400, 500].into_array(),
         DecimalDType::new(10, 2),
     ).unwrap())]
-    #[case::i64(DecimalBytePartsArray::try_new(
+    #[case::i64(DecimalBytePartsData::try_new(
         buffer![1000i64, 2000, 3000, 4000].into_array(),
         DecimalDType::new(19, 4),
     ).unwrap())]
-    #[case::nullable(DecimalBytePartsArray::try_new(
+    #[case::nullable(DecimalBytePartsData::try_new(
         PrimitiveArray::from_option_iter([Some(100i32), None, Some(300), Some(400), None])
             .into_array(),
         DecimalDType::new(10, 2),
     ).unwrap())]
-    #[case::single(DecimalBytePartsArray::try_new(
+    #[case::single(DecimalBytePartsData::try_new(
         buffer![42i32].into_array(),
         DecimalDType::new(5, 1),
     ).unwrap())]
-    #[case::negative(DecimalBytePartsArray::try_new(
+    #[case::negative(DecimalBytePartsData::try_new(
         buffer![-100i32, -200, 300, -400, 500].into_array(),
         DecimalDType::new(10, 2),
     ).unwrap())]

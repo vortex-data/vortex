@@ -37,7 +37,7 @@ pub(crate) fn new_exporter(
         dtype,
         views,
         buffers,
-    } = array.into_parts();
+    } = array.into_inner().into_parts();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;
     if validity.all_false() {
         let ltype = LogicalType::try_from(dtype)?;

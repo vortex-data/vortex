@@ -10,13 +10,14 @@ use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
+use crate::vtable::Array;
 
 // Push down the zip call to the chunks. Without this rule
 // the default implementation canonicalises the chunked array
 // then zips once.
 impl ZipKernel for Chunked {
     fn zip(
-        if_true: &ChunkedArray,
+        if_true: &Array<Chunked>,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         _ctx: &mut ExecutionCtx,
@@ -57,6 +58,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::vtable::Array;
 
     #[test]
     fn test_chunked_zip_aligns_across_boundaries() {

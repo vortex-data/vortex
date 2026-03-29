@@ -10,10 +10,11 @@ use crate::IntoArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::dict::TakeExecute;
+use crate::vtable::Array;
 
 impl TakeExecute for Extension {
     fn take(
-        array: &ExtensionArray,
+        array: &Array<Extension>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

@@ -20,6 +20,7 @@ use crate::arrays::FilterArray;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 
 pub trait FilterReduce: VTable {
@@ -35,7 +36,7 @@ pub trait FilterReduce: VTable {
     ///
     /// Additionally, the mask is guaranteed to be a `Mask::Values` variant (i.e., neither
     /// `Mask::AllTrue` nor `Mask::AllFalse`).
-    fn filter(array: &Self::Array, mask: &Mask) -> VortexResult<Option<ArrayRef>>;
+    fn filter(array: &Array<Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>>;
 }
 
 pub trait FilterKernel: VTable {
@@ -51,7 +52,7 @@ pub trait FilterKernel: VTable {
     /// Additionally, the mask is guaranteed to be a `Mask::Values` variant (i.e., neither
     /// `Mask::AllTrue` nor `Mask::AllFalse`).
     fn filter(
-        array: &Self::Array,
+        array: &Array<Self>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -61,17 +62,17 @@ pub trait FilterKernel: VTable {
 ///
 /// Returns `Some(result)` if the precondition short-circuits the filter operation,
 /// or `None` if the filter should proceed normally.
-fn precondition<V: VTable>(array: &V::Array, mask: &Mask) -> Option<ArrayRef> {
+fn precondition<V: VTable>(array: &Array<V>, mask: &Mask) -> Option<ArrayRef> {
     let true_count = mask.true_count();
 
     // Fast-path for empty mask (all false).
     if true_count == 0 {
-        return Some(Canonical::empty(array.dtype()).into_array());
+        return Some(Canonical::empty(V::dtype(array)).into_array());
     }
 
     // Fast-path for full mask (all true).
     if true_count == mask.len() {
-        return Some(array.to_array());
+        return Some(array.clone().into_array());
     }
 
     None
@@ -89,7 +90,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: &FilterArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -113,7 +114,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: <Self::Parent as Matcher>::Match<'_>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

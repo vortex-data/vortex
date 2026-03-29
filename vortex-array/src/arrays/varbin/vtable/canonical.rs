@@ -22,7 +22,7 @@ pub(crate) fn varbin_to_canonical(
     array: &VarBinArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinViewArray> {
-    let (dtype, bytes, offsets, validity) = array.clone().into_parts();
+    let (dtype, bytes, offsets, validity) = array.clone().into_inner().into_parts();
 
     let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
 

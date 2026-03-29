@@ -57,7 +57,9 @@ mod tests {
         let input = builder.finish(DType::Utf8(Nullability::NonNullable));
 
         let compressor = fsst_train_compressor(&input);
-        fsst_compress(input, &compressor).into_array()
+        let len = input.len();
+        let dtype = input.dtype().clone();
+        fsst_compress(input, len, &dtype, &compressor).into_array()
     }
 
     #[test]
@@ -130,7 +132,8 @@ mod tests {
         let input = builder.finish(DType::Utf8(Nullability::Nullable));
 
         let compressor = fsst_train_compressor(&input);
-        let fsst_array: ArrayRef = fsst_compress(input.clone(), &compressor).into_array();
+        let fsst_array: ArrayRef =
+            fsst_compress(input.clone(), input.len(), input.dtype(), &compressor).into_array();
 
         // Filter: only select the last element (index 22)
         let mut mask = vec![false; 22];
@@ -158,7 +161,8 @@ mod tests {
         let input = builder.finish(DType::Utf8(Nullability::Nullable));
 
         let compressor = fsst_train_compressor(&input);
-        let fsst_array: ArrayRef = fsst_compress(input.clone(), &compressor).into_array();
+        let fsst_array: ArrayRef =
+            fsst_compress(input.clone(), input.len(), input.dtype(), &compressor).into_array();
 
         let mask = Mask::from_iter([true, false, true]);
 

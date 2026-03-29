@@ -12,6 +12,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::zip::Zip as ZipExpr;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 
 /// Zip two arrays using a mask without reading buffers.
@@ -24,7 +25,7 @@ use crate::vtable::VTable;
 /// the parent `ScalarFnArray`.
 pub trait ZipReduce: VTable {
     fn zip(
-        array: &Self::Array,
+        array: &Array<Self>,
         if_false: &ArrayRef,
         mask: &ArrayRef,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -39,7 +40,7 @@ pub trait ZipReduce: VTable {
 /// the parent `ScalarFnArray`.
 pub trait ZipKernel: VTable {
     fn zip(
-        array: &Self::Array,
+        array: &Array<Self>,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
@@ -58,7 +59,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: ScalarFnArrayView<'_, ZipExpr>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -87,7 +88,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: &Array<V>,
         parent: ScalarFnArrayView<'_, ZipExpr>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

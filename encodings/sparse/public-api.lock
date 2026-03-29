@@ -100,7 +100,7 @@ pub fn vortex_sparse::Sparse::reduce_parent(array: &vortex_array::vtable::typed:
 
 pub fn vortex_sparse::Sparse::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_sparse::Sparse::stats(array: &vortex_sparse::SparseArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_sparse::Sparse::stats(array: &vortex_sparse::SparseArray) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_sparse::Sparse::vtable(_array: &Self::Array) -> &Self
 

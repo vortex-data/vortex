@@ -19,8 +19,8 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::ConstantArray;
-use crate::arrays::MaskedArray;
+use crate::arrays::ConstantData;
+use crate::arrays::MaskedData;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
@@ -31,7 +31,7 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
@@ -40,7 +40,7 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
-vtable!(Masked);
+vtable!(Masked, Masked, MaskedData);
 
 #[derive(Clone, Debug)]
 pub struct Masked;
@@ -50,7 +50,7 @@ impl Masked {
 }
 
 impl VTable for Masked {
-    type Array = MaskedArray;
+    type Array = MaskedData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
@@ -64,47 +64,47 @@ impl VTable for Masked {
         Self::ID
     }
 
-    fn len(array: &MaskedArray) -> usize {
+    fn len(array: &MaskedData) -> usize {
         array.child.len()
     }
 
-    fn dtype(array: &MaskedArray) -> &DType {
+    fn dtype(array: &MaskedData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &MaskedArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+    fn stats(array: &MaskedData) -> &ArrayStats {
+        &array.stats
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &MaskedArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.child.array_hash(state, precision);
         array.validity.array_hash(state, precision);
         array.dtype.hash(state);
     }
 
-    fn array_eq(array: &MaskedArray, other: &MaskedArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.child.array_eq(&other.child, precision)
             && array.validity.array_eq(&other.validity, precision)
             && array.dtype == other.dtype
     }
 
-    fn nbuffers(_array: &Self::Array) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, _idx: usize) -> BufferHandle {
         vortex_panic!("MaskedArray has no buffers")
     }
 
-    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(array: &Self::Array) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         1 + validity_nchildren(&array.validity)
     }
 
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.child.clone(),
             1 => validity_to_child(&array.validity, array.child.len())
@@ -113,7 +113,7 @@ impl VTable for Masked {
         }
     }
 
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "child".to_string(),
             1 => "validity".to_string(),
@@ -121,7 +121,7 @@ impl VTable for Masked {
         }
     }
 
-    fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -145,7 +145,7 @@ impl VTable for Masked {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<MaskedArray> {
+    ) -> VortexResult<MaskedData> {
         if !buffers.is_empty() {
             vortex_bail!("Expected 0 buffer, got {}", buffers.len());
         }
@@ -164,16 +164,16 @@ impl VTable for Masked {
             );
         };
 
-        MaskedArray::try_new(child, validity)
+        MaskedData::try_new(child, validity)
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let validity_mask = array.validity_mask()?;
+        let validity_mask = array.validity_mask();
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
             return Ok(ExecutionResult::done(
-                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
+                ConstantData::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),
             ));
         }
@@ -215,7 +215,7 @@ impl VTable for Masked {
             Validity::from(array.dtype.nullability())
         };
 
-        let new_array = MaskedArray::try_new(child, validity)?;
+        let new_array = MaskedData::try_new(child, validity)?;
         *array = new_array;
         Ok(())
     }

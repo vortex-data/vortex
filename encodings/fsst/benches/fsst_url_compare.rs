@@ -56,7 +56,7 @@ fn pick_url_with_domain(data: &VarBinArray, domain: &str) -> String {
 fn eq_pushdown_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -77,7 +77,7 @@ fn eq_pushdown_high_match(bencher: Bencher) {
 fn eq_pushdown_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -98,7 +98,7 @@ fn eq_pushdown_low_match(bencher: Bencher) {
 fn eq_canonicalize_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -121,7 +121,7 @@ fn eq_canonicalize_high_match(bencher: Bencher) {
 fn eq_canonicalize_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -148,7 +148,7 @@ fn eq_canonicalize_low_match(bencher: Bencher) {
 fn like_substr_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let pattern = format!("%{HIGH_MATCH_DOMAIN}%");
     let expr = like(root(), lit(pattern.as_str()));
 
@@ -169,7 +169,7 @@ fn like_substr_high_match(bencher: Bencher) {
 fn like_substr_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = fsst_compress(data, &compressor);
+    let fsst_array = fsst_compress(data, data.len(), data.dtype(), &compressor);
     let pattern = format!("%{LOW_MATCH_DOMAIN}%");
     let expr = like(root(), lit(pattern.as_str()));
 

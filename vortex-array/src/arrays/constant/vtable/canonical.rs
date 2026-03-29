@@ -362,12 +362,13 @@ mod tests {
             .compute_all(&all::<Stat>().collect_vec())
             .unwrap();
         let canonical = const_array.to_canonical()?;
-        let canonical_stats = canonical.as_ref().statistics();
+        let canonical_arr = canonical.to_array_ref();
+        let canonical_stats = canonical_arr.statistics();
 
-        let stats_ref = stats.as_typed_ref(canonical.as_ref().dtype());
+        let stats_ref = stats.as_typed_ref(canonical.dtype());
 
         for stat in all::<Stat>() {
-            if stat.dtype(canonical.as_ref().dtype()).is_none() {
+            if stat.dtype(canonical.dtype()).is_none() {
                 continue;
             }
             assert_eq!(

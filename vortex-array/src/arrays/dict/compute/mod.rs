@@ -23,10 +23,11 @@ use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::filter::FilterReduce;
+use crate::vtable::Array;
 
 impl TakeExecute for Dict {
     fn take(
-        array: &DictArray,
+        array: &Array<Dict>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -40,7 +41,7 @@ impl TakeExecute for Dict {
 }
 
 impl FilterReduce for Dict {
-    fn filter(array: &DictArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: &Array<Dict>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let codes = array.codes().filter(mask.clone())?;
 
         // SAFETY: filtering codes doesn't change invariants

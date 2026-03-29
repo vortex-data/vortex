@@ -10,16 +10,17 @@ use crate::IntoArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::slice::SliceReduce;
+use crate::vtable::Array;
 
 impl SliceReduce for ListView {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             unsafe {
                 ListViewArray::new_unchecked(
                     array.elements().clone(),
                     array.offsets().slice(range.clone())?,
                     array.sizes().slice(range.clone())?,
-                    array.validity()?.slice(range)?,
+                    array.validity().slice(range)?,
                 )
                 .with_zero_copy_to_list(array.is_zero_copy_to_list())
             }

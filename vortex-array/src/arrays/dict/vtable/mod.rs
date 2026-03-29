@@ -13,8 +13,8 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use super::DictArray;
 use super::DictArrayParts;
+use super::DictData;
 use super::DictMetadata;
 use super::take_canonical;
 use crate::AnyCanonical;
@@ -26,7 +26,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::ConstantArray;
+use crate::arrays::ConstantData;
 use crate::arrays::Primitive;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -40,7 +40,7 @@ use crate::hash::ArrayHash;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
@@ -49,7 +49,7 @@ mod kernel;
 mod operations;
 mod validity;
 
-vtable!(Dict);
+vtable!(Dict, Dict, DictData);
 
 #[derive(Clone, Debug)]
 pub struct Dict;
@@ -59,7 +59,7 @@ impl Dict {
 }
 
 impl VTable for Dict {
-    type Array = DictArray;
+    type Array = DictData;
 
     type Metadata = ProstMetadata<DictMetadata>;
     type OperationsVTable = Self;
@@ -73,47 +73,47 @@ impl VTable for Dict {
         Self::ID
     }
 
-    fn len(array: &DictArray) -> usize {
+    fn len(array: &DictData) -> usize {
         array.codes.len()
     }
 
-    fn dtype(array: &DictArray) -> &DType {
+    fn dtype(array: &DictData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &DictArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &DictData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DictArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.codes.array_hash(state, precision);
         array.values.array_hash(state, precision);
     }
 
-    fn array_eq(array: &DictArray, other: &DictArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.codes.array_eq(&other.codes, precision)
             && array.values.array_eq(&other.values, precision)
     }
 
-    fn nbuffers(_array: &DictArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &DictArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("DictArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &DictArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &DictArray) -> usize {
+    fn nchildren(_array: &Array<Self>) -> usize {
         2
     }
 
-    fn child(array: &DictArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.codes().clone(),
             1 => array.values().clone(),
@@ -121,7 +121,7 @@ impl VTable for Dict {
         }
     }
 
-    fn child_name(_array: &DictArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "codes".to_string(),
             1 => "values".to_string(),
@@ -129,7 +129,7 @@ impl VTable for Dict {
         }
     }
 
-    fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DictMetadata {
             codes_ptype: PType::try_from(array.codes().dtype())? as i32,
             values_len: u32::try_from(array.values().len()).map_err(|_| {
@@ -164,7 +164,7 @@ impl VTable for Dict {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<DictArray> {
+    ) -> VortexResult<DictData> {
         if children.len() != 2 {
             vortex_bail!(
                 "Expected 2 children for dict encoding, found {}",
@@ -184,7 +184,7 @@ impl VTable for Dict {
 
         // SAFETY: We've validated the metadata and children.
         Ok(unsafe {
-            DictArray::new_unchecked(codes, values).set_all_values_referenced(all_values_referenced)
+            DictData::new_unchecked(codes, values).set_all_values_referenced(all_values_referenced)
         })
     }
 
@@ -217,7 +217,7 @@ impl VTable for Dict {
         // is correct.
         if array.codes().all_invalid()? {
             return Ok(ExecutionResult::done(
-                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
+                ConstantData::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
                     .into_array(),
             ));
         }

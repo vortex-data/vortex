@@ -140,7 +140,7 @@ mod test {
             ],
             validity.clone(),
         );
-        let date_times = DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        let date_times = DateTimePartsData::try_from(TemporalArray::new_timestamp(
             milliseconds.clone().into_array(),
             TimeUnit::Milliseconds,
             Some("UTC".into()),

@@ -10,10 +10,10 @@ use crate::arrays::DecimalArray;
 use crate::match_each_decimal_value_type;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl MaskReduce for Decimal {
-    fn mask(array: &DecimalArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &Array<Decimal>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(match_each_decimal_value_type!(
             array.values_type(),
             |D| {

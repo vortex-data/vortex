@@ -148,7 +148,7 @@ impl LayoutStrategy for RepartitionStrategy {
                         if !chunked.is_empty() {
                             yield (
                                 sequence_pointer.advance(),
-                                chunked.to_canonical()?.into_array(),
+                                chunked.into_array().to_canonical()?.into_array(),
                             )
                         }
                     }
@@ -161,7 +161,7 @@ impl LayoutStrategy for RepartitionStrategy {
                     if !to_flush.is_empty() {
                         yield (
                             sequence_pointer.advance(),
-                            to_flush.to_canonical()?.into_array(),
+                            to_flush.into_array().to_canonical()?.into_array(),
                         )
                     }
                 }

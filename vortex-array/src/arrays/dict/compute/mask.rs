@@ -11,9 +11,10 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskReduce;
+use crate::vtable::Array;
 
 impl MaskReduce for Dict {
-    fn mask(array: &DictArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: &Array<Dict>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_codes = MaskExpr.try_new_array(
             array.codes().len(),
             EmptyOptions,

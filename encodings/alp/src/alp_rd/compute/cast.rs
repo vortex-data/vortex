@@ -28,7 +28,7 @@ impl CastReduce for ALPRD {
             )?;
 
             return Ok(Some(
-                ALPRDArray::try_new(
+                ALPRD::try_new(
                     dtype.clone(),
                     new_left_parts,
                     array.left_parts_dictionary().clone(),

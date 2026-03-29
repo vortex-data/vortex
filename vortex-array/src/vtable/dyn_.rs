@@ -101,7 +101,7 @@ impl<V: VTable> DynVTable for V {
         // Wrap in Array<V> for safe downcasting.
         // SAFETY: We just validated that V::len(&inner) == len and V::dtype(&inner) == dtype.
         let array = unsafe {
-            Array::new_unchecked(
+            Array::from_parts_unchecked(
                 self.clone(),
                 dtype.clone(),
                 len,

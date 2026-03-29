@@ -8,13 +8,13 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Null;
-use crate::arrays::NullArray;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastReduce;
+use crate::vtable::Array;
 
 impl CastReduce for Null {
-    fn cast(array: &NullArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: &Array<Null>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_nullable() {
             vortex_bail!("Cannot cast Null to {}", dtype);
         }

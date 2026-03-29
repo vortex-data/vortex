@@ -28,7 +28,7 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
             let mut opt_values = bool_array
                 .to_bit_buffer()
                 .iter()
-                .zip(bool_array.validity_mask()?.to_bit_buffer().iter())
+                .zip(bool_array.validity_mask().to_bit_buffer().iter())
                 .map(|(b, v)| v.then_some(b))
                 .collect::<Vec<_>>();
             opt_values.sort();
@@ -41,7 +41,7 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
                     .as_slice::<P>()
                     .iter()
                     .copied()
-                    .zip(primitive_array.validity_mask()?.to_bit_buffer().iter())
+                    .zip(primitive_array.validity_mask().to_bit_buffer().iter())
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 sort_primitive_slice(&mut opt_values);
@@ -56,7 +56,7 @@ pub fn sort_canonical_array(array: &ArrayRef) -> VortexResult<ArrayRef> {
                     .as_slice()
                     .iter()
                     .copied()
-                    .zip(decimal_array.validity_mask()?.to_bit_buffer().iter())
+                    .zip(decimal_array.validity_mask().to_bit_buffer().iter())
                     .map(|(p, v)| v.then_some(p))
                     .collect::<Vec<_>>();
                 opt_values.sort();

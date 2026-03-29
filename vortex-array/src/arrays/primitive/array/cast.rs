@@ -16,7 +16,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
-use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
     /// Return a slice of the array's buffer.

@@ -10,7 +10,7 @@ use crate::Precision;
 use crate::ToCanonical;
 use crate::array::DynArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::TemporalArray;
+use crate::arrays::TemporalData;
 use crate::assert_arrays_eq;
 use crate::expr::gt;
 use crate::expr::lit;
@@ -27,7 +27,7 @@ use crate::vtable::ValidityHelper;
 macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{
         let array = buffer![100 as $prim].into_array();
-        let temporal: TemporalArray = $constructor(array, $unit);
+        let temporal: TemporalData = $constructor(array, $unit);
 
         assert_arrays_eq!(
             temporal.temporal_values(),
@@ -60,25 +60,25 @@ macro_rules! test_fail_case {
 test_success_case!(
     test_roundtrip_time32_second,
     i32,
-    TemporalArray::new_time,
+    TemporalData::new_time,
     TimeUnit::Seconds
 );
 test_success_case!(
     test_roundtrip_time32_millisecond,
     i32,
-    TemporalArray::new_time,
+    TemporalData::new_time,
     TimeUnit::Milliseconds
 );
 test_fail_case!(
     test_fail_time32_micro,
     i32,
-    TemporalArray::new_time,
+    TemporalData::new_time,
     TimeUnit::Microseconds
 );
 test_fail_case!(
     test_fail_time32_nano,
     i32,
-    TemporalArray::new_time,
+    TemporalData::new_time,
     TimeUnit::Nanoseconds
 );
 
@@ -86,31 +86,31 @@ test_fail_case!(
 test_success_case!(
     test_roundtrip_time64_us,
     i64,
-    TemporalArray::new_time,
+    TemporalData::new_time,
     TimeUnit::Microseconds
 );
 test_success_case!(
     test_roundtrip_time64_ns,
     i64,
-    TemporalArray::new_time,
+    TemporalData::new_time,
     TimeUnit::Nanoseconds
 );
 test_fail_case!(
     test_fail_time64_ms,
     i64,
-    TemporalArray::new_time,
+    TemporalData::new_time,
     TimeUnit::Milliseconds
 );
 test_fail_case!(
     test_fail_time64_s,
     i64,
-    TemporalArray::new_time,
+    TemporalData::new_time,
     TimeUnit::Seconds
 );
 test_fail_case!(
     test_fail_time64_i32,
     i32,
-    TemporalArray::new_time,
+    TemporalData::new_time,
     TimeUnit::Nanoseconds
 );
 
@@ -118,13 +118,13 @@ test_fail_case!(
 test_success_case!(
     test_roundtrip_date32,
     i32,
-    TemporalArray::new_date,
+    TemporalData::new_date,
     TimeUnit::Days
 );
 test_fail_case!(
     test_fail_date32,
     i64,
-    TemporalArray::new_date,
+    TemporalData::new_date,
     TimeUnit::Days
 );
 
@@ -132,13 +132,13 @@ test_fail_case!(
 test_success_case!(
     test_roundtrip_date64,
     i64,
-    TemporalArray::new_date,
+    TemporalData::new_date,
     TimeUnit::Milliseconds
 );
 test_fail_case!(
     test_fail_date64,
     i32,
-    TemporalArray::new_date,
+    TemporalData::new_date,
     TimeUnit::Milliseconds
 );
 
@@ -155,8 +155,7 @@ fn test_timestamp() {
         TimeUnit::Nanoseconds,
     ] {
         for tz in [Some("UTC".into()), None] {
-            let temporal_array =
-                TemporalArray::new_timestamp(ts_array.to_array(), unit, tz.clone());
+            let temporal_array = TemporalData::new_timestamp(ts_array.to_array(), unit, tz.clone());
 
             assert_arrays_eq!(
                 temporal_array.temporal_values(),
@@ -176,7 +175,7 @@ fn test_timestamp_fails_i32() {
     let ts = buffer![100i32].into_array();
     let ts_array = ts.into_array();
 
-    TemporalArray::new_timestamp(ts_array, TimeUnit::Seconds, None);
+    TemporalData::new_timestamp(ts_array, TimeUnit::Seconds, None);
 }
 
 #[rstest]
@@ -195,7 +194,7 @@ fn test_validity_preservation(#[case] validity: Validity) {
     )
     .into_array();
     let temporal_array =
-        TemporalArray::new_timestamp(milliseconds, TimeUnit::Milliseconds, Some("UTC".into()));
+        TemporalData::new_timestamp(milliseconds, TimeUnit::Milliseconds, Some("UTC".into()));
 
     assert!(
         temporal_array
@@ -211,7 +210,7 @@ fn test222() -> VortexResult<()> {
     // Write file with MILLISECONDS timestamps
     let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
         .into_array();
-    let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
+    let temporal = TemporalData::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
     // Read with SECONDS filter scalar
     let filter_expr = gt(
@@ -225,7 +224,7 @@ fn test222() -> VortexResult<()> {
         )),
     );
 
-    let _result = temporal.as_ref().apply(&filter_expr);
+    let _result = temporal.to_array_ref().apply(&filter_expr);
 
     // let err = result.is_err().unwrap();
     // println!("Expected error: {}", err);

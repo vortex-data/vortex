@@ -101,6 +101,7 @@ impl FileStatsLayoutReader {
         let result = pruning
             .execute::<Canonical>(&mut ctx)?
             .into_bool()
+            .into_array()
             .scalar_at(0)?;
 
         Ok(result.as_bool().value() == Some(true))

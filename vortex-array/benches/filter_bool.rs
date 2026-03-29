@@ -14,6 +14,8 @@
 use divan::Bencher;
 use rand::prelude::*;
 use rand_distr::Zipf;
+use vortex_array::DynArray;
+use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
@@ -147,6 +149,8 @@ fn filter_random_by_mostly_true(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -166,6 +170,8 @@ fn filter_random_by_mostly_false(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -185,6 +191,8 @@ fn filter_random_by_random(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -204,6 +212,8 @@ fn filter_random_by_correlated_runs(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -223,6 +233,8 @@ fn filter_random_by_power_law(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -244,6 +256,8 @@ fn filter_powerlaw_by_mostly_true(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -263,6 +277,8 @@ fn filter_powerlaw_by_mostly_false(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -282,6 +298,8 @@ fn filter_powerlaw_by_random(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -301,6 +319,8 @@ fn filter_powerlaw_by_correlated_runs(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -320,6 +340,8 @@ fn filter_powerlaw_by_power_law(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -345,6 +367,8 @@ fn density_sweep_random(bencher: Bencher, density: f64) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -365,6 +389,8 @@ fn density_sweep_dense_runs(bencher: Bencher, density: f64) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -384,6 +410,8 @@ fn density_sweep_single_slice(bencher: Bencher, density: f64) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -407,6 +435,8 @@ fn filter_all_true(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -428,6 +458,8 @@ fn filter_one_false(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -447,6 +479,8 @@ fn filter_ultra_sparse(bencher: Bencher, n: usize) {
         })
         .bench_refs(|(array, m, ctx)| {
             array
+                .clone()
+                .into_array()
                 .filter(m.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)

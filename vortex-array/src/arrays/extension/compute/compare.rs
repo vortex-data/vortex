@@ -9,15 +9,15 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
-use crate::arrays::ExtensionArray;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
+use crate::vtable::Array;
 
 impl CompareKernel for Extension {
     fn compare(
-        lhs: &ExtensionArray,
+        lhs: &Array<Extension>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,

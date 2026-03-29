@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::BitPacked;
 use crate::BitPackedArray;
+use crate::BitPackedData;
 
 impl SliceKernel for BitPacked {
     fn slice(
@@ -31,10 +32,10 @@ impl SliceKernel for BitPacked {
         // slice the buffer using the encoded start/stop values
         // SAFETY: slicing packed values without decoding preserves invariants
         Ok(Some(unsafe {
-            BitPackedArray::new_unchecked(
+            BitPackedData::new_unchecked(
                 array.packed().slice(encoded_start..encoded_stop),
                 array.dtype().clone(),
-                array.validity()?.slice(range.clone())?,
+                array.validity().slice(range.clone())?,
                 array
                     .patches()
                     .map(|p| p.slice(range.clone()))

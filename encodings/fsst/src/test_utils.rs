@@ -43,7 +43,9 @@ pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> A
     );
     let compressor = fsst_train_compressor(&varbin);
 
-    fsst_compress(varbin, &compressor).into_array()
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    fsst_compress(varbin, len, &dtype, &compressor).into_array()
 }
 
 pub fn gen_dict_fsst_test_data<T: NativePType>(
@@ -137,7 +139,9 @@ pub fn generate_url_data_n(n: usize) -> VarBinArray {
 pub fn make_fsst_urls(n: usize) -> FSSTArray {
     let varbin = generate_url_data_n(n);
     let compressor = fsst_train_compressor(&varbin);
-    fsst_compress(varbin, &compressor)
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    fsst_compress(varbin, len, &dtype, &compressor)
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +235,9 @@ pub fn make_fsst_clickbench_urls(n: usize) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     );
     let compressor = fsst_train_compressor(&varbin);
-    fsst_compress(varbin, &compressor)
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    fsst_compress(varbin, len, &dtype, &compressor)
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +303,9 @@ pub fn make_fsst_short_urls(n: usize) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     );
     let compressor = fsst_train_compressor(&varbin);
-    fsst_compress(varbin, &compressor)
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    fsst_compress(varbin, len, &dtype, &compressor)
 }
 
 // ---------------------------------------------------------------------------
@@ -367,7 +375,9 @@ pub fn make_fsst_log_lines(n: usize) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     );
     let compressor = fsst_train_compressor(&varbin);
-    fsst_compress(varbin, &compressor)
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    fsst_compress(varbin, len, &dtype, &compressor)
 }
 
 // ---------------------------------------------------------------------------
@@ -424,7 +434,9 @@ pub fn make_fsst_json_strings(n: usize) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     );
     let compressor = fsst_train_compressor(&varbin);
-    fsst_compress(varbin, &compressor)
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    fsst_compress(varbin, len, &dtype, &compressor)
 }
 
 // ---------------------------------------------------------------------------
@@ -494,7 +506,9 @@ pub fn make_fsst_file_paths(n: usize) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     );
     let compressor = fsst_train_compressor(&varbin);
-    fsst_compress(varbin, &compressor)
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    fsst_compress(varbin, len, &dtype, &compressor)
 }
 
 // ---------------------------------------------------------------------------
@@ -545,7 +559,9 @@ pub fn make_fsst_emails(n: usize) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     );
     let compressor = fsst_train_compressor(&varbin);
-    fsst_compress(varbin, &compressor)
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    fsst_compress(varbin, len, &dtype, &compressor)
 }
 
 // ---------------------------------------------------------------------------
@@ -582,5 +598,7 @@ pub fn make_fsst_rare_match(n: usize) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     );
     let compressor = fsst_train_compressor(&varbin);
-    fsst_compress(varbin, &compressor)
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    fsst_compress(varbin, len, &dtype, &compressor)
 }

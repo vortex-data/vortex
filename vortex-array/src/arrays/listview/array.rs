@@ -12,7 +12,9 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::DynArray;
+use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::ListView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool;
@@ -21,6 +23,7 @@ use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::Array;
 
 /// The canonical encoding for variable-length list arrays.
 ///
@@ -85,7 +88,7 @@ use crate::validity::Validity;
 ///
 /// [`ListArray`]: crate::arrays::ListArray
 #[derive(Clone, Debug)]
-pub struct ListViewArray {
+pub struct ListViewData {
     /// The [`DType`] of the list array.
     ///
     /// This type **must** be the variant [`DType::List`].
@@ -143,7 +146,7 @@ pub struct ListViewArrayParts {
     pub validity: Validity,
 }
 
-impl ListViewArray {
+impl ListViewData {
     /// Creates a new [`ListViewArray`].
     ///
     /// # Panics
@@ -352,6 +355,33 @@ impl ListViewArray {
         }
     }
 
+    /// Returns the dtype of the array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns the length of the array.
+    pub fn len(&self) -> usize {
+        debug_assert_eq!(self.offsets.len(), self.sizes.len());
+        self.offsets.len()
+    }
+
+    /// Returns `true` if the array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the validity of the array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> &Validity {
+        &self.validity
+    }
+
+    /// Returns the validity as a [`Mask`](vortex_mask::Mask).
+    pub fn validity_mask(&self) -> vortex_mask::Mask {
+        self.validity.to_mask(self.len())
+    }
+
     /// Returns the offset at the given index.
     ///
     /// Note that it is possible the corresponding list view is null (which is only defined by the
@@ -440,6 +470,50 @@ impl ListViewArray {
     }
 }
 
+impl Array<ListView> {
+    /// Creates a new [`ListViewArray`].
+    pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
+        Array::from_inner(ListViewData::new(elements, offsets, sizes, validity))
+    }
+
+    /// Constructs a new `ListViewArray`.
+    pub fn try_new(
+        elements: ArrayRef,
+        offsets: ArrayRef,
+        sizes: ArrayRef,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Ok(Array::from_inner(ListViewData::try_new(
+            elements, offsets, sizes, validity,
+        )?))
+    }
+
+    /// Creates a new [`ListViewArray`] without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`ListViewData::new_unchecked`].
+    pub unsafe fn new_unchecked(
+        elements: ArrayRef,
+        offsets: ArrayRef,
+        sizes: ArrayRef,
+        validity: Validity,
+    ) -> Self {
+        Array::from_inner(unsafe {
+            ListViewData::new_unchecked(elements, offsets, sizes, validity)
+        })
+    }
+
+    /// Mark whether this list view can be zero-copy converted to a list.
+    ///
+    /// # Safety
+    ///
+    /// See [`ListViewData::with_zero_copy_to_list`].
+    pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
+        Array::from_inner(unsafe { self.into_inner().with_zero_copy_to_list(is_zctl) })
+    }
+}
+
 /// Helper function to validate `offsets` and `sizes` with specific types.
 fn validate_offsets_and_sizes<O, S>(
     offsets_slice: &[O],
@@ -500,7 +574,12 @@ fn validate_zctl(
 ) -> VortexResult<()> {
     // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
     // if there are null views.
-    if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted() {
+    if let Some(is_sorted) = offsets_primitive
+        .clone()
+        .into_array()
+        .statistics()
+        .compute_is_sorted()
+    {
         vortex_ensure!(is_sorted, "offsets must be sorted");
     } else {
         vortex_bail!("offsets must report is_sorted statistic");

@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::StreamExt as _;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
+use vortex_array::IntoArray;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_error::VortexResult;
@@ -144,6 +145,8 @@ impl LayoutStrategy for ZonedStrategy {
         // the table depends on which stats were successfully computed.
         let stats_stream = stats_table
             .array()
+            .clone()
+            .into_array()
             .to_array_stream()
             .sequenced(eof.split_off());
         let zones_layout = self

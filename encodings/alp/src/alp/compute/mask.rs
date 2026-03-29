@@ -21,7 +21,7 @@ impl MaskReduce for ALP {
         }
         let masked_encoded = array.encoded().clone().mask(mask.clone())?;
         Ok(Some(
-            ALPArray::new(masked_encoded, array.exponents(), None).into_array(),
+            ALP::new(masked_encoded, array.exponents(), None).into_array(),
         ))
     }
 }
@@ -40,7 +40,7 @@ impl MaskKernel for ALP {
             .transpose()?
             .flatten();
         Ok(Some(
-            ALPArray::new(masked_encoded, array.exponents(), masked_patches).into_array(),
+            ALP::new(masked_encoded, array.exponents(), masked_patches).into_array(),
         ))
     }
 }

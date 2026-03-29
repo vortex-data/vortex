@@ -18,7 +18,7 @@ use crate::ExecutionResult;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::ListViewArray;
+use crate::arrays::listview::ListViewData;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -27,7 +27,7 @@ use crate::dtype::PType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
@@ -38,7 +38,7 @@ use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 mod operations;
 mod validity;
-vtable!(ListView);
+vtable!(ListView, ListView, ListViewData);
 
 #[derive(Clone, Debug)]
 pub struct ListView;
@@ -58,12 +58,12 @@ pub struct ListViewMetadata {
 }
 
 impl VTable for ListView {
-    type Array = ListViewArray;
+    type Array = ListViewData;
 
     type Metadata = ProstMetadata<ListViewMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &ListViewData) -> &Self {
         &ListView
     }
 
@@ -71,24 +71,20 @@ impl VTable for ListView {
         Self::ID
     }
 
-    fn len(array: &ListViewArray) -> usize {
+    fn len(array: &ListViewData) -> usize {
         debug_assert_eq!(array.offsets().len(), array.sizes().len());
         array.offsets().len()
     }
 
-    fn dtype(array: &ListViewArray) -> &DType {
+    fn dtype(array: &ListViewData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &ListViewArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &ListViewData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: &ListViewArray,
-        state: &mut H,
-        precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
         array.elements().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
@@ -96,7 +92,7 @@ impl VTable for ListView {
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &ListViewArray, other: &ListViewArray, precision: Precision) -> bool {
+    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.elements().array_eq(other.elements(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
@@ -104,23 +100,23 @@ impl VTable for ListView {
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(_array: &ListViewArray) -> usize {
+    fn nbuffers(_array: &Array<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &ListViewArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ListViewArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &ListViewArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
         vortex_panic!("ListViewArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &ListViewArray) -> usize {
+    fn nchildren(array: &Array<Self>) -> usize {
         3 + validity_nchildren(&array.validity)
     }
 
-    fn child(array: &ListViewArray, idx: usize) -> ArrayRef {
+    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.elements().clone(),
             1 => array.offsets().clone(),
@@ -131,7 +127,7 @@ impl VTable for ListView {
         }
     }
 
-    fn child_name(_array: &ListViewArray, idx: usize) -> String {
+    fn child_name(_array: &Array<Self>, idx: usize) -> String {
         match idx {
             0 => "elements".to_string(),
             1 => "offsets".to_string(),
@@ -141,7 +137,7 @@ impl VTable for ListView {
         }
     }
 
-    fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(ListViewMetadata {
             elements_len: array.elements().len() as u64,
             offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
@@ -170,7 +166,7 @@ impl VTable for ListView {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ListViewArray> {
+    ) -> VortexResult<ListViewData> {
         vortex_ensure!(
             buffers.is_empty(),
             "`ListViewArray::build` expects no buffers"
@@ -213,7 +209,7 @@ impl VTable for ListView {
             len,
         )?;
 
-        ListViewArray::try_new(elements, offsets, sizes, validity)
+        ListViewData::try_new(elements, offsets, sizes, validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -239,7 +235,7 @@ impl VTable for ListView {
             Validity::from(array.dtype.nullability())
         };
 
-        let new_array = ListViewArray::try_new(elements, offsets, sizes, validity)?;
+        let new_array = ListViewData::try_new(elements, offsets, sizes, validity)?;
         *array = new_array;
         Ok(())
     }

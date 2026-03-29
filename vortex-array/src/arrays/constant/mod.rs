@@ -7,7 +7,8 @@ mod arbitrary;
 pub use arbitrary::ArbitraryConstantArray;
 
 mod array;
-pub use array::ConstantArray;
+pub use array::ConstantData;
+pub use vtable::ConstantArray;
 
 pub(crate) mod compute;
 

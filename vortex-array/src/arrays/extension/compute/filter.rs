@@ -9,9 +9,10 @@ use crate::IntoArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::filter::FilterReduce;
+use crate::vtable::Array;
 
 impl FilterReduce for Extension {
-    fn filter(array: &ExtensionArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: &Array<Extension>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ExtensionArray::new(
                 array.ext_dtype().clone(),

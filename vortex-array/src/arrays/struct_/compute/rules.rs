@@ -24,7 +24,7 @@ use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&StructCastPushDownRule),
@@ -47,7 +47,7 @@ impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
 
     fn reduce_parent(
         &self,
-        array: &StructArray,
+        array: &Array<Struct>,
         parent: ScalarFnArrayView<Cast>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -103,7 +103,7 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
 
     fn reduce_parent(
         &self,
-        child: &StructArray,
+        child: &Array<Struct>,
         parent: ScalarFnArrayView<'_, GetItem>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

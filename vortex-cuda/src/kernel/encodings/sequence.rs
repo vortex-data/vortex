@@ -45,7 +45,7 @@ impl CudaExecute for SequenceExecutor {
             len,
             ptype,
             nullability,
-        } = array.into_parts();
+        } = array.into_inner().into_parts();
 
         match_each_native_ptype!(ptype, |P| {
             let base = base.cast::<P>()?;

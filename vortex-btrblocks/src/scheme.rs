@@ -25,6 +25,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_error::VortexResult;
 
 use crate::BtrBlocksCompressor;
@@ -105,7 +106,8 @@ pub trait SchemeExt: Scheme {
         let sample = if ctx.is_sample {
             stats.clone()
         } else {
-            let source_len = stats.source().len();
+            let source_ref = stats.source().clone().into_array();
+            let source_len = source_ref.len();
             let sample_count = sample_count_approx_one_percent(source_len);
 
             tracing::trace!(
@@ -120,7 +122,7 @@ pub trait SchemeExt: Scheme {
         let after = self
             .compress(btr_blocks_compressor, &sample, ctx.as_sample(), excludes)?
             .nbytes();
-        let before = sample.source().nbytes();
+        let before = sample.source().clone().into_array().nbytes();
 
         tracing::debug!(
             "estimate_compression_ratio_with_sampling(compressor={self:#?} ctx={ctx:?}) = {}",

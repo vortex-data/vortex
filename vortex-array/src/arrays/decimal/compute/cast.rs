@@ -17,11 +17,11 @@ use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ValidityHelper;
+use crate::vtable::Array;
 
 impl CastKernel for Decimal {
     fn cast(
-        array: &DecimalArray,
+        array: &Array<Decimal>,
         dtype: &DType,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -100,7 +100,7 @@ impl CastKernel for Decimal {
 /// Returns an error if `to_values_type` is narrower than the array's current values type.
 /// Only upcasting (widening) is supported.
 pub fn upcast_decimal_values(
-    array: &DecimalArray,
+    array: &Array<Decimal>,
     to_values_type: DecimalType,
 ) -> VortexResult<DecimalArray> {
     let from_values_type = array.values_type();
