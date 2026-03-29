@@ -108,7 +108,7 @@ impl Stage {
 }
 
 type SmemOffset = u32;
-type StageLen = u32;
+type OutputLen = u32;
 
 /// A dispatch plan before device materialization.
 ///
@@ -118,7 +118,6 @@ pub enum DispatchPlan {
     /// Entire encoding tree is fusable into a single kernel launch.
     Fused(FusedPlan),
     /// Some subtrees need separate execution before the fused plan can run.
-    /// Shared memory has already been validated.
     PartiallyFused {
         /// The fused plan (with placeholder buffer slots for pending subtrees).
         plan: FusedPlan,
@@ -165,11 +164,10 @@ pub enum DispatchPlan {
 /// exceed `stage.len` by up to 1023 elements. This overflow is absorbed by
 /// the scratch region (`SMEM_TILE_SIZE` ≥ `FL_CHUNK_SIZE`).
 pub struct FusedPlan {
-    /// Stages in kernel execution order. All stages except the last decode
-    /// fully into persistent shared memory; the final stage produces the
-    /// output.
-    stages: Vec<(Stage, SmemOffset, StageLen)>,
-    /// Shared memory elements reserved by the preceding (non-output) stages.
+    /// Stages in kernel execution order; all but the last decode into
+    /// shared memory, the last decodes into global memeory.
+    stages: Vec<(Stage, SmemOffset, OutputLen)>,
+    /// Shared memory reserved by the non-output stages.
     smem_cursor: SmemOffset,
     /// Source buffers. `None` entries are placeholder slots for pending subtrees,
     /// filled by [`materialize_with_subtrees`] before device copy.

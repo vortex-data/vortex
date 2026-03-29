@@ -53,11 +53,11 @@ include!(concat!(env!("OUT_DIR"), "/dynamic_dispatch.rs"));
 ///
 /// # Safety
 ///
-/// The caller must ensure `T` is a `#[repr(C)]` type with no padding that
-/// contains uninitialised bytes.  All the types we serialise (`PlanHeader`,
-/// `PackedStage`, `ScalarOp`) satisfy this because they are bindgen-generated
-/// `#[repr(C)]` structs whose padding bytes are always written before
-/// serialisation.
+/// The caller must ensure `T` is a `#[repr(C)]` type whose layout is
+/// compatible with the C ABI.  All the types we serialise (`PlanHeader`,
+/// `PackedStage`, `ScalarOp`) are bindgen-generated `#[repr(C)]` structs.
+/// Padding bytes may be uninitialised on the Rust side, but the C reader
+/// never inspects them, so the values are irrelevant.
 fn as_bytes<T: Sized>(val: &T) -> &[u8] {
     unsafe { from_raw_parts(std::ptr::addr_of!(*val).cast(), size_of::<T>()) }
 }
@@ -514,7 +514,7 @@ mod tests {
     #[crate::test]
     fn test_plan_structure() {
         // Stage 0: input dict values (BP→FoR) into smem[0..256)
-        // Stage 1: output codes (BP→FoR→DICT) into smem[256..2304), gather from smem[0]
+        // Stage 1: output codes (BP→FoR→DICT) into smem[256..1280), gather from smem[0]
         let plan = CudaDispatchPlan::new([
             MaterializedStage::new(
                 0xAAAA,
