@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 
 use std::iter::Iterator;
 
@@ -373,6 +373,120 @@ fn make_random(density_pct: usize) -> BitBuffer {
     BitBuffer::from_iter((0..LARGE_N).map(|i| (splitmix(i) % 100) < density_pct as u64))
 }
 
+/// Run-length distribution: long runs of 0s and 1s, where flipping is rare.
+/// Uses a geometric distribution to generate run lengths.
+/// At 5% density, most bits are 0, with occasional runs of all-1s.
+/// This gives words that are either all-zero or very dense — the opposite
+/// of uniform's constant-popcount pattern.
+fn make_runs(density_pct: usize) -> BitBuffer {
+    let mut bits = vec![false; LARGE_N];
+    let mut state = false; // start in 0-run
+    let mut pos = 0usize;
+    let mut rng_state = 0usize;
+    while pos < LARGE_N {
+        // Geometric run length: expected run in 0-state = (100 - density) / flip_rate,
+        // expected run in 1-state = density / flip_rate.
+        // We use a flip probability per-bit derived from density to get
+        // ~5-10 transitions total across 1M bits (very long runs).
+        rng_state = rng_state.wrapping_add(1);
+        let hash = splitmix(rng_state);
+
+        // Average run length ~= 1M * density/100 per 1-run, 1M * (1-density/100) per 0-run.
+        // With ~20 total runs, mean 0-run = 1M * 0.95 / 10 = 95000, mean 1-run = 1M * 0.05 / 10 = 5000.
+        let mean_run = if state {
+            // In a 1-run: average length proportional to density
+            (LARGE_N * density_pct / 100).max(64) / 10
+        } else {
+            // In a 0-run: average length proportional to (100 - density)
+            (LARGE_N * (100 - density_pct) / 100).max(64) / 10
+        };
+
+        // Geometric-ish run length from hash
+        let run_len = ((hash % (mean_run * 2) as u64) as usize).max(1);
+        let end = (pos + run_len).min(LARGE_N);
+        if state {
+            for b in &mut bits[pos..end] {
+                *b = true;
+            }
+        }
+        pos = end;
+        state = !state;
+    }
+    BitBuffer::from_iter(bits)
+}
+
+fn make_runs_arrow(density_pct: usize) -> Arrow<BooleanBuffer> {
+    // Reconstruct the same pattern for Arrow
+    let mut bits = vec![false; LARGE_N];
+    let mut state = false;
+    let mut pos = 0usize;
+    let mut rng_state = 0usize;
+    while pos < LARGE_N {
+        rng_state = rng_state.wrapping_add(1);
+        let hash = splitmix(rng_state);
+        let mean_run = if state {
+            (LARGE_N * density_pct / 100).max(64) / 10
+        } else {
+            (LARGE_N * (100 - density_pct) / 100).max(64) / 10
+        };
+        let run_len = ((hash % (mean_run * 2) as u64) as usize).max(1);
+        let end = (pos + run_len).min(LARGE_N);
+        if state {
+            for b in &mut bits[pos..end] {
+                *b = true;
+            }
+        }
+        pos = end;
+        state = !state;
+    }
+    Arrow(BooleanBuffer::from_iter(bits))
+}
+
+/// Poisson-like distribution: inter-arrival times are geometrically distributed,
+/// approximating a Poisson process. Looks "almost uniform" — bits are roughly
+/// evenly spaced but with random jitter, so each word has slightly varying
+/// popcount (unlike uniform's perfectly constant popcount).
+fn make_poisson(density_pct: usize) -> BitBuffer {
+    let mut bits = vec![false; LARGE_N];
+    let mean_gap = 100.0 / density_pct as f64;
+    let mut pos = 0.0f64;
+    let mut rng_state = 42usize;
+    loop {
+        // Geometric inter-arrival: -mean_gap * ln(U) where U ~ Uniform(0,1)
+        rng_state = rng_state.wrapping_add(1);
+        let hash = splitmix(rng_state);
+        let u = (hash as f64) / (u64::MAX as f64);
+        let gap = (-mean_gap * (1.0 - u).ln()).max(1.0);
+        pos += gap;
+        let idx = pos as usize;
+        if idx >= LARGE_N {
+            break;
+        }
+        bits[idx] = true;
+    }
+    BitBuffer::from_iter(bits)
+}
+
+fn make_poisson_arrow(density_pct: usize) -> Arrow<BooleanBuffer> {
+    let mut bits = vec![false; LARGE_N];
+    let mean_gap = 100.0 / density_pct as f64;
+    let mut pos = 0.0f64;
+    let mut rng_state = 42usize;
+    loop {
+        rng_state = rng_state.wrapping_add(1);
+        let hash = splitmix(rng_state);
+        let u = (hash as f64) / (u64::MAX as f64);
+        let gap = (-mean_gap * (1.0 - u).ln()).max(1.0);
+        pos += gap;
+        let idx = pos as usize;
+        if idx >= LARGE_N {
+            break;
+        }
+        bits[idx] = true;
+    }
+    Arrow(BooleanBuffer::from_iter(bits))
+}
+
 fn make_uniform_arrow(density_pct: usize) -> Arrow<BooleanBuffer> {
     let period = 100 / density_pct;
     Arrow(BooleanBuffer::from_iter(
@@ -550,6 +664,7 @@ fn d001pct_random_collect_precount(bencher: Bencher) {
 // 1% density
 bench_density!(1, uniform, make_uniform, make_uniform_arrow);
 bench_density!(1, random, make_random, make_random_arrow);
+bench_density!(1, runs, make_runs, make_runs_arrow);
 
 // 2% density
 bench_density!(2, uniform, make_uniform, make_uniform_arrow);
@@ -567,6 +682,8 @@ bench_density!(4, random, make_random, make_random_arrow);
 bench_density!(5, uniform, make_uniform, make_uniform_arrow);
 bench_density!(5, random, make_random, make_random_arrow);
 bench_density!(5, clustered, make_clustered, make_uniform_arrow);
+bench_density!(5, runs, make_runs, make_runs_arrow);
+bench_density!(5, poisson, make_poisson, make_poisson_arrow);
 
 // 6% density
 bench_density!(6, uniform, make_uniform, make_uniform_arrow);
@@ -584,11 +701,13 @@ bench_density!(8, random, make_random, make_random_arrow);
 bench_density!(10, uniform, make_uniform, make_uniform_arrow);
 bench_density!(10, random, make_random, make_random_arrow);
 bench_density!(10, clustered, make_clustered, make_uniform_arrow);
+bench_density!(10, runs, make_runs, make_runs_arrow);
 
 // 20% density
 bench_density!(20, uniform, make_uniform, make_uniform_arrow);
 bench_density!(20, random, make_random, make_random_arrow);
 bench_density!(20, clustered, make_clustered, make_uniform_arrow);
+bench_density!(20, runs, make_runs, make_runs_arrow);
 
 // 50% density (for reference)
 bench_density!(50, uniform, make_uniform, make_uniform_arrow);
