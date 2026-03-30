@@ -14,6 +14,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -65,28 +66,21 @@ impl ValidityChild<Patched> for Patched {
 
 #[derive(Clone, prost::Message)]
 pub struct PatchedMetadata {
-    /// Length of the `inner` child.
-    ///
-    /// This may not match the length of the wrapping PatchedArray, if for example
-    /// in a filter or slice it may be sliced to the nearest chunk boundary.
-    #[prost(uint64, tag = "1")]
-    pub(crate) inner_len: u64,
-
     /// Offset within the first chunk of `inner` where data begins.
     ///
     /// This may become nonzero after slicing.
-    #[prost(uint32, tag = "2")]
+    #[prost(uint32, tag = "1")]
     pub(crate) offset: u32,
 
     /// Number of patches. This is the length of the `indices` and `values` children.
-    #[prost(uint32, tag = "3")]
+    #[prost(uint32, tag = "2")]
     pub(crate) n_patches: u32,
 
     /// Number of lanes the patches get spread over.
     ///
     /// By default, this is either 16 or 32 depending on the width of the type, but may change
     /// in the future, so we save it on write.
-    #[prost(uint32, tag = "4")]
+    #[prost(uint32, tag = "3")]
     pub(crate) n_lanes: u32,
 }
 
@@ -174,13 +168,25 @@ impl VTable for Patched {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
+        let n_patches: u32 =
+            array.indices.len().try_into().map_err(|_| {
+                vortex_err!("Cannot serialize Patched array with > u32::MAX patches")
+            })?;
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "array offset always < 1024"
+        )]
+        let offset = array.offset as u32;
+
+        #[expect(clippy::cast_possible_truncation, reason = "n_lanes is always <= 64")]
+        let n_lanes = array.n_lanes as u32;
+
         Ok(ProstMetadata(PatchedMetadata {
-            inner_len: array.inner.len() as u64,
-            offset: array.offset as u32,
-            n_patches: array.indices.len() as u32,
-            n_lanes: array.n_lanes as u32,
+            offset,
+            n_patches,
+            n_lanes,
         }))
     }
 
@@ -262,12 +268,6 @@ impl VTable for Patched {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<PatchedArray> {
-        let inner_len = usize::try_from(metadata.inner_len).map_err(|_| {
-            vortex_err!(
-                "PatchedMetadata inner_len overflows usize: {}",
-                metadata.inner_len
-            )
-        })?;
         let offset = metadata.offset as usize;
 
         // n_chunks should correspond to the chunk in the `inner`.
@@ -279,7 +279,7 @@ impl VTable for Patched {
             vortex_bail!("invalid buffer count for PatchedArray");
         };
 
-        let inner = children.get(0, dtype, inner_len)?;
+        let inner = children.get(0, dtype, len)?;
         let indices = children.get(1, PType::U16.into(), metadata.n_patches as usize)?;
         let values = children.get(2, dtype, metadata.n_patches as usize)?;
 
@@ -302,9 +302,29 @@ impl VTable for Patched {
             "PatchedArray must have exactly 3 children"
         );
 
-        array.inner = children.remove(0);
-        array.indices = children.remove(0);
-        array.values = children.remove(0);
+        let inner = children.remove(0);
+        let indices = children.remove(0);
+        let values = children.remove(0);
+
+        // We only execute these checks on debug builds, since this method is called in a tight
+        //  loop during optimization, and we want to avoid the overhead of repeatedly checking the
+        //  component types.
+        if cfg!(debug_assertions) {
+            vortex_ensure!(
+                array.dtype().eq_with_nullability_superset(inner.dtype()),
+                "inner array DType must match outer array DType"
+            );
+
+            vortex_ensure_eq!(
+                indices.dtype(),
+                &DType::from(PType::U16),
+                "indices must be u16 type"
+            );
+        }
+
+        array.inner = inner;
+        array.indices = indices;
+        array.values = values;
 
         Ok(())
     }
