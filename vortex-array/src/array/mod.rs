@@ -38,7 +38,6 @@ use crate::arrays::DictArray;
 use crate::arrays::FilterArray;
 use crate::arrays::Null;
 use crate::arrays::Primitive;
-use crate::arrays::ScalarFnVTable;
 use crate::arrays::SliceArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
@@ -53,9 +52,6 @@ use crate::hash;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::scalar_fn::ReduceNode;
-use crate::scalar_fn::ReduceNodeRef;
-use crate::scalar_fn::ScalarFnRef;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable::Array;
@@ -67,15 +63,7 @@ use crate::vtable::ValidityVTable;
 
 /// The public API trait for all Vortex arrays.
 pub trait DynArray:
-    'static
-    + private::Sealed
-    + Send
-    + Sync
-    + Debug
-    + DynArrayEq
-    + DynArrayHash
-    + ArrayVisitor
-    + ReduceNode
+    'static + private::Sealed + Send + Sync + Debug + DynArrayEq + DynArrayHash + ArrayVisitor
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
@@ -726,31 +714,6 @@ impl<V: VTable> ArrayVisitor for Array<V> {
             }
         }
         true
-    }
-}
-
-impl<V: VTable> ReduceNode for Array<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(self.dtype.clone())
-    }
-
-    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        (self as &dyn DynArray)
-            .as_opt::<ScalarFnVTable>()
-            .map(|a| a.scalar_fn())
-    }
-
-    fn child(&self, idx: usize) -> ReduceNodeRef {
-        ArrayVisitor::nth_child(self, idx)
-            .unwrap_or_else(|| vortex_panic!("Child index out of bounds: {}", idx))
-    }
-
-    fn child_count(&self) -> usize {
-        ArrayVisitor::nchildren(self)
     }
 }
 

@@ -9,6 +9,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ArrayVisitor;
 use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
@@ -117,42 +118,21 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     fn reduce(&self, array: &Array<ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
+        // TODO(ngates): blergh!
+        let array_ref = array.to_array_ref();
         if let Some(reduced) = array
             .scalar_fn()
-            .reduce(array, &ArrayReduceCtx { len: array.len })?
+            .reduce(&array_ref, &ArrayReduceCtx { len: array.len })?
         {
             return Ok(Some(
                 reduced
                     .as_any()
                     .downcast_ref::<ArrayRef>()
                     .vortex_expect("ReduceNode is not an ArrayRef")
-                    .clone(),
+                    .to_array(),
             ));
         }
         Ok(None)
-    }
-}
-
-impl ReduceNode for ScalarFnData {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(self.dtype().clone())
-    }
-
-    #[allow(clippy::same_name_method)]
-    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        Some(ScalarFnData::scalar_fn(self))
-    }
-
-    fn child(&self, idx: usize) -> ReduceNodeRef {
-        Arc::new(self.children()[idx].clone())
-    }
-
-    fn child_count(&self) -> usize {
-        self.children.len()
     }
 }
 
@@ -162,19 +142,19 @@ impl ReduceNode for ArrayRef {
     }
 
     fn node_dtype(&self) -> VortexResult<DType> {
-        self.as_ref().node_dtype()
+        Ok(self.as_ref().dtype().clone())
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        self.as_ref().scalar_fn()
+        self.as_opt::<ScalarFnVTable>().map(|a| a.scalar_fn())
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
-        self.as_ref().child(idx)
+        Arc::new(self.nth_child(idx).vortex_expect("child idx out of bounds"))
     }
 
     fn child_count(&self) -> usize {
-        self.as_ref().child_count()
+        self.nchildren()
     }
 }
 
@@ -197,7 +177,7 @@ impl ReduceCtx for ArrayReduceCtx {
                         c.as_any()
                             .downcast_ref::<ArrayRef>()
                             .vortex_expect("ReduceNode is not an ArrayRef")
-                            .clone()
+                            .to_array()
                     })
                     .collect(),
                 self.len,

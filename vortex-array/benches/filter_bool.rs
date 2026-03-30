@@ -14,7 +14,6 @@
 use divan::Bencher;
 use rand::prelude::*;
 use rand_distr::Zipf;
-use vortex_array::DynArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;

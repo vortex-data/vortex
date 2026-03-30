@@ -10341,6 +10341,7 @@ dependencies = [
  "cudarc",
  "fastlanes",
  "futures",
+ "itertools 0.14.0",
  "kanal",
  "object_store 0.13.1",
  "parking_lot",

@@ -19,7 +19,6 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::Array;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
-use vortex_error::VortexExpect;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 

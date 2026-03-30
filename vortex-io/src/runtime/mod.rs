@@ -29,7 +29,9 @@ pub mod single;
 mod smol;
 #[cfg(feature = "tokio")]
 pub mod tokio;
-#[cfg(target_arch = "wasm32")]
+// target_os = "unknown" matches wasm32-unknown-unknown (browser), excluding WASI targets
+// where wasm-bindgen's JS interop is not available.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub mod wasm;
 
 #[cfg(test)]

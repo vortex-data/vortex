@@ -12,9 +12,7 @@ use divan::Bencher;
 use rand::distr::Uniform;
 use rand::prelude::*;
 use rand_distr::Zipf;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 

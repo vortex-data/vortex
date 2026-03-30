@@ -30,7 +30,7 @@ impl OperationsVTable<BitPacked> for BitPacked {
 #[cfg(test)]
 mod test {
     use std::ops::Range;
-    use std::sync::LazyLock;
+    
 
     use vortex_array::ArrayRef;
     use vortex_array::DynArray;
@@ -45,7 +45,7 @@ mod test {
     use vortex_array::dtype::PType;
     use vortex_array::patches::Patches;
     use vortex_array::scalar::Scalar;
-    use vortex_array::session::ArraySession;
+    
     use vortex_array::validity::Validity;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
@@ -56,9 +56,6 @@ mod test {
     use crate::BitPacked;
     use crate::BitPackedArray;
     use crate::BitPackedData;
-
-    static SESSION: LazyLock<vortex_session::VortexSession> =
-        LazyLock::new(|| vortex_session::VortexSession::empty().with::<ArraySession>());
 
     fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedArray {
         BitPackedArray::try_from_data(BitPackedData::encode(array, bit_width).unwrap())
