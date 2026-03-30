@@ -11,7 +11,6 @@ pub use vtable::*;
 
 /// Patches that have been transposed into GPU format.
 struct TransposedPatches {
-    n_chunks: usize,
     n_lanes: usize,
     lane_offsets: ByteBuffer,
     indices: ByteBuffer,

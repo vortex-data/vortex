@@ -46,6 +46,7 @@ impl TakeExecute for Patched {
         match_each_unsigned_integer_ptype!(indices_ptype, |I| {
             match_each_native_ptype!(ptype, |V| {
                 let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
+                let lane_offsets = array.lane_offsets.clone().execute::<PrimitiveArray>(ctx)?;
                 let patch_indices = array.indices.clone().execute::<PrimitiveArray>(ctx)?;
                 let patch_values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
                 let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
@@ -54,9 +55,8 @@ impl TakeExecute for Patched {
                     indices.as_slice::<I>(),
                     array.offset,
                     array.len,
-                    array.n_chunks,
                     array.n_lanes,
-                    array.lane_offsets.as_host().reinterpret::<u32>(),
+                    lane_offsets.as_slice::<u32>(),
                     patch_indices.as_slice::<u16>(),
                     patch_values.as_slice::<V>(),
                 );
@@ -82,12 +82,12 @@ fn take_map<I: IntegerPType, V: NativePType>(
     indices: &[I],
     offset: usize,
     len: usize,
-    n_chunks: usize,
     n_lanes: usize,
     lane_offsets: &[u32],
     patch_index: &[u16],
     patch_value: &[V],
 ) {
+    let n_chunks = (offset + len).div_ceil(1024);
     // Build a hashmap of patch_index -> values.
     let mut index_map = FxHashMap::with_capacity_and_hasher(indices.len(), Default::default());
     for chunk in 0..n_chunks {

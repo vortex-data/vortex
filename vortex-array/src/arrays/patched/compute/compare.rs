@@ -58,7 +58,7 @@ impl CompareKernel for Patched {
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 
-        let lane_offsets = lhs.lane_offsets.as_host().reinterpret::<u32>();
+        let lane_offsets = lhs.lane_offsets.clone().execute::<PrimitiveArray>(ctx)?;
         let indices = lhs.indices.clone().execute::<PrimitiveArray>(ctx)?;
         let values = lhs.values.clone().execute::<PrimitiveArray>(ctx)?;
         let n_lanes = lhs.n_lanes;
@@ -76,7 +76,7 @@ impl CompareKernel for Patched {
                 bits: &mut bits,
                 offset,
                 n_lanes,
-                lane_offsets,
+                lane_offsets: lane_offsets.as_slice::<u32>(),
                 indices,
                 values,
                 constant,

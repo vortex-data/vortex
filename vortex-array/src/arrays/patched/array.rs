@@ -7,6 +7,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -27,26 +28,91 @@ use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// An array that partially "patches" another array with new values.
+///
+/// # Background
+///
+/// This is meant to be the foundation of a fully data-parallel patching strategy, based on the
+/// work published in ["G-ALP" from Hepkema et al.](https://ir.cwi.nl/pub/35205/35205.pdf)
+///
+/// Patching is common when an encoding almost completely covers an array save a few exceptions.
+/// In that case, rather than avoid the encoding entirely, it's preferable to
+///
+/// * Replace unencodable values with fillers (zeros, frequent values, nulls, etc.)
+/// * Wrap the array with a `PatchedArray` signaling that when the original array is executed,
+///   some of the decoded values must be overwritten.
+///
+/// In Vortex, the FastLanes bit-packing encoding is often the terminal node in an encoding tree,
+/// and FastLanes has an intrinsic chunking of 1024 elements. Thus, 1024 elements is pervasively
+/// a useful unit of chunking throughout Vortex, and so we use 1024 as a chunk size here
+/// as well.
+///
+/// # Details
+///
+/// To patch an array, we first divide it into a set of chunks of length 1024, and then within
+/// each chunk, we assign each position to a lane. The number of lanes depends on the width of
+/// the underlying type.
+///
+/// Thus, rather than sorting patch indices and values by their global offset, they are sorted
+/// primarily by their chunk, and then subsequently by their lanes.
+///
+/// The Patched array layout has 4 children
+///
+/// * `inner`: the inner array is the one containing encoded values, including the filler values
+///   that need to be patched over at execution time
+/// * `lane_offsets`: this is an indexing buffer that allows you to see into ranges of the other
+///   two children
+/// * `indices`: An array of `u16` chunk indices, indicating where within the chunk should the value
+///   be overwritten by the patch value
+/// * `values`: The child array containing the patch values, which should be inserted over
+///   the values of the `inner` at the locations provided by `indices`
+///
+/// `indices` and `values` are aligned and accessed together.
+///
+/// ```text
+///
+///                  chunk 0      chunk 0      chunk 0     chunk 0       chunk 0     chunk 0
+///                  lane  0      lane 1       lane  2     lane 3        lane  4     lane  5
+///              ┌────────────┬────────────┬────────────┬────────────┬────────────┬────────────┐
+/// lane_offsets │     0      │     0      │     2      │     2      │     3      │     5      │  ...
+///              └─────┬──────┴─────┬──────┴─────┬──────┴──────┬─────┴──────┬─────┴──────┬─────┘
+///                    │            │            │             │            │            │
+///                    │            │            │             │            │            │
+///              ┌─────┴────────────┘            └──────┬──────┘     ┌──────┘            └─────┐
+///              │                                      │            │                         │
+///              │                                      │            │                         │
+///              │                                      │            │                         │
+///              ▼────────────┬────────────┬────────────▼────────────▼────────────┬────────────▼
+///    indices   │            │            │            │            │            │            │
+///              │            │            │            │            │            │            │
+///              ├────────────┼────────────┼────────────┼────────────┼────────────┼────────────┤
+///    values    │            │            │            │            │            │            │
+///              │            │            │            │            │            │            │
+///              └────────────┴────────────┴────────────┴────────────┴────────────┴────────────┘
+/// ```
+///
+/// It turns out that this layout is optimal for executing patching on GPUs, because the
+/// `lane_offsets` allows each thread in a warp to seek to its patches in constant time.
 #[derive(Debug, Clone)]
 pub struct PatchedArray {
     /// The inner array that is being patched. This is the zeroth child.
     pub(super) inner: ArrayRef,
-
-    /// Number of 1024-element chunks. Pre-computed for convenience.
-    pub(super) n_chunks: usize,
 
     /// Number of lanes the patch indices and values have been split into. Each of the `n_chunks`
     /// of 1024 values is split into `n_lanes` lanes horizontally, each lane having 1024 / n_lanes
     /// values that might be patched.
     pub(super) n_lanes: usize,
 
-    /// Offset into the first chunk
+    /// The offset into that first chunk that is considered in bounds.
+    ///
+    /// The patch indices of the first chunk less than `offset` should be skipped, and the offset
+    /// should be subtracted out of the remaining offsets to get their final position in the
+    /// executed array.
     pub(super) offset: usize,
     /// Total length.
     pub(super) len: usize,
 
     /// lane offsets. The PType of these MUST be u32
-    pub(super) lane_offsets: BufferHandle,
+    pub(super) lane_offsets: ArrayRef,
     /// indices within a 1024-element chunk. The PType of these MUST be u16
     pub(super) indices: ArrayRef,
     /// patch values corresponding to the indices. The ptype is specified by `values_ptype`.
@@ -84,13 +150,19 @@ impl PatchedArray {
         let values_ptype = patches.dtype().as_ptype();
 
         let TransposedPatches {
-            n_chunks,
             n_lanes,
             lane_offsets,
             indices,
             values,
+            ..
         } = transpose_patches(patches, ctx)?;
 
+        let lane_offsets = PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_host(lane_offsets),
+            PType::U32,
+            Validity::NonNullable,
+        )
+        .into_array();
         let indices = PrimitiveArray::from_buffer_handle(
             BufferHandle::new_host(indices),
             PType::U16,
@@ -108,11 +180,10 @@ impl PatchedArray {
 
         Ok(Self {
             inner,
-            n_chunks,
             n_lanes,
             offset: 0,
             len,
-            lane_offsets: BufferHandle::new_host(lane_offsets),
+            lane_offsets,
             indices,
             values,
             stats_set: ArrayStats::default(),
@@ -127,16 +198,26 @@ impl PatchedArray {
     /// # Panics
     ///
     /// Note that this function will panic if the caller requests out of bounds chunk/lane ordinals.
-    pub(crate) fn lane_range(&self, chunk: usize, lane: usize) -> Range<usize> {
-        assert!(chunk < self.n_chunks);
+    pub(crate) fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
+        assert!(chunk * 1024 <= self.len + self.offset);
         assert!(lane < self.n_lanes);
 
-        let lane_offsets = self.lane_offsets.as_host().reinterpret::<u32>();
+        let start = self.lane_offsets.scalar_at(chunk * self.n_lanes + lane)?;
+        let stop = self
+            .lane_offsets
+            .scalar_at(chunk * self.n_lanes + lane + 1)?;
 
-        let start = lane_offsets[chunk * self.n_lanes + lane] as usize;
-        let stop = lane_offsets[chunk * self.n_lanes + lane + 1] as usize;
+        let start = start
+            .as_primitive()
+            .as_::<usize>()
+            .ok_or_else(|| vortex_err!("could not cast lane_offset to usize"))?;
 
-        start..stop
+        let stop = stop
+            .as_primitive()
+            .as_::<usize>()
+            .ok_or_else(|| vortex_err!("could not cast lane_offset to usize"))?;
+
+        Ok(start..stop)
     }
 
     /// Slice the array to just the patches and inner values that are within the chunk range.
@@ -146,7 +227,7 @@ impl PatchedArray {
 
         let sliced_lane_offsets = self
             .lane_offsets
-            .slice_typed::<u32>(lane_offsets_start..lane_offsets_stop);
+            .slice(lane_offsets_start..lane_offsets_stop)?;
         let indices = self.indices.clone();
         let values = self.values.clone();
 
@@ -158,11 +239,9 @@ impl PatchedArray {
         let inner = self.inner.slice(begin..end)?;
 
         let len = end - begin;
-        let n_chunks = (end - begin).div_ceil(1024);
 
         Ok(PatchedArray {
             inner,
-            n_chunks,
             n_lanes: self.n_lanes,
             offset,
             len,
@@ -281,7 +360,6 @@ fn transpose<I: IntegerPType, V: NativePType>(
     }
 
     TransposedPatches {
-        n_chunks,
         n_lanes,
         lane_offsets: lane_offsets.freeze().into_byte_buffer(),
         indices: indices_buffer.freeze().into_byte_buffer(),

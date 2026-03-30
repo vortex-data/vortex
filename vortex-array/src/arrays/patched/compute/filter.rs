@@ -32,8 +32,10 @@ impl FilterReduce for Patched {
             }
         };
 
+        let n_chunks = (array.offset + array.len).div_ceil(1024);
+
         // If all chunks already covered, there is nothing to do.
-        if chunk_start == 0 && chunk_stop == array.n_chunks {
+        if chunk_start == 0 && chunk_stop == n_chunks {
             return Ok(None);
         }
 

@@ -29,14 +29,12 @@ impl SliceReduce for Patched {
         // Slice to only maintain offsets to the sliced chunks
         let sliced_lane_offsets = array
             .lane_offsets
-            .slice_typed::<u32>((chunk_start * array.n_lanes)..(chunk_stop * array.n_lanes) + 1);
+            .slice((chunk_start * array.n_lanes)..(chunk_stop * array.n_lanes) + 1)?;
 
         Ok(Some(
             PatchedArray {
                 inner,
-                n_chunks: chunk_stop - chunk_start,
                 n_lanes: array.n_lanes,
-
                 offset: new_offset,
                 len: new_len,
                 lane_offsets: sliced_lane_offsets,
@@ -88,6 +86,7 @@ mod tests {
             @r#"
             root: vortex.patched(u16, len=9)
               inner: vortex.primitive(u16, len=9)
+              lane_offsets: vortex.primitive(u32, len=33)
               patch_indices: vortex.primitive(u16, len=3)
               patch_values: vortex.primitive(u16, len=3)
             "#);
