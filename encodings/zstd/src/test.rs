@@ -15,13 +15,11 @@ use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 
 use crate::Zstd;
-use crate::ZstdArray;
 
 #[test]
 fn test_zstd_compress_decompress() {

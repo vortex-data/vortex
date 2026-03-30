@@ -38,7 +38,6 @@ use vortex::scalar::PValue;
 use vortex::scalar::Scalar;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
-use vortex_sequence::SequenceArray;
 
 use crate::RUNTIME;
 use crate::SESSION;

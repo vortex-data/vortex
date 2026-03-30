@@ -79,7 +79,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::RunEnd;
     use crate::RunEndData;
 
     static SESSION: LazyLock<VortexSession> =

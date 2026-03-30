@@ -381,7 +381,6 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_rebuild_flatten_removes_overlaps() -> VortexResult<()> {

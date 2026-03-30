@@ -552,7 +552,6 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
-    use vortex_array::vtable::ValidityHelper;
     use vortex_session::VortexSession;
 
     use super::*;

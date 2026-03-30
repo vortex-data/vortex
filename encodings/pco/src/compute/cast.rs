@@ -63,7 +63,6 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::Pco;
-    use crate::PcoArray;
 
     #[test]
     fn test_cast_pco_f32_to_f64() {

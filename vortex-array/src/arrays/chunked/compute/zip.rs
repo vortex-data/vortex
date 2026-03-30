@@ -58,7 +58,6 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
-    use crate::vtable::Array;
 
     #[test]
     fn test_chunked_zip_aligns_across_boundaries() {

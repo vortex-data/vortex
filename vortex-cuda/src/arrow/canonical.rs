@@ -12,7 +12,6 @@ use vortex::array::arrays::decimal::DecimalArrayParts;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::arrays::struct_::StructArrayParts;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::DecimalType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;

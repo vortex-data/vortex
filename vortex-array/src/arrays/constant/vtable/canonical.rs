@@ -335,7 +335,6 @@ mod tests {
     use crate::expr::stats::StatsProvider;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_canonicalize_null() {

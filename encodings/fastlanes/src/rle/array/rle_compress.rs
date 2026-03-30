@@ -12,7 +12,6 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
@@ -141,6 +140,7 @@ mod tests {
     use vortex_array::dtype::half::f16;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
 
     use super::*;
     use crate::RLEArray;

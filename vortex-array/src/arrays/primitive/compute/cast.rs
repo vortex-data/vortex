@@ -144,7 +144,6 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[allow(clippy::cognitive_complexity)]
     #[test]

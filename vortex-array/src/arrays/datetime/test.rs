@@ -22,8 +22,6 @@ use crate::extension::datetime::TimestampOptions;
 use crate::hash::ArrayEq;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
-
 macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{
         let array = buffer![100 as $prim].into_array();

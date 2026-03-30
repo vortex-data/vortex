@@ -156,7 +156,6 @@ mod tests {
     use crate::dtype::DecimalType;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn cast_decimal_to_nullable() {

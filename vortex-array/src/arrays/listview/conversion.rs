@@ -305,7 +305,6 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_list_to_listview_basic() -> VortexResult<()> {

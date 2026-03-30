@@ -44,7 +44,6 @@ macro_rules! assert_nth_scalar {
 macro_rules! assert_nth_scalar_is_null {
     ($arr:expr, $n:expr) => {{
         use $crate::DynArray as _;
-        use $crate::IntoArray as _;
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
         assert!(
             arr_ref.scalar_at($n).unwrap().is_null(),

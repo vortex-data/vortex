@@ -319,7 +319,6 @@ impl CanonicalCompressor for BtrBlocksCompressor {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::List;
     use vortex_array::arrays::ListView;

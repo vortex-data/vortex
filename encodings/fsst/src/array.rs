@@ -38,7 +38,6 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::validity_nchildren;
 use vortex_array::vtable::validity_to_child;

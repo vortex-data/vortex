@@ -43,7 +43,6 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::validity_nchildren;
@@ -616,7 +615,6 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::Pco;
-    use crate::PcoArray;
 
     #[test]
     fn test_slice_nullable() {

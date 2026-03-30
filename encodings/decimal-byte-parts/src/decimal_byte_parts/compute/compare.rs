@@ -160,7 +160,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::DecimalByteParts;
-    use crate::DecimalBytePartsArray;
 
     #[test]
     fn compare_decimal_const() {

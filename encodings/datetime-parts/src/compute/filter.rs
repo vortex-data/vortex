@@ -33,7 +33,6 @@ mod test {
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
 
-    use crate::DateTimePartsArray;
     use crate::DateTimePartsData;
 
     #[test]

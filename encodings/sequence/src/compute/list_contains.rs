@@ -51,7 +51,6 @@ impl ListContainsElementReduce for Sequence {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;

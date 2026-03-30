@@ -26,7 +26,6 @@ impl OperationsVTable<Bool> for Bool {
 mod tests {
     use std::iter;
 
-    use super::*;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;

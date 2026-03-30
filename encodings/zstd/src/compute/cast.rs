@@ -92,7 +92,6 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::Zstd;
-    use crate::ZstdArray;
 
     #[test]
     fn test_cast_zstd_i32_to_i64() {

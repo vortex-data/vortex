@@ -157,7 +157,6 @@ mod test {
     use itertools::Itertools;
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray as _;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;

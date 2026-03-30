@@ -15,7 +15,6 @@ use tracing::instrument;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;

@@ -30,7 +30,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::buffer;
 
-    use super::*;
     use crate::Sparse;
 
     #[test]

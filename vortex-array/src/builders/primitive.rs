@@ -611,7 +611,6 @@ mod tests {
         // values[2] might be any value since it's null.
 
         // Check validity - first two should be valid, third should be null.
-        use crate::vtable::ValidityHelper;
         assert!(array.validity().is_valid(0).unwrap());
         assert!(array.validity().is_valid(1).unwrap());
         assert!(!array.validity().is_valid(2).unwrap());

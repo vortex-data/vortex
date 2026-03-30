@@ -10,7 +10,6 @@ use vortex_array::arrays::primitive::patch_chunk;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 

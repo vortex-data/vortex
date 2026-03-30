@@ -210,6 +210,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// If this array is a constant, returns the scalar value.
+    // TODO(ngates): remove this... we already know if we're constant or not
     pub fn as_constant(&self) -> Option<crate::scalar::Scalar> {
         self.to_array_ref().as_constant()
     }

@@ -8,7 +8,6 @@ mod tests {
 
     use crate::DynArray;
     use crate::IntoArray;
-    use crate::ToCanonical;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;

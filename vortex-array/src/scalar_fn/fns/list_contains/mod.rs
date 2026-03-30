@@ -296,6 +296,8 @@ fn list_contains_scalar(
         Operator::Eq,
         &[elems.clone(), rhs.clone().into_array()],
     )?;
+
+    // TODO(ngates): we should execute this into a Columnar and check for constant.
     let matches = matching_elements.execute::<BoolArray>(ctx)?;
 
     // Fast path: no elements match.
