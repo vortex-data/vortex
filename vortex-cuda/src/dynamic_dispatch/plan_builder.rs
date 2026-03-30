@@ -396,15 +396,8 @@ impl FusedPlan {
         let slice_arr = array.as_::<Slice>();
         let child = slice_arr.child().clone();
 
-        // reduce_parent: (for types with SliceReduceAdaptor, like FoR/ZigZag)
         if let Some(reduced) = child.vtable().reduce_parent(&child, &array, 0)? {
             return self.walk(reduced, pending_subtrees);
-        }
-
-        // execute_parent: (for types with SliceExecuteAdaptor/SliceKernel, like BitPacked)
-        let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
-        if let Some(executed) = child.vtable().execute_parent(&child, &array, 0, &mut ctx)? {
-            return self.walk(executed, pending_subtrees);
         }
 
         vortex_bail!(
