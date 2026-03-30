@@ -413,14 +413,14 @@ impl ALPRD {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> VortexResult<ALPRDArray> {
-        Ok(Array::from_inner(ALPRDData::try_new(
+        Array::try_from_data(ALPRDData::try_new(
             dtype,
             left_parts,
             left_parts_dictionary,
             right_parts,
             right_bit_width,
             left_parts_patches,
-        )?))
+        )?)
     }
 
     /// # Safety
@@ -433,7 +433,7 @@ impl ALPRD {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> ALPRDArray {
-        Array::from_inner(unsafe {
+        Array::try_from_data(unsafe {
             ALPRDData::new_unchecked(
                 dtype,
                 left_parts,
@@ -443,6 +443,7 @@ impl ALPRD {
                 left_parts_patches,
             )
         })
+        .vortex_expect("ALPRDData is always valid")
     }
 }
 

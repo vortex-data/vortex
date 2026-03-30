@@ -4,6 +4,7 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -183,7 +184,7 @@ impl Null {
 
 impl Array<Null> {
     pub fn new(len: usize) -> Self {
-        Array::from_inner(NullData::new(len))
+        Array::try_from_data(NullData::new(len)).vortex_expect("NullData is always valid")
     }
 }
 

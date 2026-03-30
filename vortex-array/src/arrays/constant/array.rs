@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
+
 use crate::arrays::Constant;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
@@ -57,6 +59,7 @@ impl Array<Constant> {
     where
         S: Into<Scalar>,
     {
-        Array::from_inner(ConstantData::new(scalar, len))
+        Array::try_from_data(ConstantData::new(scalar, len))
+            .vortex_expect("ConstantData is always valid")
     }
 }

@@ -37,41 +37,41 @@ pub struct Array<V: VTable> {
 
 #[allow(clippy::same_name_method)]
 impl<V: VTable> Array<V> {
-    /// Create a new typed array from inner encoding-specific data.
+    /// Create a new typed array from encoding-specific data.
     ///
-    /// Extracts dtype, len, vtable, and stats from the inner array via [`VTable`] methods.
-    pub fn from_inner(array: V::Array) -> Self {
-        let vtable = V::vtable(&array).clone();
-        let dtype = V::dtype(&array).clone();
-        let len = V::len(&array);
-        let stats = V::stats(&array).clone();
-        // SAFETY: dtype and len are extracted from `array` via VTable methods.
-        unsafe { Self::from_parts_unchecked(vtable, dtype, len, array, stats) }
+    /// Extracts dtype, len, vtable, and stats from the data via [`VTable`] methods.
+    pub fn try_from_data(data: V::Array) -> VortexResult<Self> {
+        let vtable = V::vtable(&data).clone();
+        let dtype = V::dtype(&data).clone();
+        let len = V::len(&data);
+        let stats = V::stats(&data).clone();
+        // SAFETY: dtype and len are extracted from `data` via VTable methods.
+        Ok(unsafe { Self::from_data_unchecked(vtable, dtype, len, data, stats) })
     }
 
-    /// Create a new typed array without validating that the inner array's dtype/len match.
+    /// Create a new typed array without validation.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `V::dtype(&array) == &dtype` and `V::len(&array) == len`.
-    pub unsafe fn from_parts_unchecked(
+    /// The caller must ensure that `V::dtype(&data) == &dtype` and `V::len(&data) == len`.
+    pub unsafe fn from_data_unchecked(
         vtable: V,
         dtype: DType,
         len: usize,
-        array: V::Array,
+        data: V::Array,
         stats: ArrayStats,
     ) -> Self {
         Self {
             vtable,
             dtype,
             len,
-            array,
+            array: data,
             stats,
         }
     }
 
     /// Returns a reference to the vtable.
-    pub fn typed_vtable(&self) -> &V {
+    pub fn vtable(&self) -> &V {
         &self.vtable
     }
 
@@ -196,6 +196,22 @@ impl<V: VTable> Array<V> {
     #[allow(clippy::same_name_method)]
     pub fn to_canonical(&self) -> VortexResult<crate::Canonical> {
         <Self as crate::DynArray>::to_canonical(self)
+    }
+
+    /// Total size of the array in bytes, including all children and buffers.
+    pub fn nbytes(&self) -> u64 {
+        self.to_array_ref().nbytes()
+    }
+
+    /// Returns the number of buffers in this array.
+    #[allow(clippy::same_name_method)]
+    pub fn nbuffers(&self) -> usize {
+        V::nbuffers(self)
+    }
+
+    /// If this array is a constant, returns the scalar value.
+    pub fn as_constant(&self) -> Option<crate::scalar::Scalar> {
+        self.to_array_ref().as_constant()
     }
 }
 

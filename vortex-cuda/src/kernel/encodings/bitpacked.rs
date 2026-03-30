@@ -519,7 +519,7 @@ mod tests {
 
         let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
-        let slice_ref = bitpacked_array.clone().into_array().slice(67..3969)?;
+        let slice_ref = bitpacked_array.slice(67..3969)?;
         let bitpacked_ref = bitpacked_array.into_array();
         let mut exec_ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
         let sliced_array = bitpacked_ref

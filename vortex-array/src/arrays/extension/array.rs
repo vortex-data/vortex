@@ -151,14 +151,12 @@ impl Array<Extension> {
     ///
     /// Panics if the storage array is not compatible with the extension dtype.
     pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
-        Array::from_inner(ExtensionData::new(ext_dtype, storage_array))
+        Array::try_from_data(ExtensionData::new(ext_dtype, storage_array))
+            .vortex_expect("ExtensionData is always valid")
     }
 
     /// Tries to construct a new `ExtensionArray`.
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
-        Ok(Array::from_inner(ExtensionData::try_new(
-            ext_dtype,
-            storage_array,
-        )?))
+        Array::try_from_data(ExtensionData::try_new(ext_dtype, storage_array)?)
     }
 }

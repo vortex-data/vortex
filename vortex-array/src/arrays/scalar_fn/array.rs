@@ -93,8 +93,6 @@ impl Array<ScalarFnVTable> {
         children: Vec<ArrayRef>,
         len: usize,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(ScalarFnData::try_new(
-            scalar_fn, children, len,
-        )?))
+        Array::try_from_data(ScalarFnData::try_new(scalar_fn, children, len)?)
     }
 }

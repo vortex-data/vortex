@@ -441,7 +441,8 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(DecimalData::new(buffer, decimal_dtype, validity))
+        Array::try_from_data(DecimalData::new(buffer, decimal_dtype, validity))
+            .vortex_expect("DecimalData is always valid")
     }
 
     /// Creates a new [`DecimalArray`] without validation.
@@ -454,7 +455,8 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) })
+        Array::try_from_data(unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) })
+            .vortex_expect("DecimalData is always valid")
     }
 
     /// Creates a new [`DecimalArray`] from a host-native buffer with validation.
@@ -463,11 +465,7 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(DecimalData::try_new(
-            buffer,
-            decimal_dtype,
-            validity,
-        )?))
+        Array::try_from_data(DecimalData::try_new(buffer, decimal_dtype, validity)?)
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.
@@ -479,7 +477,8 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        Array::from_inner(DecimalData::from_iter(iter, decimal_dtype))
+        Array::try_from_data(DecimalData::from_iter(iter, decimal_dtype))
+            .vortex_expect("DecimalData is always valid")
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of optional values.
@@ -487,7 +486,8 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        Array::from_inner(DecimalData::from_option_iter(iter, decimal_dtype))
+        Array::try_from_data(DecimalData::from_option_iter(iter, decimal_dtype))
+            .vortex_expect("DecimalData is always valid")
     }
 
     /// Creates a new [`DecimalArray`] from a [`BufferHandle`].
@@ -497,12 +497,13 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(DecimalData::new_handle(
+        Array::try_from_data(DecimalData::new_handle(
             values,
             values_type,
             decimal_dtype,
             validity,
         ))
+        .vortex_expect("DecimalData is always valid")
     }
 
     /// Creates a new [`DecimalArray`] without validation from a [`BufferHandle`].
@@ -516,9 +517,10 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(unsafe {
+        Array::try_from_data(unsafe {
             DecimalData::new_unchecked_handle(values, values_type, decimal_dtype, validity)
         })
+        .vortex_expect("DecimalData is always valid")
     }
 }
 

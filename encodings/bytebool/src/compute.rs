@@ -99,15 +99,18 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar_fn::fns::operators::Operator;
+    use vortex_error::VortexExpect;
 
     use super::*;
 
     fn bb(v: Vec<bool>) -> ByteBoolArray {
-        ByteBoolArray::from_inner(ByteBoolData::from(v))
+        ByteBoolArray::try_from_data(ByteBoolData::from(v))
+            .vortex_expect("ByteBoolData is always valid")
     }
 
     fn bb_opt(v: Vec<Option<bool>>) -> ByteBoolArray {
-        ByteBoolArray::from_inner(ByteBoolData::from(v))
+        ByteBoolArray::try_from_data(ByteBoolData::from(v))
+            .vortex_expect("ByteBoolData is always valid")
     }
 
     #[test]

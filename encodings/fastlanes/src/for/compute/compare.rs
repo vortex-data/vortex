@@ -103,7 +103,8 @@ mod tests {
     use crate::FoRData;
 
     fn for_arr(encoded: ArrayRef, reference: Scalar) -> FoRArray {
-        FoRArray::from_inner(FoRData::try_new(encoded, reference).unwrap())
+        FoRArray::try_from_data(FoRData::try_new(encoded, reference).unwrap())
+            .vortex_expect("FoRData is always valid")
     }
 
     #[test]

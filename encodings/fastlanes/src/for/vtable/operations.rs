@@ -41,15 +41,17 @@ impl OperationsVTable<FoR> for FoR {
 mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_error::VortexExpect;
 
     use crate::FoRArray;
     use crate::FoRData;
 
     #[test]
     fn for_scalar_at() {
-        let for_arr = FoRArray::from_inner(
+        let for_arr = FoRArray::try_from_data(
             FoRData::encode(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap(),
-        );
+        )
+        .vortex_expect("FoRData is always valid");
         let expected = PrimitiveArray::from_iter([-100, 1100, 1500, 1900]);
         assert_arrays_eq!(for_arr, expected);
     }

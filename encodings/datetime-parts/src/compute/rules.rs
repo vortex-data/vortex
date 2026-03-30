@@ -216,7 +216,8 @@ mod tests {
             time_unit,
             None,
         );
-        DateTimePartsArray::from_inner(DateTimePartsData::try_from(temporal).unwrap())
+        DateTimePartsArray::try_from_data(DateTimePartsData::try_from(temporal).unwrap())
+            .vortex_expect("DateTimePartsData is always valid")
     }
 
     /// Create a constant timestamp scalar at midnight for the given day.

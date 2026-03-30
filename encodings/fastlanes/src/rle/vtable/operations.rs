@@ -66,7 +66,7 @@ mod tests {
             .into_array();
             let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
 
-            RLEArray::from_inner(
+            RLEArray::try_from_data(
                 RLEData::try_new(
                     values,
                     indices.clone(),
@@ -76,6 +76,7 @@ mod tests {
                 )
                 .unwrap(),
             )
+            .vortex_expect("RLEData is always valid")
         }
 
         pub(super) fn rle_array_with_nulls() -> RLEArray {
@@ -103,7 +104,7 @@ mod tests {
             )
             .into_array();
 
-            RLEArray::from_inner(
+            RLEArray::try_from_data(
                 RLEData::try_new(
                     values,
                     indices.clone(),
@@ -113,6 +114,7 @@ mod tests {
                 )
                 .unwrap(),
             )
+            .vortex_expect("RLEData is always valid")
         }
     }
 
@@ -173,7 +175,8 @@ mod tests {
         let expected: Vec<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
         let array = values.into_array();
 
-        let encoded = RLEArray::from_inner(RLEData::encode(&array.to_primitive()).unwrap());
+        let encoded = RLEArray::try_from_data(RLEData::encode(&array.to_primitive()).unwrap())
+            .vortex_expect("RLEData is always valid");
 
         // Access scalars from multiple chunks.
         for &idx in &[1023, 1024, 1025, 2047, 2048, 2049] {
@@ -279,7 +282,8 @@ mod tests {
         let expected: Vec<u32> = (0..2100).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
-        let encoded = RLEArray::from_inner(RLEData::encode(&array.to_primitive()).unwrap());
+        let encoded = RLEArray::try_from_data(RLEData::encode(&array.to_primitive()).unwrap())
+            .vortex_expect("RLEData is always valid");
 
         // Slice across first and second chunk.
         let slice = encoded.slice(500..1500).unwrap();

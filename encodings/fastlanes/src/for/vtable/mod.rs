@@ -195,11 +195,11 @@ impl FoR {
 
     /// Construct a new FoR array from an encoded array and a reference scalar.
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
-        Ok(Array::from_inner(FoRData::try_new(encoded, reference)?))
+        Array::try_from_data(FoRData::try_new(encoded, reference)?)
     }
 
     /// Encode a primitive array using Frame of Reference encoding.
     pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
-        Ok(Array::from_inner(FoRData::encode(array)?))
+        Array::try_from_data(FoRData::encode(array)?)
     }
 }

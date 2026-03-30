@@ -183,7 +183,8 @@ impl PrimitiveData {
 
 impl Array<Primitive> {
     pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
-        Array::from_inner(PrimitiveData::empty::<T>(nullability))
+        Array::try_from_data(PrimitiveData::empty::<T>(nullability))
+            .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Creates a new [`PrimitiveArray`].
@@ -192,12 +193,13 @@ impl Array<Primitive> {
     ///
     /// Panics if the provided components do not satisfy the invariants.
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
-        Array::from_inner(PrimitiveData::new(buffer, validity))
+        Array::try_from_data(PrimitiveData::new(buffer, validity))
+            .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Constructs a new `PrimitiveArray`.
     pub fn try_new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> VortexResult<Self> {
-        Ok(Array::from_inner(PrimitiveData::try_new(buffer, validity)?))
+        Array::try_from_data(PrimitiveData::try_new(buffer, validity)?)
     }
 
     /// Creates a new [`PrimitiveArray`] without validation.
@@ -206,7 +208,8 @@ impl Array<Primitive> {
     ///
     /// See [`PrimitiveData::new_unchecked`].
     pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
-        Array::from_inner(unsafe { PrimitiveData::new_unchecked(buffer, validity) })
+        Array::try_from_data(unsafe { PrimitiveData::new_unchecked(buffer, validity) })
+            .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Create a new array from a buffer handle.
@@ -219,19 +222,22 @@ impl Array<Primitive> {
         ptype: PType,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(unsafe {
+        Array::try_from_data(unsafe {
             PrimitiveData::new_unchecked_from_handle(handle, ptype, validity)
         })
+        .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Creates a new [`PrimitiveArray`] from a [`BufferHandle`].
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
-        Array::from_inner(PrimitiveData::from_buffer_handle(handle, ptype, validity))
+        Array::try_from_data(PrimitiveData::from_buffer_handle(handle, ptype, validity))
+            .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Creates a new [`PrimitiveArray`] from a [`ByteBuffer`].
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
-        Array::from_inner(PrimitiveData::from_byte_buffer(buffer, ptype, validity))
+        Array::try_from_data(PrimitiveData::from_byte_buffer(buffer, ptype, validity))
+            .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Create a PrimitiveArray from a byte buffer containing only the valid elements.
@@ -241,12 +247,13 @@ impl Array<Primitive> {
         validity: Validity,
         n_rows: usize,
     ) -> Self {
-        Array::from_inner(PrimitiveData::from_values_byte_buffer(
+        Array::try_from_data(PrimitiveData::from_values_byte_buffer(
             valid_elems_buffer,
             ptype,
             validity,
             n_rows,
         ))
+        .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Validates the components that would be used to create a [`PrimitiveArray`].

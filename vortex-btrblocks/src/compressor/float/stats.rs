@@ -86,7 +86,8 @@ impl CompressorStats for FloatStats {
     type ArrayVTable = Primitive;
 
     fn generate_opts(input: &PrimitiveData, opts: GenerateStatsOptions) -> Self {
-        let array = PrimitiveArray::from_inner(input.clone());
+        let array =
+            PrimitiveArray::try_from_data(input.clone()).vortex_expect("data is always valid");
         Self::generate_opts_fallible(&array, opts)
             .vortex_expect("FloatStats::generate_opts should not fail")
     }
@@ -138,7 +139,7 @@ where
             }
             .into(),
         });
-    } else if array.clone().into_array().all_invalid()? {
+    } else if array.all_invalid()? {
         return Ok(FloatStats {
             src: array.clone(),
             null_count: u32::try_from(array.len())?,

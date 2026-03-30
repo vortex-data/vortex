@@ -46,7 +46,9 @@ pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> A
 
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    FSSTArray::from_inner(fsst_compress(varbin, len, &dtype, &compressor)).into_array()
+    FSSTArray::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
+        .vortex_expect("data is always valid")
+        .into_array()
 }
 
 pub fn gen_dict_fsst_test_data<T: NativePType>(
@@ -142,7 +144,8 @@ pub fn make_fsst_urls(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    Array::from_inner(fsst_compress(varbin, len, &dtype, &compressor))
+    Array::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
+        .vortex_expect("data is always valid")
 }
 
 // ---------------------------------------------------------------------------
@@ -238,7 +241,8 @@ pub fn make_fsst_clickbench_urls(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    Array::from_inner(fsst_compress(varbin, len, &dtype, &compressor))
+    Array::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
+        .vortex_expect("data is always valid")
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +310,8 @@ pub fn make_fsst_short_urls(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    Array::from_inner(fsst_compress(varbin, len, &dtype, &compressor))
+    Array::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
+        .vortex_expect("data is always valid")
 }
 
 // ---------------------------------------------------------------------------
@@ -378,7 +383,8 @@ pub fn make_fsst_log_lines(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    Array::from_inner(fsst_compress(varbin, len, &dtype, &compressor))
+    Array::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
+        .vortex_expect("data is always valid")
 }
 
 // ---------------------------------------------------------------------------
@@ -437,7 +443,8 @@ pub fn make_fsst_json_strings(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    Array::from_inner(fsst_compress(varbin, len, &dtype, &compressor))
+    Array::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
+        .vortex_expect("data is always valid")
 }
 
 // ---------------------------------------------------------------------------
@@ -509,7 +516,8 @@ pub fn make_fsst_file_paths(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    Array::from_inner(fsst_compress(varbin, len, &dtype, &compressor))
+    Array::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
+        .vortex_expect("data is always valid")
 }
 
 // ---------------------------------------------------------------------------
@@ -562,7 +570,8 @@ pub fn make_fsst_emails(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    Array::from_inner(fsst_compress(varbin, len, &dtype, &compressor))
+    Array::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
+        .vortex_expect("data is always valid")
 }
 
 // ---------------------------------------------------------------------------
@@ -601,5 +610,6 @@ pub fn make_fsst_rare_match(n: usize) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    Array::from_inner(fsst_compress(varbin, len, &dtype, &compressor))
+    Array::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
+        .vortex_expect("data is always valid")
 }

@@ -230,7 +230,7 @@ impl ChunkedData {
 impl Array<Chunked> {
     /// Constructs a new `ChunkedArray`.
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
-        Ok(Array::from_inner(ChunkedData::try_new(chunks, dtype)?))
+        Array::try_from_data(ChunkedData::try_new(chunks, dtype)?)
     }
 
     /// Creates a new [`ChunkedArray`] without validation.
@@ -239,7 +239,8 @@ impl Array<Chunked> {
     ///
     /// See [`ChunkedData::new_unchecked`].
     pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
-        Array::from_inner(unsafe { ChunkedData::new_unchecked(chunks, dtype) })
+        Array::try_from_data(unsafe { ChunkedData::new_unchecked(chunks, dtype) })
+            .vortex_expect("ChunkedData is always valid")
     }
 }
 
@@ -350,7 +351,7 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.clone().into_array().all_valid().unwrap());
+        assert!(chunked.all_valid().unwrap());
         assert!(!chunked.into_array().all_invalid().unwrap());
 
         Ok(())
@@ -370,7 +371,7 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.clone().into_array().all_valid().unwrap());
+        assert!(!chunked.all_valid().unwrap());
         assert!(chunked.into_array().all_invalid().unwrap());
 
         Ok(())
@@ -390,7 +391,7 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.clone().into_array().all_valid().unwrap());
+        assert!(!chunked.all_valid().unwrap());
         assert!(!chunked.into_array().all_invalid().unwrap());
 
         Ok(())

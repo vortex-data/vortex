@@ -67,7 +67,7 @@ pub(super) fn execute_filter_fast_paths(
 
     // Also check if the array itself is completely null, in which case we only care about the total
     // number of nulls, not the values.
-    if array.clone().into_array().validity_mask()?.true_count() == 0 {
+    if array.validity_mask()?.true_count() == 0 {
         return Ok(Some(
             ConstantArray::new(Scalar::null(array.dtype().clone()), true_count).into_array(),
         ));

@@ -18,7 +18,6 @@ use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::encodings::zstd::ZstdBuffers;
 use vortex::encodings::zstd::ZstdBuffersArray;
-use vortex::encodings::zstd::ZstdBuffersData;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex_nvcomp::sys;

@@ -11,6 +11,7 @@ use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -333,6 +334,7 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
+    use vortex_error::VortexExpect;
 
     use crate::BitPackedArray;
     use crate::BitPackedData;
@@ -349,9 +351,10 @@ mod test {
             Some(u64::MAX),
         ];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let packed = BitPackedArray::from_inner(
+        let packed = BitPackedArray::try_from_data(
             BitPackedData::encode(&uncompressed.into_array(), 1).unwrap(),
-        );
+        )
+        .vortex_expect("BitPackedData is always valid");
         let expected = PrimitiveArray::from_option_iter(values);
         assert_arrays_eq!(packed.to_primitive(), expected);
     }
@@ -372,7 +375,8 @@ mod test {
         let parray = values.clone().into_array();
 
         let packed_with_patches =
-            BitPackedArray::from_inner(BitPackedData::encode(&parray, 9).unwrap());
+            BitPackedArray::try_from_data(BitPackedData::encode(&parray, 9).unwrap())
+                .vortex_expect("BitPackedData is always valid");
         assert!(packed_with_patches.patches().is_some());
         assert_arrays_eq!(
             packed_with_patches.to_primitive(),

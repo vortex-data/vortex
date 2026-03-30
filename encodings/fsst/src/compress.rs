@@ -111,6 +111,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
+    use vortex_error::VortexExpect;
 
     use crate::FSSTArray;
     use crate::compress::DEFAULT_BUFFER_LEN;
@@ -133,7 +134,10 @@ mod tests {
             &compressor,
         );
 
-        let decoded = FSSTArray::from_inner(compressed).scalar_at(0).unwrap();
+        let decoded = FSSTArray::try_from_data(compressed)
+            .vortex_expect("data is always valid")
+            .scalar_at(0)
+            .unwrap();
 
         let expected = Scalar::utf8(big_string, Nullability::NonNullable);
 

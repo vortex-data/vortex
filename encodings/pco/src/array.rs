@@ -301,7 +301,7 @@ pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
-    Ok(parray.clone().into_array().filter(mask)?.to_primitive())
+    Ok(parray.filter(mask)?.to_primitive())
 }
 
 pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
@@ -325,11 +325,7 @@ impl Pco {
         level: usize,
         values_per_page: usize,
     ) -> VortexResult<PcoArray> {
-        Ok(Array::from_inner(PcoData::from_primitive(
-            parray,
-            level,
-            values_per_page,
-        )?))
+        Array::try_from_data(PcoData::from_primitive(parray, level, values_per_page)?)
     }
 }
 

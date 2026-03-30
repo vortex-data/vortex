@@ -89,7 +89,7 @@ pub fn sequence_encode(primitive_array: &PrimitiveArray) -> VortexResult<Option<
         return Ok(None);
     }
 
-    if !primitive_array.clone().into_array().all_valid()? {
+    if !primitive_array.all_valid()? {
         return Ok(None);
     }
 

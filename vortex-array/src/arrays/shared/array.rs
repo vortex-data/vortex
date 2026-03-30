@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 
 use async_lock::Mutex as AsyncMutex;
 use vortex_error::SharedVortexResult;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -112,7 +113,7 @@ impl SharedData {
 impl Array<Shared> {
     /// Creates a new `SharedArray`.
     pub fn new(source: ArrayRef) -> Self {
-        Array::from_inner(SharedData::new(source))
+        Array::try_from_data(SharedData::new(source)).vortex_expect("SharedData is always valid")
     }
 }
 

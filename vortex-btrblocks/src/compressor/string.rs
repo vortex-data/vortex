@@ -106,7 +106,8 @@ impl CompressorStats for StringStats {
     type ArrayVTable = VarBinView;
 
     fn generate_opts(input: &VarBinViewData, opts: GenerateStatsOptions) -> Self {
-        let array = VarBinViewArray::from_inner(input.clone());
+        let array =
+            VarBinViewArray::try_from_data(input.clone()).vortex_expect("data is always valid");
         Self::generate_opts_fallible(&array, opts)
             .vortex_expect("StringStats::generate_opts should not fail")
     }

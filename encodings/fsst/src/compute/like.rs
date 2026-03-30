@@ -98,6 +98,7 @@ mod tests {
     use vortex_array::scalar_fn::fns::like::LikeKernel;
     use vortex_array::scalar_fn::fns::like::LikeOptions;
     use vortex_array::session::ArraySession;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -114,7 +115,8 @@ mod tests {
         let compressor = fsst_train_compressor(&varbin);
         let len = varbin.len();
         let dtype = varbin.dtype().clone();
-        FSSTArray::from_inner(fsst_compress(varbin, len, &dtype, &compressor))
+        FSSTArray::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
+            .vortex_expect("data is always valid")
     }
 
     fn run_like(array: FSSTArray, pattern: &str, opts: LikeOptions) -> VortexResult<BoolArray> {

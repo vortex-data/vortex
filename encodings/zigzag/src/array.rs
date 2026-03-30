@@ -193,7 +193,7 @@ impl ZigZag {
 
     /// Construct a new [`ZigZagArray`] from an encoded unsigned integer array.
     pub fn try_new(encoded: ArrayRef) -> VortexResult<ZigZagArray> {
-        Ok(Array::from_inner(ZigZagData::try_new(encoded)?))
+        Array::try_from_data(ZigZagData::try_new(encoded)?)
     }
 }
 
@@ -292,7 +292,7 @@ mod test {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .into_array()
             .to_primitive();
-        let zigzag = ZigZagArray::from_inner(zigzag_encode(array.clone())?);
+        let zigzag = ZigZagArray::try_from_data(zigzag_encode(array.clone())?)?;
 
         assert_eq!(
             zigzag.statistics().compute_max::<i32>(),

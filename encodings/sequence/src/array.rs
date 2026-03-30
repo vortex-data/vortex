@@ -455,13 +455,13 @@ impl Sequence {
         nullability: Nullability,
         length: usize,
     ) -> VortexResult<SequenceArray> {
-        Ok(Array::from_inner(SequenceData::try_new(
+        Array::try_from_data(SequenceData::try_new(
             base,
             multiplier,
             ptype,
             nullability,
             length,
-        )?))
+        )?)
     }
 
     /// Construct a new typed [`SequenceArray`] from base/multiplier values.
@@ -471,12 +471,12 @@ impl Sequence {
         nullability: Nullability,
         length: usize,
     ) -> VortexResult<SequenceArray> {
-        Ok(Array::from_inner(SequenceData::try_new_typed(
+        Array::try_from_data(SequenceData::try_new_typed(
             base,
             multiplier,
             nullability,
             length,
-        )?))
+        )?)
     }
 }
 

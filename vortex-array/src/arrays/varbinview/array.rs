@@ -550,27 +550,32 @@ impl Array<VarBinView> {
         iter: I,
         dtype: DType,
     ) -> Self {
-        Array::from_inner(VarBinViewData::from_iter(iter, dtype))
+        Array::try_from_data(VarBinViewData::from_iter(iter, dtype))
+            .vortex_expect("VarBinViewData is always valid")
     }
 
     pub fn from_iter_str<T: AsRef<str>, I: IntoIterator<Item = T>>(iter: I) -> Self {
-        Array::from_inner(VarBinViewData::from_iter_str(iter))
+        Array::try_from_data(VarBinViewData::from_iter_str(iter))
+            .vortex_expect("VarBinViewData is always valid")
     }
 
     pub fn from_iter_nullable_str<T: AsRef<str>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
     ) -> Self {
-        Array::from_inner(VarBinViewData::from_iter_nullable_str(iter))
+        Array::try_from_data(VarBinViewData::from_iter_nullable_str(iter))
+            .vortex_expect("VarBinViewData is always valid")
     }
 
     pub fn from_iter_bin<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(iter: I) -> Self {
-        Array::from_inner(VarBinViewData::from_iter_bin(iter))
+        Array::try_from_data(VarBinViewData::from_iter_bin(iter))
+            .vortex_expect("VarBinViewData is always valid")
     }
 
     pub fn from_iter_nullable_bin<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
     ) -> Self {
-        Array::from_inner(VarBinViewData::from_iter_nullable_bin(iter))
+        Array::try_from_data(VarBinViewData::from_iter_nullable_bin(iter))
+            .vortex_expect("VarBinViewData is always valid")
     }
 
     /// Creates a new [`VarBinViewArray`].
@@ -580,9 +585,7 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(VarBinViewData::try_new(
-            views, buffers, dtype, validity,
-        )?))
+        Array::try_from_data(VarBinViewData::try_new(views, buffers, dtype, validity)?)
     }
 
     /// Creates a new [`VarBinViewArray`] without validation.
@@ -596,7 +599,10 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(unsafe { VarBinViewData::new_unchecked(views, buffers, dtype, validity) })
+        Array::try_from_data(unsafe {
+            VarBinViewData::new_unchecked(views, buffers, dtype, validity)
+        })
+        .vortex_expect("VarBinViewData is always valid")
     }
 
     /// Creates a new [`VarBinViewArray`] with device or host memory.
@@ -606,7 +612,8 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(VarBinViewData::new_handle(views, buffers, dtype, validity))
+        Array::try_from_data(VarBinViewData::new_handle(views, buffers, dtype, validity))
+            .vortex_expect("VarBinViewData is always valid")
     }
 
     /// Construct a new array from `BufferHandle`s without validation.
@@ -620,9 +627,10 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(unsafe {
+        Array::try_from_data(unsafe {
             VarBinViewData::new_handle_unchecked(views, buffers, dtype, validity)
         })
+        .vortex_expect("VarBinViewData is always valid")
     }
 }
 
@@ -654,24 +662,28 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinViewData {
 
 impl<'a> FromIterator<Option<&'a [u8]>> for Array<VarBinView> {
     fn from_iter<T: IntoIterator<Item = Option<&'a [u8]>>>(iter: T) -> Self {
-        Array::from_inner(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+        Array::try_from_data(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+            .vortex_expect("<VarBinViewData as FromIterator<_> is always valid")
     }
 }
 
 impl FromIterator<Option<Vec<u8>>> for Array<VarBinView> {
     fn from_iter<T: IntoIterator<Item = Option<Vec<u8>>>>(iter: T) -> Self {
-        Array::from_inner(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+        Array::try_from_data(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+            .vortex_expect("<VarBinViewData as FromIterator<_> is always valid")
     }
 }
 
 impl FromIterator<Option<String>> for Array<VarBinView> {
     fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
-        Array::from_inner(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+        Array::try_from_data(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+            .vortex_expect("<VarBinViewData as FromIterator<_> is always valid")
     }
 }
 
 impl<'a> FromIterator<Option<&'a str>> for Array<VarBinView> {
     fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
-        Array::from_inner(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+        Array::try_from_data(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+            .vortex_expect("<VarBinViewData as FromIterator<_> is always valid")
     }
 }

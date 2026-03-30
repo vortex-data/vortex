@@ -172,7 +172,7 @@ impl Array<Bool> {
     ///
     /// Returns an error if the provided components do not satisfy the invariants.
     pub fn try_new(bits: BitBuffer, validity: Validity) -> VortexResult<Self> {
-        Ok(Array::from_inner(BoolData::try_new(bits, validity)?))
+        Array::try_from_data(BoolData::try_new(bits, validity)?)
     }
 
     /// Build a new bool array from a `BufferHandle`, returning an error if the offset is
@@ -183,9 +183,7 @@ impl Array<Bool> {
         len: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(BoolData::try_new_from_handle(
-            bits, offset, len, validity,
-        )?))
+        Array::try_from_data(BoolData::try_new_from_handle(bits, offset, len, validity)?)
     }
 
     /// Creates a new [`BoolArray`] without validation.
@@ -195,7 +193,8 @@ impl Array<Bool> {
     /// The caller must ensure that the validity length is equal to the bit buffer length.
     pub unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {
         // SAFETY: caller guarantees validity length equals bit buffer length.
-        Array::from_inner(unsafe { BoolData::new_unchecked(bits, validity) })
+        Array::try_from_data(unsafe { BoolData::new_unchecked(bits, validity) })
+            .vortex_expect("BoolData is always valid")
     }
 
     /// Validates the components that would be used to create a [`BoolArray`].

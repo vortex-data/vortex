@@ -81,6 +81,6 @@ impl MaskedData {
 impl Array<Masked> {
     /// Constructs a new `MaskedArray`.
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
-        Ok(Array::from_inner(MaskedData::try_new(child, validity)?))
+        Array::try_from_data(MaskedData::try_new(child, validity)?)
     }
 }

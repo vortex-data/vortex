@@ -142,14 +142,14 @@ mod test {
             ],
             validity.clone(),
         );
-        let date_times = DateTimePartsArray::from_inner(
+        let date_times = DateTimePartsArray::try_from_data(
             DateTimePartsData::try_from(TemporalArray::new_timestamp(
                 milliseconds.clone().into_array(),
                 TimeUnit::Milliseconds,
                 Some("UTC".into()),
             ))
             .unwrap(),
-        );
+        )?;
 
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 

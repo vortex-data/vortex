@@ -414,7 +414,7 @@ impl ALPData {
     /// assert!(result.is_err());
     ///
     /// // Success!
-    /// let value = ALPArray::from_inner(ALPData::try_new(
+    /// let value = ALPArray::try_from_data(ALPData::try_new(
     ///     buffer![0i32].into_array(),
     ///     Exponents { e: 1, f: 1 },
     ///     None
@@ -467,7 +467,8 @@ impl ALPData {
 /// Constructors for [`ALPArray`].
 impl ALP {
     pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> ALPArray {
-        Array::from_inner(ALPData::new(encoded, exponents, patches))
+        Array::try_from_data(ALPData::new(encoded, exponents, patches))
+            .vortex_expect("ALPData is always valid")
     }
 
     pub fn try_new(
@@ -475,9 +476,7 @@ impl ALP {
         exponents: Exponents,
         patches: Option<Patches>,
     ) -> VortexResult<ALPArray> {
-        Ok(Array::from_inner(ALPData::try_new(
-            encoded, exponents, patches,
-        )?))
+        Array::try_from_data(ALPData::try_new(encoded, exponents, patches)?)
     }
 
     /// # Safety
@@ -488,7 +487,8 @@ impl ALP {
         patches: Option<Patches>,
         dtype: DType,
     ) -> ALPArray {
-        Array::from_inner(unsafe { ALPData::new_unchecked(encoded, exponents, patches, dtype) })
+        Array::try_from_data(unsafe { ALPData::new_unchecked(encoded, exponents, patches, dtype) })
+            .vortex_expect("ALPData is always valid")
     }
 }
 
@@ -853,11 +853,12 @@ mod tests {
         .unwrap();
 
         // Build a new ALPArray with the same encoded data but patches without chunk_offsets.
-        let alp_without_chunk_offsets = ALPArray::from_inner(ALPData::new(
+        let alp_without_chunk_offsets = ALPArray::try_from_data(ALPData::new(
             normally_encoded.encoded().clone(),
             normally_encoded.exponents(),
             Some(patches_without_chunk_offsets),
-        ));
+        ))
+        .vortex_expect("ALPData is always valid");
 
         // The legacy decompress_into_array path should work correctly.
         let result_legacy = decompress_into_array(

@@ -45,10 +45,11 @@ fn make_datetimeparts_array(len: usize, time_unit: TimeUnit) -> DateTimePartsArr
 
     let dtype = DType::Extension(Timestamp::new(time_unit, Nullability::NonNullable).erased());
 
-    DateTimePartsArray::from_inner(
+    DateTimePartsArray::try_from_data(
         DateTimePartsData::try_new(dtype, days_arr, seconds_arr, subseconds_arr)
             .vortex_expect("Failed to create DateTimePartsArray"),
     )
+    .vortex_expect("DateTimePartsData is always valid")
 }
 
 fn benchmark_datetimeparts(c: &mut Criterion) {

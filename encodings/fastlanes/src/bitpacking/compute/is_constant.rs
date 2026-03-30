@@ -192,8 +192,10 @@ mod tests {
 
     #[test]
     fn is_constant_with_patches() -> VortexResult<()> {
-        let array =
-            BitPackedArray::from_inner(BitPackedData::encode(&buffer![4; 1025].into_array(), 2)?);
+        let array = BitPackedArray::try_from_data(BitPackedData::encode(
+            &buffer![4; 1025].into_array(),
+            2,
+        )?)?;
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(is_constant(&array.into_array(), &mut ctx)?);
         Ok(())

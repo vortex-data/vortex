@@ -25,6 +25,7 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -263,14 +264,15 @@ impl RLE {
         offset: usize,
         length: usize,
     ) -> RLEArray {
-        Array::from_inner(unsafe {
+        Array::try_from_data(unsafe {
             RLEData::new_unchecked(values, indices, values_idx_offsets, dtype, offset, length)
         })
+        .vortex_expect("RLEData is always valid")
     }
 
     /// Encode a primitive array using FastLanes RLE.
     pub fn encode(array: &PrimitiveArray) -> VortexResult<RLEArray> {
-        Ok(Array::from_inner(RLEData::encode(array)?))
+        Array::try_from_data(RLEData::encode(array)?)
     }
 }
 

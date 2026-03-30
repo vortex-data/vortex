@@ -596,7 +596,7 @@ mod tests {
         input.statistics().set(Stat::Min, Precision::exact(0i32));
 
         let compressed = ZstdBuffersData::compress(&input, 3)?;
-        let compressed = ZstdBuffersArray::from_inner(compressed);
+        let compressed = ZstdBuffersArray::try_from_data(compressed)?;
 
         assert!(compressed.statistics().get(Stat::Min).is_some());
         Ok(())

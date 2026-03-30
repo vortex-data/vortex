@@ -87,12 +87,13 @@ impl FilterData {
 impl Array<Filter> {
     /// Creates a new [`FilterArray`].
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
-        Array::from_inner(FilterData::new(array, mask))
+        Array::try_from_data(FilterData::new(array, mask))
+            .vortex_expect("FilterData is always valid")
     }
 
     /// Constructs a new `FilterArray`.
     pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
-        Ok(Array::from_inner(FilterData::try_new(array, mask)?))
+        Array::try_from_data(FilterData::try_new(array, mask)?)
     }
 }
 

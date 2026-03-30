@@ -82,7 +82,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
         if array.is_empty() {
             Ok(Some(Canonical::empty(array.dtype()).into_array()))
         } else {
-            let result = array.clone().into_array().scalar_at(0)?;
+            let result = array.scalar_at(0)?;
             Ok(Some(ConstantArray::new(result, array.len).into_array()))
         }
     }

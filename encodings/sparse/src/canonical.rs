@@ -147,7 +147,7 @@ fn execute_sparse_lists(
     let n_filled = array.len() - resolved_patches.num_patches();
     let total_canonical_values = values.elements().len() + fill_value.len() * n_filled;
 
-    let validity = Validity::from_mask(array.clone().into_array().validity_mask()?, nullability);
+    let validity = Validity::from_mask(array.validity_mask()?, nullability);
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
@@ -234,7 +234,7 @@ fn execute_sparse_fixed_size_list(
         .execute::<FixedSizeListArray>(ctx)?;
     let fill_value = array.fill_scalar().as_list();
 
-    let validity = Validity::from_mask(array.clone().into_array().validity_mask()?, nullability);
+    let validity = Validity::from_mask(array.validity_mask()?, nullability);
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         execute_sparse_fixed_size_list_inner::<I>(
@@ -491,10 +491,7 @@ fn execute_varbin(
     let patches = array.resolved_patches()?;
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<VarBinViewArray>(ctx)?;
-    let validity = Validity::from_mask(
-        array.clone().into_array().validity_mask()?,
-        dtype.nullability(),
-    );
+    let validity = Validity::from_mask(array.validity_mask()?, dtype.nullability());
     let len = array.len();
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {

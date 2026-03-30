@@ -251,7 +251,8 @@ macro_rules! vtable {
         $crate::aliases::paste::paste! {
             impl $crate::IntoArray for [<$Base Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
-                    std::sync::Arc::new($crate::vtable::Array::<$VT>::from_inner(self))
+                    use $crate::aliases::vortex_error::VortexExpect;
+                    std::sync::Arc::new($crate::vtable::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
                 }
             }
 
@@ -279,7 +280,8 @@ macro_rules! vtable {
 
             impl $crate::IntoArray for $Data {
                 fn into_array(self) -> $crate::ArrayRef {
-                    std::sync::Arc::new($crate::vtable::Array::<$VT>::from_inner(self))
+                    use $crate::aliases::vortex_error::VortexExpect;
+                    std::sync::Arc::new($crate::vtable::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
                 }
             }
 

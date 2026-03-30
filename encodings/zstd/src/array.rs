@@ -307,11 +307,11 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
-        Ok(Array::from_inner(ZstdData::from_var_bin_view_without_dict(
+        Array::try_from_data(ZstdData::from_var_bin_view_without_dict(
             vbv,
             level,
             values_per_frame,
-        )?))
+        )?)
     }
 
     /// Compress a [`PrimitiveArray`] using Zstd.
@@ -320,11 +320,7 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
-        Ok(Array::from_inner(ZstdData::from_primitive(
-            parray,
-            level,
-            values_per_frame,
-        )?))
+        Array::try_from_data(ZstdData::from_primitive(parray, level, values_per_frame)?)
     }
 
     /// Compress a [`VarBinViewArray`] using Zstd.
@@ -333,11 +329,7 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
-        Ok(Array::from_inner(ZstdData::from_var_bin_view(
-            vbv,
-            level,
-            values_per_frame,
-        )?))
+        Array::try_from_data(ZstdData::from_var_bin_view(vbv, level, values_per_frame)?)
     }
 }
 
@@ -391,7 +383,7 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
 
 fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
-    Ok(parray.clone().into_array().filter(mask)?.to_primitive())
+    Ok(parray.filter(mask)?.to_primitive())
 }
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
@@ -400,8 +392,7 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {
             let mut buffer = BufferMut::with_capacity(
-                usize::try_from(vbv.clone().into_array().nbytes())
-                    .vortex_expect("must fit into buffer")
+                usize::try_from(vbv.nbytes()).vortex_expect("must fit into buffer")
                     + mask.true_count() * size_of::<ViewLen>(),
             );
             let mut value_byte_indices = Vec::new();
@@ -956,12 +947,13 @@ impl ZstdData {
             self.slice_stop
         );
 
-        Array::from_inner(ZstdData {
+        Array::try_from_data(ZstdData {
             slice_start: self.slice_start + start,
             slice_stop: self.slice_start + stop,
             stats_set: Default::default(),
             ..self.clone()
         })
+        .vortex_expect("ZstdData is always valid")
     }
 
     /// Consumes the array and returns its parts.

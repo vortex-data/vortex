@@ -39,6 +39,7 @@ use vortex_array::DynArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;
+use vortex_error::VortexExpect;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
 
@@ -343,7 +344,7 @@ fn bench_zstd_decompress_u32(bencher: Bencher) {
 fn bench_dict_compress_string(bencher: Bencher) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
-    let nbytes = varbinview_arr.clone().into_array().nbytes() as u64;
+    let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| &varbinview_arr)
@@ -367,7 +368,7 @@ fn bench_fsst_compress_string(bencher: Bencher) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let fsst_compressor = fsst_train_compressor(&varbinview_arr);
-    let nbytes = varbinview_arr.clone().into_array().nbytes() as u64;
+    let nbytes = varbinview_arr.nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| &varbinview_arr)
@@ -379,12 +380,13 @@ fn bench_fsst_decompress_string(bencher: Bencher) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let fsst_compressor = fsst_train_compressor(&varbinview_arr);
-    let fsst_array = FSSTArray::from_inner(fsst_compress(
+    let fsst_array = FSSTArray::try_from_data(fsst_compress(
         &varbinview_arr,
         varbinview_arr.len(),
         varbinview_arr.dtype(),
         &fsst_compressor,
-    ));
+    ))
+    .vortex_expect("data is always valid");
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)
@@ -397,7 +399,7 @@ fn bench_fsst_decompress_string(bencher: Bencher) {
 fn bench_zstd_compress_string(bencher: Bencher) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
-    let nbytes = varbinview_arr.clone().into_array().nbytes() as u64;
+    let nbytes = varbinview_arr.nbytes() as u64;
     let array = varbinview_arr.into_array();
 
     with_byte_counter(bencher, nbytes)

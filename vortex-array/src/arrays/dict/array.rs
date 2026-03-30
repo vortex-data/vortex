@@ -191,12 +191,12 @@ impl DictData {
 impl Array<Dict> {
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
-        Array::from_inner(DictData::new(codes, values))
+        Array::try_from_data(DictData::new(codes, values)).vortex_expect("DictData is always valid")
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
-        Ok(Array::from_inner(DictData::try_new(codes, values)?))
+        Array::try_from_data(DictData::try_new(codes, values)?)
     }
 
     /// Build a new `DictArray` without validating the codes or values.
@@ -205,7 +205,8 @@ impl Array<Dict> {
     ///
     /// See [`DictData::new_unchecked`].
     pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
-        Array::from_inner(unsafe { DictData::new_unchecked(codes, values) })
+        Array::try_from_data(unsafe { DictData::new_unchecked(codes, values) })
+            .vortex_expect("DictData is always valid")
     }
 
     /// Set whether all values in the dictionary are referenced by at least one code.
@@ -214,10 +215,11 @@ impl Array<Dict> {
     ///
     /// See [`DictData::set_all_values_referenced`].
     pub unsafe fn set_all_values_referenced(self, all_values_referenced: bool) -> Self {
-        Array::from_inner(unsafe {
+        Array::try_from_data(unsafe {
             self.into_inner()
                 .set_all_values_referenced(all_values_referenced)
         })
+        .vortex_expect("data is always valid")
     }
 }
 

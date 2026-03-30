@@ -63,7 +63,7 @@ impl CompareKernel for DecimalByteParts {
                 // (depending on the `sign`) than all values in MSP.
                 // If the LHS or the RHS contain nulls, then we must fallback to the canonicalized
                 // implementation which does null-checking instead.
-                if lhs.clone().into_array().all_valid()? && rhs.all_valid()? {
+                if lhs.all_valid()? && rhs.all_valid()? {
                     Ok(Some(
                         ConstantArray::new(
                             unconvertible_value(sign, operator, nullability),

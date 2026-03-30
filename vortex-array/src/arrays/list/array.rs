@@ -345,7 +345,8 @@ impl ListData {
 impl Array<List> {
     /// Creates a new [`ListArray`].
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
-        Array::from_inner(ListData::new(elements, offsets, validity))
+        Array::try_from_data(ListData::new(elements, offsets, validity))
+            .vortex_expect("ListData is always valid")
     }
 
     /// Constructs a new `ListArray`.
@@ -354,9 +355,7 @@ impl Array<List> {
         offsets: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(ListData::try_new(
-            elements, offsets, validity,
-        )?))
+        Array::try_from_data(ListData::try_new(elements, offsets, validity)?)
     }
 
     /// Creates a new [`ListArray`] without validation.
@@ -365,7 +364,8 @@ impl Array<List> {
     ///
     /// See [`ListData::new_unchecked`].
     pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
-        Array::from_inner(unsafe { ListData::new_unchecked(elements, offsets, validity) })
+        Array::try_from_data(unsafe { ListData::new_unchecked(elements, offsets, validity) })
+            .vortex_expect("ListData is always valid")
     }
 }
 

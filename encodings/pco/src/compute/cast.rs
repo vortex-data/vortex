@@ -12,7 +12,7 @@ use crate::PcoArray;
 use crate::PcoData;
 impl CastReduce for Pco {
     fn cast(array: &PcoArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if !dtype.is_nullable() || !array.clone().into_array().all_valid()? {
+        if !dtype.is_nullable() || !array.all_valid()? {
             // TODO(joe): fixme
             // We cannot cast to non-nullable since the validity containing nulls is used to decode
             // the PCO array, this would require rewriting tables.

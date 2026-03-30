@@ -293,10 +293,7 @@ impl DecimalByteParts {
         msp: ArrayRef,
         decimal_dtype: DecimalDType,
     ) -> VortexResult<DecimalBytePartsArray> {
-        Ok(Array::from_inner(DecimalBytePartsData::try_new(
-            msp,
-            decimal_dtype,
-        )?))
+        Array::try_from_data(DecimalBytePartsData::try_new(msp, decimal_dtype)?)
     }
 }
 

@@ -421,11 +421,11 @@ impl<V: VTable> DynArray for Array<V> {
     }
 
     fn vtable(&self) -> &dyn DynVTable {
-        self.typed_vtable()
+        self.vtable()
     }
 
     fn encoding_id(&self) -> ArrayId {
-        self.typed_vtable().id()
+        self.vtable().id()
     }
 
     fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
@@ -576,7 +576,7 @@ impl<V: VTable> DynArray for Array<V> {
                 vortex_ensure!(
                     matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
                     "Validity array is not non-nullable boolean: {}",
-                    self.typed_vtable().id(),
+                    self.vtable().id(),
                 );
             }
             Ok(validity)
@@ -618,7 +618,7 @@ impl<V: VTable> DynArray for Array<V> {
             len + self.len,
             builder.len(),
             "Builder length mismatch after writing array for encoding {}",
-            self.typed_vtable().id(),
+            self.vtable().id(),
         );
         Ok(())
     }
@@ -632,8 +632,8 @@ impl<V: VTable> DynArray for Array<V> {
         V::with_children(&mut inner, children)?;
         // SAFETY: with_children preserves dtype and len.
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                self.typed_vtable().clone(),
+            Array::from_data_unchecked(
+                self.vtable().clone(),
                 self.dtype.clone(),
                 self.len,
                 inner,
@@ -646,7 +646,7 @@ impl<V: VTable> DynArray for Array<V> {
 
 impl<V: VTable> ArrayHash for Array<V> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
-        self.typed_vtable().id().hash(state);
+        self.vtable().id().hash(state);
         V::array_hash(self, state, precision);
     }
 }

@@ -380,6 +380,6 @@ impl BitPacked {
 
     /// Encode an array into a bitpacked representation with the given bit width.
     pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<BitPackedArray> {
-        Ok(Array::from_inner(BitPackedData::encode(array, bit_width)?))
+        Array::try_from_data(BitPackedData::encode(array, bit_width)?)
     }
 }

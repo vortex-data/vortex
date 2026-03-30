@@ -57,15 +57,17 @@ where
 
     if bp && T::PTYPE != PType::U8 {
         let child = BitPackedData::encode(&primitive_array, 8).vortex_expect("failed to bitpack");
-        FoRArray::from_inner(
+        FoRArray::try_from_data(
             FoRData::try_new(child.into_array(), reference.into())
                 .vortex_expect("failed to create FoR array"),
         )
+        .vortex_expect("FoRData is always valid")
     } else {
-        FoRArray::from_inner(
+        FoRArray::try_from_data(
             FoRData::try_new(primitive_array, reference.into())
                 .vortex_expect("failed to create FoR array"),
         )
+        .vortex_expect("FoRData is always valid")
     }
 }
 

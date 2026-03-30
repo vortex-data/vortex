@@ -273,9 +273,16 @@ impl DateTimeParts {
         seconds: ArrayRef,
         subseconds: ArrayRef,
     ) -> VortexResult<DateTimePartsArray> {
-        Ok(Array::from_inner(DateTimePartsData::try_new(
+        Array::try_from_data(DateTimePartsData::try_new(
             dtype, days, seconds, subseconds,
-        )?))
+        )?)
+    }
+
+    /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`].
+    pub fn try_from_temporal(
+        temporal: vortex_array::arrays::TemporalArray,
+    ) -> VortexResult<DateTimePartsArray> {
+        Array::try_from_data(DateTimePartsData::try_from(temporal)?)
     }
 }
 

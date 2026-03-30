@@ -285,9 +285,7 @@ impl Sparse {
         len: usize,
         fill_value: Scalar,
     ) -> VortexResult<SparseArray> {
-        Ok(Array::from_inner(SparseData::try_new(
-            indices, values, len, fill_value,
-        )?))
+        Array::try_from_data(SparseData::try_new(indices, values, len, fill_value)?)
     }
 
     /// Encode the given array as a [`SparseArray`].

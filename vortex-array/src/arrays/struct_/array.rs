@@ -493,7 +493,8 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(StructData::new(names, fields, length, validity))
+        Array::try_from_data(StructData::new(names, fields, length, validity))
+            .vortex_expect("StructData is always valid")
     }
 
     /// Constructs a new `StructArray`.
@@ -503,9 +504,7 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(StructData::try_new(
-            names, fields, length, validity,
-        )?))
+        Array::try_from_data(StructData::try_new(names, fields, length, validity)?)
     }
 
     /// Creates a new [`StructArray`] without validation.
@@ -519,7 +518,8 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(unsafe { StructData::new_unchecked(fields, dtype, length, validity) })
+        Array::try_from_data(unsafe { StructData::new_unchecked(fields, dtype, length, validity) })
+            .vortex_expect("StructData is always valid")
     }
 
     /// Constructs a new `StructArray` with an explicit dtype.
@@ -529,14 +529,14 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(StructData::try_new_with_dtype(
+        Array::try_from_data(StructData::try_new_with_dtype(
             fields, dtype, length, validity,
-        )?))
+        )?)
     }
 
     /// Construct a [`StructArray`] from named fields.
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
-        Ok(Array::from_inner(StructData::from_fields(items)?))
+        Array::try_from_data(StructData::from_fields(items)?)
     }
 
     /// Decompose this struct array into its constituent parts.
@@ -553,21 +553,20 @@ impl Array<Struct> {
         iter: T,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(StructData::try_from_iter_with_validity(
-            iter, validity,
-        )?))
+        Array::try_from_data(StructData::try_from_iter_with_validity(iter, validity)?)
     }
 
     /// Create a [`StructArray`] from an iterator of (name, array) pairs.
     pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
         iter: T,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(StructData::try_from_iter(iter)?))
+        Array::try_from_data(StructData::try_from_iter(iter)?)
     }
 
     /// Create a fieldless [`StructArray`] with the given length.
     pub fn new_fieldless_with_len(len: usize) -> Self {
-        Array::from_inner(StructData::new_fieldless_with_len(len))
+        Array::try_from_data(StructData::new_fieldless_with_len(len))
+            .vortex_expect("StructData is always valid")
     }
 }
 

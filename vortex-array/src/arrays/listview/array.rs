@@ -473,7 +473,8 @@ impl ListViewData {
 impl Array<ListView> {
     /// Creates a new [`ListViewArray`].
     pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
-        Array::from_inner(ListViewData::new(elements, offsets, sizes, validity))
+        Array::try_from_data(ListViewData::new(elements, offsets, sizes, validity))
+            .vortex_expect("ListViewData is always valid")
     }
 
     /// Constructs a new `ListViewArray`.
@@ -483,9 +484,7 @@ impl Array<ListView> {
         sizes: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(ListViewData::try_new(
-            elements, offsets, sizes, validity,
-        )?))
+        Array::try_from_data(ListViewData::try_new(elements, offsets, sizes, validity)?)
     }
 
     /// Creates a new [`ListViewArray`] without validation.
@@ -499,9 +498,10 @@ impl Array<ListView> {
         sizes: ArrayRef,
         validity: Validity,
     ) -> Self {
-        Array::from_inner(unsafe {
+        Array::try_from_data(unsafe {
             ListViewData::new_unchecked(elements, offsets, sizes, validity)
         })
+        .vortex_expect("ListViewData is always valid")
     }
 
     /// Mark whether this list view can be zero-copy converted to a list.
@@ -510,7 +510,8 @@ impl Array<ListView> {
     ///
     /// See [`ListViewData::with_zero_copy_to_list`].
     pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
-        Array::from_inner(unsafe { self.into_inner().with_zero_copy_to_list(is_zctl) })
+        Array::try_from_data(unsafe { self.into_inner().with_zero_copy_to_list(is_zctl) })
+            .vortex_expect("data is always valid")
     }
 }
 

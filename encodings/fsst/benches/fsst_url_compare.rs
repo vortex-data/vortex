@@ -18,6 +18,7 @@ use vortex_array::expr::root;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
+use vortex_error::VortexExpect;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_fsst::test_utils::HIGH_MATCH_DOMAIN;
@@ -98,12 +99,13 @@ fn eq_pushdown_low_match(bencher: Bencher) {
 fn eq_canonicalize_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = vortex_fsst::FSSTArray::from_inner(fsst_compress(
+    let fsst_array = vortex_fsst::FSSTArray::try_from_data(fsst_compress(
         data,
         data.len(),
         data.dtype(),
         &compressor,
-    ));
+    ))
+    .vortex_expect("data is always valid");
     let match_url = pick_url_with_domain(data, HIGH_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 
@@ -125,12 +127,13 @@ fn eq_canonicalize_high_match(bencher: Bencher) {
 fn eq_canonicalize_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
-    let fsst_array = vortex_fsst::FSSTArray::from_inner(fsst_compress(
+    let fsst_array = vortex_fsst::FSSTArray::try_from_data(fsst_compress(
         data,
         data.len(),
         data.dtype(),
         &compressor,
-    ));
+    ))
+    .vortex_expect("data is always valid");
     let match_url = pick_url_with_domain(data, LOW_MATCH_DOMAIN);
     let constant = ConstantArray::new(Scalar::from(match_url.as_str()), NUM_URLS);
 

@@ -20,6 +20,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_array::session::ArraySession;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
@@ -111,12 +112,13 @@ pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
 
     // Train FSST compressor and compress.
     let compressor = fsst_train_compressor(&varbin);
-    let fsst_array: FSSTArray = vortex_array::vtable::Array::from_inner(fsst_compress(
+    let fsst_array: FSSTArray = vortex_array::vtable::Array::try_from_data(fsst_compress(
         varbin.clone(),
         varbin.len(),
         varbin.dtype(),
         &compressor,
-    ));
+    ))
+    .vortex_expect("data is always valid");
 
     let opts = LikeOptions {
         negated,

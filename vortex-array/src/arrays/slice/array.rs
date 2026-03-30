@@ -74,12 +74,13 @@ impl SliceData {
 impl Array<Slice> {
     /// Constructs a new `SliceArray`.
     pub fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
-        Ok(Array::from_inner(SliceData::try_new(child, range)?))
+        Array::try_from_data(SliceData::try_new(child, range)?)
     }
 
     /// Constructs a new `SliceArray`.
     pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
-        Array::from_inner(SliceData::new(child, range))
+        Array::try_from_data(SliceData::new(child, range))
+            .vortex_expect("SliceData is always valid")
     }
 }
 

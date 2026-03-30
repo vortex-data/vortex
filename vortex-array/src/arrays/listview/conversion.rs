@@ -40,7 +40,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // function might not expect the output `ListViewArray` to have a bunch of leading and trailing
     // garbage data when they turn it back into a `ListArray`.
     let list: ListArray =
-        Array::from_inner(list.reset_offsets(false).vortex_expect("This can't fail"));
+        Array::try_from_data(list.reset_offsets(false).vortex_expect("This can't fail"))?;
 
     let list_offsets = list.offsets().clone();
 

@@ -214,9 +214,7 @@ impl Delta {
         array: &PrimitiveArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<DeltaArray> {
-        Ok(Array::from_inner(DeltaData::try_from_primitive_array(
-            array, ctx,
-        )?))
+        Array::try_from_data(DeltaData::try_from_primitive_array(array, ctx)?)
     }
 }
 

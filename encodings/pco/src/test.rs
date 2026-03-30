@@ -26,6 +26,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -102,7 +103,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     let compression_level = 3;
     let values_per_chunk = 33;
     let values_per_page = 10;
-    let compressed = PcoArray::from_inner(
+    let compressed = PcoArray::try_from_data(
         PcoData::from_primitive_with_values_per_chunk(
             &array,
             compression_level,
@@ -110,7 +111,8 @@ fn test_validity_and_multiple_chunks_and_pages() {
             values_per_page,
         )
         .unwrap(),
-    );
+    )
+    .vortex_expect("PcoData is always valid");
 
     assert_eq!(compressed.metadata.chunks.len(), 6); // 191 values / 33 rounds up to 6
     assert_eq!(compressed.metadata.chunks[0].pages.len(), 4); // 33 / 10 rounds up to 4

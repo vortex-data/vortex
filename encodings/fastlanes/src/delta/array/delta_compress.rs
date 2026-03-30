@@ -100,6 +100,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -119,10 +120,10 @@ mod tests {
             (0u32..10_000).map(|i| (i % 2 == 0).then_some(i)),
     ))]
     fn test_compress(#[case] array: PrimitiveArray) -> VortexResult<()> {
-        let delta = DeltaArray::from_inner(DeltaData::try_from_primitive_array(
+        let delta = DeltaArray::try_from_data(DeltaData::try_from_primitive_array(
             &array,
             &mut SESSION.create_execution_ctx(),
-        )?);
+        )?)?;
         assert_eq!(delta.len(), array.len());
         let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, array);
@@ -139,7 +140,7 @@ mod tests {
         );
         let (bases, deltas) = delta_compress(&array, &mut SESSION.create_execution_ctx()).unwrap();
         let bitpacked_deltas = bitpack_encode(&deltas, 1, None).unwrap();
-        let packed_delta = DeltaArray::from_inner(
+        let packed_delta = DeltaArray::try_from_data(
             DeltaData::try_new(
                 bases.into_array(),
                 bitpacked_deltas.into_array(),
@@ -147,7 +148,8 @@ mod tests {
                 array.len(),
             )
             .unwrap(),
-        );
+        )
+        .vortex_expect("DeltaData is always valid");
         assert_arrays_eq!(packed_delta.to_primitive(), array);
     }
 }

@@ -412,13 +412,13 @@ impl FSST {
         codes: VarBinArray,
         uncompressed_lengths: ArrayRef,
     ) -> VortexResult<FSSTArray> {
-        Ok(Array::from_inner(FSSTData::try_new(
+        Array::try_from_data(FSSTData::try_new(
             dtype,
             symbols,
             symbol_lengths,
             codes,
             uncompressed_lengths,
-        )?))
+        )?)
     }
 }
 

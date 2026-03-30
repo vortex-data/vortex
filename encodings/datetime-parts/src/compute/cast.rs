@@ -106,7 +106,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case(DateTimePartsArray::from_inner(DateTimePartsData::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimePartsArray::try_from_data(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         buffer![
             0i64,
             86_400_000,  // 1 day in ms
@@ -116,8 +116,8 @@ mod tests {
         ].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    )).unwrap()))]
-    #[case(DateTimePartsArray::from_inner(DateTimePartsData::try_from(TemporalArray::new_timestamp(
+    )).unwrap()).unwrap())]
+    #[case(DateTimePartsArray::try_from_data(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
             Some(0i64),
             None,
@@ -127,12 +127,12 @@ mod tests {
         ]).into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    )).unwrap()))]
-    #[case(DateTimePartsArray::from_inner(DateTimePartsData::try_from(TemporalArray::new_timestamp(
+    )).unwrap()).unwrap())]
+    #[case(DateTimePartsArray::try_from_data(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         buffer![86_400_000_000_000i64].into_array(), // 1 day in ns
         TimeUnit::Nanoseconds,
         Some("UTC".into())
-    )).unwrap()))]
+    )).unwrap()).unwrap())]
     fn test_cast_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
         use vortex_array::compute::conformance::cast::test_cast_conformance;
         test_cast_conformance(&array.into_array());

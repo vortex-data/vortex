@@ -3,6 +3,8 @@
 
 mod vtable;
 
+use vortex_error::VortexExpect;
+
 pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
 use crate::ArrayRef;
@@ -55,6 +57,6 @@ impl VariantData {
 impl Array<Variant> {
     /// Creates a new `VariantArray`.
     pub fn new(child: ArrayRef) -> Self {
-        Array::from_inner(VariantData::new(child))
+        Array::try_from_data(VariantData::new(child)).vortex_expect("VariantData is always valid")
     }
 }

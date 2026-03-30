@@ -251,7 +251,8 @@ impl FixedSizeListData {
 impl Array<FixedSizeList> {
     /// Creates a new [`FixedSizeListArray`].
     pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
-        Array::from_inner(FixedSizeListData::new(elements, list_size, validity, len))
+        Array::try_from_data(FixedSizeListData::new(elements, list_size, validity, len))
+            .vortex_expect("FixedSizeListData is always valid")
     }
 
     /// Constructs a new `FixedSizeListArray`.
@@ -261,9 +262,9 @@ impl Array<FixedSizeList> {
         validity: Validity,
         len: usize,
     ) -> VortexResult<Self> {
-        Ok(Array::from_inner(FixedSizeListData::try_new(
+        Array::try_from_data(FixedSizeListData::try_new(
             elements, list_size, validity, len,
-        )?))
+        )?)
     }
 
     /// Creates a new [`FixedSizeListArray`] without validation.
@@ -277,9 +278,10 @@ impl Array<FixedSizeList> {
         validity: Validity,
         len: usize,
     ) -> Self {
-        Array::from_inner(unsafe {
+        Array::try_from_data(unsafe {
             FixedSizeListData::new_unchecked(elements, list_size, validity, len)
         })
+        .vortex_expect("FixedSizeListData is always valid")
     }
 }
 

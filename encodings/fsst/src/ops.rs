@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::varbin::varbin_scalar;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::Array;
@@ -19,7 +18,7 @@ impl OperationsVTable<FSST> for FSST {
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let compressed = array.codes().clone().into_array().scalar_at(index)?;
+        let compressed = array.codes().scalar_at(index)?;
         let binary_datum = compressed.as_binary().value().vortex_expect("non-null");
 
         let decoded_buffer = ByteBuffer::from(array.decompressor().decompress(binary_datum));
