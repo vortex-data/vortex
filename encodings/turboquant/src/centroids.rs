@@ -91,7 +91,6 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation)]
     centroids.into_iter().map(|val| val as f32).collect()
 }
 
@@ -139,7 +138,7 @@ fn conditional_mean(lo: f64, hi: f64, exponent: f64) -> f64 {
 #[inline]
 fn pdf_unnormalized(x_val: f64, exponent: f64) -> f64 {
     let base = (1.0 - x_val * x_val).max(0.0);
-    #[allow(clippy::cast_possible_truncation)]
+
     let int_part = exponent as i32;
     let frac = exponent - int_part as f64;
     if frac.abs() < 1e-10 {
@@ -171,10 +170,8 @@ pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
         boundaries.windows(2).all(|w| w[0] <= w[1]),
         "boundaries must be sorted"
     );
-    #[allow(clippy::cast_possible_truncation)]
-    {
-        boundaries.partition_point(|&b| b < value) as u8
-    }
+
+    boundaries.partition_point(|&b| b < value) as u8
 }
 
 #[cfg(test)]
@@ -267,11 +264,10 @@ mod tests {
         let centroids = get_centroids(128, 2)?;
         let boundaries = compute_boundaries(&centroids);
         assert_eq!(find_nearest_centroid(-1.0, &boundaries), 0);
-        #[allow(clippy::cast_possible_truncation)]
+
         let last_idx = (centroids.len() - 1) as u8;
         assert_eq!(find_nearest_centroid(1.0, &boundaries), last_idx);
         for (idx, &cv) in centroids.iter().enumerate() {
-            #[allow(clippy::cast_possible_truncation)]
             let expected = idx as u8;
             assert_eq!(find_nearest_centroid(cv, &boundaries), expected);
         }

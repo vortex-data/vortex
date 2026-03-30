@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// Numerical truncations are intentional throughout this crate (dimension u32↔usize,
+// f64→f32 centroids, partition_point→u8 indices, etc.).
+#![allow(clippy::cast_possible_truncation)]
+
 //! TurboQuant vector quantization encoding for Vortex.
 //!
 //! Implements the TurboQuant algorithm ([arXiv:2504.19874]) for lossy compression of
@@ -110,7 +114,6 @@ pub fn initialize(session: &mut VortexSession) {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use std::sync::LazyLock;
 

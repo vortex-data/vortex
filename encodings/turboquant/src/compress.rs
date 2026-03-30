@@ -96,7 +96,7 @@ fn turboquant_quantize_core(
     let padded_dim = rotation.padded_dim();
 
     let f32_elements = extract_f32_elements(fsl)?;
-    #[allow(clippy::cast_possible_truncation)]
+
     let centroids = get_centroids(padded_dim as u32, bit_width)?;
     let boundaries = compute_boundaries(&centroids);
 
