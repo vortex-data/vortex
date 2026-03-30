@@ -451,7 +451,8 @@ def _publish_full(
         manifest_json = json.dumps(manifest, indent=2) + "\n"
 
         write_store = _write_store(
-            store, args,
+            store,
+            args,
             f"\nabout to upload {len(manifest['fixtures'])} fixtures for v{version} to {store.display_name()}",
         )
 
@@ -518,7 +519,8 @@ def _publish_update(
             return
 
         write_store = _write_store(
-            store, args,
+            store,
+            args,
             f"\nabout to upload {len(new_fixtures)} new fixture(s) for v{version} to {store.display_name()}",
         )
 
