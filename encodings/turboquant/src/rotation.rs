@@ -129,7 +129,7 @@ impl RotationMatrix {
         let mut out = Vec::with_capacity(total);
 
         // Store in inverse order: sign_masks[2] (D₃), sign_masks[1] (D₂), sign_masks[0] (D₁)
-        for &sign_idx in &[2, 1, 0] {
+        for sign_idx in [2, 1, 0] {
             for &mask in &self.sign_masks[sign_idx] {
                 out.push(if mask == 0 { 1u8 } else { 0u8 });
             }
@@ -157,9 +157,9 @@ impl RotationMatrix {
         // Reconstruct in storage order (inverse): [D₃, D₂, D₁] → sign_masks[2], [1], [0]
         let mut sign_masks: [Vec<u32>; 3] = std::array::from_fn(|_| Vec::with_capacity(padded_dim));
 
-        for (round, sign_idx) in [2, 1, 0].iter().enumerate() {
+        for (round, sign_idx) in [2, 1, 0].into_iter().enumerate() {
             let offset = round * padded_dim;
-            sign_masks[*sign_idx] = signs_u8[offset..offset + padded_dim]
+            sign_masks[sign_idx] = signs_u8[offset..offset + padded_dim]
                 .iter()
                 .map(|&v| if v != 0 { 0u32 } else { F32_SIGN_BIT })
                 .collect();

@@ -103,17 +103,16 @@ fn conditional_mean(lo: f64, hi: f64, exponent: f64) -> f64 {
         return (lo + hi) / 2.0;
     }
 
-    let num_points = INTEGRATION_POINTS;
-    let dx = (hi - lo) / num_points as f64;
+    let dx = (hi - lo) / INTEGRATION_POINTS as f64;
 
     let mut numerator = 0.0;
     let mut denominator = 0.0;
 
-    for step in 0..=num_points {
+    for step in 0..=INTEGRATION_POINTS {
         let x_val = lo + (step as f64) * dx;
         let weight = pdf_unnormalized(x_val, exponent);
 
-        let trap_weight = if step == 0 || step == num_points {
+        let trap_weight = if step == 0 || step == INTEGRATION_POINTS {
             0.5
         } else {
             1.0

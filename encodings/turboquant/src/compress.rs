@@ -138,11 +138,11 @@ fn turboquant_quantize_core(
 
 /// Build a `TurboQuantArray` (MSE-only) from quantization results.
 fn build_turboquant_mse(
-    dtype: &FixedSizeListArray,
+    fsl: &FixedSizeListArray,
     core: MseQuantizationResult,
     bit_width: u8,
 ) -> VortexResult<TurboQuantArray> {
-    let dimension = dtype.list_size();
+    let dimension = fsl.list_size();
 
     let codes =
         PrimitiveArray::new::<u8>(core.all_indices.freeze(), Validity::NonNullable).into_array();
@@ -159,7 +159,7 @@ fn build_turboquant_mse(
     let rotation_signs = bitpack_rotation_signs(&core.rotation)?;
 
     TurboQuantArray::try_new_mse(
-        dtype.dtype().clone(),
+        fsl.dtype().clone(),
         codes,
         norms_array,
         centroids_array,

@@ -772,4 +772,77 @@ mod tests {
         );
         Ok(())
     }
+
+    /// Verify serde roundtrip for QJL: serialize metadata + children, then rebuild.
+    #[test]
+    fn qjl_serde_roundtrip() -> VortexResult<()> {
+        use vortex_array::DynArray;
+        use vortex_array::vtable::VTable;
+
+        let fsl = make_fsl(10, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 4,
+            seed: Some(456),
+        };
+        let encoded = turboquant_encode_qjl(&fsl, &config)?;
+        let encoded = TurboQuant::try_match(&*encoded).unwrap();
+
+        // Serialize metadata.
+        let metadata = <TurboQuant as VTable>::metadata(encoded)?;
+        let serialized =
+            <TurboQuant as VTable>::serialize(metadata)?.expect("metadata should serialize");
+
+        // Collect children — QJL has 7 (4 MSE + 3 QJL).
+        let nchildren = <TurboQuant as VTable>::nchildren(encoded);
+        assert_eq!(nchildren, 7);
+        let children: Vec<ArrayRef> = (0..nchildren)
+            .map(|i| <TurboQuant as VTable>::child(encoded, i))
+            .collect();
+
+        // Deserialize metadata.
+        let deserialized = <TurboQuant as VTable>::deserialize(
+            &serialized,
+            encoded.dtype(),
+            encoded.len(),
+            &[],
+            &SESSION,
+        )?;
+
+        assert!(deserialized.has_qjl);
+        assert_eq!(deserialized.dimension, encoded.dimension());
+
+        // Verify decode: original vs rebuilt from children.
+        let mut ctx = SESSION.create_execution_ctx();
+        let decoded_original = encoded
+            .clone()
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        let original_elements = decoded_original.elements().to_canonical()?.into_primitive();
+
+        // Rebuild with QJL children.
+        let rebuilt = crate::array::TurboQuantArray::try_new_qjl(
+            encoded.dtype().clone(),
+            children[0].clone(),
+            children[1].clone(),
+            children[2].clone(),
+            children[3].clone(),
+            crate::array::QjlCorrection {
+                signs: children[4].clone(),
+                residual_norms: children[5].clone(),
+                rotation_signs: children[6].clone(),
+            },
+            deserialized.dimension,
+            deserialized.bit_width as u8,
+        )?;
+        let decoded_rebuilt = rebuilt
+            .into_array()
+            .execute::<FixedSizeListArray>(&mut ctx)?;
+        let rebuilt_elements = decoded_rebuilt.elements().to_canonical()?.into_primitive();
+
+        assert_eq!(
+            original_elements.as_slice::<f32>(),
+            rebuilt_elements.as_slice::<f32>()
+        );
+        Ok(())
+    }
 }

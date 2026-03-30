@@ -509,8 +509,8 @@ macro_rules! turboquant_bench {
 
 turboquant_bench!(compress, 128, 4, bench_tq_compress_128_4);
 turboquant_bench!(decompress, 128, 4, bench_tq_decompress_128_4);
-turboquant_bench!(compress, 768, 4, bench_tq_compress_768_2);
-turboquant_bench!(decompress, 768, 4, bench_tq_decompress_768_2);
+turboquant_bench!(compress, 768, 4, bench_tq_compress_768_4);
+turboquant_bench!(decompress, 768, 4, bench_tq_decompress_768_4);
 turboquant_bench!(compress, 1024, 2, bench_tq_compress_1024_2);
 turboquant_bench!(decompress, 1024, 2, bench_tq_decompress_1024_2);
 turboquant_bench!(compress, 1024, 4, bench_tq_compress_1024_4);
