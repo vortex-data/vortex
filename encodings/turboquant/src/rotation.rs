@@ -208,13 +208,16 @@ fn walsh_hadamard_transform(buf: &mut [f32]) {
 
     let mut half = 1;
     while half < len {
-        for block_start in (0..len).step_by(half * 2) {
+        let stride = half * 2;
+        let mut block_start = 0;
+        while block_start < len {
             for idx in block_start..block_start + half {
                 let sum = buf[idx] + buf[idx + half];
                 let diff = buf[idx] - buf[idx + half];
                 buf[idx] = sum;
                 buf[idx + half] = diff;
             }
+            block_start += stride;
         }
         half *= 2;
     }

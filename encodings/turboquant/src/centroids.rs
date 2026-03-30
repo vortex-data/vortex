@@ -132,9 +132,23 @@ fn conditional_mean(lo: f64, hi: f64, exponent: f64) -> f64 {
 }
 
 /// Unnormalized PDF of the coordinate distribution: `(1 - x^2)^exponent`.
+///
+/// Uses `powi` + `sqrt` instead of `powf` for the half-integer exponents
+/// that arise from `(d-3)/2`. This is significantly faster than the general
+/// `powf` which goes through `exp(exponent * ln(base))`.
 #[inline]
 fn pdf_unnormalized(x_val: f64, exponent: f64) -> f64 {
-    (1.0 - x_val * x_val).max(0.0).powf(exponent)
+    let base = (1.0 - x_val * x_val).max(0.0);
+    #[allow(clippy::cast_possible_truncation)]
+    let int_part = exponent as i32;
+    let frac = exponent - int_part as f64;
+    if frac.abs() < 1e-10 {
+        // Integer exponent: use powi.
+        base.powi(int_part)
+    } else {
+        // Half-integer exponent: powi(floor) * sqrt(base).
+        base.powi(int_part) * base.sqrt()
+    }
 }
 
 /// Precompute decision boundaries (midpoints between adjacent centroids).
