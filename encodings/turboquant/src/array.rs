@@ -37,15 +37,17 @@ pub struct TurboQuantMetadata {
 }
 
 /// Optional QJL (Quantized Johnson-Lindenstrauss) correction for unbiased
-/// inner product estimation. When present, adds 3 additional children.
+/// inner product estimation. When present, adds 2 additional children.
+///
+/// The QJL correction reuses the MSE rotation matrix (stored in `rotation_signs`)
+/// rather than maintaining a separate rotation. This halves the rotation sign
+/// storage and avoids reconstructing a second `RotationMatrix` at decode time.
 #[derive(Clone, Debug)]
 pub struct QjlCorrection {
-    /// Sign bits: `BoolArray`, length `num_rows * padded_dim`.
+    /// Sign bits: `BitPackedArray` (1-bit), length `num_rows * padded_dim`.
     pub(crate) signs: ArrayRef,
     /// Residual norms: `PrimitiveArray<f32>`, length `num_rows`.
     pub(crate) residual_norms: ArrayRef,
-    /// QJL rotation signs: `BoolArray`, length `3 * padded_dim` (inverse order).
-    pub(crate) rotation_signs: ArrayRef,
 }
 
 impl QjlCorrection {
@@ -58,11 +60,6 @@ impl QjlCorrection {
     pub fn residual_norms(&self) -> &ArrayRef {
         &self.residual_norms
     }
-
-    /// The QJL rotation signs (BoolArray, inverse application order).
-    pub fn rotation_signs(&self) -> &ArrayRef {
-        &self.rotation_signs
-    }
 }
 
 /// TurboQuant array.
@@ -71,12 +68,11 @@ impl QjlCorrection {
 /// - 0: `codes` — `BitPackedArray` or `PrimitiveArray<u8>` (quantized indices)
 /// - 1: `norms` — `PrimitiveArray<f32>` (one per vector row)
 /// - 2: `centroids` — `PrimitiveArray<f32>` (codebook, length 2^bit_width)
-/// - 3: `rotation_signs` — `BoolArray` (3 * padded_dim bits, inverse application order)
+/// - 3: `rotation_signs` — `BitPackedArray` (3 * padded_dim, 1-bit u8 0/1, inverse order)
 ///
 /// Optional QJL children (when `has_qjl` is true):
-/// - 4: `qjl_signs` — `BoolArray` (num_rows * padded_dim bits)
+/// - 4: `qjl_signs` — `BitPackedArray` (num_rows * padded_dim, 1-bit u8 0/1)
 /// - 5: `qjl_residual_norms` — `PrimitiveArray<f32>` (one per row)
-/// - 6: `qjl_rotation_signs` — `BoolArray` (3 * padded_dim bits, QJL rotation, inverse order)
 #[derive(Clone, Debug)]
 pub struct TurboQuantArray {
     pub(crate) dtype: DType,

@@ -42,7 +42,7 @@ use crate::array::TurboQuantMetadata;
 use crate::decompress::execute_decompress;
 
 const MSE_CHILDREN: usize = 4;
-const QJL_CHILDREN: usize = 3;
+const QJL_CHILDREN: usize = 2;
 
 impl VTable for TurboQuant {
     type Array = TurboQuantArray;
@@ -86,7 +86,6 @@ impl VTable for TurboQuant {
         if let Some(qjl) = &array.qjl {
             qjl.signs.array_hash(state, precision);
             qjl.residual_norms.array_hash(state, precision);
-            qjl.rotation_signs.array_hash(state, precision);
         }
     }
 
@@ -105,7 +104,6 @@ impl VTable for TurboQuant {
                 (Some(a), Some(b)) => {
                     a.signs.array_eq(&b.signs, precision)
                         && a.residual_norms.array_eq(&b.residual_norms, precision)
-                        && a.rotation_signs.array_eq(&b.rotation_signs, precision)
                 }
                 (None, None) => true,
                 _ => false,
@@ -150,12 +148,6 @@ impl VTable for TurboQuant {
                 .vortex_expect("QJL child requested but has_qjl is false")
                 .residual_norms
                 .clone(),
-            6 => array
-                .qjl
-                .as_ref()
-                .vortex_expect("QJL child requested but has_qjl is false")
-                .rotation_signs
-                .clone(),
             _ => vortex_panic!("TurboQuantArray child index {idx} out of bounds"),
         }
     }
@@ -168,7 +160,6 @@ impl VTable for TurboQuant {
             3 => "rotation_signs".to_string(),
             4 => "qjl_signs".to_string(),
             5 => "qjl_residual_norms".to_string(),
-            6 => "qjl_rotation_signs".to_string(),
             _ => vortex_panic!("TurboQuantArray child_name index {idx} out of bounds"),
         }
     }
@@ -222,11 +213,9 @@ impl VTable for TurboQuant {
         let qjl = if metadata.has_qjl {
             let qjl_signs = children.get(4, &signs_dtype, len * padded_dim)?;
             let qjl_residual_norms = children.get(5, &norms_dtype, len)?;
-            let qjl_rotation_signs = children.get(6, &signs_dtype, 3 * padded_dim)?;
             Some(QjlCorrection {
                 signs: qjl_signs,
                 residual_norms: qjl_residual_norms,
-                rotation_signs: qjl_rotation_signs,
             })
         } else {
             None
@@ -264,7 +253,6 @@ impl VTable for TurboQuant {
         if let Some(qjl) = &mut array.qjl {
             qjl.signs = iter.next().vortex_expect("qjl_signs child");
             qjl.residual_norms = iter.next().vortex_expect("qjl_residual_norms child");
-            qjl.rotation_signs = iter.next().vortex_expect("qjl_rotation_signs child");
         }
         Ok(())
     }

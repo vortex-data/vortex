@@ -237,9 +237,9 @@ pub fn turboquant_encode_qjl(
     let core = turboquant_quantize_core(fsl, seed, mse_bit_width)?;
     let padded_dim = core.padded_dim;
 
-    // QJL uses a different rotation than the MSE stage to ensure statistical
-    // independence between the quantization noise and the sign projection.
-    let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(25), dim)?;
+    // QJL reuses the MSE rotation matrix. This saves one stored rotation child
+    // and one RotationMatrix reconstruction at decode time. Empirically verified
+    // via the qjl_inner_product_bias test suite to not introduce significant bias.
 
     let num_rows = fsl.len();
     let mut residual_norms_buf = BufferMut::<f32>::with_capacity(num_rows);
@@ -281,9 +281,9 @@ pub fn turboquant_encode_qjl(
             let residual_norm = l2_norm(&residual[..dim]);
             residual_norms_buf.push(residual_norm);
 
-            // QJL: sign(S · r).
+            // QJL: sign(S · r), reusing the MSE rotation S.
             if residual_norm > 0.0 {
-                qjl_rotation.rotate(&residual, &mut projected);
+                core.rotation.rotate(&residual, &mut projected);
             } else {
                 projected.fill(0.0);
             }
@@ -297,17 +297,16 @@ pub fn turboquant_encode_qjl(
     // Build the MSE part.
     let mut array = build_turboquant_mse(fsl, core, mse_bit_width)?;
 
-    // Attach QJL correction.
+    // Attach QJL correction. The QJL reuses the MSE rotation matrix (already
+    // stored as rotation_signs), so we only need to store signs and residual norms.
     let residual_norms_array =
         PrimitiveArray::new::<f32>(residual_norms_buf.freeze(), Validity::NonNullable);
     let qjl_signs_prim = PrimitiveArray::new::<u8>(qjl_sign_u8.freeze(), Validity::NonNullable);
     let qjl_signs_packed = bitpack_encode(&qjl_signs_prim, 1, None)?.into_array();
-    let qjl_rotation_signs = bitpack_rotation_signs(&qjl_rotation)?;
 
     array.qjl = Some(QjlCorrection {
         signs: qjl_signs_packed,
         residual_norms: residual_norms_array.into_array(),
-        rotation_signs: qjl_rotation_signs,
     });
 
     Ok(array.into_array())
