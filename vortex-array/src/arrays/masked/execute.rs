@@ -8,9 +8,9 @@ use std::ops::BitAnd;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ArrayVisitor;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::ArrayVisitor;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
@@ -56,9 +56,7 @@ pub fn mask_validity_canonical(
         Canonical::Extension(a) => {
             Canonical::Extension(mask_validity_extension(a, validity_mask, ctx)?)
         }
-        Canonical::Variant(a) => {
-            Canonical::Variant(mask_validity_variant(a, validity_mask, ctx)?)
-        }
+        Canonical::Variant(a) => Canonical::Variant(mask_validity_variant(a, validity_mask, ctx)?),
     })
 }
 
