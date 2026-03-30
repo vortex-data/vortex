@@ -289,8 +289,8 @@ impl VTable for Patched {
 
     fn with_children(array: &mut Self::Array, mut children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 3,
-            "PatchedArray must have exactly 3 children"
+            children.len() == 4,
+            "PatchedArray must have exactly 4 children"
         );
 
         let inner = children.remove(0);

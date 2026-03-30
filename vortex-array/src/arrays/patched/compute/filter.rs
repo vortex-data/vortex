@@ -69,7 +69,6 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::arrays::FilterArray;
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -78,33 +77,34 @@ mod tests {
 
     #[test]
     fn test_filter_noop() -> VortexResult<()> {
+        // Filter that doesn't prune any chunks (all data fits in one chunk).
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+
         let array = buffer![u16::MIN; 5].into_array();
         let patched_indices = buffer![3u8, 4].into_array();
         let patched_values = buffer![u16::MAX; 2].into_array();
 
         let patches = Patches::new(5, 0, patched_indices, patched_values, None)?;
 
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-
         let array = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
-        let filtered = FilterArray::new(
-            array.clone(),
-            Mask::from_iter([true, false, false, false, true]),
-        )
-        .into_array();
+        let mask = Mask::from_iter([true, false, false, false, true]);
+        let filtered = array
+            .filter(mask)?
+            .optimize()?
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
-        let reduced = array.vtable().reduce_parent(&array, &filtered, 0)?;
+        // Values at indices 0 and 4: MIN and MAX.
+        let expected = PrimitiveArray::from_iter([u16::MIN, u16::MAX]);
 
-        // Filter does not get pushed through to child because it does not prune any chunks.
-        assert!(reduced.is_none());
+        assert_arrays_eq!(expected, filtered);
 
         Ok(())
     }
 
     #[test]
     fn test_filter_with_offset() -> VortexResult<()> {
-        // Test filtering where offset > 0
+        // Test filtering where offset > 0.
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
         let array = buffer![u16::MIN; 4096].into_array();
@@ -117,13 +117,15 @@ mod tests {
 
         let sliced = array.slice(5..4096)?.optimize()?;
 
-        // Filter that touches only the first 2 chunks
+        // Filter that touches only the first 2 chunks.
         let mask = Mask::from_indices(4091, vec![0, 1, 2, 1025]);
-        let filtered = FilterArray::new(sliced.clone(), mask).into_array();
-        let reduced = sliced.vtable().reduce_parent(&sliced, &filtered, 0)?;
+        let filtered = sliced
+            .filter(mask)?
+            .optimize()?
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
         let expected = PrimitiveArray::from_iter([u16::MAX, u16::MIN, u16::MIN, u16::MAX]);
-        assert_arrays_eq!(expected, reduced.unwrap());
+        assert_arrays_eq!(expected, filtered);
 
         Ok(())
     }
@@ -141,22 +143,23 @@ mod tests {
 
         let array = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
-        // Filter that only touches the middle 2 chunks
+        // Filter that only touches the middle 2 chunks.
         let mask = Mask::from_indices(4096, vec![1024, 1025, 3000]);
+        let filtered = array
+            .filter(mask)?
+            .optimize()?
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
-        let filtered = FilterArray::new(array.clone(), mask).into_array();
-        let reduced = array.vtable().reduce_parent(&array, &filtered, 0)?;
+        let expected = PrimitiveArray::from_iter([u16::MAX, u16::MAX, u16::MIN]);
 
-        let expected = PrimitiveArray::from_iter([u16::MAX, u16::MAX, u16::MIN]).into_array();
-
-        assert_arrays_eq!(expected, reduced.unwrap());
+        assert_arrays_eq!(expected, filtered);
 
         Ok(())
     }
 
     #[test]
     fn test_filter_complex() -> VortexResult<()> {
-        // Basic test: filter with mask that crosses boundaries.
+        // Filter with mask that crosses boundaries, with patches offset.
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
         let array = buffer![u16::MIN; 4096].into_array();
@@ -167,15 +170,16 @@ mod tests {
 
         let array = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
 
-        // Filter that only touches the middle 2 chunks
+        // Filter that only touches the middle 2 chunks.
         let mask = Mask::from_indices(4096, vec![1024, 1025, 3000]);
+        let filtered = array
+            .filter(mask)?
+            .optimize()?
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
-        let filtered = FilterArray::new(array.clone(), mask).into_array();
-        let reduced = array.vtable().reduce_parent(&array, &filtered, 0)?;
+        let expected = PrimitiveArray::from_iter([u16::MAX, u16::MIN, u16::MIN]);
 
-        let expected = PrimitiveArray::from_iter([u16::MAX, u16::MIN, u16::MIN]).into_array();
-
-        assert_arrays_eq!(expected, reduced.unwrap());
+        assert_arrays_eq!(expected, filtered);
 
         Ok(())
     }
@@ -210,6 +214,46 @@ mod tests {
             .optimize()?
             .execute::<PrimitiveArray>(&mut ctx)?;
 
+        let expected = PrimitiveArray::from_iter([u16::MAX, u16::MAX, u16::MIN]);
+
+        assert_arrays_eq!(expected, filtered);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_filter_with_offset_last_chunk() -> VortexResult<()> {
+        // Test filtering with offset > 0 where the mask touches the last chunk.
+        // This ensures we don't accidentally slice past the end of the array or mask.
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+
+        // Create a 6-chunk array (6144 elements).
+        let array = buffer![u16::MIN; 6144].into_array();
+        // Patches near the end of the array at indices 5000 and 6000.
+        let patched_indices = buffer![5000u16, 6000].into_array();
+        let patched_values = buffer![u16::MAX; 2].into_array();
+
+        let patches = Patches::new(6144, 0, patched_indices, patched_values, None)?;
+
+        let patched = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?;
+
+        // Slice at chunk boundary to create offset > 0.
+        // Slice [1024..6144] gives us 5120 elements (5 chunks).
+        // Original patches at 5000 and 6000 become relative indices 3976 and 4976.
+        let sliced = patched.slice(1024..6144)?.optimize()?;
+        assert_eq!(sliced.len(), 5120);
+
+        // Filter that touches only the last 2 chunks (chunks 3 and 4).
+        // Chunk 3: indices 3072-4095, Chunk 4: indices 4096-5119.
+        // Patch at 3976 is in chunk 3, patch at 4976 is in chunk 4.
+        let mask = Mask::from_indices(5120, vec![3976, 4976, 5119]);
+
+        let filtered = sliced
+            .filter(mask)?
+            .optimize()?
+            .execute::<PrimitiveArray>(&mut ctx)?;
+
+        // Expected: patch at 3976 (was 5000), patch at 4976 (was 6000), and MIN at 5119.
         let expected = PrimitiveArray::from_iter([u16::MAX, u16::MAX, u16::MIN]);
 
         assert_arrays_eq!(expected, filtered);
