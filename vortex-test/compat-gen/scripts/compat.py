@@ -211,6 +211,50 @@ class S3Store(Store):
         return f"s3://{self.bucket}"
 
 
+class DryRunStore(Store):
+    """Wrapper that validates write credentials without actually uploading.
+
+    Reads are delegated to the inner store. Writes use ``aws s3 cp --dryrun``
+    (for S3 stores) so that IAM permissions are verified, but no data is
+    written.  For local stores, writes are silently skipped.
+    """
+
+    def __init__(self, inner: Store):
+        self.inner = inner
+
+    def read(self, key: str) -> bytes | None:
+        return self.inner.read(key)
+
+    def write(self, key: str, data: bytes) -> None:
+        if isinstance(self.inner, S3Store):
+            with tempfile.NamedTemporaryFile(delete=False) as f:
+                f.write(data)
+                tmp_path = f.name
+            try:
+                self.write_file(key, Path(tmp_path))
+            finally:
+                os.unlink(tmp_path)
+        else:
+            _info(f"  dry-run: would write {key}")
+
+    def write_file(self, key: str, local_path: Path) -> None:
+        if isinstance(self.inner, S3Store):
+            dest = f"s3://{self.inner.bucket}/{key}"
+            _info(f"  {local_path.name} -> {dest} (dry-run)")
+            subprocess.run(
+                ["aws", "s3", "cp", str(local_path), dest, "--dryrun"],
+                check=True,
+            )
+        else:
+            _info(f"  dry-run: would write {key}")
+
+    def list_versions(self) -> list[str]:
+        return self.inner.list_versions()
+
+    def display_name(self) -> str:
+        return self.inner.display_name()
+
+
 def _parse_store(spec: str) -> Store:
     """Parse a store specification into a Store instance."""
     if spec.startswith("s3://"):
@@ -424,16 +468,19 @@ def _publish_full(
                     _info(f"  removed fixtures: {', '.join(sorted(removed))}")
                 if not added and not removed:
                     _info(f"  same {len(new_names)} fixtures as existing")
-            _info("  target paths:")
-            for entry in manifest["fixtures"]:
-                _info(f"    {store.display_name()}/v{version}/arrays/{entry['name']}")
-            _info(f"    {store.display_name()}/v{version}/arrays/manifest.json")
-            _info(f"    {store.display_name()}/versions.json")
             if version not in versions:
                 updated_versions = sorted(versions + [version], key=_version_sort_key)
                 _info(f"  versions.json would update: {versions} -> {updated_versions}")
             else:
                 _info(f"  versions.json unchanged: {versions}")
+
+            dry_store = DryRunStore(store)
+            _info(f"dry-run uploading {len(manifest['fixtures'])} fixtures (verifying credentials)...")
+            _parallel_upload(
+                dry_store,
+                [(f"v{version}/arrays/{e['name']}", output / e["name"]) for e in manifest["fixtures"]],
+            )
+            _info("dry-run upload succeeded — credentials are valid")
             return
 
         if not args.yes:
@@ -511,10 +558,13 @@ def _publish_update(
             return
 
         if args.dry_run:
-            _info(f"dry run — would upload {len(new_fixtures)} new fixture(s):")
-            for name in new_fixtures:
-                _info(f"  {store.display_name()}/{prefix}/{name}")
-            _info(f"  {store.display_name()}/{prefix}/manifest.json (updated)")
+            dry_store = DryRunStore(store)
+            _info(f"dry-run uploading {len(new_fixtures)} new fixture(s) (verifying credentials)...")
+            _parallel_upload(
+                dry_store,
+                [(f"{prefix}/{name}", output / name) for name in new_fixtures],
+            )
+            _info("dry-run upload succeeded — credentials are valid")
             return
 
         if not args.yes:
