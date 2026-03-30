@@ -105,12 +105,12 @@ impl PrimitiveData {
         }
     }
 
-    /// Creates a new [`PrimitiveArray`].
+    /// Creates a new `PrimitiveArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`PrimitiveArray::new_unchecked`].
+    /// in `PrimitiveArray::new_unchecked`.
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
         let buffer = buffer.into();
         Self::try_new(buffer, validity).vortex_expect("PrimitiveArray construction failed")
@@ -118,12 +118,12 @@ impl PrimitiveData {
 
     /// Constructs a new `PrimitiveArray`.
     ///
-    /// See [`PrimitiveArray::new_unchecked`] for more information.
+    /// See `PrimitiveArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`PrimitiveArray::new_unchecked`].
+    /// `PrimitiveArray::new_unchecked`.
     #[inline]
     pub fn try_new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> VortexResult<Self> {
         Self::validate(&buffer, &validity)?;
@@ -132,7 +132,7 @@ impl PrimitiveData {
         Ok(unsafe { Self::new_unchecked(buffer, validity) })
     }
 
-    /// Creates a new [`PrimitiveArray`] without validation from these components:
+    /// Creates a new `PrimitiveArray` without validation from these components:
     ///
     /// * `buffer` is a typed buffer containing the primitive values.
     /// * `validity` holds the null values.
@@ -158,9 +158,9 @@ impl PrimitiveData {
         }
     }
 
-    /// Validates the components that would be used to create a [`PrimitiveArray`].
+    /// Validates the components that would be used to create a `PrimitiveArray`.
     ///
-    /// This function checks all the invariants required by [`PrimitiveArray::new_unchecked`].
+    /// This function checks all the invariants required by `PrimitiveArray::new_unchecked`.
     #[inline]
     pub fn validate<T: NativePType>(buffer: &Buffer<T>, validity: &Validity) -> VortexResult<()> {
         if let Some(len) = validity.maybe_len()
@@ -187,7 +187,7 @@ impl Array<Primitive> {
             .vortex_expect("PrimitiveData is always valid")
     }
 
-    /// Creates a new [`PrimitiveArray`].
+    /// Creates a new `PrimitiveArray`.
     ///
     /// # Panics
     ///
@@ -202,7 +202,7 @@ impl Array<Primitive> {
         Array::try_from_data(PrimitiveData::try_new(buffer, validity)?)
     }
 
-    /// Creates a new [`PrimitiveArray`] without validation.
+    /// Creates a new `PrimitiveArray` without validation.
     ///
     /// # Safety
     ///
@@ -228,13 +228,13 @@ impl Array<Primitive> {
         .vortex_expect("PrimitiveData is always valid")
     }
 
-    /// Creates a new [`PrimitiveArray`] from a [`BufferHandle`].
+    /// Creates a new `PrimitiveArray` from a [`BufferHandle`].
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
         Array::try_from_data(PrimitiveData::from_buffer_handle(handle, ptype, validity))
             .vortex_expect("PrimitiveData is always valid")
     }
 
-    /// Creates a new [`PrimitiveArray`] from a [`ByteBuffer`].
+    /// Creates a new `PrimitiveArray` from a [`ByteBuffer`].
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
         Array::try_from_data(PrimitiveData::from_byte_buffer(buffer, ptype, validity))
             .vortex_expect("PrimitiveData is always valid")
@@ -256,7 +256,7 @@ impl Array<Primitive> {
         .vortex_expect("PrimitiveData is always valid")
     }
 
-    /// Validates the components that would be used to create a [`PrimitiveArray`].
+    /// Validates the components that would be used to create a `PrimitiveArray`.
     pub fn validate<T: NativePType>(buffer: &Buffer<T>, validity: &Validity) -> VortexResult<()> {
         PrimitiveData::validate(buffer, validity)
     }

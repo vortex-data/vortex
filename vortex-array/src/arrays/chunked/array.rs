@@ -42,12 +42,12 @@ pub struct ChunkedData {
 impl ChunkedData {
     /// Constructs a new `ChunkedArray`.
     ///
-    /// See [`ChunkedArray::new_unchecked`] for more information.
+    /// See `ChunkedArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`ChunkedArray::new_unchecked`].
+    /// `ChunkedArray::new_unchecked`.
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
         Self::validate(&chunks, &dtype)?;
 
@@ -55,7 +55,7 @@ impl ChunkedData {
         unsafe { Ok(Self::new_unchecked(chunks, dtype)) }
     }
 
-    /// Creates a new [`ChunkedArray`] without validation from these components:
+    /// Creates a new `ChunkedArray` without validation from these components:
     ///
     /// * `chunks` is a vector of arrays to be concatenated logically.
     /// * `dtype` is the common data type of all chunks.
@@ -93,9 +93,9 @@ impl ChunkedData {
         }
     }
 
-    /// Validates the components that would be used to create a [`ChunkedArray`].
+    /// Validates the components that would be used to create a `ChunkedArray`.
     ///
-    /// This function checks all the invariants required by [`ChunkedArray::new_unchecked`].
+    /// This function checks all the invariants required by `ChunkedArray::new_unchecked`.
     pub fn validate(chunks: &[ArrayRef], dtype: &DType) -> VortexResult<()> {
         for chunk in chunks {
             if chunk.dtype() != dtype {
@@ -233,7 +233,7 @@ impl Array<Chunked> {
         Array::try_from_data(ChunkedData::try_new(chunks, dtype)?)
     }
 
-    /// Creates a new [`ChunkedArray`] without validation.
+    /// Creates a new `ChunkedArray` without validation.
     ///
     /// # Safety
     ///

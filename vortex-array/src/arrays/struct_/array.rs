@@ -229,12 +229,12 @@ impl StructData {
         .vortex_expect("StructArray::new_with_len should not fail")
     }
 
-    /// Creates a new [`StructArray`].
+    /// Creates a new `StructArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`StructArray::new_unchecked`].
+    /// in `StructArray::new_unchecked`.
     pub fn new(
         names: FieldNames,
         fields: impl Into<Arc<[ArrayRef]>>,
@@ -247,12 +247,12 @@ impl StructData {
 
     /// Constructs a new `StructArray`.
     ///
-    /// See [`StructArray::new_unchecked`] for more information.
+    /// See `StructArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`StructArray::new_unchecked`].
+    /// `StructArray::new_unchecked`.
     pub fn try_new(
         names: FieldNames,
         fields: impl Into<Arc<[ArrayRef]>>,
@@ -269,7 +269,7 @@ impl StructData {
         Ok(unsafe { Self::new_unchecked(fields, dtype, length, validity) })
     }
 
-    /// Creates a new [`StructArray`] without validation from these components:
+    /// Creates a new `StructArray` without validation from these components:
     ///
     /// * `fields` is a vector of arrays, one for each field in the struct.
     /// * `dtype` contains the field names and types.
@@ -315,9 +315,9 @@ impl StructData {
         }
     }
 
-    /// Validates the components that would be used to create a [`StructArray`].
+    /// Validates the components that would be used to create a `StructArray`.
     ///
-    /// This function checks all the invariants required by [`StructArray::new_unchecked`].
+    /// This function checks all the invariants required by `StructArray::new_unchecked`.
     pub fn validate(
         fields: &[ArrayRef],
         dtype: &StructFields,
@@ -486,7 +486,7 @@ impl StructData {
 }
 
 impl Array<Struct> {
-    /// Creates a new [`StructArray`].
+    /// Creates a new `StructArray`.
     pub fn new(
         names: FieldNames,
         fields: impl Into<Arc<[ArrayRef]>>,
@@ -507,7 +507,7 @@ impl Array<Struct> {
         Array::try_from_data(StructData::try_new(names, fields, length, validity)?)
     }
 
-    /// Creates a new [`StructArray`] without validation.
+    /// Creates a new `StructArray` without validation.
     ///
     /// # Safety
     ///
@@ -534,7 +534,7 @@ impl Array<Struct> {
         )?)
     }
 
-    /// Construct a [`StructArray`] from named fields.
+    /// Construct a `StructArray` from named fields.
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
         Array::try_from_data(StructData::from_fields(items)?)
     }
@@ -544,7 +544,7 @@ impl Array<Struct> {
         self.into_data().into_parts()
     }
 
-    /// Create a [`StructArray`] from an iterator of (name, array) pairs with validity.
+    /// Create a `StructArray` from an iterator of (name, array) pairs with validity.
     pub fn try_from_iter_with_validity<
         N: AsRef<str>,
         A: IntoArray,
@@ -556,14 +556,14 @@ impl Array<Struct> {
         Array::try_from_data(StructData::try_from_iter_with_validity(iter, validity)?)
     }
 
-    /// Create a [`StructArray`] from an iterator of (name, array) pairs.
+    /// Create a `StructArray` from an iterator of (name, array) pairs.
     pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
         iter: T,
     ) -> VortexResult<Self> {
         Array::try_from_data(StructData::try_from_iter(iter)?)
     }
 
-    /// Create a fieldless [`StructArray`] with the given length.
+    /// Create a fieldless `StructArray` with the given length.
     pub fn new_fieldless_with_len(len: usize) -> Self {
         Array::try_from_data(StructData::new_fieldless_with_len(len))
             .vortex_expect("StructData is always valid")

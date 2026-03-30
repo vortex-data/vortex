@@ -98,24 +98,24 @@ pub struct ListArrayParts {
 }
 
 impl ListData {
-    /// Creates a new [`ListArray`].
+    /// Creates a new `ListArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`ListArray::new_unchecked`].
+    /// in `ListArray::new_unchecked`.
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
         Self::try_new(elements, offsets, validity).vortex_expect("ListArray new")
     }
 
     /// Constructs a new `ListArray`.
     ///
-    /// See [`ListArray::new_unchecked`] for more information.
+    /// See `ListArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`ListArray::new_unchecked`].
+    /// `ListArray::new_unchecked`.
     pub fn try_new(
         elements: ArrayRef,
         offsets: ArrayRef,
@@ -127,7 +127,7 @@ impl ListData {
         Ok(unsafe { Self::new_unchecked(elements, offsets, validity) })
     }
 
-    /// Creates a new [`ListArray`] without validation from these components:
+    /// Creates a new `ListArray` without validation from these components:
     ///
     /// * `elements` is a flat array containing all list elements concatenated.
     /// * `offsets` is an integer array where `offsets[i]` is the start index for list `i`.
@@ -157,9 +157,9 @@ impl ListData {
         }
     }
 
-    /// Validates the components that would be used to create a [`ListArray`].
+    /// Validates the components that would be used to create a `ListArray`.
     ///
-    /// This function checks all the invariants required by [`ListArray::new_unchecked`].
+    /// This function checks all the invariants required by `ListArray::new_unchecked`.
     pub fn validate(
         elements: &ArrayRef,
         offsets: &ArrayRef,
@@ -343,7 +343,7 @@ impl ListData {
 }
 
 impl Array<List> {
-    /// Creates a new [`ListArray`].
+    /// Creates a new `ListArray`.
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
         Array::try_from_data(ListData::new(elements, offsets, validity))
             .vortex_expect("ListData is always valid")
@@ -358,7 +358,7 @@ impl Array<List> {
         Array::try_from_data(ListData::try_new(elements, offsets, validity)?)
     }
 
-    /// Creates a new [`ListArray`] without validation.
+    /// Creates a new `ListArray` without validation.
     ///
     /// # Safety
     ///

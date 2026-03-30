@@ -102,12 +102,12 @@ pub struct FixedSizeListData {
 }
 
 impl FixedSizeListData {
-    /// Creates a new [`FixedSizeListArray`].
+    /// Creates a new `FixedSizeListArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`FixedSizeListArray::new_unchecked`].
+    /// in `FixedSizeListArray::new_unchecked`.
     pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
         Self::try_new(elements, list_size, validity, len)
             .vortex_expect("FixedSizeListArray construction failed")
@@ -115,12 +115,12 @@ impl FixedSizeListData {
 
     /// Constructs a new `FixedSizeListArray`.
     ///
-    /// See [`FixedSizeListArray::new_unchecked`] for more information.
+    /// See `FixedSizeListArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented
-    /// in [`FixedSizeListArray::new_unchecked`].
+    /// in `FixedSizeListArray::new_unchecked`.
     pub fn try_new(
         elements: ArrayRef,
         list_size: u32,
@@ -133,7 +133,7 @@ impl FixedSizeListData {
         Ok(unsafe { Self::new_unchecked(elements, list_size, validity, len) })
     }
 
-    /// Creates a new [`FixedSizeListArray`] without validation from these components:
+    /// Creates a new `FixedSizeListArray` without validation from these components:
     ///
     /// * `elements` is the data array where each fixed-size list is a slice.
     /// * `list_size` is the fixed number of elements in each list.
@@ -175,9 +175,9 @@ impl FixedSizeListData {
         (self.elements, self.validity, self.dtype)
     }
 
-    /// Validates the components that would be used to create a [`FixedSizeListArray`].
+    /// Validates the components that would be used to create a `FixedSizeListArray`.
     ///
-    /// This function checks all the invariants required by [`FixedSizeListArray::new_unchecked`].
+    /// This function checks all the invariants required by `FixedSizeListArray::new_unchecked`.
     pub fn validate(
         elements: &ArrayRef,
         len: usize,
@@ -249,7 +249,7 @@ impl FixedSizeListData {
 }
 
 impl Array<FixedSizeList> {
-    /// Creates a new [`FixedSizeListArray`].
+    /// Creates a new `FixedSizeListArray`.
     pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
         Array::try_from_data(FixedSizeListData::new(elements, list_size, validity, len))
             .vortex_expect("FixedSizeListData is always valid")
@@ -267,7 +267,7 @@ impl Array<FixedSizeList> {
         )?)
     }
 
-    /// Creates a new [`FixedSizeListArray`] without validation.
+    /// Creates a new `FixedSizeListArray` without validation.
     ///
     /// # Safety
     ///

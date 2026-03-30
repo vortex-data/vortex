@@ -18,6 +18,7 @@ use crate::IntoArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
+use crate::scalar_fn::ReduceNode;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable::Array;
@@ -119,7 +120,7 @@ impl<V: VTable> DynVTable for V {
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let Some(reduced) = V::reduce(downcast::<V>(array))? else {
+        let Some(reduced) = V::reduce(downcast_owned::<V>(array.clone()))? else {
             return Ok(None);
         };
         vortex_ensure!(

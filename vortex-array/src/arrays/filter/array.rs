@@ -85,7 +85,7 @@ impl FilterData {
 }
 
 impl Array<Filter> {
-    /// Creates a new [`FilterArray`].
+    /// Creates a new `FilterArray`.
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
         Array::try_from_data(FilterData::new(array, mask))
             .vortex_expect("FilterData is always valid")

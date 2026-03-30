@@ -146,12 +146,12 @@ pub struct ListViewArrayParts {
 }
 
 impl ListViewData {
-    /// Creates a new [`ListViewArray`].
+    /// Creates a new `ListViewArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`ListViewArray::new_unchecked`].
+    /// in `ListViewArray::new_unchecked`.
     pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
         Self::try_new(elements, offsets, sizes, validity)
             .vortex_expect("`ListViewArray` construction failed")
@@ -162,7 +162,7 @@ impl ListViewData {
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented
-    /// in [`ListViewArray::new_unchecked`].
+    /// in `ListViewArray::new_unchecked`.
     pub fn try_new(
         elements: ArrayRef,
         offsets: ArrayRef,
@@ -182,7 +182,7 @@ impl ListViewData {
         })
     }
 
-    /// Creates a new [`ListViewArray`] without validation.
+    /// Creates a new `ListViewArray` without validation.
     ///
     /// This unsafe function does not check the validity of the data. Prefer calling [`new()`] or
     /// [`try_new()`] over this function, as they will check the validity of the data.
@@ -223,7 +223,7 @@ impl ListViewData {
         }
     }
 
-    /// Validates the components that would be used to create a [`ListViewArray`].
+    /// Validates the components that would be used to create a `ListViewArray`.
     pub fn validate(
         elements: &ArrayRef,
         offsets: &ArrayRef,
@@ -286,7 +286,7 @@ impl ListViewData {
         Ok(())
     }
 
-    /// Sets whether this [`ListViewArray`] is zero-copyable to a [`ListArray`].
+    /// Sets whether this `ListViewArray` is zero-copyable to a [`ListArray`].
     ///
     /// This is an optimization flag that enables more efficient conversion to [`ListArray`] without
     /// needing to copy or reorganize the data.
@@ -295,7 +295,7 @@ impl ListViewData {
     ///
     /// # Safety
     ///
-    /// When setting `is_zctl` to `true`, the caller must ensure that the [`ListViewArray`] is
+    /// When setting `is_zctl` to `true`, the caller must ensure that the `ListViewArray` is
     /// actually zero-copyable to a [`ListArray`]. This means:
     ///
     /// - Offsets must be sorted (but not strictly sorted, zero-length lists are allowed).
@@ -385,7 +385,7 @@ impl ListViewData {
     ///
     /// Note that it is possible the corresponding list view is null (which is only defined by the
     /// validity map). Regardless, we are still guaranteed that this offset is valid by the
-    /// invariants of [`ListViewArray`].
+    /// invariants of `ListViewArray`.
     pub fn offset_at(&self, index: usize) -> usize {
         assert!(
             index < self.len(),
@@ -412,7 +412,7 @@ impl ListViewData {
     ///
     /// Note that it is possible the corresponding list view is null (which is only defined by the
     /// validity map). Regardless, we are still guaranteed that this size is valid by the invariants
-    /// of [`ListViewArray`].
+    /// of `ListViewArray`.
     pub fn size_at(&self, index: usize) -> usize {
         assert!(
             index < self.len(),
@@ -470,7 +470,7 @@ impl ListViewData {
 }
 
 impl Array<ListView> {
-    /// Creates a new [`ListViewArray`].
+    /// Creates a new `ListViewArray`.
     pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
         Array::try_from_data(ListViewData::new(elements, offsets, sizes, validity))
             .vortex_expect("ListViewData is always valid")
@@ -486,7 +486,7 @@ impl Array<ListView> {
         Array::try_from_data(ListViewData::try_new(elements, offsets, sizes, validity)?)
     }
 
-    /// Creates a new [`ListViewArray`] without validation.
+    /// Creates a new `ListViewArray` without validation.
     ///
     /// # Safety
     ///
@@ -565,7 +565,7 @@ where
     Ok(())
 }
 
-/// Helper function to validate if the [`ListViewArray`] components are actually zero-copyable to
+/// Helper function to validate if the `ListViewArray` components are actually zero-copyable to
 /// [`ListArray`](crate::arrays::ListArray).
 fn validate_zctl(
     elements: &ArrayRef,

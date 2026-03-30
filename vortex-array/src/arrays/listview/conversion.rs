@@ -25,9 +25,9 @@ use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::vtable::Array;
 
-/// Creates a [`ListViewArray`] from a [`ListArray`] by computing `sizes` from `offsets`.
+/// Creates a `ListViewArray` from a `ListArray` by computing `sizes` from `offsets`.
 ///
-/// The output [`ListViewArray`] will be zero-copyable back to a [`ListArray`], and additionally it
+/// The output `ListViewArray` will be zero-copyable back to a `ListArray`, and additionally it
 /// will not have any leading or trailing garbage data.
 pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexResult<ListViewArray> {
     // If the list is empty, create an empty `ListViewArray` with the same offset `DType` as the
@@ -68,7 +68,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     })
 }
 
-/// Builds a sizes array from a [`ListArray`] by computing differences between consecutive offsets.
+/// Builds a sizes array from a `ListArray` by computing differences between consecutive offsets.
 fn build_sizes_from_offsets<O: IntegerPType>(
     list: &ListArray,
     ctx: &mut ExecutionCtx,
@@ -100,13 +100,13 @@ fn build_sizes_from_offsets<O: IntegerPType>(
 
 // TODO(connor)[ListView]: Note that it is not exactly zero-copy because we have to add a single
 // offset at the end, but it is fast enough.
-/// Creates a [`ListArray`] from a [`ListViewArray`]. The resulting [`ListArray`] will not have any
+/// Creates a `ListArray` from a `ListViewArray`. The resulting `ListArray` will not have any
 /// leading or trailing garbage data.
 ///
-/// If [`ListViewArray::is_zero_copy_to_list`] is `true`, then this operation is fast
+/// If `ListViewArray::is_zero_copy_to_list` is `true`, then this operation is fast
 ///
 /// Otherwise, this function fall back to the (very) expensive path and will rebuild the
-/// [`ListArray`] from scratch.
+/// `ListArray` from scratch.
 pub fn list_from_list_view(list_view: ListViewArray) -> VortexResult<ListArray> {
     // Rebuild as zero-copyable to list array and also trim all leading and trailing elements.
     let zctl_array = list_view.rebuild(ListViewRebuildMode::MakeExact)?;
@@ -132,12 +132,12 @@ pub fn list_from_list_view(list_view: ListViewArray) -> VortexResult<ListArray> 
 
 // TODO(connor)[ListView]: We can optimize this by always keeping extra memory in `ListViewArray`
 // offsets for an `n+1`th offset.
-/// Builds a [`ListArray`] offsets array from a [`ListViewArray`] by constructing `n+1` offsets.
+/// Builds a `ListArray` offsets array from a `ListViewArray` by constructing `n+1` offsets.
 /// The last offset is computed as `last_offset + last_size`.
 ///
 /// # Safety
 ///
-/// The [`ListViewArray`] must have offsets that are sorted, and every size must be equal to the gap
+/// The `ListViewArray` must have offsets that are sorted, and every size must be equal to the gap
 /// between `offset[i]` and `offset[i + 1]`.
 unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
     list_view: &ListViewArray,
@@ -179,7 +179,7 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
     offsets_builder.finish_into_primitive().into_array()
 }
 
-/// Recursively converts all [`ListViewArray`]s to [`ListArray`]s in a nested array structure.
+/// Recursively converts all `ListViewArray`s to `ListArray`s in a nested array structure.
 ///
 /// The conversion happens bottom-up, processing children before parents.
 pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> {

@@ -54,7 +54,7 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 /// use lending_iterator::prelude::LendingIterator;
 /// use vortex_array::IntoArray;
 /// use vortex_buffer::buffer;
-/// use vortex_fastlanes::BitPackedArray;
+/// use vortex_fastlanes::BitPackedData;
 /// use vortex_fastlanes::unpack_iter::BitUnpackedChunks;
 ///
 /// let array = BitPackedData::encode(&buffer![2, 3, 4, 5].into_array(), 2).unwrap();

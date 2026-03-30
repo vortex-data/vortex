@@ -102,12 +102,12 @@ pub struct VarBinViewArrayParts {
 }
 
 impl VarBinViewData {
-    /// Creates a new [`VarBinViewArray`].
+    /// Creates a new `VarBinViewArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`VarBinViewArray::new_unchecked`].
+    /// in `VarBinViewArray::new_unchecked`.
     pub fn new(
         views: Buffer<BinaryView>,
         buffers: Arc<[ByteBuffer]>,
@@ -118,12 +118,12 @@ impl VarBinViewData {
             .vortex_expect("VarBinViewArray construction failed")
     }
 
-    /// Creates a new [`VarBinViewArray`] with device or host memory.
+    /// Creates a new `VarBinViewArray` with device or host memory.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`VarBinViewArray::new_unchecked`].
+    /// in `VarBinViewArray::new_unchecked`.
     pub fn new_handle(
         views: BufferHandle,
         buffers: Arc<[BufferHandle]>,
@@ -136,12 +136,12 @@ impl VarBinViewData {
 
     /// Constructs a new `VarBinViewArray`.
     ///
-    /// See [`VarBinViewArray::new_unchecked`] for more information.
+    /// See `VarBinViewArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`VarBinViewArray::new_unchecked`].
+    /// `VarBinViewArray::new_unchecked`.
     pub fn try_new(
         views: Buffer<BinaryView>,
         buffers: Arc<[ByteBuffer]>,
@@ -156,12 +156,12 @@ impl VarBinViewData {
 
     /// Constructs a new `VarBinViewArray`.
     ///
-    /// See [`VarBinViewArray::new_unchecked`] for more information.
+    /// See `VarBinViewArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`VarBinViewArray::new_unchecked`].
+    /// `VarBinViewArray::new_unchecked`.
     pub fn try_new_handle(
         views: BufferHandle,
         buffers: Arc<[BufferHandle]>,
@@ -187,7 +187,7 @@ impl VarBinViewData {
         Ok(unsafe { Self::new_handle_unchecked(views, buffers, dtype, validity) })
     }
 
-    /// Creates a new [`VarBinViewArray`] without validation from these components:
+    /// Creates a new `VarBinViewArray` without validation from these components:
     ///
     /// * `views` is a buffer of 16-byte view entries (one per logical element).
     /// * `buffers` contains the backing storage for strings longer than 12 bytes.
@@ -257,9 +257,9 @@ impl VarBinViewData {
         }
     }
 
-    /// Validates the components that would be used to create a [`VarBinViewArray`].
+    /// Validates the components that would be used to create a `VarBinViewArray`.
     ///
-    /// This function checks all the invariants required by [`VarBinViewArray::new_unchecked`].
+    /// This function checks all the invariants required by `VarBinViewArray::new_unchecked`.
     pub fn validate(
         views: &Buffer<BinaryView>,
         buffers: &Arc<[ByteBuffer]>,
@@ -536,7 +536,7 @@ impl VarBinViewData {
 }
 
 impl Array<VarBinView> {
-    /// Construct a [`VarBinViewArray`] from an iterator of optional byte slices.
+    /// Construct a `VarBinViewArray` from an iterator of optional byte slices.
     #[expect(
         clippy::same_name_method,
         reason = "intentionally named from_iter like Iterator::from_iter"
@@ -573,7 +573,7 @@ impl Array<VarBinView> {
             .vortex_expect("VarBinViewData is always valid")
     }
 
-    /// Creates a new [`VarBinViewArray`].
+    /// Creates a new `VarBinViewArray`.
     pub fn try_new(
         views: Buffer<BinaryView>,
         buffers: Arc<[ByteBuffer]>,
@@ -583,7 +583,7 @@ impl Array<VarBinView> {
         Array::try_from_data(VarBinViewData::try_new(views, buffers, dtype, validity)?)
     }
 
-    /// Creates a new [`VarBinViewArray`] without validation.
+    /// Creates a new `VarBinViewArray` without validation.
     ///
     /// # Safety
     ///
@@ -600,7 +600,7 @@ impl Array<VarBinView> {
         .vortex_expect("VarBinViewData is always valid")
     }
 
-    /// Creates a new [`VarBinViewArray`] with device or host memory.
+    /// Creates a new `VarBinViewArray` with device or host memory.
     pub fn new_handle(
         views: BufferHandle,
         buffers: Arc<[BufferHandle]>,

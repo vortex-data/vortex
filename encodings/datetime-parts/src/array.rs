@@ -16,6 +16,7 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::TemporalArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -279,9 +280,7 @@ impl DateTimeParts {
     }
 
     /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`].
-    pub fn try_from_temporal(
-        temporal: vortex_array::arrays::TemporalArray,
-    ) -> VortexResult<DateTimePartsArray> {
+    pub fn try_from_temporal(temporal: TemporalArray) -> VortexResult<DateTimePartsArray> {
         Array::try_from_data(DateTimePartsData::try_from(temporal)?)
     }
 }

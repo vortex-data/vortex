@@ -30,7 +30,7 @@ pub mod delta_decompress;
 /// use vortex_array::VortexSessionExecute;
 /// use vortex_array::session::ArraySession;
 /// use vortex_session::VortexSession;
-/// use vortex_fastlanes::DeltaArray;
+/// use vortex_fastlanes::DeltaData;
 ///
 /// let session = VortexSession::empty().with::<ArraySession>();
 /// let primitive = PrimitiveArray::from_iter([1_u32, 2, 3, 5, 10, 11]);

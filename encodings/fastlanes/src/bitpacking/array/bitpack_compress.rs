@@ -44,14 +44,9 @@ pub fn bitpack_encode(
     };
 
     // Check array contains no negative values.
-    let array_ref = array.clone().into_array();
     if array.ptype().is_signed_int() {
         let has_negative_values = match_each_integer_ptype!(array.ptype(), |P| {
-            array_ref
-                .statistics()
-                .compute_min::<P>()
-                .unwrap_or_default()
-                < 0
+            array.statistics().compute_min::<P>().unwrap_or_default() < 0
         });
         if has_negative_values {
             vortex_bail!(InvalidArgument: "cannot bitpack_encode array containing negative integers")
@@ -92,7 +87,7 @@ pub fn bitpack_encode(
         bitpacked
             .stats_set
             .to_ref(&*bp_ref)
-            .inherit_from(array_ref.statistics());
+            .inherit_from(array.statistics());
     }
     Ok(bitpacked)
 }

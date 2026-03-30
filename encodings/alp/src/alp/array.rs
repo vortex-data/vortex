@@ -418,7 +418,7 @@ impl ALPData {
     ///     buffer![0i32].into_array(),
     ///     Exponents { e: 1, f: 1 },
     ///     None
-    /// ).unwrap());
+    /// ).unwrap()).unwrap();
     ///
     /// assert_eq!(value.scalar_at(0).unwrap(), 0f32.into());
     /// ```

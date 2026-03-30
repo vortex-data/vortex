@@ -33,22 +33,22 @@ pub struct VarBinData {
 }
 
 impl VarBinData {
-    /// Creates a new [`VarBinArray`].
+    /// Creates a new `VarBinArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`VarBinArray::new_unchecked`].
+    /// in `VarBinArray::new_unchecked`.
     pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
         Self::try_new(offsets, bytes, dtype, validity).vortex_expect("VarBinArray new")
     }
 
-    /// Creates a new [`VarBinArray`].
+    /// Creates a new `VarBinArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`VarBinArray::new_unchecked`].
+    /// in `VarBinArray::new_unchecked`.
     pub fn new_from_handle(
         offset: ArrayRef,
         bytes: BufferHandle,
@@ -60,12 +60,12 @@ impl VarBinData {
 
     /// Constructs a new `VarBinArray`.
     ///
-    /// See [`VarBinArray::new_unchecked`] for more information.
+    /// See `VarBinArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`VarBinArray::new_unchecked`].
+    /// `VarBinArray::new_unchecked`.
     pub fn try_new(
         offsets: ArrayRef,
         bytes: ByteBuffer,
@@ -82,12 +82,12 @@ impl VarBinData {
     /// Constructs a new `VarBinArray` from a `BufferHandle` of memory that may exist
     /// on the CPU or GPU.
     ///
-    /// See [`VarBinArray::new_unchecked`] for more information.
+    /// See `VarBinArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`VarBinArray::new_unchecked`].
+    /// `VarBinArray::new_unchecked`.
     pub fn try_new_from_handle(
         offsets: ArrayRef,
         bytes: BufferHandle,
@@ -100,7 +100,7 @@ impl VarBinData {
         Ok(unsafe { Self::new_unchecked_from_handle(offsets, bytes, dtype, validity) })
     }
 
-    /// Creates a new [`VarBinArray`] without validation from these components:
+    /// Creates a new `VarBinArray` without validation from these components:
     ///
     /// * `offsets` is an array of byte offsets into the `bytes` buffer.
     /// * `bytes` is a buffer containing all the variable-length data concatenated.
@@ -141,7 +141,7 @@ impl VarBinData {
         }
     }
 
-    /// Creates a new [`VarBinArray`] without validation from its components, with string data
+    /// Creates a new `VarBinArray` without validation from its components, with string data
     /// stored in a `BufferHandle` (CPU or GPU).
     ///
     /// # Safety
@@ -166,9 +166,9 @@ impl VarBinData {
         }
     }
 
-    /// Validates the components that would be used to create a [`VarBinArray`].
+    /// Validates the components that would be used to create a `VarBinArray`.
     ///
-    /// This function checks all the invariants required by [`VarBinArray::new_unchecked`].
+    /// This function checks all the invariants required by `VarBinArray::new_unchecked`.
     pub fn validate(
         offsets: &ArrayRef,
         bytes: &BufferHandle,
@@ -455,13 +455,13 @@ impl VarBinData {
 }
 
 impl Array<VarBin> {
-    /// Creates a new [`VarBinArray`].
+    /// Creates a new `VarBinArray`.
     pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
         Array::try_from_data(VarBinData::new(offsets, bytes, dtype, validity))
             .vortex_expect("VarBinData is always valid")
     }
 
-    /// Creates a new [`VarBinArray`] without validation.
+    /// Creates a new `VarBinArray` without validation.
     ///
     /// # Safety
     ///
@@ -476,7 +476,7 @@ impl Array<VarBin> {
             .vortex_expect("VarBinData is always valid")
     }
 
-    /// Creates a new [`VarBinArray`] without validation from a [`BufferHandle`].
+    /// Creates a new `VarBinArray` without validation from a [`BufferHandle`].
     ///
     /// # Safety
     ///

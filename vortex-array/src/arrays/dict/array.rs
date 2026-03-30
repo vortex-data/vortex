@@ -58,7 +58,7 @@ impl DictData {
     ///
     /// # Safety
     /// This should be called only when you can guarantee the invariants checked
-    /// by the safe [`DictArray::try_new`] constructor are valid, for example when
+    /// by the safe `DictArray::try_new` constructor are valid, for example when
     /// you are filtering or slicing an existing valid `DictArray`.
     pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
         let dtype = values
@@ -98,7 +98,7 @@ impl DictData {
     /// Build a new `DictArray` from its components, `codes` and `values`.
     ///
     /// This constructor will panic if `codes` or `values` do not pass validation for building
-    /// a new `DictArray`. See [`DictArray::try_new`] for a description of the error conditions.
+    /// a new `DictArray`. See `DictArray::try_new` for a description of the error conditions.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
         Self::try_new(codes, values).vortex_expect("DictArray new")
     }
