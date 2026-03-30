@@ -3,6 +3,8 @@
 
 //! TurboQuant decoding (dequantization) logic.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -108,15 +110,16 @@ pub fn execute_decompress_qjl(
     let padded_dim = array.padded_dim() as usize;
     let num_rows = array.residual_norms.len();
 
+    // Unwrap the Arc to get an owned TurboQuantMSEArray for decode.
+    let mse_inner = Arc::try_unwrap(array.mse_inner).unwrap_or_else(|arc| (*arc).clone());
+
     if num_rows == 0 {
-        return Ok(array
-            .mse_inner
-            .execute::<FixedSizeListArray>(ctx)?
-            .into_array());
+        return execute_decompress_mse(mse_inner, ctx);
     }
 
     // Decode MSE inner → FixedSizeListArray.
-    let mse_decoded = array.mse_inner.clone().execute::<FixedSizeListArray>(ctx)?;
+    let mse_decoded_arr = execute_decompress_mse(mse_inner, ctx)?;
+    let mse_decoded = mse_decoded_arr.to_canonical()?.into_fixed_size_list();
     let mse_elements_prim = mse_decoded.elements().to_canonical()?.into_primitive();
     let mse_elements = mse_elements_prim.as_slice::<f32>();
     let dim = mse_decoded.list_size() as usize;

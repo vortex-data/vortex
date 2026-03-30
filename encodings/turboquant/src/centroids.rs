@@ -91,6 +91,7 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     centroids.into_iter().map(|val| val as f32).collect()
 }
 
@@ -156,7 +157,10 @@ pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
         boundaries.windows(2).all(|w| w[0] <= w[1]),
         "boundaries must be sorted"
     );
-    boundaries.partition_point(|&b| b < value) as u8
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        boundaries.partition_point(|&b| b < value) as u8
+    }
 }
 
 #[cfg(test)]

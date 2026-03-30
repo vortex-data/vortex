@@ -3,6 +3,8 @@
 
 //! TurboQuant encoding (quantization) logic.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
@@ -98,6 +100,7 @@ fn turboquant_quantize_core(
     let padded_dim = rotation.padded_dim();
 
     let f32_elements = extract_f32_elements(fsl)?;
+    #[allow(clippy::cast_possible_truncation)]
     let centroids = get_centroids(padded_dim as u32, bit_width)?;
     let boundaries = compute_boundaries(&centroids);
 
@@ -170,7 +173,10 @@ fn build_mse_array(
         rotation_signs,
         dimension,
         bit_width,
-        padded_dim as u32,
+        #[allow(clippy::cast_possible_truncation)]
+        {
+            padded_dim as u32
+        },
         seed,
     )
 }
@@ -302,8 +308,13 @@ pub fn turboquant_encode_qjl(
     }
 
     // Build the MSE inner array from core results (consumes core).
-    let mse_inner =
-        build_mse_array(fsl.dtype().clone(), core, dimension, mse_bit_width, seed)?.into_array();
+    let mse_inner = Arc::new(build_mse_array(
+        fsl.dtype().clone(),
+        core,
+        dimension,
+        mse_bit_width,
+        seed,
+    )?);
 
     let residual_norms_array =
         PrimitiveArray::new::<f32>(residual_norms_buf.freeze(), Validity::NonNullable);
@@ -316,8 +327,6 @@ pub fn turboquant_encode_qjl(
         qjl_signs.into_array(),
         residual_norms_array.into_array(),
         qjl_rotation_signs.into_array(),
-        config.bit_width,
-        padded_dim as u32,
     )?
     .into_array())
 }

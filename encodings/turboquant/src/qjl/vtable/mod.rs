@@ -22,6 +22,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::matcher::Matcher;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable::Array;
@@ -39,6 +40,7 @@ use vortex_session::VortexSession;
 use super::TurboQuantQJL;
 use super::array::TurboQuantQJLArray;
 use super::array::TurboQuantQJLMetadata;
+use crate::TurboQuantMSE;
 use crate::decompress::execute_decompress_qjl;
 
 impl VTable for TurboQuantQJL {
@@ -73,7 +75,10 @@ impl VTable for TurboQuantQJL {
         precision: Precision,
     ) {
         array.dtype.hash(state);
-        array.mse_inner.array_hash(state, precision);
+        (*array.mse_inner)
+            .clone()
+            .into_array()
+            .array_hash(state, precision);
         array.qjl_signs.array_hash(state, precision);
         array.residual_norms.array_hash(state, precision);
         array.rotation_signs.array_hash(state, precision);
@@ -85,7 +90,10 @@ impl VTable for TurboQuantQJL {
         precision: Precision,
     ) -> bool {
         array.dtype == other.dtype
-            && array.mse_inner.array_eq(&other.mse_inner.into_array(), precision)
+            && (*array.mse_inner)
+                .clone()
+                .into_array()
+                .array_eq(&(*other.mse_inner).clone().into_array(), precision)
             && array.qjl_signs.array_eq(&other.qjl_signs, precision)
             && array
                 .residual_norms
@@ -113,7 +121,7 @@ impl VTable for TurboQuantQJL {
 
     fn child(array: &TurboQuantQJLArray, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.mse_inner.clone().into_array(),
+            0 => (*array.mse_inner).clone().into_array(),
             1 => array.qjl_signs.clone(),
             2 => array.residual_norms.clone(),
             3 => array.rotation_signs.clone(),
@@ -133,8 +141,8 @@ impl VTable for TurboQuantQJL {
 
     fn metadata(array: &TurboQuantQJLArray) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(TurboQuantQJLMetadata {
-            bit_width: array.bit_width as u32,
-            padded_dim: array.padded_dim,
+            bit_width: array.bit_width() as u32,
+            padded_dim: array.padded_dim(),
         }))
     }
 
@@ -163,7 +171,14 @@ impl VTable for TurboQuantQJL {
     ) -> VortexResult<TurboQuantQJLArray> {
         let padded_dim = metadata.padded_dim as usize;
 
-        let mse_inner = children.get(0, dtype, len)?;
+        // Child 0 is a TurboQuantMSEArray — downcast from the type-erased ArrayRef.
+        let mse_inner_ref = children.get(0, dtype, len)?;
+        let mse_inner = Arc::new(
+            mse_inner_ref
+                .as_opt::<TurboQuantMSE>()
+                .vortex_expect("QJL child 0 must be a TurboQuantMSEArray")
+                .clone(),
+        );
 
         let signs_dtype = DType::Bool(Nullability::NonNullable);
         let qjl_signs = children.get(1, &signs_dtype, len * padded_dim)?;
@@ -179,8 +194,6 @@ impl VTable for TurboQuantQJL {
             qjl_signs,
             residual_norms,
             rotation_signs,
-            bit_width: u8::try_from(metadata.bit_width)?,
-            padded_dim: metadata.padded_dim,
             stats_set: Default::default(),
         })
     }
@@ -192,7 +205,13 @@ impl VTable for TurboQuantQJL {
             children.len()
         );
         let mut iter = children.into_iter();
-        array.mse_inner = iter.next().vortex_expect("mse_inner child");
+        let mse_ref = iter.next().vortex_expect("mse_inner child");
+        array.mse_inner = Arc::new(
+            mse_ref
+                .as_opt::<TurboQuantMSE>()
+                .vortex_expect("child 0 must be a TurboQuantMSEArray")
+                .clone(),
+        );
         array.qjl_signs = iter.next().vortex_expect("qjl_signs child");
         array.residual_norms = iter.next().vortex_expect("residual_norms child");
         array.rotation_signs = iter.next().vortex_expect("rotation_signs child");
@@ -209,6 +228,6 @@ impl VTable for TurboQuantQJL {
 
 impl ValidityChild<TurboQuantQJL> for TurboQuantQJL {
     fn validity_child(array: &TurboQuantQJLArray) -> &ArrayRef {
-        array.mse_inner().clone().as_ref()
+        array.mse_inner.codes()
     }
 }

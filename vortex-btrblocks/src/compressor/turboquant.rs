@@ -3,6 +3,8 @@
 
 //! Specialized compressor for TurboQuant vector quantization of tensor extension types.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
@@ -49,14 +51,16 @@ pub(crate) fn compress_turboquant(
     }
 
     // Produce the cascaded QJL(MSE) structure.
-    let encoded = turboquant_encode_qjl(&fsl, config)?;
-    let encoded = encoded.as_opt::<TurboQuantQJL>().expect("encoded should be a QJL array");
+    let encoded_ref = turboquant_encode_qjl(&fsl, config)?;
+    let encoded = encoded_ref
+        .as_opt::<TurboQuantQJL>()
+        .vortex_expect("encoded should be a QJL array");
 
     // Bitpack the MSE codes child for storage efficiency.
-    let encoded = bitpack_mse_codes(encoded)?;
+    let result = bitpack_mse_codes(encoded)?;
 
     Ok(Some(
-        ExtensionArray::new(ext_array.ext_dtype().clone(), encoded).into_array(),
+        ExtensionArray::new(ext_array.ext_dtype().clone(), result).into_array(),
     ))
 }
 
@@ -65,35 +69,35 @@ pub(crate) fn compress_turboquant(
 /// The encode functions produce raw `PrimitiveArray<u8>` codes. This function
 /// applies bitpacking to compress them based on the MSE bit_width.
 fn bitpack_mse_codes(qjl: &TurboQuantQJLArray) -> VortexResult<ArrayRef> {
-    // If this is a QJL array, descend into its MSE inner child.
-        let mse_inner = qjl.mse_inner().as_opt::<TurboQuantMSE>().vortex_expect("mse_inner should be a TurboQuantMSE array");
-        let bit_width = mse.bit_width();
-        if bit_width < 8 {
-            let codes_prim: PrimitiveArray = mse.codes().to_canonical()?.into_primitive();
-            let packed = bitpack_encode(&codes_prim, bit_width, None)?.into_array();
-            let new_mse = TurboQuantMSEArray::try_new(
-                mse.dtype().clone(),
-                packed,
-                mse.norms().clone(),
-                mse.centroids().clone(),
-                mse.rotation_signs().clone(),
-                mse.dimension(),
-                bit_width,
-                mse.padded_dim(),
-                mse.rotation_seed(),
-            );
-        return Ok(TurboQuantQJLArray::try_new(
-            qjl.dtype().clone(),
-            new_mse,
-            qjl.qjl_signs().clone(),
-            qjl.residual_norms().clone(),
-            qjl.rotation_signs().clone(),
-            qjl.bit_width(),
-            qjl.padded_dim(),
-        )?
-        .into_array());
-        }
+    let mse = qjl.mse_inner();
+    let bit_width = mse.bit_width();
 
-    // No bitpacking needed (8-bit codes or unrecognized array).
-    Ok(array.clone())
+    if bit_width >= 8 {
+        // 8-bit codes are stored as raw u8, no bitpacking needed.
+        return Ok(qjl.clone().into_array());
+    }
+
+    let codes_prim: PrimitiveArray = mse.codes().to_canonical()?.into_primitive();
+    let packed = bitpack_encode(&codes_prim, bit_width, None)?.into_array();
+
+    let new_mse = Arc::new(TurboQuantMSEArray::try_new(
+        mse.dtype().clone(),
+        packed,
+        mse.norms().clone(),
+        mse.centroids().clone(),
+        mse.rotation_signs().clone(),
+        mse.dimension(),
+        bit_width,
+        mse.padded_dim(),
+        mse.rotation_seed(),
+    )?);
+
+    Ok(TurboQuantQJLArray::try_new(
+        qjl.dtype().clone(),
+        new_mse,
+        qjl.qjl_signs().clone(),
+        qjl.residual_norms().clone(),
+        qjl.rotation_signs().clone(),
+    )?
+    .into_array())
 }

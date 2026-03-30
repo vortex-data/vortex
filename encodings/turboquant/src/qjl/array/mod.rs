@@ -12,9 +12,8 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_error::VortexResult;
 
-use crate::TurboQuantMSEArray;
-
 use super::TurboQuantQJL;
+use crate::TurboQuantMSEArray;
 
 vtable!(TurboQuantQJL);
 
