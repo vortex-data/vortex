@@ -155,8 +155,7 @@ impl RotationMatrix {
         );
 
         // Reconstruct in storage order (inverse): [D₃, D₂, D₁] → sign_masks[2], [1], [0]
-        let mut sign_masks: [Vec<u32>; 3] =
-            std::array::from_fn(|_| Vec::with_capacity(padded_dim));
+        let mut sign_masks: [Vec<u32>; 3] = std::array::from_fn(|_| Vec::with_capacity(padded_dim));
 
         for (round, sign_idx) in [2, 1, 0].iter().enumerate() {
             let offset = round * padded_dim;

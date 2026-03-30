@@ -560,10 +560,7 @@ mod tests {
 
         assert_eq!(expected_u8.len(), stored_u8.len());
         for i in 0..expected_u8.len() {
-            assert_eq!(
-                expected_u8[i], stored_u8[i],
-                "Sign mismatch at index {i}"
-            );
+            assert_eq!(expected_u8[i], stored_u8[i], "Sign mismatch at index {i}");
         }
 
         // Also verify decode output is non-empty and has expected size.

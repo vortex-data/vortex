@@ -6,7 +6,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
@@ -57,7 +56,10 @@ pub fn execute_decompress(
     // FastLanes SIMD-unpacks the 1-bit bitpacked rotation signs into u8 0/1 values,
     // then we expand to u32 XOR masks once (amortized over all rows). This enables
     // branchless XOR-based sign application in the per-row SRHT hot loop.
-    let signs_prim = array.rotation_signs.clone().execute::<PrimitiveArray>(ctx)?;
+    let signs_prim = array
+        .rotation_signs
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
     let rotation = RotationMatrix::from_u8_slice(signs_prim.as_slice::<u8>(), dim)?;
 
     // Unpack codes.
@@ -102,8 +104,9 @@ pub fn execute_decompress(
     };
 
     // Apply QJL residual correction.
-    let qjl_signs_bool = qjl.signs.clone().execute::<BoolArray>(ctx)?;
-    let qjl_bit_buf = qjl_signs_bool.to_bit_buffer();
+    // FastLanes SIMD-unpacks the 1-bit bitpacked QJL signs into u8 0/1 values.
+    let qjl_signs_prim = qjl.signs.clone().execute::<PrimitiveArray>(ctx)?;
+    let qjl_signs_u8 = qjl_signs_prim.as_slice::<u8>();
 
     let residual_norms_prim = qjl.residual_norms.clone().execute::<PrimitiveArray>(ctx)?;
     let residual_norms = residual_norms_prim.as_slice::<f32>();
@@ -122,17 +125,10 @@ pub fn execute_decompress(
         let mse_row = &mse_elements[row * dim..(row + 1) * dim];
         let residual_norm = residual_norms[row];
 
-        // TODO(perf): Per-element bit extraction + branch is hard to autovectorize.
-        // Unlike MSE rotation signs (which are amortized once for all rows), QJL
-        // signs change per row so they can't be pre-expanded. Consider reading raw
-        // bytes and using bitwise ops to generate ±1.0 f32s in bulk.
-        let bit_offset = row * padded_dim;
+        // Convert u8 0/1 → f32 ±1.0 for this row's signs.
+        let row_signs = &qjl_signs_u8[row * padded_dim..(row + 1) * padded_dim];
         for idx in 0..padded_dim {
-            qjl_signs_vec[idx] = if qjl_bit_buf.value(bit_offset + idx) {
-                1.0
-            } else {
-                -1.0
-            };
+            qjl_signs_vec[idx] = if row_signs[idx] != 0 { 1.0 } else { -1.0 };
         }
 
         qjl_rot.inverse_rotate(&qjl_signs_vec, &mut qjl_projected);

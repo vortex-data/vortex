@@ -5,13 +5,11 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -245,8 +243,7 @@ pub fn turboquant_encode_qjl(
 
     let num_rows = fsl.len();
     let mut residual_norms_buf = BufferMut::<f32>::with_capacity(num_rows);
-    let total_sign_bits = num_rows * padded_dim;
-    let mut qjl_sign_bits = BitBufferMut::new_unset(total_sign_bits);
+    let mut qjl_sign_u8 = BufferMut::<u8>::with_capacity(num_rows * padded_dim);
 
     let mut dequantized_rotated = vec![0.0f32; padded_dim];
     let mut dequantized = vec![0.0f32; padded_dim];
@@ -291,11 +288,8 @@ pub fn turboquant_encode_qjl(
                 projected.fill(0.0);
             }
 
-            let bit_offset = row * padded_dim;
             for j in 0..padded_dim {
-                if projected[j] >= 0.0 {
-                    qjl_sign_bits.set(bit_offset + j);
-                }
+                qjl_sign_u8.push(if projected[j] >= 0.0 { 1u8 } else { 0u8 });
             }
         }
     }
@@ -306,11 +300,12 @@ pub fn turboquant_encode_qjl(
     // Attach QJL correction.
     let residual_norms_array =
         PrimitiveArray::new::<f32>(residual_norms_buf.freeze(), Validity::NonNullable);
-    let qjl_signs = BoolArray::new(qjl_sign_bits.freeze(), Validity::NonNullable);
+    let qjl_signs_prim = PrimitiveArray::new::<u8>(qjl_sign_u8.freeze(), Validity::NonNullable);
+    let qjl_signs_packed = bitpack_encode(&qjl_signs_prim, 1, None)?.into_array();
     let qjl_rotation_signs = bitpack_rotation_signs(&qjl_rotation)?;
 
     array.qjl = Some(QjlCorrection {
-        signs: qjl_signs.into_array(),
+        signs: qjl_signs_packed,
         residual_norms: residual_norms_array.into_array(),
         rotation_signs: qjl_rotation_signs,
     });

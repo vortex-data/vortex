@@ -104,13 +104,11 @@ pub fn vortex_turboquant::TurboQuantArray::padded_dim(&self) -> u32
 
 pub fn vortex_turboquant::TurboQuantArray::qjl(&self) -> core::option::Option<&vortex_turboquant::QjlCorrection>
 
-pub fn vortex_turboquant::TurboQuantArray::rotation_seed(&self) -> u64
-
 pub fn vortex_turboquant::TurboQuantArray::rotation_signs(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::TurboQuantArray::try_new_mse(dtype: vortex_array::dtype::DType, codes: vortex_array::array::ArrayRef, norms: vortex_array::array::ArrayRef, centroids: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, dimension: u32, bit_width: u8, padded_dim: u32, rotation_seed: u64) -> vortex_error::VortexResult<Self>
+pub fn vortex_turboquant::TurboQuantArray::try_new_mse(dtype: vortex_array::dtype::DType, codes: vortex_array::array::ArrayRef, norms: vortex_array::array::ArrayRef, centroids: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, dimension: u32, bit_width: u8) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_turboquant::TurboQuantArray::try_new_qjl(dtype: vortex_array::dtype::DType, codes: vortex_array::array::ArrayRef, norms: vortex_array::array::ArrayRef, centroids: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, qjl: vortex_turboquant::QjlCorrection, dimension: u32, bit_width: u8, padded_dim: u32, rotation_seed: u64) -> vortex_error::VortexResult<Self>
+pub fn vortex_turboquant::TurboQuantArray::try_new_qjl(dtype: vortex_array::dtype::DType, codes: vortex_array::array::ArrayRef, norms: vortex_array::array::ArrayRef, centroids: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, qjl: vortex_turboquant::QjlCorrection, dimension: u32, bit_width: u8) -> vortex_error::VortexResult<Self>
 
 impl vortex_turboquant::TurboQuantArray
 
