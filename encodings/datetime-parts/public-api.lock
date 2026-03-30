@@ -6,6 +6,8 @@ impl vortex_datetime_parts::DateTimeParts
 
 pub const vortex_datetime_parts::DateTimeParts::ID: vortex_array::vtable::dyn_::ArrayId
 
+pub fn vortex_datetime_parts::DateTimeParts::try_from_temporal(temporal: vortex_array::arrays::datetime::TemporalArray) -> vortex_error::VortexResult<vortex_datetime_parts::DateTimePartsArray>
+
 pub fn vortex_datetime_parts::DateTimeParts::try_new(dtype: vortex_array::dtype::DType, days: vortex_array::array::ArrayRef, seconds: vortex_array::array::ArrayRef, subseconds: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_datetime_parts::DateTimePartsArray>
 
 impl core::clone::Clone for vortex_datetime_parts::DateTimeParts
@@ -42,7 +44,7 @@ pub fn vortex_datetime_parts::DateTimeParts::mask(array: &vortex_datetime_parts:
 
 impl vortex_array::vtable::VTable for vortex_datetime_parts::DateTimeParts
 
-pub type vortex_datetime_parts::DateTimeParts::Array = vortex_datetime_parts::DateTimePartsData
+pub type vortex_datetime_parts::DateTimeParts::ArrayData = vortex_datetime_parts::DateTimePartsData
 
 pub type vortex_datetime_parts::DateTimeParts::Metadata = vortex_array::metadata::ProstMetadata<vortex_datetime_parts::DateTimePartsMetadata>
 
@@ -88,9 +90,9 @@ pub fn vortex_datetime_parts::DateTimeParts::serialize(metadata: Self::Metadata)
 
 pub fn vortex_datetime_parts::DateTimeParts::stats(array: &vortex_datetime_parts::DateTimePartsData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_datetime_parts::DateTimeParts::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_datetime_parts::DateTimeParts::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_datetime_parts::DateTimeParts::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_datetime_parts::DateTimeParts::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_datetime_parts::DateTimeParts> for vortex_datetime_parts::DateTimeParts
 

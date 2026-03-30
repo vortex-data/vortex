@@ -6,7 +6,6 @@ use std::hash::Hash;
 use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::Primitive;
@@ -154,8 +153,6 @@ where
     }
 
     let null_count = array
-        .clone()
-        .into_array()
         .statistics()
         .compute_null_count()
         .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;

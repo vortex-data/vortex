@@ -68,13 +68,13 @@ pub struct ALPRDMetadata {
 }
 
 impl VTable for ALPRD {
-    type Array = ALPRDData;
+    type ArrayData = ALPRDData;
 
     type Metadata = ProstMetadata<ALPRDMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &ALPRD
     }
 
@@ -262,7 +262,7 @@ impl VTable for ALPRD {
         )
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         // Children: left_parts, right_parts, patches (if present): indices, values
         let patches_info = array
             .left_parts_patches
@@ -315,7 +315,7 @@ impl VTable for ALPRD {
             left_parts_patches,
             dtype,
             ..
-        } = Arc::unwrap_or_clone(array).into_inner().into_parts();
+        } = Arc::unwrap_or_clone(array).into_data().into_parts();
         let ptype = dtype.as_ptype();
 
         let left_parts = left_parts

@@ -81,8 +81,6 @@ impl StringStats {
         opts: GenerateStatsOptions,
     ) -> VortexResult<Self> {
         let null_count = input
-            .clone()
-            .into_array()
             .statistics()
             .compute_null_count()
             .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
@@ -149,7 +147,7 @@ impl<'a> Compressor for StringCompressor<'a> {
     type SchemeType = dyn StringScheme;
     type StatsType = StringStats;
 
-    fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::Array) -> Self::StatsType {
+    fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::ArrayData) -> Self::StatsType {
         if self
             .btr_blocks_compressor
             .string_schemes()

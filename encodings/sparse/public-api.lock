@@ -60,7 +60,7 @@ pub fn vortex_sparse::Sparse::invert(array: &vortex_sparse::SparseArray) -> vort
 
 impl vortex_array::vtable::VTable for vortex_sparse::Sparse
 
-pub type vortex_sparse::Sparse::Array = vortex_sparse::SparseData
+pub type vortex_sparse::Sparse::ArrayData = vortex_sparse::SparseData
 
 pub type vortex_sparse::Sparse::Metadata = vortex_sparse::SparseMetadata
 
@@ -106,9 +106,9 @@ pub fn vortex_sparse::Sparse::serialize(metadata: Self::Metadata) -> vortex_erro
 
 pub fn vortex_sparse::Sparse::stats(array: &vortex_sparse::SparseData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_sparse::Sparse::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_sparse::Sparse::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_sparse::Sparse::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_sparse::Sparse::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_sparse::Sparse> for vortex_sparse::Sparse
 

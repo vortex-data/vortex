@@ -44,7 +44,7 @@ mod validity;
 vtable!(FoR, FoR, FoRData);
 
 impl VTable for FoR {
-    type Array = FoRData;
+    type ArrayData = FoRData;
 
     type Metadata = Scalar;
 

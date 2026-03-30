@@ -53,7 +53,7 @@ pub struct ListMetadata {
 }
 
 impl VTable for List {
-    type Array = ListData;
+    type ArrayData = ListData;
 
     type Metadata = ProstMetadata<ListMetadata>;
     type OperationsVTable = Self;
@@ -192,7 +192,7 @@ impl VTable for List {
         ListData::try_new(elements, offsets, validity)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 2 || children.len() == 3,
             "ListArray expects 2 or 3 children, got {}",

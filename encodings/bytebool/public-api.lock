@@ -34,7 +34,7 @@ pub fn vortex_bytebool::ByteBool::mask(array: &vortex_bytebool::ByteBoolArray, m
 
 impl vortex_array::vtable::VTable for vortex_bytebool::ByteBool
 
-pub type vortex_bytebool::ByteBool::Array = vortex_bytebool::ByteBoolData
+pub type vortex_bytebool::ByteBool::ArrayData = vortex_bytebool::ByteBoolData
 
 pub type vortex_bytebool::ByteBool::Metadata = vortex_array::metadata::EmptyMetadata
 
@@ -80,9 +80,9 @@ pub fn vortex_bytebool::ByteBool::serialize(_metadata: Self::Metadata) -> vortex
 
 pub fn vortex_bytebool::ByteBool::stats(array: &vortex_bytebool::ByteBoolData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_bytebool::ByteBool::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_bytebool::ByteBool::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_bytebool::ByteBool::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_bytebool::ByteBool::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool
 

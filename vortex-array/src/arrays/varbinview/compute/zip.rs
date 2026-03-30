@@ -46,9 +46,9 @@ impl ZipKernel for VarBinView {
         // to the new buffer index in the result array
         let mut buffers = DeduplicatedBuffers::default();
         let true_lookup =
-            buffers.extend_from_iter(if_true.buffers().iter().map(|b| b.as_host().clone()));
+            buffers.extend_from_iter(if_true.data_buffers().iter().map(|b| b.as_host().clone()));
         let false_lookup =
-            buffers.extend_from_iter(if_false.buffers().iter().map(|b| b.as_host().clone()));
+            buffers.extend_from_iter(if_false.data_buffers().iter().map(|b| b.as_host().clone()));
 
         let mut views_builder = BufferMut::<BinaryView>::with_capacity(len);
         let mut validity_builder = LazyBitBufferBuilder::new(len);

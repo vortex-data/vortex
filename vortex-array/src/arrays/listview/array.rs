@@ -12,7 +12,6 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::DynArray;
-use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ListView;
 use crate::arrays::Primitive;
@@ -510,7 +509,7 @@ impl Array<ListView> {
     ///
     /// See [`ListViewData::with_zero_copy_to_list`].
     pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
-        Array::try_from_data(unsafe { self.into_inner().with_zero_copy_to_list(is_zctl) })
+        Array::try_from_data(unsafe { self.into_data().with_zero_copy_to_list(is_zctl) })
             .vortex_expect("data is always valid")
     }
 }
@@ -575,12 +574,7 @@ fn validate_zctl(
 ) -> VortexResult<()> {
     // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed), even
     // if there are null views.
-    if let Some(is_sorted) = offsets_primitive
-        .clone()
-        .into_array()
-        .statistics()
-        .compute_is_sorted()
-    {
+    if let Some(is_sorted) = offsets_primitive.statistics().compute_is_sorted() {
         vortex_ensure!(is_sorted, "offsets must be sorted");
     } else {
         vortex_bail!("offsets must report is_sorted statistic");

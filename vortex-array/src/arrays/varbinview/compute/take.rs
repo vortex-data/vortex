@@ -41,7 +41,7 @@ impl TakeExecute for VarBinView {
             Ok(Some(
                 VarBinViewArray::new_handle_unchecked(
                     BufferHandle::new_host(views_buffer.into_byte_buffer()),
-                    array.buffers().clone(),
+                    array.data_buffers().clone(),
                     array
                         .dtype()
                         .union_nullability(indices.dtype().nullability()),

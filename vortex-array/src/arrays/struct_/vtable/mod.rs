@@ -42,12 +42,12 @@ use crate::vtable::ArrayId;
 vtable!(Struct, Struct, StructData);
 
 impl VTable for Struct {
-    type Array = StructData;
+    type ArrayData = StructData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Struct
     }
 
@@ -179,7 +179,7 @@ impl VTable for Struct {
         StructData::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         let DType::Struct(struct_dtype, _nullability) = &array.dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", array.dtype)
         };

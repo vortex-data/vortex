@@ -46,7 +46,7 @@ impl FixedSizeList {
 }
 
 impl VTable for FixedSizeList {
-    type Array = FixedSizeListData;
+    type ArrayData = FixedSizeListData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
@@ -194,7 +194,7 @@ impl VTable for FixedSizeList {
         FixedSizeListData::try_new(elements, *list_size, validity, len)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1 || children.len() == 2,
             "FixedSizeListArray expects 1 or 2 children, got {}",

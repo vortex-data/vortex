@@ -85,7 +85,7 @@ impl<'a> Compressor for IntCompressor<'a> {
         &UncompressedScheme
     }
 
-    fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::Array) -> Self::StatsType {
+    fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::ArrayData) -> Self::StatsType {
         if self
             .btr_blocks_compressor
             .int_schemes()
@@ -406,8 +406,6 @@ impl Scheme for FORScheme {
 
         let for_compressed = FoR::try_new(compressed, for_array.reference_scalar().clone())?;
         for_compressed
-            .clone()
-            .into_array()
             .statistics()
             .inherit_from(for_array.into_array().statistics());
         Ok(for_compressed.into_array())

@@ -344,13 +344,13 @@ fn array_id_from_string(s: &str) -> ArrayId {
 }
 
 impl VTable for ZstdBuffers {
-    type Array = ZstdBuffersData;
+    type ArrayData = ZstdBuffersData;
 
     type Metadata = ProstMetadata<ZstdBuffersMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &ZstdBuffers
     }
 
@@ -482,7 +482,7 @@ impl VTable for ZstdBuffers {
         Ok(data)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         array.children = children;
         Ok(())
     }

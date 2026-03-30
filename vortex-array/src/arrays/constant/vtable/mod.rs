@@ -54,13 +54,13 @@ impl Constant {
 }
 
 impl VTable for Constant {
-    type Array = ConstantData;
+    type ArrayData = ConstantData;
 
     type Metadata = Scalar;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Constant
     }
 
@@ -163,7 +163,7 @@ impl VTable for Constant {
         Ok(ConstantData::new(metadata.clone(), len))
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(_array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.is_empty(),
             "ConstantArray has no children, got {}",

@@ -57,7 +57,7 @@ pub trait Compressor {
     type StatsType: CompressorStats<ArrayVTable = Self::ArrayVTable>;
 
     /// Generates statistics for the given array to guide compression scheme selection.
-    fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::Array) -> Self::StatsType;
+    fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::ArrayData) -> Self::StatsType;
 
     /// Returns all available compression schemes for this compressor.
     fn schemes(&self) -> &[&'static Self::SchemeType];
@@ -145,7 +145,7 @@ where
     fn compress(
         &self,
         btr_blocks_compressor: &BtrBlocksCompressor,
-        array: &<<Self as Compressor>::ArrayVTable as VTable>::Array,
+        array: &<<Self as Compressor>::ArrayVTable as VTable>::ArrayData,
         ctx: CompressorContext,
         excludes: &[<Self::SchemeType as Scheme>::CodeType],
     ) -> VortexResult<ArrayRef> {

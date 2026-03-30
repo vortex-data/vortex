@@ -30,7 +30,7 @@ pub fn vortex_zstd::Zstd::cast(array: &vortex_zstd::ZstdArray, dtype: &vortex_ar
 
 impl vortex_array::vtable::VTable for vortex_zstd::Zstd
 
-pub type vortex_zstd::Zstd::Array = vortex_zstd::ZstdData
+pub type vortex_zstd::Zstd::ArrayData = vortex_zstd::ZstdData
 
 pub type vortex_zstd::Zstd::Metadata = vortex_array::metadata::ProstMetadata<vortex_zstd::ZstdMetadata>
 
@@ -74,9 +74,9 @@ pub fn vortex_zstd::Zstd::serialize(metadata: Self::Metadata) -> vortex_error::V
 
 pub fn vortex_zstd::Zstd::stats(array: &vortex_zstd::ZstdData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_zstd::Zstd::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_zstd::Zstd::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_zstd::Zstd::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_zstd::Zstd::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_zstd::Zstd> for vortex_zstd::Zstd
 

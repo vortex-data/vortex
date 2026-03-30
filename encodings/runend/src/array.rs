@@ -60,13 +60,13 @@ pub struct RunEndMetadata {
 }
 
 impl VTable for RunEnd {
-    type Array = RunEndData;
+    type ArrayData = RunEndData;
 
     type Metadata = ProstMetadata<RunEndMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &RunEnd
     }
 
@@ -177,7 +177,7 @@ impl VTable for RunEnd {
         )
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 2,
             "RunEndArray expects 2 children, got {}",

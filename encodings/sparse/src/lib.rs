@@ -75,13 +75,13 @@ pub struct ProstPatchesMetadata {
 }
 
 impl VTable for Sparse {
-    type Array = SparseData;
+    type ArrayData = SparseData;
 
     type Metadata = SparseMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Sparse
     }
 
@@ -220,7 +220,7 @@ impl VTable for Sparse {
         )
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure_eq!(
             children.len(),
             2,

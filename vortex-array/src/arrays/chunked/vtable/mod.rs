@@ -52,12 +52,12 @@ impl Chunked {
 }
 
 impl VTable for Chunked {
-    type Array = ChunkedData;
+    type ArrayData = ChunkedData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Chunked
     }
 
@@ -209,7 +209,7 @@ impl VTable for Chunked {
         })
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         // Children: chunk_offsets, then chunks...
         vortex_ensure!(
             !children.is_empty(),

@@ -54,13 +54,13 @@ pub struct DecimalMetadata {
 }
 
 impl VTable for Decimal {
-    type Array = DecimalData;
+    type ArrayData = DecimalData;
 
     type Metadata = ProstMetadata<DecimalMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Decimal
     }
 
@@ -193,7 +193,7 @@ impl VTable for Decimal {
         })
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() <= 1,
             "DecimalArray expects 0 or 1 child (validity), got {}",

@@ -60,13 +60,13 @@ pub struct DecimalBytesPartsMetadata {
 }
 
 impl VTable for DecimalByteParts {
-    type Array = DecimalBytePartsData;
+    type ArrayData = DecimalBytePartsData;
 
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &DecimalByteParts
     }
 
@@ -169,7 +169,7 @@ impl VTable for DecimalByteParts {
         DecimalBytePartsData::try_new(msp, *decimal_dtype)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1,
             "DecimalBytePartsArray expects exactly 1 child (msp), got {}",

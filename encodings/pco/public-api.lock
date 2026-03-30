@@ -26,7 +26,7 @@ pub fn vortex_pco::Pco::cast(array: &vortex_pco::PcoArray, dtype: &vortex_array:
 
 impl vortex_array::vtable::VTable for vortex_pco::Pco
 
-pub type vortex_pco::Pco::Array = vortex_pco::PcoData
+pub type vortex_pco::Pco::ArrayData = vortex_pco::PcoData
 
 pub type vortex_pco::Pco::Metadata = vortex_array::metadata::ProstMetadata<vortex_pco::PcoMetadata>
 
@@ -70,9 +70,9 @@ pub fn vortex_pco::Pco::serialize(metadata: Self::Metadata) -> vortex_error::Vor
 
 pub fn vortex_pco::Pco::stats(array: &vortex_pco::PcoData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_pco::Pco::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_pco::Pco::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_pco::Pco::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_pco::Pco::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_pco::Pco> for vortex_pco::Pco
 

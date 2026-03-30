@@ -103,7 +103,7 @@ where
         packed,
         patches,
         validity,
-    } = array.into_inner().into_parts();
+    } = array.into_data().into_parts();
 
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;

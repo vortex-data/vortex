@@ -50,13 +50,13 @@ impl Masked {
 }
 
 impl VTable for Masked {
-    type Array = MaskedData;
+    type ArrayData = MaskedData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Masked
     }
 
@@ -198,7 +198,7 @@ impl VTable for Masked {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1 || children.len() == 2,
             "MaskedArray expects 1 or 2 children, got {}",

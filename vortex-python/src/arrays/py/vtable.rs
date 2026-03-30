@@ -42,13 +42,13 @@ pub struct PythonVTable {
 }
 
 impl VTable for PythonVTable {
-    type Array = PythonArray;
+    type ArrayData = PythonArray;
 
     type Metadata = RawMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(array: &Self::Array) -> &Self {
+    fn vtable(array: &Self::ArrayData) -> &Self {
         &array.vtable
     }
 
@@ -153,7 +153,7 @@ impl VTable for PythonVTable {
         todo!()
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(_array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.is_empty(),
             "PythonArray has no children, got {}",

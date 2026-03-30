@@ -18,7 +18,7 @@ impl MaskReduce for VarBinView {
             Ok(Some(
                 VarBinViewArray::new_handle_unchecked(
                     array.views_handle().clone(),
-                    array.buffers().clone(),
+                    array.data_buffers().clone(),
                     array.dtype().as_nullable(),
                     array
                         .validity()

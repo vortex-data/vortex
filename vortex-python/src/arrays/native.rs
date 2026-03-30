@@ -249,13 +249,13 @@ pub trait AsArrayRef<T> {
     fn as_array_ref(&self) -> &T;
 }
 
-impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_, V> {
-    fn as_array_ref(&self) -> &<V::VTable as VTable>::Array {
+impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::ArrayData> for PyRef<'_, V> {
+    fn as_array_ref(&self) -> &<V::VTable as VTable>::ArrayData {
         self.as_super()
             .inner()
             .as_any()
             .downcast_ref::<Array<V::VTable>>()
             .vortex_expect("Failed to downcast array")
-            .inner()
+            .data()
     }
 }

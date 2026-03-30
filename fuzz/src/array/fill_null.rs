@@ -210,7 +210,7 @@ fn fill_varbinview_array(
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new_handle(
                             result.to_varbinview().views_handle().clone(),
-                            result.to_varbinview().buffers().clone(),
+                            result.to_varbinview().data_buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )
@@ -244,7 +244,7 @@ fn fill_varbinview_array(
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new_handle(
                             result.to_varbinview().views_handle().clone(),
-                            result.to_varbinview().buffers().clone(),
+                            result.to_varbinview().data_buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )

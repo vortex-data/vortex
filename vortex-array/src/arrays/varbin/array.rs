@@ -336,7 +336,7 @@ impl VarBinData {
         for v in vec {
             builder.append_value(v.as_ref());
         }
-        builder.finish(dtype).into_inner()
+        builder.finish(dtype).into_data()
     }
 
     #[expect(
@@ -352,7 +352,7 @@ impl VarBinData {
         for v in iter {
             builder.append(v.as_ref().map(|o| o.as_ref()));
         }
-        builder.finish(dtype).into_inner()
+        builder.finish(dtype).into_data()
     }
 
     pub fn from_iter_nonnull<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(
@@ -364,7 +364,7 @@ impl VarBinData {
         for v in iter {
             builder.append_value(v);
         }
-        builder.finish(dtype).into_inner()
+        builder.finish(dtype).into_data()
     }
 }
 

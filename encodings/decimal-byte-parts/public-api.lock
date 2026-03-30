@@ -42,7 +42,7 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::mask(array: &vortex_decimal_
 
 impl vortex_array::vtable::VTable for vortex_decimal_byte_parts::DecimalByteParts
 
-pub type vortex_decimal_byte_parts::DecimalByteParts::Array = vortex_decimal_byte_parts::DecimalBytePartsData
+pub type vortex_decimal_byte_parts::DecimalByteParts::ArrayData = vortex_decimal_byte_parts::DecimalBytePartsData
 
 pub type vortex_decimal_byte_parts::DecimalByteParts::Metadata = vortex_array::metadata::ProstMetadata<vortex_decimal_byte_parts::DecimalBytesPartsMetadata>
 
@@ -88,9 +88,9 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::serialize(metadata: Self::Me
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::stats(array: &vortex_decimal_byte_parts::DecimalBytePartsData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_decimal_byte_parts::DecimalByteParts::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_decimal_byte_parts::DecimalByteParts::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_decimal_byte_parts::DecimalByteParts> for vortex_decimal_byte_parts::DecimalByteParts
 

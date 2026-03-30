@@ -541,7 +541,7 @@ impl Array<Struct> {
 
     /// Decompose this struct array into its constituent parts.
     pub fn into_parts(self) -> StructArrayParts {
-        self.into_inner().into_parts()
+        self.into_data().into_parts()
     }
 
     /// Create a [`StructArray`] from an iterator of (name, array) pairs with validity.

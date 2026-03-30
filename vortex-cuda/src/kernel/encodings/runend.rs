@@ -61,7 +61,7 @@ impl CudaExecute for RunEndExecutor {
 
         let offset = array.offset();
         let output_len = array.len();
-        let RunEndArrayParts { ends, values } = array.into_inner().into_parts();
+        let RunEndArrayParts { ends, values } = array.into_data().into_parts();
 
         let values_ptype = PType::try_from(values.dtype())?;
         let ends_ptype = PType::try_from(ends.dtype())?;
@@ -110,12 +110,12 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
         buffer: values_buffer,
         validity: values_validity,
         ..
-    } = values.into_inner().into_parts();
+    } = values.into_data().into_parts();
 
     let PrimitiveArrayParts {
         buffer: ends_buffer,
         ..
-    } = ends.into_inner().into_parts();
+    } = ends.into_data().into_parts();
 
     // Set up device buffers.
     let ends_device = ctx.ensure_on_device(ends_buffer).await?;

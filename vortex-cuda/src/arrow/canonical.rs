@@ -69,7 +69,7 @@ fn export_canonical(
                 let len = primitive.len();
                 let PrimitiveArrayParts {
                     buffer, validity, ..
-                } = primitive.into_inner().into_parts();
+                } = primitive.into_data().into_parts();
 
                 check_validity_empty(&validity)?;
 
@@ -96,7 +96,7 @@ fn export_canonical(
                     values_type,
                     validity,
                     ..
-                } = decimal.into_inner().into_parts();
+                } = decimal.into_data().into_parts();
 
                 // verify that there is no null buffer
                 check_validity_empty(&validity)?;
@@ -121,7 +121,7 @@ fn export_canonical(
 
                 let PrimitiveArrayParts {
                     buffer, validity, ..
-                } = values.into_inner().into_parts();
+                } = values.into_data().into_parts();
 
                 check_validity_empty(&validity)?;
 

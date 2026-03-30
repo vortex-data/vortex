@@ -40,18 +40,18 @@ pub trait CompressorStats: Debug + Clone {
     type ArrayVTable: VTable;
 
     /// Generates stats with default options.
-    fn generate(input: &<Self::ArrayVTable as VTable>::Array) -> Self {
+    fn generate(input: &<Self::ArrayVTable as VTable>::ArrayData) -> Self {
         Self::generate_opts(input, GenerateStatsOptions::default())
     }
 
     /// Generates stats with provided options.
     fn generate_opts(
-        input: &<Self::ArrayVTable as VTable>::Array,
+        input: &<Self::ArrayVTable as VTable>::ArrayData,
         opts: GenerateStatsOptions,
     ) -> Self;
 
     /// Returns the underlying source array that statistics were generated from.
-    fn source(&self) -> &<Self::ArrayVTable as VTable>::Array;
+    fn source(&self) -> &<Self::ArrayVTable as VTable>::ArrayData;
 
     /// Sample the array with default options.
     fn sample(&self, sample_size: u32, sample_count: u32) -> Self {

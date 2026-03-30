@@ -29,7 +29,7 @@ impl CastReduce for VarBinView {
             Ok(Some(
                 VarBinViewArray::new_handle_unchecked(
                     array.views_handle().clone(),
-                    array.buffers().clone(),
+                    array.data_buffers().clone(),
                     new_dtype,
                     new_validity,
                 )

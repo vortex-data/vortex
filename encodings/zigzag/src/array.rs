@@ -43,13 +43,13 @@ use crate::zigzag_decode;
 vtable!(ZigZag, ZigZag, ZigZagData);
 
 impl VTable for ZigZag {
-    type Array = ZigZagData;
+    type ArrayData = ZigZagData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &ZigZag
     }
 
@@ -144,7 +144,7 @@ impl VTable for ZigZag {
         ZigZagData::try_new(encoded)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1,
             "ZigZagArray expects exactly 1 child (encoded), got {}",

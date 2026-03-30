@@ -54,18 +54,18 @@ impl PrimitiveArray {
 
     /// Consume the array and get a host Buffer containing the data values.
     pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
-        self.into_inner().into_buffer()
+        self.into_data().into_buffer()
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
     /// if the buffer is uniquely owned, otherwise will make a copy.
     pub fn into_buffer_mut<T: NativePType>(self) -> BufferMut<T> {
-        self.into_inner().into_buffer_mut()
+        self.into_data().into_buffer_mut()
     }
 
     /// Try to extract a mutable buffer from the PrimitiveArray with zero copy.
     pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, Buffer<T>> {
-        self.into_inner().try_into_buffer_mut()
+        self.into_data().try_into_buffer_mut()
     }
 }
 

@@ -391,7 +391,7 @@ impl UnmaterializedPlan {
 
     fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
         let prim = array.to_canonical()?.into_primitive();
-        let PrimitiveArrayParts { buffer, .. } = prim.into_inner().into_parts();
+        let PrimitiveArrayParts { buffer, .. } = prim.into_data().into_parts();
         let buf_index = self.source_buffers.len();
         self.source_buffers.push(buffer);
         Ok(UnmaterializedStage::new(SourceOp::load(), Some(buf_index)))
@@ -407,7 +407,7 @@ impl UnmaterializedPlan {
             packed,
             patches,
             ..
-        } = bp.into_inner().into_parts();
+        } = bp.into_data().into_parts();
 
         if patches.is_some() {
             vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
@@ -491,7 +491,7 @@ impl UnmaterializedPlan {
             .map_err(|_| vortex_err!("Expected SequenceArray"))?;
         let SequenceArrayParts {
             base, multiplier, ..
-        } = seq.into_inner().into_parts();
+        } = seq.into_data().into_parts();
 
         Ok(UnmaterializedStage::new(
             SourceOp::sequence(base.cast()?, multiplier.cast()?),
@@ -504,7 +504,7 @@ impl UnmaterializedPlan {
             .try_into::<RunEnd>()
             .map_err(|_| vortex_err!("Expected RunEndArray"))?;
         let offset = re.offset() as u64;
-        let RunEndArrayParts { ends, values } = re.into_inner().into_parts();
+        let RunEndArrayParts { ends, values } = re.into_data().into_parts();
         let num_runs = ends.len() as u64;
 
         let ends_smem = self.add_input_stage(ends)?;

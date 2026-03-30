@@ -44,13 +44,13 @@ use crate::kernel::PARENT_KERNELS;
 vtable!(ByteBool, ByteBool, ByteBoolData);
 
 impl VTable for ByteBool {
-    type Array = ByteBoolData;
+    type ArrayData = ByteBoolData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &ByteBool
     }
 
@@ -161,7 +161,7 @@ impl VTable for ByteBool {
         Ok(ByteBoolData::new(buffer, validity))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() <= 1,
             "ByteBoolArray expects at most 1 child (validity), got {}",

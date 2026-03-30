@@ -34,13 +34,13 @@ pub(crate) mod compute;
 vtable!(Null, Null, NullData);
 
 impl VTable for Null {
-    type Array = NullData;
+    type ArrayData = NullData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Null
     }
 
@@ -120,7 +120,7 @@ impl VTable for Null {
         Ok(NullData::new(len))
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(_array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.is_empty(),
             "NullArray has no children, got {}",

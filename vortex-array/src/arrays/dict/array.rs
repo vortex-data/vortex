@@ -216,7 +216,7 @@ impl Array<Dict> {
     /// See [`DictData::set_all_values_referenced`].
     pub unsafe fn set_all_values_referenced(self, all_values_referenced: bool) -> Self {
         Array::try_from_data(unsafe {
-            self.into_inner()
+            self.into_data()
                 .set_all_values_referenced(all_values_referenced)
         })
         .vortex_expect("data is always valid")

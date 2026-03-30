@@ -87,13 +87,13 @@ const VALUES_PER_CHUNK: usize = pco::DEFAULT_MAX_PAGE_N;
 vtable!(Pco, Pco, PcoData);
 
 impl VTable for Pco {
-    type Array = PcoData;
+    type ArrayData = PcoData;
 
     type Metadata = ProstMetadata<PcoMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Pco
     }
 
@@ -253,7 +253,7 @@ impl VTable for Pco {
         ))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() <= 1,
             "PcoArray expects 0 or 1 children, got {}",

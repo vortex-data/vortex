@@ -596,7 +596,7 @@ impl BuffersWithOffsets {
             return Self::AllKept {
                 buffers: Arc::from(
                     array
-                        .buffers()
+                        .data_buffers()
                         .to_vec()
                         .into_iter()
                         .map(|b| b.unwrap_host())
@@ -619,20 +619,19 @@ impl BuffersWithOffsets {
             }
         }
 
-        let buffers_with_offsets_iter =
-            buffer_utilizations
-                .iter()
-                .zip(array.buffers().iter())
-                .map(|(utilization, buffer)| {
-                    match compaction_strategy(utilization, compaction_threshold) {
-                        CompactionStrategy::KeepFull => (Some(buffer.as_host().clone()), 0),
-                        CompactionStrategy::Slice { start, end } => (
-                            Some(buffer.as_host().slice(start as usize..end as usize)),
-                            start,
-                        ),
-                        CompactionStrategy::Rewrite => (None, 0),
-                    }
-                });
+        let buffers_with_offsets_iter = buffer_utilizations
+            .iter()
+            .zip(array.data_buffers().iter())
+            .map(|(utilization, buffer)| {
+                match compaction_strategy(utilization, compaction_threshold) {
+                    CompactionStrategy::KeepFull => (Some(buffer.as_host().clone()), 0),
+                    CompactionStrategy::Slice { start, end } => (
+                        Some(buffer.as_host().slice(start as usize..end as usize)),
+                        start,
+                    ),
+                    CompactionStrategy::Rewrite => (None, 0),
+                }
+            });
 
         match (has_rewrite, has_nonzero_offset) {
             // keep all buffers
@@ -902,7 +901,7 @@ mod tests {
             builder.finish_into_varbinview()
         };
 
-        assert_eq!(array.buffers().len(), 1);
+        assert_eq!(array.data_buffers().len(), 1);
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 

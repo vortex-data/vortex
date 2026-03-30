@@ -222,7 +222,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         dictionary,
         slice_start,
         slice_stop,
-    } = array.into_inner().into_parts();
+    } = array.into_data().into_parts();
 
     // nvCOMP doesn't support ZSTD dictionaries.
     if dictionary.is_some() {

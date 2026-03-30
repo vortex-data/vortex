@@ -26,7 +26,7 @@ pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
     let views =
         ScalarBuffer::<u128>::from(array.views_handle().as_host().clone().into_arrow_buffer());
     let buffers: Vec<_> = array
-        .buffers()
+        .data_buffers()
         .iter()
         .map(|buffer| buffer.as_host().clone().into_arrow_buffer())
         .collect();
@@ -45,7 +45,7 @@ pub fn execute_varbinview_to_arrow<T: ByteViewType>(
     let views =
         ScalarBuffer::<u128>::from(array.views_handle().as_host().clone().into_arrow_buffer());
     let buffers: Vec<_> = array
-        .buffers()
+        .data_buffers()
         .iter()
         .map(|buffer| buffer.as_host().clone().into_arrow_buffer())
         .collect();

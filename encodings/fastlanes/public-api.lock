@@ -150,7 +150,7 @@ pub fn vortex_fastlanes::BitPacked::cast(array: &vortex_fastlanes::BitPackedArra
 
 impl vortex_array::vtable::VTable for vortex_fastlanes::BitPacked
 
-pub type vortex_fastlanes::BitPacked::Array = vortex_fastlanes::BitPackedData
+pub type vortex_fastlanes::BitPacked::ArrayData = vortex_fastlanes::BitPackedData
 
 pub type vortex_fastlanes::BitPacked::Metadata = vortex_array::metadata::ProstMetadata<vortex_fastlanes::bitpacking::vtable::BitPackedMetadata>
 
@@ -304,7 +304,7 @@ pub fn vortex_fastlanes::Delta::cast(array: &vortex_fastlanes::DeltaArray, dtype
 
 impl vortex_array::vtable::VTable for vortex_fastlanes::Delta
 
-pub type vortex_fastlanes::Delta::Array = vortex_fastlanes::DeltaData
+pub type vortex_fastlanes::Delta::ArrayData = vortex_fastlanes::DeltaData
 
 pub type vortex_fastlanes::Delta::Metadata = vortex_array::metadata::ProstMetadata<vortex_fastlanes::delta::vtable::DeltaMetadata>
 
@@ -436,7 +436,7 @@ pub fn vortex_fastlanes::FoR::cast(array: &vortex_fastlanes::FoRArray, dtype: &v
 
 impl vortex_array::vtable::VTable for vortex_fastlanes::FoR
 
-pub type vortex_fastlanes::FoR::Array = vortex_fastlanes::FoRData
+pub type vortex_fastlanes::FoR::ArrayData = vortex_fastlanes::FoRData
 
 pub type vortex_fastlanes::FoR::Metadata = vortex_array::scalar::Scalar
 
@@ -560,7 +560,7 @@ pub fn vortex_fastlanes::RLE::cast(array: &vortex_fastlanes::RLEArray, dtype: &v
 
 impl vortex_array::vtable::VTable for vortex_fastlanes::RLE
 
-pub type vortex_fastlanes::RLE::Array = vortex_fastlanes::RLEData
+pub type vortex_fastlanes::RLE::ArrayData = vortex_fastlanes::RLEData
 
 pub type vortex_fastlanes::RLE::Metadata = vortex_array::metadata::ProstMetadata<vortex_fastlanes::rle::vtable::RLEMetadata>
 

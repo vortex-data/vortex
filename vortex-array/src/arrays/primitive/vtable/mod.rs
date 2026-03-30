@@ -46,13 +46,13 @@ use crate::vtable::ArrayId;
 vtable!(Primitive, Primitive, PrimitiveData);
 
 impl VTable for Primitive {
-    type Array = PrimitiveData;
+    type ArrayData = PrimitiveData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Primitive
     }
 
@@ -189,7 +189,7 @@ impl VTable for Primitive {
         }
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() <= 1,
             "PrimitiveArray can have at most 1 child (validity), got {}",

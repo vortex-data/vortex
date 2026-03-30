@@ -44,7 +44,7 @@ pub fn vortex_sequence::Sequence::list_contains(list: &vortex_array::array::Arra
 
 impl vortex_array::vtable::VTable for vortex_sequence::Sequence
 
-pub type vortex_sequence::Sequence::Array = vortex_sequence::SequenceData
+pub type vortex_sequence::Sequence::ArrayData = vortex_sequence::SequenceData
 
 pub type vortex_sequence::Sequence::Metadata = vortex_sequence::array::SequenceMetadata
 
@@ -90,9 +90,9 @@ pub fn vortex_sequence::Sequence::serialize(metadata: Self::Metadata) -> vortex_
 
 pub fn vortex_sequence::Sequence::stats(array: &vortex_sequence::SequenceData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_sequence::Sequence::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_sequence::Sequence::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_sequence::Sequence::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_sequence::Sequence::with_children(_array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 

@@ -19,7 +19,7 @@ impl MaskReduce for DateTimeParts {
             days,
             seconds,
             subseconds,
-        } = array.clone().into_inner().into_parts();
+        } = array.clone().into_data().into_parts();
         let masked_days = days.mask(mask.clone())?;
         Ok(Some(
             DateTimePartsData::try_new(dtype.as_nullable(), masked_days, seconds, subseconds)?

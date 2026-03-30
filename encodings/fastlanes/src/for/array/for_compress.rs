@@ -44,7 +44,7 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     // Set null values to the min value, ensuring that decompress into a value in the primitive
     // range (and stop them wrapping around).
     parray
-        .into_inner()
+        .into_data()
         .map_each_with_validity::<T, _, _>(|(v, bool)| {
             if bool {
                 v.wrapping_sub(&min)

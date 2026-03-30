@@ -38,7 +38,7 @@ pub fn vortex_zigzag::ZigZag::mask(array: &vortex_zigzag::ZigZagArray, mask: &vo
 
 impl vortex_array::vtable::VTable for vortex_zigzag::ZigZag
 
-pub type vortex_zigzag::ZigZag::Array = vortex_zigzag::ZigZagData
+pub type vortex_zigzag::ZigZag::ArrayData = vortex_zigzag::ZigZagData
 
 pub type vortex_zigzag::ZigZag::Metadata = vortex_array::metadata::EmptyMetadata
 
@@ -84,9 +84,9 @@ pub fn vortex_zigzag::ZigZag::serialize(_metadata: Self::Metadata) -> vortex_err
 
 pub fn vortex_zigzag::ZigZag::stats(array: &vortex_zigzag::ZigZagData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_zigzag::ZigZag::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_zigzag::ZigZag::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_zigzag::ZigZag::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_zigzag::ZigZag::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag
 

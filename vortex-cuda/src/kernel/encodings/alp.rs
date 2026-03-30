@@ -69,7 +69,7 @@ where
     let primitive = canonical.into_primitive();
     let PrimitiveArrayParts {
         buffer, validity, ..
-    } = primitive.into_inner().into_parts();
+    } = primitive.into_data().into_parts();
 
     let device_input = ctx.ensure_on_device(buffer).await?;
 

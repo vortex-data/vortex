@@ -49,7 +49,7 @@ impl VarBinView {
 }
 
 impl VTable for VarBinView {
-    type Array = VarBinViewData;
+    type ArrayData = VarBinViewData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
@@ -96,13 +96,13 @@ impl VTable for VarBinView {
     }
 
     fn nbuffers(array: &Array<Self>) -> usize {
-        array.buffers().len() + 1
+        array.data_buffers().len() + 1
     }
 
     fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
-        let ndata = array.buffers().len();
+        let ndata = array.data_buffers().len();
         if idx < ndata {
-            array.buffers()[idx].clone()
+            array.data_buffers()[idx].clone()
         } else if idx == ndata {
             array.views_handle().clone()
         } else {
@@ -111,7 +111,7 @@ impl VTable for VarBinView {
     }
 
     fn buffer_name(array: &Array<Self>, idx: usize) -> Option<String> {
-        let ndata = array.buffers().len();
+        let ndata = array.data_buffers().len();
         if idx < ndata {
             Some(format!("buffer_{idx}"))
         } else if idx == ndata {
@@ -209,7 +209,7 @@ impl VTable for VarBinView {
         VarBinViewData::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         match children.len() {
             0 => {}
             1 => {

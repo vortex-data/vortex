@@ -198,8 +198,6 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
             builder
                 .append_value(
                     patch_values
-                        .clone()
-                        .into_array()
                         .scalar_at(patch_idx)
                         .vortex_expect("scalar_at")
                         .as_list(),
@@ -478,7 +476,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
         }
     }
     let filled_array = builder.finish_into_decimal();
-    let array = filled_array.into_inner().patch(patches, ctx)?;
+    let array = filled_array.into_data().patch(patches, ctx)?;
     Ok(array.into_array())
 }
 
@@ -510,8 +508,8 @@ fn execute_varbin_inner<I: IntegerPType>(
 ) -> VarBinViewArray {
     assert_eq!(dtype.nullability(), validity.nullability());
 
-    let n_patch_buffers = values.buffers().len();
-    let mut buffers = values.buffers().to_vec();
+    let n_patch_buffers = values.data_buffers().len();
+    let mut buffers = values.data_buffers().to_vec();
 
     let fill = if let Some(buffer) = &fill_value {
         buffers.push(BufferHandle::new_host(buffer.clone()));

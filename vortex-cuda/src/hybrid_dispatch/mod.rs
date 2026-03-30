@@ -125,7 +125,7 @@ async fn try_partial_fuse(
         let canonical = subtree.clone().execute_cuda(ctx).await?;
         subtree_inputs.push((
             subtree.clone(),
-            canonical.into_primitive().into_inner().into_parts().buffer,
+            canonical.into_primitive().into_data().into_parts().buffer,
         ));
     }
 

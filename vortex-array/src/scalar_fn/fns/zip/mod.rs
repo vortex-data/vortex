@@ -444,7 +444,7 @@ mod tests {
             .execute::<ArrayRef>(&mut ctx)
             .unwrap();
         let zipped = zipped.as_opt::<VarBinView>().unwrap();
-        assert_eq!(zipped.nbuffers(), 2);
+        assert_eq!(zipped.data_buffers().len(), 2);
 
         let expected = arrow_zip(
             mask.into_array()

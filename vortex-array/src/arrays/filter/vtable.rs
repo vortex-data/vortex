@@ -50,7 +50,7 @@ impl Filter {
 }
 
 impl VTable for Filter {
-    type Array = FilterData;
+    type ArrayData = FilterData;
     type Metadata = FilterMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -148,7 +148,7 @@ impl VTable for Filter {
         })
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1,
             "FilterArray expects exactly 1 child, got {}",

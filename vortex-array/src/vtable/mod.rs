@@ -51,7 +51,7 @@ use crate::validity::Validity;
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
-    type Array: 'static + Send + Sync + Clone + Debug + IntoArray;
+    type ArrayData: 'static + Send + Sync + Clone + Debug + IntoArray;
     type Metadata: Debug;
 
     type OperationsVTable: OperationsVTable<Self>;
@@ -60,19 +60,19 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Returns the VTable from the array instance.
     ///
     // NOTE(ngates): this function is temporary while we migrate Arrays over to the unified vtable
-    fn vtable(array: &Self::Array) -> &Self;
+    fn vtable(array: &Self::ArrayData) -> &Self;
 
     /// Returns the ID of the array.
     fn id(&self) -> ArrayId;
 
     /// Returns the length of the array.
-    fn len(array: &Self::Array) -> usize;
+    fn len(array: &Self::ArrayData) -> usize;
 
     /// Returns the DType of the array.
-    fn dtype(array: &Self::Array) -> &DType;
+    fn dtype(array: &Self::ArrayData) -> &DType;
 
     /// Returns the stats set for the array.
-    fn stats(array: &Self::Array) -> &ArrayStats;
+    fn stats(array: &Self::ArrayData) -> &ArrayStats;
 
     /// Hashes the array contents.
     fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision);
@@ -141,10 +141,10 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array>;
+    ) -> VortexResult<Self::ArrayData>;
 
     /// Replaces the children in `array` with `children`.
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()>;
 
     /// Execute this array by returning an [`ExecutionResult`].
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;

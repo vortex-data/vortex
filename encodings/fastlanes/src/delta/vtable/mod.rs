@@ -51,7 +51,7 @@ pub struct DeltaMetadata {
 }
 
 impl VTable for Delta {
-    type Array = DeltaData;
+    type ArrayData = DeltaData;
 
     type Metadata = ProstMetadata<DeltaMetadata>;
 

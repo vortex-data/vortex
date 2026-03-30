@@ -59,13 +59,13 @@ impl Dict {
 }
 
 impl VTable for Dict {
-    type Array = DictData;
+    type ArrayData = DictData;
 
     type Metadata = ProstMetadata<DictMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Dict
     }
 
@@ -188,7 +188,7 @@ impl VTable for Dict {
         })
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 2,
             "DictArray expects exactly 2 children (codes, values), got {}",
@@ -225,7 +225,7 @@ impl VTable for Dict {
         let array = require_child!(array, array.values(), 1 => AnyCanonical);
 
         let DictArrayParts { codes, values, .. } =
-            Arc::unwrap_or_clone(array).into_inner().into_parts();
+            Arc::unwrap_or_clone(array).into_data().into_parts();
 
         let codes = codes
             .try_into::<Primitive>()

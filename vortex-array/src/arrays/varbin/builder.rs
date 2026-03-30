@@ -6,7 +6,6 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_error::vortex_panic;
 
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -103,12 +102,7 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         // this stat eagerly. This avoids an O(n) recomputation when the array is
         // deserialized and VarBinArray::validate checks sortedness.
         debug_assert!(
-            offsets
-                .clone()
-                .into_array()
-                .statistics()
-                .compute_is_sorted()
-                .unwrap_or(false),
+            offsets.statistics().compute_is_sorted().unwrap_or(false),
             "VarBinBuilder offsets must be sorted"
         );
         Primitive::stats(&offsets).set(Stat::IsSorted, Precision::Exact(true.into()));

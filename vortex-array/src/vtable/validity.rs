@@ -28,10 +28,10 @@ pub trait ValidityHelper {
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValidityHelper
 where
-    V::Array: ValidityHelper,
+    V::ArrayData: ValidityHelper,
 {
     fn validity(array: &Array<V>) -> VortexResult<Validity> {
-        Ok(array.inner().validity().clone())
+        Ok(array.data().validity().clone())
     }
 }
 
@@ -50,10 +50,10 @@ pub trait ValiditySliceHelper {
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValiditySliceHelper
 where
-    V::Array: ValiditySliceHelper,
+    V::ArrayData: ValiditySliceHelper,
 {
     fn validity(array: &Array<V>) -> VortexResult<Validity> {
-        array.inner().sliced_validity()
+        array.data().sliced_validity()
     }
 }
 
@@ -62,7 +62,7 @@ where
 pub struct ValidityVTableFromChild;
 
 pub trait ValidityChild<V: VTable> {
-    fn validity_child(array: &V::Array) -> &ArrayRef;
+    fn validity_child(array: &V::ArrayData) -> &ArrayRef;
 }
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromChild
@@ -70,7 +70,7 @@ where
     V: ValidityChild<V>,
 {
     fn validity(array: &Array<V>) -> VortexResult<Validity> {
-        V::validity_child(array.inner()).validity()
+        V::validity_child(array.data()).validity()
     }
 }
 
@@ -89,9 +89,9 @@ pub trait ValidityChildSliceHelper {
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromChildSliceHelper
 where
-    V::Array: ValidityChildSliceHelper,
+    V::ArrayData: ValidityChildSliceHelper,
 {
     fn validity(array: &Array<V>) -> VortexResult<Validity> {
-        array.inner().sliced_child_array()?.validity()
+        array.data().sliced_child_array()?.validity()
     }
 }

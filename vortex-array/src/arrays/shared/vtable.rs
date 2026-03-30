@@ -42,7 +42,7 @@ impl Shared {
 }
 
 impl VTable for Shared {
-    type Array = SharedData;
+    type ArrayData = SharedData;
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -137,7 +137,7 @@ impl VTable for Shared {
         Ok(SharedData::new(child))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_error::vortex_ensure!(
             children.len() == 1,
             "SharedArray expects exactly 1 child, got {}",

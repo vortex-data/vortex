@@ -131,7 +131,7 @@ fn mask_validity_varbinview(
     Ok(unsafe {
         VarBinViewArray::new_handle_unchecked(
             array.views_handle().clone(),
-            array.buffers().clone(),
+            array.data_buffers().clone(),
             dtype,
             new_validity,
         )

@@ -47,7 +47,7 @@ pub(crate) fn new_exporter(
         decimal_dtype,
         values_type,
         values,
-    } = array.into_inner().into_parts();
+    } = array.into_data().into_parts();
     let dest_values_type = precision_to_duckdb_storage_size(&decimal_dtype)?;
     let nullability = validity.nullability();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;

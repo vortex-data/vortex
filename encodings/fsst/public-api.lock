@@ -42,7 +42,7 @@ pub fn vortex_fsst::FSST::like(array: &vortex_fsst::FSSTArray, pattern: &vortex_
 
 impl vortex_array::vtable::VTable for vortex_fsst::FSST
 
-pub type vortex_fsst::FSST::Array = vortex_fsst::FSSTData
+pub type vortex_fsst::FSST::ArrayData = vortex_fsst::FSSTData
 
 pub type vortex_fsst::FSST::Metadata = vortex_array::metadata::ProstMetadata<vortex_fsst::FSSTMetadata>
 
@@ -90,9 +90,9 @@ pub fn vortex_fsst::FSST::serialize(metadata: Self::Metadata) -> vortex_error::V
 
 pub fn vortex_fsst::FSST::stats(array: &vortex_fsst::FSSTData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_fsst::FSST::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_fsst::FSST::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_fsst::FSST::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_fsst::FSST::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 

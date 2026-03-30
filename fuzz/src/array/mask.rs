@@ -83,7 +83,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             let new_validity = mask_validity(array.validity(), mask);
             VarBinViewArray::new_handle(
                 array.views_handle().clone(),
-                array.buffers().clone(),
+                array.data_buffers().clone(),
                 array.dtype().with_nullability(new_validity.nullability()),
                 new_validity,
             )

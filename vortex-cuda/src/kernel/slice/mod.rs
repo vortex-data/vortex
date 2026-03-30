@@ -34,7 +34,7 @@ impl CudaExecute for SliceExecutor {
             )
         })?;
 
-        let SliceArrayParts { child, range } = slice_array.into_inner().into_parts();
+        let SliceArrayParts { child, range } = slice_array.into_data().into_parts();
         let child = child.execute_cuda(ctx).await?;
 
         match child {

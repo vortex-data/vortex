@@ -31,7 +31,7 @@ pub struct Array<V: VTable> {
     vtable: V,
     pub(crate) dtype: DType,
     pub(crate) len: usize,
-    pub(crate) array: V::Array,
+    pub(crate) data: V::ArrayData,
     pub(crate) stats: ArrayStats,
 }
 
@@ -40,7 +40,7 @@ impl<V: VTable> Array<V> {
     /// Create a new typed array from encoding-specific data.
     ///
     /// Extracts dtype, len, vtable, and stats from the data via [`VTable`] methods.
-    pub fn try_from_data(data: V::Array) -> VortexResult<Self> {
+    pub fn try_from_data(data: V::ArrayData) -> VortexResult<Self> {
         let vtable = V::vtable(&data).clone();
         let dtype = V::dtype(&data).clone();
         let len = V::len(&data);
@@ -58,14 +58,14 @@ impl<V: VTable> Array<V> {
         vtable: V,
         dtype: DType,
         len: usize,
-        data: V::Array,
+        data: V::ArrayData,
         stats: ArrayStats,
     ) -> Self {
         Self {
             vtable,
             dtype,
             len,
-            array: data,
+            data,
             stats,
         }
     }
@@ -106,13 +106,13 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns a reference to the inner encoding-specific array data.
-    pub fn inner(&self) -> &V::Array {
-        &self.array
+    pub fn data(&self) -> &V::ArrayData {
+        &self.data
     }
 
     /// Consumes this array and returns the inner encoding-specific data.
-    pub fn into_inner(self) -> V::Array {
-        self.array
+    pub fn into_data(self) -> V::ArrayData {
+        self.data
     }
 
     /// Returns a cloned [`ArrayRef`] for this array.
@@ -123,7 +123,7 @@ impl<V: VTable> Array<V> {
 
 impl<V: VTable> Array<V>
 where
-    V::Array: crate::vtable::ValidityHelper,
+    V::ArrayData: crate::vtable::ValidityHelper,
 {
     /// Returns a reference to the validity of this array.
     ///
@@ -131,7 +131,7 @@ where
     /// to the concrete validity without going through `VortexResult`.
     #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> &crate::validity::Validity {
-        crate::vtable::ValidityHelper::validity(&self.array)
+        crate::vtable::ValidityHelper::validity(&self.data)
     }
 
     /// Returns the validity mask for this array.
@@ -203,7 +203,7 @@ impl<V: VTable> Array<V> {
         self.to_array_ref().nbytes()
     }
 
-    /// Returns the number of buffers in this array.
+    /// Returns the number of buffers this array would serialize.
     #[allow(clippy::same_name_method)]
     pub fn nbuffers(&self) -> usize {
         V::nbuffers(self)
@@ -216,16 +216,16 @@ impl<V: VTable> Array<V> {
 }
 
 impl<V: VTable> Deref for Array<V> {
-    type Target = V::Array;
+    type Target = V::ArrayData;
 
-    fn deref(&self) -> &V::Array {
-        &self.array
+    fn deref(&self) -> &V::ArrayData {
+        &self.data
     }
 }
 
 impl<V: VTable> DerefMut for Array<V> {
-    fn deref_mut(&mut self) -> &mut V::Array {
-        &mut self.array
+    fn deref_mut(&mut self) -> &mut V::ArrayData {
+        &mut self.data
     }
 }
 
@@ -235,7 +235,7 @@ impl<V: VTable> Clone for Array<V> {
             vtable: self.vtable.clone(),
             dtype: self.dtype.clone(),
             len: self.len,
-            array: self.array.clone(),
+            data: self.data.clone(),
             stats: self.stats.clone(),
         }
     }
@@ -247,7 +247,7 @@ impl<V: VTable> Debug for Array<V> {
             .field("encoding", &self.vtable.id())
             .field("dtype", &self.dtype)
             .field("len", &self.len)
-            .field("inner", &self.array)
+            .field("inner", &self.data)
             .finish()
     }
 }

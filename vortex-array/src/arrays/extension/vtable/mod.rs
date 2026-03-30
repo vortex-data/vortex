@@ -38,13 +38,13 @@ use crate::vtable::ValidityVTableFromChild;
 vtable!(Extension, Extension, ExtensionData);
 
 impl VTable for Extension {
-    type Array = ExtensionData;
+    type ArrayData = ExtensionData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Extension
     }
 
@@ -141,7 +141,7 @@ impl VTable for Extension {
         Ok(ExtensionData::new(ext_dtype.clone(), storage))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1,
             "ExtensionArray expects exactly 1 child (storage), got {}",

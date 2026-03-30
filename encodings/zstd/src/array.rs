@@ -85,13 +85,13 @@ type ViewLen = u32;
 vtable!(Zstd, Zstd, ZstdData);
 
 impl VTable for Zstd {
-    type Array = ZstdData;
+    type ArrayData = ZstdData;
 
     type Metadata = ProstMetadata<ZstdMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Zstd
     }
 
@@ -263,7 +263,7 @@ impl VTable for Zstd {
         ))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() <= 1,
             "ZstdArray expects at most 1 child (validity), got {}",

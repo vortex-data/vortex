@@ -55,7 +55,7 @@ pub struct VarBinMetadata {
 }
 
 impl VTable for VarBin {
-    type Array = VarBinData;
+    type ArrayData = VarBinData;
 
     type Metadata = ProstMetadata<VarBinMetadata>;
     type OperationsVTable = Self;
@@ -186,7 +186,7 @@ impl VTable for VarBin {
         VarBinData::try_new(offsets, bytes, dtype.clone(), validity)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         match children.len() {
             1 => {
                 let [offsets]: [ArrayRef; 1] = children

@@ -58,7 +58,7 @@ pub fn vortex_alp::ALP::mask(array: &vortex_alp::ALPArray, mask: &vortex_array::
 
 impl vortex_array::vtable::VTable for vortex_alp::ALP
 
-pub type vortex_alp::ALP::Array = vortex_alp::ALPData
+pub type vortex_alp::ALP::ArrayData = vortex_alp::ALPData
 
 pub type vortex_alp::ALP::Metadata = vortex_array::metadata::ProstMetadata<vortex_alp::ALPMetadata>
 
@@ -104,9 +104,9 @@ pub fn vortex_alp::ALP::serialize(metadata: Self::Metadata) -> vortex_error::Vor
 
 pub fn vortex_alp::ALP::stats(array: &vortex_alp::ALPData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_alp::ALP::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_alp::ALP::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_alp::ALP::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_alp::ALP::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_alp::ALP> for vortex_alp::ALP
 
@@ -218,7 +218,7 @@ pub fn vortex_alp::ALPRD::mask(array: &vortex_alp::ALPRDArray, mask: &vortex_arr
 
 impl vortex_array::vtable::VTable for vortex_alp::ALPRD
 
-pub type vortex_alp::ALPRD::Array = vortex_alp::ALPRDData
+pub type vortex_alp::ALPRD::ArrayData = vortex_alp::ALPRDData
 
 pub type vortex_alp::ALPRD::Metadata = vortex_array::metadata::ProstMetadata<vortex_alp::ALPRDMetadata>
 
@@ -264,9 +264,9 @@ pub fn vortex_alp::ALPRD::serialize(metadata: Self::Metadata) -> vortex_error::V
 
 pub fn vortex_alp::ALPRD::stats(array: &vortex_alp::ALPRDData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_alp::ALPRD::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_alp::ALPRD::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_alp::ALPRD::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_alp::ALPRD::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_alp::ALPRD> for vortex_alp::ALPRD
 

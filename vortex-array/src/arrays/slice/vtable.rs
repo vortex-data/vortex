@@ -50,7 +50,7 @@ impl Slice {
 }
 
 impl VTable for Slice {
-    type Array = SliceData;
+    type ArrayData = SliceData;
     type Metadata = SliceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -139,7 +139,7 @@ impl VTable for Slice {
         metadata: &SliceMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array> {
+    ) -> VortexResult<Self::ArrayData> {
         assert_eq!(len, metadata.0.len());
         let child = children.get(0, dtype, metadata.0.end)?;
         Ok(SliceData {
@@ -149,7 +149,7 @@ impl VTable for Slice {
         })
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1,
             "SliceArray expects exactly 1 child, got {}",

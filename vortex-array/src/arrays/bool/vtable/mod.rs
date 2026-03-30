@@ -52,13 +52,13 @@ pub struct BoolMetadata {
 }
 
 impl VTable for Bool {
-    type Array = BoolData;
+    type ArrayData = BoolData;
 
     type Metadata = ProstMetadata<BoolMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Bool
     }
 
@@ -175,7 +175,7 @@ impl VTable for Bool {
         BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() <= 1,
             "BoolArray can have at most 1 child (validity), got {}",

@@ -78,13 +78,13 @@ impl Array<ScalarFnVTable> {
     #[allow(clippy::same_name_method)]
     #[inline(always)]
     pub fn scalar_fn(&self) -> &ScalarFnRef {
-        self.inner().scalar_fn()
+        self.data().scalar_fn()
     }
 
     /// Get the children arrays of this scalar function array.
     #[allow(clippy::same_name_method)]
     pub fn children(&self) -> &[ArrayRef] {
-        self.inner().children()
+        self.data().children()
     }
 
     /// Create a new ScalarFnArray from a scalar function and its children.

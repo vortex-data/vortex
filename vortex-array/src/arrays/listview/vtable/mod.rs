@@ -58,7 +58,7 @@ pub struct ListViewMetadata {
 }
 
 impl VTable for ListView {
-    type Array = ListViewData;
+    type ArrayData = ListViewData;
 
     type Metadata = ProstMetadata<ListViewMetadata>;
     type OperationsVTable = Self;
@@ -212,7 +212,7 @@ impl VTable for ListView {
         ListViewData::try_new(elements, offsets, sizes, validity)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 3 || children.len() == 4,
             "ListViewArray expects 3 or 4 children, got {}",

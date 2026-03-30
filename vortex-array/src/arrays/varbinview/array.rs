@@ -382,11 +382,6 @@ impl VarBinViewData {
         }
     }
 
-    /// Number of raw string data buffers held by this array.
-    pub fn nbuffers(&self) -> usize {
-        self.buffers.len()
-    }
-
     /// Access to the primitive views buffer.
     ///
     /// Variable-sized binary view buffer contain a "view" child array, with 16-byte entries that
@@ -436,18 +431,18 @@ impl VarBinViewData {
     /// at construction time.
     #[inline]
     pub fn buffer(&self, idx: usize) -> &ByteBuffer {
-        if idx >= self.nbuffers() {
+        if idx >= self.data_buffers().len() {
             vortex_panic!(
                 "{idx} buffer index out of bounds, there are {} buffers",
-                self.nbuffers()
+                self.data_buffers().len()
             );
         }
         self.buffers[idx].as_host()
     }
 
-    /// Iterate over the underlying raw data buffers, not including the views buffer.
+    /// The underlying raw data buffers, not including the views buffer.
     #[inline]
-    pub fn buffers(&self) -> &Arc<[BufferHandle]> {
+    pub fn data_buffers(&self) -> &Arc<[BufferHandle]> {
         &self.buffers
     }
 
@@ -470,7 +465,7 @@ impl VarBinViewData {
             }
         }
 
-        builder.finish_into_varbinview().into_inner()
+        builder.finish_into_varbinview().into_data()
     }
 
     pub fn from_iter_str<T: AsRef<str>, I: IntoIterator<Item = T>>(iter: I) -> Self {
@@ -484,7 +479,7 @@ impl VarBinViewData {
             builder.append_value(item.as_ref());
         }
 
-        builder.finish_into_varbinview().into_inner()
+        builder.finish_into_varbinview().into_data()
     }
 
     pub fn from_iter_nullable_str<T: AsRef<str>, I: IntoIterator<Item = Option<T>>>(
@@ -503,7 +498,7 @@ impl VarBinViewData {
             }
         }
 
-        builder.finish_into_varbinview().into_inner()
+        builder.finish_into_varbinview().into_data()
     }
 
     pub fn from_iter_bin<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(iter: I) -> Self {
@@ -517,7 +512,7 @@ impl VarBinViewData {
             builder.append_value(item.as_ref());
         }
 
-        builder.finish_into_varbinview().into_inner()
+        builder.finish_into_varbinview().into_data()
     }
 
     pub fn from_iter_nullable_bin<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
@@ -536,7 +531,7 @@ impl VarBinViewData {
             }
         }
 
-        builder.finish_into_varbinview().into_inner()
+        builder.finish_into_varbinview().into_data()
     }
 }
 

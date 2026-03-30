@@ -49,13 +49,13 @@ use crate::alp::rules::RULES;
 vtable!(ALP, ALP, ALPData);
 
 impl VTable for ALP {
-    type Array = ALPData;
+    type ArrayData = ALPData;
 
     type Metadata = ProstMetadata<ALPMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &ALP
     }
 
@@ -195,7 +195,7 @@ impl VTable for ALP {
         )
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         // Children: encoded, patches (if present): indices, values, chunk_offsets (optional)
         let patches_info = array
             .patches

@@ -91,7 +91,7 @@ impl<'a> Compressor for FloatCompressor<'a> {
     type SchemeType = dyn FloatScheme;
     type StatsType = FloatStats;
 
-    fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::Array) -> Self::StatsType {
+    fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::ArrayData) -> Self::StatsType {
         if self
             .btr_blocks_compressor
             .float_schemes()
@@ -429,7 +429,7 @@ impl Scheme for DictScheme {
     ) -> VortexResult<ArrayRef> {
         let dict = dictionary_encode(stats);
         let has_all_values_referenced = dict.has_all_values_referenced();
-        let DictArrayParts { codes, values, .. } = dict.into_inner().into_parts();
+        let DictArrayParts { codes, values, .. } = dict.into_data().into_parts();
 
         let compressed_codes = compressor.compress_canonical(
             Canonical::Primitive(codes.to_primitive()),

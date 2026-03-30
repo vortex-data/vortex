@@ -35,7 +35,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
         };
 
         let decimal_dtype = *array.decimal_dtype();
-        let DecimalBytePartsArrayParts { msp, .. } = array.into_inner().into_parts();
+        let DecimalBytePartsArrayParts { msp, .. } = array.into_data().into_parts();
         let PrimitiveArrayParts {
             buffer,
             ptype,
@@ -45,7 +45,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
             .execute_cuda(ctx)
             .await?
             .into_primitive()
-            .into_inner()
+            .into_data()
             .into_parts();
 
         // SAFETY: The primitive array's buffer is already validated with correct type.

@@ -56,7 +56,7 @@ pub struct ScalarFnVTable {
 }
 
 impl VTable for ScalarFnVTable {
-    type Array = ScalarFnData;
+    type ArrayData = ScalarFnData;
     type Metadata = ScalarFnMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -166,7 +166,7 @@ impl VTable for ScalarFnVTable {
         metadata: &ScalarFnMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array> {
+    ) -> VortexResult<Self::ArrayData> {
         let children: Vec<_> = metadata
             .child_dtypes
             .iter()
@@ -194,7 +194,7 @@ impl VTable for ScalarFnVTable {
         })
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == array.children.len(),
             "ScalarFnArray expects {} children, got {}",

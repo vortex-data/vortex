@@ -1300,14 +1300,14 @@ mod tests {
         // Verify metadata - should be VarBinViewArray with correct buffer count and dtype
         let varbin_view_array = vortex_array.as_::<VarBinView>();
         assert_eq!(
-            varbin_view_array.buffers().len(),
+            varbin_view_array.data_buffers().len(),
             arrow_array.data_buffers().len()
         );
         assert_eq!(varbin_view_array.dtype(), &DType::Utf8(true.into()));
 
         let varbin_view_array_non_null = vortex_array_non_null.as_::<VarBinView>();
         assert_eq!(
-            varbin_view_array_non_null.buffers().len(),
+            varbin_view_array_non_null.data_buffers().len(),
             arrow_array_non_null.data_buffers().len()
         );
         assert_eq!(
@@ -1340,14 +1340,14 @@ mod tests {
         // Verify metadata - should be VarBinViewArray with correct buffer count and dtype
         let varbin_view_array = vortex_array.as_::<VarBinView>();
         assert_eq!(
-            varbin_view_array.buffers().len(),
+            varbin_view_array.data_buffers().len(),
             arrow_array.data_buffers().len()
         );
         assert_eq!(varbin_view_array.dtype(), &DType::Binary(true.into()));
 
         let varbin_view_array_non_null = vortex_array_non_null.as_::<VarBinView>();
         assert_eq!(
-            varbin_view_array_non_null.buffers().len(),
+            varbin_view_array_non_null.data_buffers().len(),
             arrow_array_non_null.data_buffers().len()
         );
         assert_eq!(

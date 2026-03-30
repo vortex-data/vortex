@@ -65,7 +65,7 @@ pub struct BitPackedMetadata {
 }
 
 impl VTable for BitPacked {
-    type Array = BitPackedData;
+    type ArrayData = BitPackedData;
 
     type Metadata = ProstMetadata<BitPackedMetadata>;
 

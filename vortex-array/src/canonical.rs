@@ -566,7 +566,7 @@ impl Executable for CanonicalValidity {
                     ptype,
                     buffer,
                     validity,
-                } = p.into_inner().into_parts();
+                } = p.into_data().into_parts();
                 Ok(CanonicalValidity(Canonical::Primitive(unsafe {
                     PrimitiveArray::new_unchecked_from_handle(buffer, ptype, validity.execute(ctx)?)
                 })))
@@ -577,7 +577,7 @@ impl Executable for CanonicalValidity {
                     values,
                     values_type,
                     validity,
-                } = d.into_inner().into_parts();
+                } = d.into_data().into_parts();
                 Ok(CanonicalValidity(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(
                         values,
@@ -593,7 +593,7 @@ impl Executable for CanonicalValidity {
                     buffers,
                     views,
                     validity,
-                } = vbv.into_inner().into_parts();
+                } = vbv.into_data().into_parts();
                 Ok(CanonicalValidity(Canonical::VarBinView(unsafe {
                     VarBinViewArray::new_handle_unchecked(
                         views,
@@ -611,7 +611,7 @@ impl Executable for CanonicalValidity {
                     sizes,
                     validity,
                     ..
-                } = l.into_inner().into_parts();
+                } = l.into_data().into_parts();
                 Ok(CanonicalValidity(Canonical::List(unsafe {
                     ListViewArray::new_unchecked(elements, offsets, sizes, validity.execute(ctx)?)
                         .with_zero_copy_to_list(zctl)
@@ -620,7 +620,7 @@ impl Executable for CanonicalValidity {
             Canonical::FixedSizeList(fsl) => {
                 let list_size = fsl.list_size();
                 let len = fsl.len();
-                let (elements, validity, _) = fsl.into_inner().into_parts();
+                let (elements, validity, _) = fsl.into_data().into_parts();
                 Ok(CanonicalValidity(Canonical::FixedSizeList(
                     FixedSizeListArray::new(elements, list_size, validity.execute(ctx)?, len),
                 )))
@@ -686,7 +686,7 @@ impl Executable for RecursiveCanonical {
                     ptype,
                     buffer,
                     validity,
-                } = p.into_inner().into_parts();
+                } = p.into_data().into_parts();
                 Ok(RecursiveCanonical(Canonical::Primitive(unsafe {
                     PrimitiveArray::new_unchecked_from_handle(buffer, ptype, validity.execute(ctx)?)
                 })))
@@ -697,7 +697,7 @@ impl Executable for RecursiveCanonical {
                     values,
                     values_type,
                     validity,
-                } = d.into_inner().into_parts();
+                } = d.into_data().into_parts();
                 Ok(RecursiveCanonical(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(
                         values,
@@ -713,7 +713,7 @@ impl Executable for RecursiveCanonical {
                     buffers,
                     views,
                     validity,
-                } = vbv.into_inner().into_parts();
+                } = vbv.into_data().into_parts();
                 Ok(RecursiveCanonical(Canonical::VarBinView(unsafe {
                     VarBinViewArray::new_handle_unchecked(
                         views,
@@ -731,7 +731,7 @@ impl Executable for RecursiveCanonical {
                     sizes,
                     validity,
                     ..
-                } = l.into_inner().into_parts();
+                } = l.into_data().into_parts();
                 Ok(RecursiveCanonical(Canonical::List(unsafe {
                     ListViewArray::new_unchecked(
                         elements.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
@@ -745,7 +745,7 @@ impl Executable for RecursiveCanonical {
             Canonical::FixedSizeList(fsl) => {
                 let list_size = fsl.list_size();
                 let len = fsl.len();
-                let (elements, validity, _) = fsl.into_inner().into_parts();
+                let (elements, validity, _) = fsl.into_data().into_parts();
                 Ok(RecursiveCanonical(Canonical::FixedSizeList(
                     FixedSizeListArray::new(
                         elements.execute::<RecursiveCanonical>(ctx)?.0.into_array(),

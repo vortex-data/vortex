@@ -59,7 +59,7 @@ pub struct RLEMetadata {
 }
 
 impl VTable for RLE {
-    type Array = RLEData;
+    type ArrayData = RLEData;
 
     type Metadata = ProstMetadata<RLEMetadata>;
 

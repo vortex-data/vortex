@@ -73,13 +73,13 @@ impl DateTimePartsMetadata {
 }
 
 impl VTable for DateTimeParts {
-    type Array = DateTimePartsData;
+    type ArrayData = DateTimePartsData;
 
     type Metadata = ProstMetadata<DateTimePartsMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &DateTimeParts
     }
 
@@ -204,7 +204,7 @@ impl VTable for DateTimeParts {
         DateTimePartsData::try_new(dtype.clone(), days, seconds, subseconds)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 3,
             "DateTimePartsArray expects exactly 3 children (days, seconds, subseconds), got {}",

@@ -15,7 +15,7 @@ use crate::RunEndData;
 
 impl FillNullReduce for RunEnd {
     fn fill_null(array: &RunEndArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
-        let RunEndArrayParts { values, ends } = array.clone().into_inner().into_parts();
+        let RunEndArrayParts { values, ends } = array.clone().into_data().into_parts();
         let new_values = values.fill_null(fill_value.clone())?;
         // SAFETY: modifying values only, does not affect ends
         Ok(Some(

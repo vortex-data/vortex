@@ -255,13 +255,13 @@ impl SequenceData {
 }
 
 impl VTable for Sequence {
-    type Array = SequenceData;
+    type ArrayData = SequenceData;
 
     type Metadata = SequenceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Sequence
     }
 
@@ -391,7 +391,7 @@ impl VTable for Sequence {
         )
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(_array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.is_empty(),
             "SequenceArray expects 0 children, got {}",

@@ -38,9 +38,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
         Validity::AllInvalid => {
             // We can trivially return an all-null REE array
             let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable);
-            ends.clone()
-                .into_array()
-                .statistics()
+            ends.statistics()
                 .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
             return (
                 ends,
@@ -74,9 +72,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
 
     let ends = ends.narrow().vortex_expect("Ends must succeed downcasting");
 
-    ends.clone()
-        .into_array()
-        .statistics()
+    ends.statistics()
         .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
 
     (ends, values)
@@ -288,7 +284,7 @@ pub fn runend_decode_varbinview(
         )
     });
 
-    let parts = values.into_inner().into_parts();
+    let parts = values.into_data().into_parts();
     let view_handle = BufferHandle::new_host(decoded_views.into_byte_buffer());
 
     // SAFETY: we are expanding views from a valid VarBinViewArray with the same

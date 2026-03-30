@@ -217,13 +217,13 @@ impl Array<Bool> {
 
     /// Returns the underlying [`BitBuffer`] of the array, consuming self.
     pub fn into_bit_buffer(self) -> BitBuffer {
-        self.into_inner().into_bit_buffer()
+        self.into_data().into_bit_buffer()
     }
 
     /// Splits into owned parts, consuming self.
     #[inline]
     pub fn into_parts(self) -> BoolArrayParts {
-        self.into_inner().into_parts()
+        self.into_data().into_parts()
     }
 }
 

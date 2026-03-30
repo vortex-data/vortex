@@ -39,7 +39,7 @@ impl Variant {
 }
 
 impl VTable for Variant {
-    type Array = VariantData;
+    type ArrayData = VariantData;
 
     type Metadata = EmptyMetadata;
 
@@ -47,7 +47,7 @@ impl VTable for Variant {
 
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Variant
     }
 
@@ -55,15 +55,15 @@ impl VTable for Variant {
         Self::ID
     }
 
-    fn len(array: &Self::Array) -> usize {
+    fn len(array: &Self::ArrayData) -> usize {
         array.child.len()
     }
 
-    fn dtype(array: &Self::Array) -> &DType {
+    fn dtype(array: &Self::ArrayData) -> &DType {
         array.child.dtype()
     }
 
-    fn stats(array: &Self::Array) -> &ArrayStats {
+    fn stats(array: &Self::ArrayData) -> &ArrayStats {
         &array.stats_set
     }
 
@@ -129,7 +129,7 @@ impl VTable for Variant {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array> {
+    ) -> VortexResult<Self::ArrayData> {
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         vortex_ensure!(
             children.len() == 1,
@@ -141,7 +141,7 @@ impl VTable for Variant {
         Ok(VariantData::new(child))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
         vortex_ensure!(
             children.len() == 1,
             "VariantArray expects exactly 1 child, got {}",
