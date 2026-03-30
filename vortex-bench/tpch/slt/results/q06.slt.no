@@ -1,4 +1,4 @@
-query R rowsort
+query T rowsort
 select
     sum(l_extendedprice * l_discount) as revenue
 from

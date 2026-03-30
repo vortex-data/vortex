@@ -1,4 +1,4 @@
-query TII rowsort
+query TTT rowsort
 select
     l_shipmode,
     sum(case

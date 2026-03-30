@@ -1,4 +1,4 @@
-query TIR rowsort
+query TTT rowsort
 select
     cntrycode,
     count(*) as numcust,
@@ -39,7 +39,7 @@ order by
 ----
 13 888 6737713.99
 17 861 6460573.72
-18 964 7236687.4
+18 964 7236687.40
 23 892 6701457.95
 29 948 7158866.63
 30 909 6808436.13

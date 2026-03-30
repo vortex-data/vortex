@@ -269,12 +269,23 @@ impl SqlBenchmarkRunner {
 
     /// Get the path for a `.slt.no` reference result file.
     ///
-    /// The path includes an engine-specific subdirectory so each engine can have
-    /// its own expected results: `{expected_results_dir}/{engine}/q{idx:02}.slt.no`.
+    /// First checks the engine-specific subdirectory
+    /// (`{expected_results_dir}/{engine}/q{idx:02}.slt.no`), then falls back to
+    /// a shared file in the root (`{expected_results_dir}/q{idx:02}.slt.no`).
     fn reference_path(&self, query_idx: usize) -> Option<PathBuf> {
         self.expected_results_dir.as_ref().map(|dir| {
-            dir.join(self.engine.to_string())
-                .join(format!("q{query_idx:02}.slt.no"))
+            let engine_path = dir
+                .join(self.engine.to_string())
+                .join(format!("q{query_idx:02}.slt.no"));
+            if engine_path.exists() {
+                return engine_path;
+            }
+            let shared_path = dir.join(format!("q{query_idx:02}.slt.no"));
+            if shared_path.exists() {
+                return shared_path;
+            }
+            // Return the engine-specific path (will be created or flagged as missing).
+            engine_path
         })
     }
 

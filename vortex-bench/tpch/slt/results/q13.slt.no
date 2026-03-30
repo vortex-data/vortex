@@ -1,4 +1,4 @@
-query II rowsort
+query TT rowsort
 select
     c_count,
     count(*) as custdist

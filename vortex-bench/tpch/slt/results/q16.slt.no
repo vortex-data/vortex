@@ -1,4 +1,4 @@
-query TTII rowsort
+query TTTT rowsort
 select
     p_brand,
     p_type,

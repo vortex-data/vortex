@@ -1,4 +1,4 @@
-query TTIR rowsort
+query TTTT rowsort
 select
     supp_nation,
     cust_nation,

@@ -1,4 +1,4 @@
-query ITTTR rowsort
+query TTTTT rowsort
 WITH revenue AS (select l_suppkey                               as supplier_no,
                         sum(l_extendedprice * (1 - l_discount)) as total_revenue
                  from lineitem

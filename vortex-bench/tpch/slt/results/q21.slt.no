@@ -1,4 +1,4 @@
-query TI rowsort
+query TT rowsort
 select
     s_name,
     count(*) as numwait
