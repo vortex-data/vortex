@@ -122,6 +122,8 @@ impl vortex_fastlanes::BitPacked
 
 pub const vortex_fastlanes::BitPacked::ID: vortex_array::vtable::dyn_::ArrayId
 
+pub fn vortex_fastlanes::BitPacked::encode(array: &vortex_array::array::ArrayRef, bit_width: u8) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
+
 impl core::clone::Clone for vortex_fastlanes::BitPacked
 
 pub fn vortex_fastlanes::BitPacked::clone(&self) -> vortex_fastlanes::BitPacked

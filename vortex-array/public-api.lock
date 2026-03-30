@@ -20434,7 +20434,7 @@ impl<V: vortex_array::vtable::VTable> vortex_array::vtable::Array<V> where <V as
 
 pub fn vortex_array::vtable::Array<V>::validity(&self) -> &vortex_array::validity::Validity
 
-pub fn vortex_array::vtable::Array<V>::validity_mask(&self) -> vortex_mask::Mask
+pub fn vortex_array::vtable::Array<V>::validity_mask(&self) -> vortex_error::VortexResult<vortex_mask::Mask>
 
 impl<V: vortex_array::vtable::VTable> vortex_array::vtable::Array<V>
 

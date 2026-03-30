@@ -22,6 +22,10 @@ impl vortex_runend::RunEnd
 
 pub const vortex_runend::RunEnd::ID: vortex_array::vtable::dyn_::ArrayId
 
+pub fn vortex_runend::RunEnd::encode(array: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
+
+pub fn vortex_runend::RunEnd::new(ends: vortex_array::array::ArrayRef, values: vortex_array::array::ArrayRef) -> vortex_runend::RunEndArray
+
 pub unsafe fn vortex_runend::RunEnd::new_unchecked(ends: vortex_array::array::ArrayRef, values: vortex_array::array::ArrayRef, offset: usize, length: usize) -> vortex_runend::RunEndArray
 
 pub fn vortex_runend::RunEnd::try_new(ends: vortex_array::array::ArrayRef, values: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
