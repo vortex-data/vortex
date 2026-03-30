@@ -379,8 +379,6 @@ unsafe fn collect_set_indices_avx512(
     len: usize,
     count: usize,
 ) -> Vec<u32> {
-    use std::arch::x86_64::*;
-
     let mut out: Vec<u32> = Vec::with_capacity(count);
     let mut dst = out.as_mut_ptr();
 
@@ -390,17 +388,69 @@ unsafe fn collect_set_indices_avx512(
     let mut ptr = bytes.as_ptr();
     let end = unsafe { bytes.as_ptr().add(bytes.len()) };
 
+    // Density-adaptive BLSR threshold for per-word drain dispatch.
+    // Average popcount per word determines the crossover between BLSR
+    // (cheap for few bits, serial dependency) and VPCOMPRESSD (fixed cost,
+    // branchless). We select between a few compile-time-constant thresholds
+    // so the compiler can optimize each path independently.
+    let n_words = len / 64;
+    let avg_pc_ceil = if n_words > 0 {
+        count.div_ceil(n_words)
+    } else {
+        count
+    };
+
+    // Dispatch to a monomorphized scan loop with compile-time threshold.
+    // Each threshold is a separate function so the compiler can fully
+    // optimize the BLSR loop and branch for that specific cutoff.
+    if avg_pc_ceil <= 2 {
+        dst = unsafe { avx512_scan_loop::<2>(&mut ptr, end, start_bit, len, dst) };
+    } else if avg_pc_ceil <= 4 {
+        dst = unsafe { avx512_scan_loop::<4>(&mut ptr, end, start_bit, len, dst) };
+    } else if avg_pc_ceil <= 6 {
+        dst = unsafe { avx512_scan_loop::<6>(&mut ptr, end, start_bit, len, dst) };
+    } else {
+        dst = unsafe { avx512_scan_loop::<8>(&mut ptr, end, start_bit, len, dst) };
+    }
+
+    let written = unsafe { dst.offset_from(out.as_ptr()) } as usize;
+    debug_assert_eq!(written, count);
+    unsafe { out.set_len(written) };
+
+    out
+}
+
+/// Inner scan loop monomorphized over `THRESHOLD`.
+///
+/// Processes the entire bitmap (first word + 8-word groups + tail + final
+/// partial word) using a compile-time-constant BLSR threshold. This allows
+/// the compiler to fully optimize each instantiation.
+///
+/// # Safety
+/// - `*ptr_ref` must point into a valid byte slice ending at `end`.
+/// - `dst` must have room for all set bits in the bitmap.
+/// - `len` is the total number of bits to process.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,bmi1,bmi2,popcnt")]
+#[allow(clippy::cast_possible_truncation)]
+unsafe fn avx512_scan_loop<const THRESHOLD: u32>(
+    ptr_ref: &mut *const u8,
+    end: *const u8,
+    start_bit: usize,
+    len: usize,
+    mut dst: *mut u32,
+) -> *mut u32 {
+    use std::arch::x86_64::*;
+
+    let mut ptr = *ptr_ref;
+
     let (first_word, first_bits) = unsafe { load_first_word(&mut ptr, end, start_bit, len) };
-    dst = unsafe { drain_word_hybrid(first_word, 0, dst) };
+    dst = unsafe { drain_word_static::<THRESHOLD>(first_word, 0, dst) };
     let mut base = first_bits as u32;
     let mut remaining = len - first_bits;
 
     let avail_bytes = unsafe { end.offset_from(ptr) } as usize;
 
-    // Main loop: 8 words (512 bits) at a time.
-    // _mm512_test_epi64_mask checks all 8 qwords in one instruction.
-    // At low density this skips zero words cheaply. At high density,
-    // per-word hybrid picks BLSR or VPCOMPRESSD based on popcount.
     let n_groups = (remaining / 512).min(avail_bytes / 64);
     for _ in 0..n_groups {
         let chunk = unsafe { _mm512_loadu_si512(ptr as *const __m512i) };
@@ -411,7 +461,7 @@ unsafe fn collect_set_indices_avx512(
             while m != 0 {
                 let i = m.trailing_zeros() as usize;
                 let word = unsafe { *(ptr as *const u64).add(i) };
-                dst = unsafe { drain_word_hybrid(word, base + (i as u32 * 64), dst) };
+                dst = unsafe { drain_word_static::<THRESHOLD>(word, base + (i as u32 * 64), dst) };
                 m &= m - 1;
             }
         }
@@ -421,18 +471,16 @@ unsafe fn collect_set_indices_avx512(
     }
     remaining -= n_groups * 512;
 
-    // Tail: remaining full words that don't fill an 8-word group.
     let avail_bytes_tail = unsafe { end.offset_from(ptr) } as usize;
     let n_tail_words = (remaining / 64).min(avail_bytes_tail / 8);
     for _ in 0..n_tail_words {
         let word = unsafe { read_u64_le(ptr) };
-        dst = unsafe { drain_word_hybrid(word, base, dst) };
+        dst = unsafe { drain_word_static::<THRESHOLD>(word, base, dst) };
         ptr = unsafe { ptr.add(8) };
         base += 64;
     }
     remaining -= n_tail_words * 64;
 
-    // Final partial word.
     if remaining > 0 {
         let avail = unsafe { end.offset_from(ptr) } as usize;
         let word = unsafe { load_partial_u64(ptr, avail) };
@@ -441,25 +489,29 @@ unsafe fn collect_set_indices_avx512(
         } else {
             word
         };
-        dst = unsafe { drain_word_hybrid(masked, base, dst) };
+        dst = unsafe { drain_word_static::<THRESHOLD>(masked, base, dst) };
     }
 
-    let written = unsafe { dst.offset_from(out.as_ptr()) } as usize;
-    debug_assert_eq!(written, count);
-    unsafe { out.set_len(written) };
-
-    out
+    *ptr_ref = ptr;
+    dst
 }
 
-/// Drain set bits using per-word popcount dispatch: counted BLSR for sparse
-/// words (≤8 set bits), VPCOMPRESSD for dense words (>8 set bits).
+/// Drain set bits with a compile-time-constant BLSR threshold.
+///
+/// Words with `pc <= THRESHOLD` use a counted BLSR loop; denser words
+/// use VPCOMPRESSD. The compile-time constant allows the compiler to
+/// optimize the branch and potentially unroll the loop.
 ///
 /// # Safety
 /// Caller must ensure `dst` has room for `word.count_ones()` elements.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,bmi1,bmi2,popcnt")]
 #[inline]
-unsafe fn drain_word_hybrid(word: u64, base: u32, mut dst: *mut u32) -> *mut u32 {
+unsafe fn drain_word_static<const THRESHOLD: u32>(
+    word: u64,
+    base: u32,
+    mut dst: *mut u32,
+) -> *mut u32 {
     use std::arch::x86_64::_blsr_u64;
 
     if word == 0 {
@@ -468,10 +520,7 @@ unsafe fn drain_word_hybrid(word: u64, base: u32, mut dst: *mut u32) -> *mut u32
 
     let pc = word.count_ones();
 
-    if pc <= 8 {
-        // Counted loop: runs exactly `pc` iterations.
-        // The counter-based exit avoids branch misprediction from
-        // testing `w != 0` which varies word-to-word on random data.
+    if pc <= THRESHOLD {
         let mut w = word;
         for _ in 0..pc {
             unsafe {
