@@ -65,7 +65,7 @@ impl ValidityChild<Patched> for Patched {
 
 #[derive(Clone, prost::Message)]
 pub struct PatchedMetadata {
-    /// Offset within the first chunk of `inner` where data begins.
+    /// An offset into the first chunk's patches that should be considered in-view.
     ///
     /// This may become nonzero after slicing.
     #[prost(uint32, tag = "1")]

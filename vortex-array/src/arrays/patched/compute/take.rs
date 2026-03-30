@@ -89,7 +89,7 @@ fn take_map<I: IntegerPType, V: NativePType>(
 ) {
     let n_chunks = (offset + len).div_ceil(1024);
     // Build a hashmap of patch_index -> values.
-    let mut index_map = FxHashMap::with_capacity_and_hasher(indices.len(), Default::default());
+    let mut index_map = FxHashMap::with_capacity_and_hasher(patch_index.len(), Default::default());
     for chunk in 0..n_chunks {
         for lane in 0..n_lanes {
             let lane_start = lane_offsets[chunk * n_lanes + lane];
