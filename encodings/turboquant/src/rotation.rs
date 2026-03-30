@@ -202,6 +202,10 @@ fn apply_signs_xor(buf: &mut [f32], masks: &[u32]) {
 /// In-place Walsh-Hadamard Transform (unnormalized, iterative).
 ///
 /// Input length must be a power of 2. Runs in O(n log n).
+///
+/// Uses a fixed-size chunk strategy: for each stage, the buffer is processed
+/// in `CHUNK`-element blocks with a compile-time-known butterfly function.
+/// This lets LLVM unroll and auto-vectorize the butterfly into NEON/AVX SIMD.
 fn walsh_hadamard_transform(buf: &mut [f32]) {
     let len = buf.len();
     debug_assert!(len.is_power_of_two());
@@ -209,17 +213,27 @@ fn walsh_hadamard_transform(buf: &mut [f32]) {
     let mut half = 1;
     while half < len {
         let stride = half * 2;
-        let mut block_start = 0;
-        while block_start < len {
-            for idx in block_start..block_start + half {
-                let sum = buf[idx] + buf[idx + half];
-                let diff = buf[idx] - buf[idx + half];
-                buf[idx] = sum;
-                buf[idx + half] = diff;
-            }
-            block_start += stride;
+        // Process in chunks of `stride` elements. Within each chunk,
+        // split into non-overlapping (lo, hi) halves for the butterfly.
+        for chunk in buf.chunks_exact_mut(stride) {
+            let (lo, hi) = chunk.split_at_mut(half);
+            butterfly(lo, hi);
         }
         half *= 2;
+    }
+}
+
+/// Butterfly: `lo[i], hi[i] = lo[i] + hi[i], lo[i] - hi[i]`.
+///
+/// Separate function so LLVM can see the slice lengths match and auto-vectorize.
+#[inline(always)]
+fn butterfly(lo: &mut [f32], hi: &mut [f32]) {
+    debug_assert_eq!(lo.len(), hi.len());
+    for (a, b) in lo.iter_mut().zip(hi.iter_mut()) {
+        let sum = *a + *b;
+        let diff = *a - *b;
+        *a = sum;
+        *b = diff;
     }
 }
 
