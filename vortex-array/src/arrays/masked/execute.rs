@@ -6,20 +6,22 @@
 use std::ops::BitAnd;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::Canonical;
 use crate::IntoArray;
+use crate::ArrayVisitor;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
+use crate::arrays::MaskedArray;
 use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::VariantArray;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;
@@ -54,8 +56,8 @@ pub fn mask_validity_canonical(
         Canonical::Extension(a) => {
             Canonical::Extension(mask_validity_extension(a, validity_mask, ctx)?)
         }
-        Canonical::Variant(_) => {
-            vortex_bail!("Variant arrays don't masking validity")
+        Canonical::Variant(a) => {
+            Canonical::Variant(mask_validity_variant(a, validity_mask, ctx)?)
         }
     })
 }
@@ -199,4 +201,36 @@ fn mask_validity_extension(
             .with_nullability(masked_storage.dtype().nullability()),
         masked_storage,
     ))
+}
+
+fn mask_validity_variant(
+    array: VariantArray,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<VariantArray> {
+    let child = array.child().clone();
+    let len = child.len();
+    let child_validity = child.validity()?;
+
+    match child_validity {
+        Validity::NonNullable | Validity::AllValid => {
+            // Child has no nulls — wrap in MaskedArray to apply the mask.
+            let new_validity = Validity::from_mask(mask.clone(), Nullability::Nullable);
+            let masked_child = MaskedArray::try_new(child, new_validity)?;
+            Ok(VariantArray::new(masked_child.into_array()))
+        }
+        Validity::AllInvalid => {
+            // Already all-null, ANDing with any mask is still all-null.
+            Ok(array)
+        }
+        Validity::Array(_) => {
+            // Child has an array-backed validity stored as its first child.
+            // Combine with the mask and replace that child via with_children.
+            let combined = combine_validity(&child_validity, mask, len, ctx)?;
+            let mut children = child.children();
+            children[0] = combined.to_array(len);
+            let new_child = child.with_children(children)?;
+            Ok(VariantArray::new(new_child))
+        }
+    }
 }

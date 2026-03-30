@@ -5,7 +5,6 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -27,6 +26,7 @@ use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::VariantArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::TakeReduce;
 
@@ -51,8 +51,12 @@ pub fn take_canonical(
         }
         Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes, ctx)),
-        Canonical::Variant(_) => {
-            vortex_bail!("Variant arrays don't support Take")
+        Canonical::Variant(a) => {
+            let taken_child = a
+                .child()
+                .take(codes.clone().into_array())
+                .vortex_expect("VariantArray child could not be taken");
+            Canonical::Variant(VariantArray::new(taken_child))
         }
     })
 }
