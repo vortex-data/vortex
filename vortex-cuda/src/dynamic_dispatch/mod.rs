@@ -68,10 +68,15 @@ fn as_bytes<T: Sized>(val: &T) -> &[u8] {
 /// serialized into the packed plan byte buffer by [`CudaDispatchPlan::new`].
 #[derive(Clone)]
 pub struct MaterializedStage {
+    /// Device pointer to the input buffer for this stage.
     pub input_ptr: u64,
+    /// Byte offset into shared memory where this stage's data is stored.
     pub smem_offset: u32,
+    /// Number of elements in this stage.
     pub len: u32,
+    /// The source operation that produces the initial values (e.g. load, bitunpack, sequence).
     pub source: SourceOp,
+    /// Chain of element-wise scalar operations applied after the source (e.g. frame-of-reference, zigzag, ALP).
     pub scalar_ops: Vec<ScalarOp>,
 }
 
