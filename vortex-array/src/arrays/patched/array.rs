@@ -231,10 +231,11 @@ impl PatchedArray {
         let indices = self.indices.clone();
         let values = self.values.clone();
 
+        // Find the new start/end for slicing range.
         let begin = (chunks.start * 1024).max(self.offset);
         let end = (chunks.end * 1024).min(self.len);
 
-        let offset = begin % 1024;
+        let offset = if chunks.start == 0 { self.offset } else { 0 };
 
         let inner = self.inner.slice(begin..end)?;
 

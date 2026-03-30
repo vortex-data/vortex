@@ -3344,11 +3344,11 @@ pub fn vortex_array::arrays::patched::Patched::array_eq(array: &Self::Array, oth
 
 pub fn vortex_array::arrays::patched::Patched::array_hash<H: core::hash::Hasher>(array: &Self::Array, state: &mut H, precision: vortex_array::Precision)
 
-pub fn vortex_array::arrays::patched::Patched::buffer(array: &Self::Array, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_array::arrays::patched::Patched::buffer(_array: &Self::Array, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::patched::Patched::buffer_name(_array: &Self::Array, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::patched::PatchedArray>
+pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::patched::PatchedArray>
 
 pub fn vortex_array::arrays::patched::Patched::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
@@ -7284,11 +7284,11 @@ pub fn vortex_array::arrays::patched::Patched::array_eq(array: &Self::Array, oth
 
 pub fn vortex_array::arrays::patched::Patched::array_hash<H: core::hash::Hasher>(array: &Self::Array, state: &mut H, precision: vortex_array::Precision)
 
-pub fn vortex_array::arrays::patched::Patched::buffer(array: &Self::Array, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_array::arrays::patched::Patched::buffer(_array: &Self::Array, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::patched::Patched::buffer_name(_array: &Self::Array, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::patched::PatchedArray>
+pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::patched::PatchedArray>
 
 pub fn vortex_array::arrays::patched::Patched::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
@@ -22534,11 +22534,11 @@ pub fn vortex_array::arrays::patched::Patched::array_eq(array: &Self::Array, oth
 
 pub fn vortex_array::arrays::patched::Patched::array_hash<H: core::hash::Hasher>(array: &Self::Array, state: &mut H, precision: vortex_array::Precision)
 
-pub fn vortex_array::arrays::patched::Patched::buffer(array: &Self::Array, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_array::arrays::patched::Patched::buffer(_array: &Self::Array, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::patched::Patched::buffer_name(_array: &Self::Array, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::patched::PatchedArray>
+pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::patched::PatchedArray>
 
 pub fn vortex_array::arrays::patched::Patched::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
@@ -23974,11 +23974,11 @@ pub fn vortex_array::arrays::patched::Patched::array_eq(array: &Self::Array, oth
 
 pub fn vortex_array::arrays::patched::Patched::array_hash<H: core::hash::Hasher>(array: &Self::Array, state: &mut H, precision: vortex_array::Precision)
 
-pub fn vortex_array::arrays::patched::Patched::buffer(array: &Self::Array, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_array::arrays::patched::Patched::buffer(_array: &Self::Array, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::patched::Patched::buffer_name(_array: &Self::Array, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::patched::PatchedArray>
+pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::patched::PatchedArray>
 
 pub fn vortex_array::arrays::patched::Patched::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 

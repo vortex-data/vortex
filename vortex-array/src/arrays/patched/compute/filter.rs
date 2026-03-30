@@ -28,7 +28,11 @@ impl FilterReduce for Patched {
                 let (first, _) = slices[0];
                 let (_, last) = slices[slices.len() - 1];
 
-                (first / 1024, last.div_ceil(1024))
+                // Convert mask indices to absolute positions by adding offset
+                (
+                    (array.offset + first) / 1024,
+                    (array.offset + last).div_ceil(1024),
+                )
             }
         };
 
@@ -41,9 +45,13 @@ impl FilterReduce for Patched {
 
         let sliced = array.slice_chunks(chunk_start..chunk_stop)?;
 
-        let slice_start = chunk_start * 1024;
-        let slice_end = (chunk_stop * 1024).min(array.len());
-        let remainder = mask.slice(slice_start..slice_end);
+        // Slice the mask according to if the chunk is sliced.
+        // Convert chunk bounds back to mask indices by subtracting offset.
+        let mask_start = (chunk_start * 1024).saturating_sub(array.offset);
+        let mask_end = (chunk_stop * 1024)
+            .saturating_sub(array.offset)
+            .min(array.len());
+        let remainder = mask.slice(mask_start..mask_end);
 
         Ok(Some(
             FilterArray::new(sliced.into_array(), remainder).into_array(),
@@ -90,6 +98,32 @@ mod tests {
 
         // Filter does not get pushed through to child because it does not prune any chunks.
         assert!(reduced.is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_filter_with_offset() -> VortexResult<()> {
+        // Test filtering where offset > 0
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+
+        let array = buffer![u16::MIN; 4096].into_array();
+        let patched_indices = buffer![5u16, 1030].into_array();
+        let patched_values = buffer![u16::MAX; 2].into_array();
+
+        let patches = Patches::new(4096, 0, patched_indices, patched_values, None)?;
+
+        let array = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
+
+        let sliced = array.slice(5..4096)?.optimize()?;
+
+        // Filter that touches only the first 2 chunks
+        let mask = Mask::from_indices(4091, vec![0, 1, 2, 1025]);
+        let filtered = FilterArray::new(sliced.clone(), mask).into_array();
+        let reduced = sliced.vtable().reduce_parent(&sliced, &filtered, 0)?;
+
+        let expected = PrimitiveArray::from_iter([u16::MAX, u16::MIN, u16::MIN, u16::MAX]);
+        assert_arrays_eq!(expected, reduced.unwrap());
 
         Ok(())
     }
