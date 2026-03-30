@@ -165,7 +165,7 @@ pub enum DispatchPlan {
 /// the scratch region (`SMEM_TILE_SIZE` ≥ `FL_CHUNK_SIZE`).
 pub struct FusedPlan {
     /// Stages in kernel execution order; all but the last decode into
-    /// shared memory, the last decodes into global memeory.
+    /// shared memory, the last decodes into global memory.
     stages: Vec<(Stage, SmemOffset, OutputLen)>,
     /// Shared memory reserved by the non-output stages.
     smem_cursor: SmemOffset,
