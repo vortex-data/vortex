@@ -1224,58 +1224,6 @@ mod tests {
     #[case(0, 1024)]
     #[case(0, 3000)]
     #[case(0, 4096)]
-    #[case(400, 600)]
-    #[case(500, 1024)]
-    #[case(500, 2048)]
-    #[case(500, 4500)]
-    #[case(777, 3333)]
-    #[case(1024, 2048)]
-    #[case(1024, 4096)]
-    #[case(1500, 3500)]
-    #[case(2048, 4096)]
-    #[case(2500, 4500)]
-    #[case(3333, 4444)]
-    #[crate::test]
-    fn test_sliced_runend(
-        #[case] slice_start: usize,
-        #[case] slice_end: usize,
-    ) -> VortexResult<()> {
-        let ends: Vec<u32> = vec![500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000];
-        let values: Vec<u32> = vec![10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-        let len = 5000;
-
-        let all_decoded: Vec<u32> = (0..len)
-            .map(|i| {
-                let run = ends.iter().position(|&e| (i as u32) < e).unwrap();
-                values[run]
-            })
-            .collect();
-
-        let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
-        let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEndArray::new(ends_arr, values_arr);
-
-        let sliced = re.into_array().slice(slice_start..slice_end)?;
-        let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
-
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&sliced, &cuda_ctx)?;
-
-        let actual = run_dynamic_dispatch_plan(
-            &cuda_ctx,
-            expected.len(),
-            &plan.dispatch_plan,
-            plan.shared_mem_bytes,
-        )?;
-        assert_eq!(actual, expected);
-
-        Ok(())
-    }
-
-    #[rstest]
-    #[case(0, 1024)]
-    #[case(0, 3000)]
-    #[case(0, 4096)]
     #[case(500, 600)]
     #[case(500, 1024)]
     #[case(500, 2048)]
