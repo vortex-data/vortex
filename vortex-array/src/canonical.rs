@@ -35,6 +35,8 @@ use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::Variant;
+use crate::arrays::VariantArray;
 use crate::arrays::bool::BoolArrayParts;
 use crate::arrays::decimal::DecimalArrayParts;
 use crate::arrays::listview::ListViewArrayParts;
@@ -122,6 +124,7 @@ pub enum Canonical {
     FixedSizeList(FixedSizeListArray),
     Struct(StructArray),
     Extension(ExtensionArray),
+    Variant(VariantArray),
 }
 
 /// Match on every canonical variant and evaluate a code block on all variants
@@ -136,6 +139,7 @@ macro_rules! match_each_canonical {
             Canonical::List($ident) => $eval,
             Canonical::FixedSizeList($ident) => $eval,
             Canonical::Struct($ident) => $eval,
+            Canonical::Variant($ident) => $eval,
             Canonical::Extension($ident) => $eval,
         }
     }};
@@ -641,6 +645,16 @@ impl Executable for CanonicalValidity {
                         .into_array(),
                 ),
             ))),
+            Canonical::Variant(variant) => {
+                Ok(CanonicalValidity(Canonical::Variant(VariantArray::new(
+                    variant
+                        .child()
+                        .clone()
+                        .execute::<CanonicalValidity>(ctx)?
+                        .0
+                        .into_array(),
+                ))))
+            }
         }
     }
 }
@@ -771,6 +785,16 @@ impl Executable for RecursiveCanonical {
                         .into_array(),
                 ),
             ))),
+            Canonical::Variant(variant) => {
+                Ok(RecursiveCanonical(Canonical::Variant(VariantArray::new(
+                    variant
+                        .child()
+                        .clone()
+                        .execute::<RecursiveCanonical>(ctx)?
+                        .0
+                        .into_array(),
+                ))))
+            }
         }
     }
 }
@@ -925,6 +949,7 @@ pub enum CanonicalView<'a> {
     FixedSizeList(&'a FixedSizeListArray),
     Struct(&'a StructArray),
     Extension(&'a ExtensionArray),
+    Variant(&'a VariantArray),
 }
 
 impl From<CanonicalView<'_>> for Canonical {
@@ -939,6 +964,7 @@ impl From<CanonicalView<'_>> for Canonical {
             CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.clone()),
             CanonicalView::Struct(a) => Canonical::Struct(a.clone()),
             CanonicalView::Extension(a) => Canonical::Extension(a.clone()),
+            CanonicalView::Variant(a) => Canonical::Variant(a.clone()),
         }
     }
 }
@@ -955,6 +981,7 @@ impl AsRef<dyn DynArray> for CanonicalView<'_> {
             CanonicalView::FixedSizeList(a) => a.as_ref(),
             CanonicalView::Struct(a) => a.as_ref(),
             CanonicalView::Extension(a) => a.as_ref(),
+            CanonicalView::Variant(a) => a.as_ref(),
         }
     }
 }
@@ -973,7 +1000,9 @@ impl Matcher for AnyCanonical {
             || array.is::<ListView>()
             || array.is::<FixedSizeList>()
             || array.is::<VarBinView>()
+            || array.is::<Variant>()
             || array.is::<Extension>()
+            || array.is::<Variant>()
     }
 
     fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
@@ -993,6 +1022,8 @@ impl Matcher for AnyCanonical {
             Some(CanonicalView::FixedSizeList(a))
         } else if let Some(a) = array.as_opt::<VarBinView>() {
             Some(CanonicalView::VarBinView(a))
+        } else if let Some(a) = array.as_opt::<Variant>() {
+            Some(CanonicalView::Variant(a))
         } else {
             array.as_opt::<Extension>().map(CanonicalView::Extension)
         }

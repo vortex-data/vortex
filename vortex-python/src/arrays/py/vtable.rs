@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
-use vortex::array::ExecutionStep;
+use vortex::array::ExecutionResult;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
 use vortex::array::SerializeMetadata;
@@ -18,6 +18,7 @@ use vortex::array::serde::ArrayChildren;
 use vortex::array::stats::StatsSetRef;
 use vortex::array::validity::Validity;
 use vortex::array::vtable;
+use vortex::array::vtable::Array;
 use vortex::array::vtable::ArrayId;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
@@ -105,7 +106,7 @@ impl VTable for PythonVTable {
             }
 
             let bytes = obj
-                .call_method("__vx_metadata__", (), None)
+                .call_method(intern!(py, "__vx_metadata__"), (), None)
                 .map_err(|e| vortex_err!("{}", e))?
                 .cast::<PyBytes>()
                 .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
@@ -157,13 +158,17 @@ impl VTable for PythonVTable {
         Ok(())
     }
 
-    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(_array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         todo!()
     }
 }
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
-    fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        _array: &PythonArray,
+        _index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         todo!()
     }
 }

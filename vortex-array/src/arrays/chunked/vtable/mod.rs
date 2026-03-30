@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
@@ -15,7 +16,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
@@ -35,6 +36,7 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 mod canonical;
@@ -42,7 +44,7 @@ mod operations;
 mod validity;
 vtable!(Chunked);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Chunked;
 
 impl Chunked {
@@ -199,8 +201,10 @@ impl VTable for Chunked {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(_canonicalize(array, ctx)?.into_array()))
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            _canonicalize(&array, ctx)?.into_array(),
+        ))
     }
 
     fn slots(array: &ChunkedArray) -> &[Option<ArrayRef>] {
@@ -279,7 +283,7 @@ impl VTable for Chunked {
         Ok(())
     }
 
-    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
         Ok(match array.nchunks() {
             0 => Some(Canonical::empty(array.dtype()).into_array()),
             1 => Some(array.chunk(0).clone()),
@@ -288,7 +292,7 @@ impl VTable for Chunked {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -296,7 +300,7 @@ impl VTable for Chunked {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

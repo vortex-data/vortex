@@ -6,6 +6,10 @@ impl vortex_zigzag::ZigZag
 
 pub const vortex_zigzag::ZigZag::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_zigzag::ZigZag
+
+pub fn vortex_zigzag::ZigZag::clone(&self) -> vortex_zigzag::ZigZag
+
 impl core::fmt::Debug for vortex_zigzag::ZigZag
 
 pub fn vortex_zigzag::ZigZag::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -54,9 +58,9 @@ pub fn vortex_zigzag::ZigZag::deserialize(_bytes: &[u8], _dtype: &vortex_array::
 
 pub fn vortex_zigzag::ZigZag::dtype(array: &vortex_zigzag::ZigZagArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_zigzag::ZigZag::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+pub fn vortex_zigzag::ZigZag::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_zigzag::ZigZag::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_zigzag::ZigZag::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_zigzag::ZigZag::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -66,7 +70,7 @@ pub fn vortex_zigzag::ZigZag::metadata(_array: &vortex_zigzag::ZigZagArray) -> v
 
 pub fn vortex_zigzag::ZigZag::nbuffers(_array: &vortex_zigzag::ZigZagArray) -> usize
 
-pub fn vortex_zigzag::ZigZag::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_zigzag::ZigZag::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_zigzag::ZigZag::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -82,7 +86,7 @@ pub fn vortex_zigzag::ZigZag::with_slots(array: &mut vortex_zigzag::ZigZagArray,
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag
 
-pub fn vortex_zigzag::ZigZag::scalar_at(array: &vortex_zigzag::ZigZagArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_zigzag::ZigZag::scalar_at(array: &vortex_zigzag::ZigZagArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag
 

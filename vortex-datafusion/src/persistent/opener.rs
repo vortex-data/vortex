@@ -39,9 +39,9 @@ use vortex::error::VortexError;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
+use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
-use vortex::scan::ScanBuilder;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
@@ -110,9 +110,7 @@ impl FileOpener for VortexOpener {
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
 
-        let reader = self
-            .vortex_reader_factory
-            .create_reader(file.path().as_ref(), &session)?;
+        let reader = self.vortex_reader_factory.create_reader(&file, &session)?;
 
         let reader =
             InstrumentedReadAt::new_with_labels(reader, metrics_registry.as_ref(), labels.clone());
@@ -187,8 +185,10 @@ impl FileOpener for VortexOpener {
                 .with_labels(labels);
 
             if let Some(file_metadata_cache) = file_metadata_cache
-                && let Some(file_metadata) = file_metadata_cache.get(&file.object_meta)
-                && let Some(vortex_metadata) = file_metadata
+                && let Some(entry) = file_metadata_cache.get(file.path())
+                && entry.is_valid_for(&file.object_meta)
+                && let Some(vortex_metadata) = entry
+                    .file_metadata
                     .as_any()
                     .downcast_ref::<CachedVortexMetadata>()
             {
@@ -199,6 +199,12 @@ impl FileOpener for VortexOpener {
                 .open_read(reader)
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
+
+            // Check if there are rows in this file. If not, we can save
+            // ourselves some work and return an empty stream.
+            if vxf.row_count() == 0 {
+                return Ok(stream::empty().boxed());
+            }
 
             // This is the expected arrow types of the actual columns in the file, which might have different types
             // from the unified logical schema or miss
@@ -212,7 +218,7 @@ impl FileOpener for VortexOpener {
             let expr_adapter = expr_adapter_factory.create(
                 Arc::clone(&unified_file_schema),
                 Arc::clone(&this_file_schema),
-            );
+            )?;
 
             let simplifier = PhysicalExprSimplifier::new(&this_file_schema);
 
@@ -432,6 +438,8 @@ fn apply_byte_range(
 }
 
 fn byte_range_to_row_range(byte_range: Range<u64>, row_count: u64, total_size: u64) -> Range<u64> {
+    debug_assert!(row_count > 0); // Asserted by an early exit check in VortexOpener::open
+
     let average_row = total_size / row_count;
     assert!(average_row > 0, "A row must always have at least one byte");
 
@@ -480,7 +488,7 @@ mod tests {
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::metrics::DefaultMetricsRegistry;
-    use vortex::scan::Selection;
+    use vortex::scan::selection::Selection;
     use vortex::session::VortexSession;
 
     use super::*;
@@ -617,6 +625,33 @@ mod tests {
         let num_batches = data.len();
         let num_rows = data.iter().map(|rb| rb.num_rows()).sum::<usize>();
         assert_eq!((num_batches, num_rows), (0, 0));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_open_empty_file() -> anyhow::Result<()> {
+        use futures::TryStreamExt;
+
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let data_batch = record_batch!(("a", Int32, Vec::<i32>::new())).unwrap();
+        let file_path = "part=1/empty.vortex";
+        let file_size =
+            write_arrow_to_vortex(object_store.clone(), file_path, data_batch.clone()).await?;
+
+        let file_schema = data_batch.schema();
+        // Parallel scans may attach a byte range even for empty files; the
+        // opener must not call byte_range_to_row_range when the row_count is 0.
+        let file =
+            PartitionedFile::new_with_range(file_path.to_string(), file_size, 0, file_size as i64);
+
+        let table_schema = TableSchema::from_file_schema(file_schema.clone());
+
+        let opener = make_opener(object_store, table_schema, None);
+        let stream = opener.open(file)?.await?;
+        let data = stream.try_collect::<Vec<_>>().await?;
+
+        assert_eq!(data.len(), 0);
 
         Ok(())
     }
@@ -974,7 +1009,7 @@ mod tests {
     async fn test_selection_include_by_index() -> anyhow::Result<()> {
         use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
         use vortex::buffer::Buffer;
-        use vortex::scan::Selection;
+        use vortex::scan::selection::Selection;
 
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "/path/file.vortex";
@@ -1059,7 +1094,7 @@ mod tests {
     #[tokio::test]
     // Test that Selection::All returns all rows.
     async fn test_selection_all() -> anyhow::Result<()> {
-        use vortex::scan::Selection;
+        use vortex::scan::selection::Selection;
 
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
         let file_path = "/path/file.vortex";

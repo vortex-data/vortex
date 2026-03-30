@@ -26,7 +26,6 @@ use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
 use crate::buffer;
-use crate::trusted_len::TrustedLenExt;
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
@@ -348,12 +347,8 @@ impl BitBuffer {
                 self.len,
             );
         }
-        // Use Chunk iterator here to reset offset to 0
-        let iter = self.chunks().iter_padded();
-        let iter = unsafe { iter.trusted_len() };
-        let result = Buffer::<u64>::from_trusted_len_iter(iter).into_byte_buffer();
 
-        BitBuffer::new(result, self.len())
+        bitwise_unary_op(self.clone(), |a| a)
     }
 }
 
@@ -371,15 +366,6 @@ impl BitBuffer {
             Ok(buffer) => Ok(BitBufferMut::from_buffer(buffer, self.offset, self.len)),
             Err(buffer) => Err(BitBuffer::new_with_offset(buffer, self.len, self.offset)),
         }
-    }
-
-    /// Get a mutable version of this `BitBuffer` along with bit offset in the first byte.
-    ///
-    /// If the caller doesn't hold only reference to the underlying buffer, a copy is created.
-    /// The second value of the tuple is a bit_offset of the first value in the first byte
-    pub fn into_mut(self) -> BitBufferMut {
-        let (offset, len, inner) = self.into_inner();
-        BitBufferMut::from_buffer(inner.into_mut(), offset, len)
     }
 }
 
@@ -469,7 +455,7 @@ impl Not for &BitBuffer {
 
     #[inline]
     fn not(self) -> Self::Output {
-        bitwise_unary_op(self, |a| !a)
+        !self.clone()
     }
 }
 
@@ -478,7 +464,7 @@ impl Not for BitBuffer {
 
     #[inline]
     fn not(self) -> Self::Output {
-        (&self).not()
+        bitwise_unary_op(self, |a| !a)
     }
 }
 

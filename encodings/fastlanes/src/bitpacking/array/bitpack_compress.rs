@@ -65,7 +65,7 @@ pub fn bitpack_encode(
     }
 
     // SAFETY: we check that array only contains non-negative values.
-    let packed = unsafe { bitpack_unchecked(array, bit_width)? };
+    let packed = unsafe { bitpack_unchecked(array, bit_width) };
     let patches = (num_exceptions > 0)
         .then(|| gather_patches(array, bit_width, num_exceptions))
         .transpose()?
@@ -103,7 +103,7 @@ pub unsafe fn bitpack_encode_unchecked(
     bit_width: u8,
 ) -> VortexResult<BitPackedArray> {
     // SAFETY: non-negativity of input checked by caller.
-    let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
+    let packed = unsafe { bitpack_unchecked(&array, bit_width) };
 
     // SAFETY: checked by bitpack_unchecked
     let bitpacked = unsafe {
@@ -135,15 +135,11 @@ pub unsafe fn bitpack_encode_unchecked(
 ///
 /// It is the caller's responsibility to ensure that `parray` is non-negative before calling
 /// this function.
-pub unsafe fn bitpack_unchecked(
-    parray: &PrimitiveArray,
-    bit_width: u8,
-) -> VortexResult<ByteBuffer> {
+pub unsafe fn bitpack_unchecked(parray: &PrimitiveArray, bit_width: u8) -> ByteBuffer {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
-    let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |P| {
+    match_each_unsigned_integer_ptype!(parray.ptype(), |P| {
         bitpack_primitive(parray.as_slice::<P>(), bit_width).into_byte_buffer()
-    });
-    Ok(packed)
+    })
 }
 
 /// Bitpack a slice of primitives down to the given width.

@@ -6,6 +6,10 @@ impl vortex_zstd::Zstd
 
 pub const vortex_zstd::Zstd::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_zstd::Zstd
+
+pub fn vortex_zstd::Zstd::clone(&self) -> vortex_zstd::Zstd
+
 impl core::fmt::Debug for vortex_zstd::Zstd
 
 pub fn vortex_zstd::Zstd::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -42,7 +46,7 @@ pub fn vortex_zstd::Zstd::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype
 
 pub fn vortex_zstd::Zstd::dtype(array: &vortex_zstd::ZstdArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_zstd::Zstd::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+pub fn vortex_zstd::Zstd::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_zstd::Zstd::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -52,7 +56,7 @@ pub fn vortex_zstd::Zstd::metadata(array: &vortex_zstd::ZstdArray) -> vortex_err
 
 pub fn vortex_zstd::Zstd::nbuffers(array: &vortex_zstd::ZstdArray) -> usize
 
-pub fn vortex_zstd::Zstd::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_zstd::Zstd::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_zstd::Zstd::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -68,7 +72,7 @@ pub fn vortex_zstd::Zstd::with_slots(array: &mut vortex_zstd::ZstdArray, slots: 
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_zstd::Zstd> for vortex_zstd::Zstd
 
-pub fn vortex_zstd::Zstd::scalar_at(array: &vortex_zstd::ZstdArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_zstd::Zstd::scalar_at(array: &vortex_zstd::ZstdArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub struct vortex_zstd::ZstdArray
 

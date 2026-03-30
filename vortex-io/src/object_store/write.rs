@@ -9,6 +9,7 @@ use futures::TryStreamExt;
 use futures::stream::FuturesUnordered;
 use object_store::MultipartUpload;
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::PutPayload;
 use object_store::PutResult;
 use object_store::path::Path;

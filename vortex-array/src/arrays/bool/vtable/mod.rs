@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -12,8 +14,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
@@ -25,6 +26,7 @@ use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 mod canonical;
@@ -181,12 +183,12 @@ impl VTable for Bool {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -195,7 +197,7 @@ impl VTable for Bool {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -203,7 +205,7 @@ impl VTable for Bool {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Bool;
 
 impl Bool {

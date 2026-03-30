@@ -5,6 +5,7 @@ mod operations;
 mod validity;
 
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -17,8 +18,7 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::VariantArray;
 use crate::arrays::variant::NUM_SLOTS;
@@ -28,12 +28,13 @@ use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 
 vtable!(Variant);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Variant;
 
 impl Variant {
@@ -62,7 +63,7 @@ impl VTable for Variant {
     }
 
     fn dtype(array: &Self::Array) -> &DType {
-        &array.dtype
+        array.child().dtype()
     }
 
     fn stats(array: &Self::Array) -> StatsSetRef<'_> {
@@ -131,13 +132,9 @@ impl VTable for Variant {
             "Expected 1 child, got {}",
             children.len()
         );
-        // The child can be any variant encoding, so we use DType::Variant.
-        let child = children.get(
-            0,
-            &DType::Variant(crate::dtype::Nullability::NonNullable),
-            len,
-        )?;
-        Ok(VariantArray::new(child, dtype.nullability()))
+        // The child carries the nullability for the whole VariantArray.
+        let child = children.get(0, dtype, len)?;
+        Ok(VariantArray::new(child))
     }
 
     fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
@@ -156,24 +153,20 @@ impl VTable for Variant {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        // VariantArray is the canonical variant representation.
-        Ok(ExecutionStep::done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
-    use crate::dtype::Nullability;
 
     #[test]
     fn with_slots_rejects_missing_child() {
-        let mut array = VariantArray::new(
-            PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
-            Nullability::NonNullable,
-        );
+        let mut array = VariantArray::new(PrimitiveArray::from_iter([1u8, 2, 3]).into_array());
 
         let err = <Variant as VTable>::with_slots(&mut array, vec![None]).unwrap_err();
 

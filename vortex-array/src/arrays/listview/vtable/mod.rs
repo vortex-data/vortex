@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -12,8 +13,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -32,6 +32,7 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -39,7 +40,7 @@ mod operations;
 mod validity;
 vtable!(ListView);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ListView;
 
 impl ListView {
@@ -213,12 +214,12 @@ impl VTable for ListView {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

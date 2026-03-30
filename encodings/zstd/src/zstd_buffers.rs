@@ -10,7 +10,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -21,6 +21,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -37,7 +38,7 @@ use crate::ZstdBuffersMetadata;
 
 vtable!(ZstdBuffers);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
@@ -468,17 +469,21 @@ impl VTable for ZstdBuffers {
         Ok(array)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let session = ctx.session();
         let inner_array = array.decompress_and_build_inner(session)?;
         inner_array
             .execute::<ArrayRef>(ctx)
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 }
 
 impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
-    fn scalar_at(array: &ZstdBuffersArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &ZstdBuffersArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
         // canonical

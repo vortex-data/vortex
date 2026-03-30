@@ -22,6 +22,10 @@ impl vortex_runend::RunEnd
 
 pub const vortex_runend::RunEnd::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_runend::RunEnd
+
+pub fn vortex_runend::RunEnd::clone(&self) -> vortex_runend::RunEnd
+
 impl core::fmt::Debug for vortex_runend::RunEnd
 
 pub fn vortex_runend::RunEnd::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -70,9 +74,9 @@ pub fn vortex_runend::RunEnd::deserialize(bytes: &[u8], _dtype: &vortex_array::d
 
 pub fn vortex_runend::RunEnd::dtype(array: &vortex_runend::RunEndArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_runend::RunEnd::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+pub fn vortex_runend::RunEnd::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_runend::RunEnd::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEnd::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_runend::RunEnd::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -82,7 +86,7 @@ pub fn vortex_runend::RunEnd::metadata(array: &vortex_runend::RunEndArray) -> vo
 
 pub fn vortex_runend::RunEnd::nbuffers(_array: &vortex_runend::RunEndArray) -> usize
 
-pub fn vortex_runend::RunEnd::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEnd::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_runend::RunEnd::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -98,7 +102,7 @@ pub fn vortex_runend::RunEnd::with_slots(array: &mut vortex_runend::RunEndArray,
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::scalar_at(array: &vortex_runend::RunEndArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_runend::RunEnd::scalar_at(array: &vortex_runend::RunEndArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 

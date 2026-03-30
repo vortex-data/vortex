@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -31,6 +32,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -387,12 +389,12 @@ impl VTable for Sequence {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        sequence_decompress(array).map(ExecutionStep::Done)
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        sequence_decompress(&array).map(ExecutionResult::done)
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -401,7 +403,7 @@ impl VTable for Sequence {
     }
 
     fn reduce_parent(
-        array: &SequenceArray,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -410,7 +412,11 @@ impl VTable for Sequence {
 }
 
 impl OperationsVTable<Sequence> for Sequence {
-    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &SequenceArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Scalar::try_new(
             array.dtype().clone(),
             Some(ScalarValue::Primitive(array.index_value(index))),
@@ -424,7 +430,7 @@ impl ValidityVTable<Sequence> for Sequence {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Sequence;
 
 impl Sequence {

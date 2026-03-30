@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! The optimizer applies metadata-only rewrite rules (`reduce` and `reduce_parent`) in a
+//! fixpoint loop until no more transformations are possible.
+//!
+//! Optimization runs between execution steps, which is what enables cross-step optimizations:
+//! after a child is decoded, new `reduce_parent` rules may match that were previously blocked.
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -9,11 +15,12 @@ use crate::array::ArrayRef;
 
 pub mod rules;
 
+/// Extension trait for optimizing array trees using reduce/reduce_parent rules.
 pub trait ArrayOptimizer {
-    /// Optimize the root array node only.
+    /// Optimize the root array node only by running reduce and reduce_parent rules to fixpoint.
     fn optimize(&self) -> VortexResult<ArrayRef>;
 
-    /// Optimize the entire array tree recursively.
+    /// Optimize the entire array tree recursively (root and all descendants).
     fn optimize_recursive(&self) -> VortexResult<ArrayRef>;
 }
 

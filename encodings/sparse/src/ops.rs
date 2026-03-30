@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
@@ -9,7 +10,11 @@ use crate::Sparse;
 use crate::SparseArray;
 
 impl OperationsVTable<Sparse> for Sparse {
-    fn scalar_at(array: &SparseArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &SparseArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Ok(array
             .patches()
             .get_patched(index)?

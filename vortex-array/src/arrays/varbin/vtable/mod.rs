@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -10,7 +12,7 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -25,6 +27,7 @@ use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -187,7 +190,7 @@ impl VTable for VarBin {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -195,7 +198,7 @@ impl VTable for VarBin {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -203,14 +206,14 @@ impl VTable for VarBin {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            varbin_to_canonical(array, ctx)?.into_array(),
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            varbin_to_canonical(&array, ctx)?.into_array(),
         ))
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VarBin;
 
 impl VarBin {

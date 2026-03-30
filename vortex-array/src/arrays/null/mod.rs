@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -11,8 +12,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -23,6 +23,7 @@ use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -129,15 +130,15 @@ impl VTable for Null {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 }
 
@@ -175,7 +176,7 @@ pub struct NullArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Null;
 
 impl Null {
@@ -192,7 +193,11 @@ impl NullArray {
     }
 }
 impl OperationsVTable<Null> for Null {
-    fn scalar_at(_array: &NullArray, _index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        _array: &NullArray,
+        _index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
     }
 }

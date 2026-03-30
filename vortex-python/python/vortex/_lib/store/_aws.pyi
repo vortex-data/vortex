@@ -457,8 +457,8 @@ class S3Store:
     set in the environment.
     """
 
-    def __init__(  # type: ignore[misc] # Overlap between argument names and ** TypedDict items: "bucket"
-        self,
+    def __new__(  # type: ignore[misc] # Overlap between argument names and ** TypedDict items: "bucket"
+        cls,
         bucket: str | None = None,
         *,
         prefix: str | None = None,
@@ -467,7 +467,7 @@ class S3Store:
         retry_config: RetryConfig | None = None,
         credential_provider: S3CredentialProvider | None = None,
         **kwargs: Unpack[S3Config],  # type: ignore # noqa: PGH003 (bucket key overlaps with positional arg)
-    ) -> None:
+    ) -> Self:
         """Create a new S3Store.
 
         Args:

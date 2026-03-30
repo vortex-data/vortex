@@ -4,6 +4,7 @@
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -20,7 +21,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
@@ -39,6 +40,7 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -256,12 +258,12 @@ impl VTable for Pco {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.decompress(ctx)?.into_array()))
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array.decompress(ctx)?.into_array()))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -299,7 +301,7 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Pco;
 
 impl Pco {
@@ -567,7 +569,7 @@ impl ValiditySliceHelper for PcoArray {
 }
 
 impl OperationsVTable<Pco> for Pco {
-    fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &PcoArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         array
             ._slice(index, index + 1)

@@ -1,4 +1,5 @@
-# Runs once when we add the `benchmark-sql` tag to a pull request.
+# Runs SQL benchmarks once for a pull request.
+# Called from bench-dispatch.yml when the `action/benchmark-sql` label is added.
 
 name: PR SQL Benchmarks
 
@@ -7,32 +8,16 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  pull_request:
-    types: [labeled, synchronize]
-    branches: ["develop"]
+  workflow_call: { }
   workflow_dispatch: { }
 
 permissions:
-  actions: write  # for removing labels
   contents: read
   pull-requests: write  # for commenting on PRs
   id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
-  label_trigger:
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    if: ${{ contains(github.event.head_commit.message, '[benchmark-sql]') || github.event.label.name == 'action/benchmark-sql' && github.event_name == 'pull_request' }}
-    steps:
-      # We remove the benchmark label first so that the workflow can be re-triggered.
-      - uses: actions-ecosystem/action-remove-labels@v1
-        if: ${{ github.event.pull_request.head.repo.full_name == 'vortex-data/vortex' }}
-        with:
-          labels: action/benchmark-sql
-          fail_on_error: true
-
   sql:
-    needs: label_trigger
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
     with:

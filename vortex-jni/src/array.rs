@@ -158,7 +158,12 @@ fn data_type_no_views(data_type: DataType) -> DataType {
         }
         DataType::Decimal128(precision, scale) => DataType::Decimal128(precision, scale),
         DataType::Decimal256(precision, scale) => DataType::Decimal256(precision, scale),
-        DataType::FixedSizeList(..) => unreachable!("Vortex never returns FixedSizeList"),
+        DataType::FixedSizeList(inner, size) => {
+            let new_inner = (*inner)
+                .clone()
+                .with_data_type(data_type_no_views(inner.data_type().clone()));
+            DataType::FixedSizeList(FieldRef::new(new_inner), size)
+        }
         DataType::Union(..) => unreachable!("Vortex never returns Union"),
         DataType::Dictionary(..) => unreachable!("Vortex never returns Dictionary"),
         DataType::Map(..) => unreachable!("Vortex never returns Map"),
