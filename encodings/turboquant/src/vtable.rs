@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! VTable implementation for TurboQuant MSE encoding.
+//! VTable implementation for TurboQuant encoding.
 
 use std::hash::Hash;
 use std::ops::Deref;
@@ -35,113 +35,149 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use super::TurboQuantMSE;
-use super::array::TurboQuantMSEArray;
-use super::array::TurboQuantMSEMetadata;
-use crate::decompress::execute_decompress_mse;
+use crate::array::QjlCorrection;
+use crate::array::TurboQuant;
+use crate::array::TurboQuantArray;
+use crate::array::TurboQuantMetadata;
+use crate::decompress::execute_decompress;
 
-impl VTable for TurboQuantMSE {
-    type Array = TurboQuantMSEArray;
-    type Metadata = ProstMetadata<TurboQuantMSEMetadata>;
+const MSE_CHILDREN: usize = 4;
+const QJL_CHILDREN: usize = 3;
+
+impl VTable for TurboQuant {
+    type Array = TurboQuantArray;
+    type Metadata = ProstMetadata<TurboQuantMetadata>;
     type OperationsVTable = NotSupported;
     type ValidityVTable = ValidityVTableFromChild;
 
     fn vtable(_array: &Self::Array) -> &Self {
-        &TurboQuantMSE
+        &TurboQuant
     }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &TurboQuantMSEArray) -> usize {
+    fn len(array: &TurboQuantArray) -> usize {
         array.norms.len()
     }
 
-    fn dtype(array: &TurboQuantMSEArray) -> &DType {
+    fn dtype(array: &TurboQuantArray) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &TurboQuantMSEArray) -> StatsSetRef<'_> {
+    fn stats(array: &TurboQuantArray) -> StatsSetRef<'_> {
         array.stats_set.to_ref(array.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &TurboQuantMSEArray,
+        array: &TurboQuantArray,
         state: &mut H,
         precision: Precision,
     ) {
         array.dtype.hash(state);
         array.dimension.hash(state);
         array.bit_width.hash(state);
-        array.padded_dim.hash(state);
-        array.rotation_seed.hash(state);
+        array.has_qjl().hash(state);
         array.codes.array_hash(state, precision);
         array.norms.array_hash(state, precision);
         array.centroids.array_hash(state, precision);
         array.rotation_signs.array_hash(state, precision);
+        if let Some(qjl) = &array.qjl {
+            qjl.signs.array_hash(state, precision);
+            qjl.residual_norms.array_hash(state, precision);
+            qjl.rotation_signs.array_hash(state, precision);
+        }
     }
 
-    fn array_eq(
-        array: &TurboQuantMSEArray,
-        other: &TurboQuantMSEArray,
-        precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &TurboQuantArray, other: &TurboQuantArray, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.dimension == other.dimension
             && array.bit_width == other.bit_width
-            && array.padded_dim == other.padded_dim
-            && array.rotation_seed == other.rotation_seed
+            && array.has_qjl() == other.has_qjl()
             && array.codes.array_eq(&other.codes, precision)
             && array.norms.array_eq(&other.norms, precision)
             && array.centroids.array_eq(&other.centroids, precision)
             && array
                 .rotation_signs
                 .array_eq(&other.rotation_signs, precision)
+            && match (&array.qjl, &other.qjl) {
+                (Some(a), Some(b)) => {
+                    a.signs.array_eq(&b.signs, precision)
+                        && a.residual_norms.array_eq(&b.residual_norms, precision)
+                        && a.rotation_signs.array_eq(&b.rotation_signs, precision)
+                }
+                (None, None) => true,
+                _ => false,
+            }
     }
 
-    fn nbuffers(_array: &TurboQuantMSEArray) -> usize {
+    fn nbuffers(_array: &TurboQuantArray) -> usize {
         0
     }
 
-    fn buffer(_array: &TurboQuantMSEArray, idx: usize) -> BufferHandle {
-        vortex_panic!("TurboQuantMSEArray buffer index {idx} out of bounds")
+    fn buffer(_array: &TurboQuantArray, idx: usize) -> BufferHandle {
+        vortex_panic!("TurboQuantArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &TurboQuantMSEArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: &TurboQuantArray, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &TurboQuantMSEArray) -> usize {
-        4
+    fn nchildren(array: &TurboQuantArray) -> usize {
+        if array.has_qjl() {
+            MSE_CHILDREN + QJL_CHILDREN
+        } else {
+            MSE_CHILDREN
+        }
     }
 
-    fn child(array: &TurboQuantMSEArray, idx: usize) -> ArrayRef {
+    fn child(array: &TurboQuantArray, idx: usize) -> ArrayRef {
         match idx {
             0 => array.codes.clone(),
             1 => array.norms.clone(),
             2 => array.centroids.clone(),
             3 => array.rotation_signs.clone(),
-            _ => vortex_panic!("TurboQuantMSEArray child index {idx} out of bounds"),
+            4 => array
+                .qjl
+                .as_ref()
+                .vortex_expect("QJL child requested but has_qjl is false")
+                .signs
+                .clone(),
+            5 => array
+                .qjl
+                .as_ref()
+                .vortex_expect("QJL child requested but has_qjl is false")
+                .residual_norms
+                .clone(),
+            6 => array
+                .qjl
+                .as_ref()
+                .vortex_expect("QJL child requested but has_qjl is false")
+                .rotation_signs
+                .clone(),
+            _ => vortex_panic!("TurboQuantArray child index {idx} out of bounds"),
         }
     }
 
-    fn child_name(_array: &TurboQuantMSEArray, idx: usize) -> String {
+    fn child_name(_array: &TurboQuantArray, idx: usize) -> String {
         match idx {
             0 => "codes".to_string(),
             1 => "norms".to_string(),
             2 => "centroids".to_string(),
             3 => "rotation_signs".to_string(),
-            _ => vortex_panic!("TurboQuantMSEArray child_name index {idx} out of bounds"),
+            4 => "qjl_signs".to_string(),
+            5 => "qjl_residual_norms".to_string(),
+            6 => "qjl_rotation_signs".to_string(),
+            _ => vortex_panic!("TurboQuantArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(array: &TurboQuantMSEArray) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(TurboQuantMSEMetadata {
+    fn metadata(array: &TurboQuantArray) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(TurboQuantMetadata {
             dimension: array.dimension,
             bit_width: array.bit_width as u32,
-            padded_dim: array.padded_dim,
-            rotation_seed: array.rotation_seed,
+            has_qjl: array.has_qjl(),
         }))
     }
 
@@ -157,7 +193,7 @@ impl VTable for TurboQuantMSE {
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
-            <ProstMetadata<TurboQuantMSEMetadata> as DeserializeMetadata>::deserialize(bytes)?,
+            <ProstMetadata<TurboQuantMetadata> as DeserializeMetadata>::deserialize(bytes)?,
         ))
     }
 
@@ -167,9 +203,9 @@ impl VTable for TurboQuantMSE {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<TurboQuantMSEArray> {
+    ) -> VortexResult<TurboQuantArray> {
         let bit_width = u8::try_from(metadata.bit_width)?;
-        let padded_dim = metadata.padded_dim as usize;
+        let padded_dim = metadata.dimension.next_power_of_two() as usize;
         let num_centroids = 1usize << bit_width;
 
         let codes_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
@@ -183,24 +219,41 @@ impl VTable for TurboQuantMSE {
         let signs_dtype = DType::Bool(Nullability::NonNullable);
         let rotation_signs = children.get(3, &signs_dtype, 3 * padded_dim)?;
 
-        Ok(TurboQuantMSEArray {
+        let qjl = if metadata.has_qjl {
+            let qjl_signs = children.get(4, &signs_dtype, len * padded_dim)?;
+            let qjl_residual_norms = children.get(5, &norms_dtype, len)?;
+            let qjl_rotation_signs = children.get(6, &signs_dtype, 3 * padded_dim)?;
+            Some(QjlCorrection {
+                signs: qjl_signs,
+                residual_norms: qjl_residual_norms,
+                rotation_signs: qjl_rotation_signs,
+            })
+        } else {
+            None
+        };
+
+        Ok(TurboQuantArray {
             dtype: dtype.clone(),
             codes,
             norms,
             centroids,
             rotation_signs,
+            qjl,
             dimension: metadata.dimension,
             bit_width,
-            padded_dim: metadata.padded_dim,
-            rotation_seed: metadata.rotation_seed,
             stats_set: Default::default(),
         })
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+        let expected = if array.has_qjl() {
+            MSE_CHILDREN + QJL_CHILDREN
+        } else {
+            MSE_CHILDREN
+        };
         vortex_ensure!(
-            children.len() == 4,
-            "TurboQuantMSEArray expects 4 children, got {}",
+            children.len() == expected,
+            "TurboQuantArray expects {expected} children, got {}",
             children.len()
         );
         let mut iter = children.into_iter();
@@ -208,6 +261,11 @@ impl VTable for TurboQuantMSE {
         array.norms = iter.next().vortex_expect("norms child");
         array.centroids = iter.next().vortex_expect("centroids child");
         array.rotation_signs = iter.next().vortex_expect("rotation_signs child");
+        if let Some(qjl) = &mut array.qjl {
+            qjl.signs = iter.next().vortex_expect("qjl_signs child");
+            qjl.residual_norms = iter.next().vortex_expect("qjl_residual_norms child");
+            qjl.rotation_signs = iter.next().vortex_expect("qjl_rotation_signs child");
+        }
         Ok(())
     }
 
@@ -215,12 +273,12 @@ impl VTable for TurboQuantMSE {
         let inner = Arc::try_unwrap(array)
             .map(|a| a.into_inner())
             .unwrap_or_else(|arc| arc.as_ref().deref().clone());
-        Ok(ExecutionResult::done(execute_decompress_mse(inner, ctx)?))
+        Ok(ExecutionResult::done(execute_decompress(inner, ctx)?))
     }
 }
 
-impl ValidityChild<TurboQuantMSE> for TurboQuantMSE {
-    fn validity_child(array: &TurboQuantMSEArray) -> &ArrayRef {
+impl ValidityChild<TurboQuant> for TurboQuant {
+    fn validity_child(array: &TurboQuantArray) -> &ArrayRef {
         array.codes()
     }
 }

@@ -81,18 +81,19 @@
 //! assert!(encoded.nbytes() < 51200);
 //! ```
 
+pub use array::QjlCorrection;
+pub use array::TurboQuant;
+pub use array::TurboQuantArray;
 pub use compress::TurboQuantConfig;
 pub use compress::turboquant_encode_mse;
 pub use compress::turboquant_encode_qjl;
-pub use mse::*;
-pub use qjl::*;
 
+mod array;
 pub(crate) mod centroids;
 mod compress;
 pub(crate) mod decompress;
-mod mse;
-mod qjl;
 pub(crate) mod rotation;
+mod vtable;
 
 /// Extension ID for the `Vector` type from `vortex-tensor`.
 pub const VECTOR_EXT_ID: &str = "vortex.tensor.vector";
@@ -103,10 +104,9 @@ pub const FIXED_SHAPE_TENSOR_EXT_ID: &str = "vortex.tensor.fixed_shape_tensor";
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
-/// Initialize the TurboQuant encodings in the given session.
+/// Initialize the TurboQuant encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(TurboQuantMSE);
-    session.arrays().register(TurboQuantQJL);
+    session.arrays().register(TurboQuant);
 }
 
 #[cfg(test)]
@@ -132,8 +132,8 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::TurboQuant;
     use crate::TurboQuantConfig;
-    use crate::mse::TurboQuantMSE;
     use crate::rotation::RotationMatrix;
     use crate::turboquant_encode_mse;
     use crate::turboquant_encode_qjl;
@@ -506,7 +506,7 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let encoded = TurboQuantMSE::try_match(&*encoded).unwrap();
+        let encoded = TurboQuant::try_match(&*encoded).unwrap();
 
         let mut ctx = SESSION.create_execution_ctx();
         let stored_centroids_prim = encoded
@@ -538,7 +538,7 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let encoded = TurboQuantMSE::try_match(&*encoded).unwrap();
+        let encoded = TurboQuant::try_match(&*encoded).unwrap();
 
         // Decode via the stored-signs path (normal decode).
         let mut ctx = SESSION.create_execution_ctx();
@@ -699,7 +699,7 @@ mod tests {
         };
         // Verify encoding succeeds with f64 input (f64→f32 conversion).
         let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let encoded = TurboQuantMSE::try_match(&*encoded).unwrap();
+        let encoded = TurboQuant::try_match(&*encoded).unwrap();
         assert_eq!(encoded.norms().len(), num_rows);
         assert_eq!(encoded.dimension(), dim as u32);
         Ok(())
@@ -717,22 +717,22 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let encoded = TurboQuantMSE::try_match(&*encoded).unwrap();
+        let encoded = TurboQuant::try_match(&*encoded).unwrap();
 
         // Serialize metadata.
-        let metadata = <TurboQuantMSE as VTable>::metadata(encoded)?;
+        let metadata = <TurboQuant as VTable>::metadata(encoded)?;
         let serialized =
-            <TurboQuantMSE as VTable>::serialize(metadata)?.expect("metadata should serialize");
+            <TurboQuant as VTable>::serialize(metadata)?.expect("metadata should serialize");
 
         // Collect children.
-        let nchildren = <TurboQuantMSE as VTable>::nchildren(encoded);
+        let nchildren = <TurboQuant as VTable>::nchildren(encoded);
         assert_eq!(nchildren, 4);
         let children: Vec<ArrayRef> = (0..nchildren)
-            .map(|i| <TurboQuantMSE as VTable>::child(encoded, i))
+            .map(|i| <TurboQuant as VTable>::child(encoded, i))
             .collect();
 
         // Deserialize and rebuild.
-        let deserialized = <TurboQuantMSE as VTable>::deserialize(
+        let deserialized = <TurboQuant as VTable>::deserialize(
             &serialized,
             encoded.dtype(),
             encoded.len(),
@@ -743,8 +743,7 @@ mod tests {
         // Verify metadata fields survived roundtrip.
         assert_eq!(deserialized.dimension, encoded.dimension());
         assert_eq!(deserialized.bit_width, encoded.bit_width() as u32);
-        assert_eq!(deserialized.padded_dim, encoded.padded_dim());
-        assert_eq!(deserialized.rotation_seed, encoded.rotation_seed());
+        assert_eq!(deserialized.has_qjl, encoded.has_qjl());
 
         // Verify the rebuilt array decodes identically.
         let mut ctx = SESSION.create_execution_ctx();
@@ -755,7 +754,7 @@ mod tests {
         let original_elements = decoded_original.elements().to_canonical()?.into_primitive();
 
         // Rebuild from children (simulating deserialization).
-        let rebuilt = crate::mse::array::TurboQuantMSEArray::try_new(
+        let rebuilt = crate::array::TurboQuantArray::try_new_mse(
             encoded.dtype().clone(),
             children[0].clone(),
             children[1].clone(),
@@ -763,8 +762,6 @@ mod tests {
             children[3].clone(),
             deserialized.dimension,
             deserialized.bit_width as u8,
-            deserialized.padded_dim,
-            deserialized.rotation_seed,
         )?;
         let decoded_rebuilt = rebuilt
             .into_array()
