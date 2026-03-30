@@ -10067,6 +10067,7 @@ dependencies = [
  "fastlanes",
  "mimalloc",
  "parquet 58.0.0",
+ "paste",
  "rand 0.10.0",
  "rand_distr 0.6.0",
  "serde_json",

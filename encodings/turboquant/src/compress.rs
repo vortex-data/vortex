@@ -239,7 +239,7 @@ pub fn turboquant_encode_qjl(
 
     // QJL uses a different rotation than the MSE stage to ensure statistical
     // independence between the quantization noise and the sign projection.
-    let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(1), dim)?;
+    let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(25), dim)?;
 
     let num_rows = fsl.len();
     let mut residual_norms_buf = BufferMut::<f32>::with_capacity(num_rows);
