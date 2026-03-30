@@ -130,7 +130,7 @@ impl VTable for Patched {
     }
 
     fn nbuffers(_array: &Self::Array) -> usize {
-        1
+        0
     }
 
     fn buffer(_array: &Self::Array, idx: usize) -> BufferHandle {
