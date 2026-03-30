@@ -95,6 +95,7 @@ pub use compress::turboquant_encode_qjl;
 mod array;
 pub(crate) mod centroids;
 mod compress;
+mod compute;
 pub(crate) mod decompress;
 pub(crate) mod rotation;
 mod vtable;
@@ -843,6 +844,151 @@ mod tests {
             original_elements.as_slice::<f32>(),
             rebuilt_elements.as_slice::<f32>()
         );
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Compute pushdown tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn slice_preserves_data() -> VortexResult<()> {
+        let fsl = make_fsl(20, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
+
+        // Full decompress then slice.
+        let mut ctx = SESSION.create_execution_ctx();
+        let full_decoded = encoded.clone().execute::<FixedSizeListArray>(&mut ctx)?;
+        let expected = full_decoded.slice(5..10)?;
+        let expected_prim = expected.to_canonical()?.into_fixed_size_list();
+        let expected_elements = expected_prim.elements().to_canonical()?.into_primitive();
+
+        // Slice then decompress.
+        let sliced = encoded.slice(5..10)?;
+        let sliced_decoded = sliced.execute::<FixedSizeListArray>(&mut ctx)?;
+        let actual_elements = sliced_decoded.elements().to_canonical()?.into_primitive();
+
+        assert_eq!(
+            expected_elements.as_slice::<f32>(),
+            actual_elements.as_slice::<f32>()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn slice_qjl_preserves_data() -> VortexResult<()> {
+        let fsl = make_fsl(20, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 4,
+            seed: Some(456),
+        };
+        let encoded = turboquant_encode_qjl(&fsl, &config)?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let full_decoded = encoded.clone().execute::<FixedSizeListArray>(&mut ctx)?;
+        let expected = full_decoded.slice(3..8)?;
+        let expected_prim = expected.to_canonical()?.into_fixed_size_list();
+        let expected_elements = expected_prim.elements().to_canonical()?.into_primitive();
+
+        let sliced = encoded.slice(3..8)?;
+        let sliced_decoded = sliced.execute::<FixedSizeListArray>(&mut ctx)?;
+        let actual_elements = sliced_decoded.elements().to_canonical()?.into_primitive();
+
+        assert_eq!(
+            expected_elements.as_slice::<f32>(),
+            actual_elements.as_slice::<f32>()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn scalar_at_matches_decompress() -> VortexResult<()> {
+        let fsl = make_fsl(10, 64, 42);
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let full_decoded = encoded.clone().execute::<FixedSizeListArray>(&mut ctx)?;
+
+        for i in [0, 1, 5, 9] {
+            let expected = full_decoded.scalar_at(i)?;
+            let actual = encoded.scalar_at(i)?;
+            assert_eq!(expected, actual, "scalar_at mismatch at index {i}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn l2_norm_readthrough() -> VortexResult<()> {
+        let fsl = make_fsl(10, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
+        let tq = TurboQuant::try_match(&*encoded).unwrap();
+
+        // Stored norms should match the actual L2 norms of the input.
+        let norms_prim = tq.norms().to_canonical()?.into_primitive();
+        let stored_norms = norms_prim.as_slice::<f32>();
+
+        let input_prim = fsl.elements().to_canonical()?.into_primitive();
+        let input_f32 = input_prim.as_slice::<f32>();
+        for row in 0..10 {
+            let vec = &input_f32[row * 128..(row + 1) * 128];
+            let actual_norm: f32 = vec.iter().map(|&v| v * v).sum::<f32>().sqrt();
+            assert!(
+                (stored_norms[row] - actual_norm).abs() < 1e-5,
+                "norm mismatch at row {row}: stored={}, actual={}",
+                stored_norms[row],
+                actual_norm
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
+        use crate::compute::cosine_similarity::cosine_similarity_quantized;
+
+        let fsl = make_fsl(20, 128, 42);
+        let config = TurboQuantConfig {
+            bit_width: 4,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode_mse(&fsl, &config)?;
+        let tq = TurboQuant::try_match(&*encoded).unwrap();
+
+        // Compute exact cosine similarity from original data.
+        let input_prim = fsl.elements().to_canonical()?.into_primitive();
+        let input_f32 = input_prim.as_slice::<f32>();
+
+        for (row_a, row_b) in [(0, 1), (5, 10), (0, 19)] {
+            let a = &input_f32[row_a * 128..(row_a + 1) * 128];
+            let b = &input_f32[row_b * 128..(row_b + 1) * 128];
+
+            let dot: f32 = a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum();
+            let norm_a: f32 = a.iter().map(|&v| v * v).sum::<f32>().sqrt();
+            let norm_b: f32 = b.iter().map(|&v| v * v).sum::<f32>().sqrt();
+            let exact_cos = dot / (norm_a * norm_b);
+
+            let approx_cos = cosine_similarity_quantized(tq, row_a, row_b)?;
+
+            // 4-bit quantization: expect reasonable accuracy.
+            let error = (exact_cos - approx_cos).abs();
+            assert!(
+                error < 0.15,
+                "cosine similarity error too large for ({row_a}, {row_b}): \
+                 exact={exact_cos:.4}, approx={approx_cos:.4}, error={error:.4}"
+            );
+        }
         Ok(())
     }
 }

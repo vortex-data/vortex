@@ -62,8 +62,9 @@ pub fn execute_decompress(
         .execute::<PrimitiveArray>(ctx)?;
     let rotation = RotationMatrix::from_u8_slice(signs_prim.as_slice::<u8>(), dim)?;
 
-    // Unpack codes.
-    let codes_prim = array.codes.clone().execute::<PrimitiveArray>(ctx)?;
+    // Unpack codes from FixedSizeListArray → flat u8 elements.
+    let codes_fsl = array.codes.clone().execute::<FixedSizeListArray>(ctx)?;
+    let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
     let indices = codes_prim.as_slice::<u8>();
 
     let norms_prim = array.norms.clone().execute::<PrimitiveArray>(ctx)?;
@@ -104,8 +105,9 @@ pub fn execute_decompress(
     };
 
     // Apply QJL residual correction.
-    // FastLanes SIMD-unpacks the 1-bit bitpacked QJL signs into u8 0/1 values.
-    let qjl_signs_prim = qjl.signs.clone().execute::<PrimitiveArray>(ctx)?;
+    // Unpack QJL signs from FixedSizeListArray → flat u8 0/1 values.
+    let qjl_signs_fsl = qjl.signs.clone().execute::<FixedSizeListArray>(ctx)?;
+    let qjl_signs_prim = qjl_signs_fsl.elements().to_canonical()?.into_primitive();
     let qjl_signs_u8 = qjl_signs_prim.as_slice::<u8>();
 
     let residual_norms_prim = qjl.residual_norms.clone().execute::<PrimitiveArray>(ctx)?;

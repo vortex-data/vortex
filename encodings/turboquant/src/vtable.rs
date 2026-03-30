@@ -25,7 +25,6 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -47,7 +46,7 @@ const QJL_CHILDREN: usize = 3;
 impl VTable for TurboQuant {
     type Array = TurboQuantArray;
     type Metadata = ProstMetadata<TurboQuantMetadata>;
-    type OperationsVTable = NotSupported;
+    type OperationsVTable = TurboQuant;
     type ValidityVTable = ValidityVTableFromChild;
 
     fn vtable(_array: &Self::Array) -> &Self {
@@ -208,20 +207,26 @@ impl VTable for TurboQuant {
         let padded_dim = metadata.dimension.next_power_of_two() as usize;
         let num_centroids = 1usize << bit_width;
 
-        let codes_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
-        let codes = children.get(0, &codes_dtype, len * padded_dim)?;
+        let u8_nn = DType::Primitive(PType::U8, Nullability::NonNullable);
+        let f32_nn = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let codes_dtype = DType::FixedSizeList(
+            Arc::new(u8_nn.clone()),
+            padded_dim as u32,
+            Nullability::NonNullable,
+        );
+        let codes = children.get(0, &codes_dtype, len)?;
 
-        let norms_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-        let norms = children.get(1, &norms_dtype, len)?;
-
-        let centroids = children.get(2, &norms_dtype, num_centroids)?;
+        let norms = children.get(1, &f32_nn, len)?;
+        let centroids = children.get(2, &f32_nn, num_centroids)?;
 
         let signs_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
         let rotation_signs = children.get(3, &signs_dtype, 3 * padded_dim)?;
 
         let qjl = if metadata.has_qjl {
-            let qjl_signs = children.get(4, &signs_dtype, len * padded_dim)?;
-            let qjl_residual_norms = children.get(5, &norms_dtype, len)?;
+            let qjl_signs_dtype =
+                DType::FixedSizeList(Arc::new(u8_nn), padded_dim as u32, Nullability::NonNullable);
+            let qjl_signs = children.get(4, &qjl_signs_dtype, len)?;
+            let qjl_residual_norms = children.get(5, &f32_nn, len)?;
             let qjl_rotation_signs = children.get(6, &signs_dtype, 3 * padded_dim)?;
             Some(QjlCorrection {
                 signs: qjl_signs,
@@ -267,6 +272,23 @@ impl VTable for TurboQuant {
             qjl.rotation_signs = iter.next().vortex_expect("qjl_rotation_signs child");
         }
         Ok(())
+    }
+
+    fn reduce_parent(
+        array: &Array<Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::compute::rules::RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: &Array<Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::compute::rules::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

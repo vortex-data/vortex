@@ -6,13 +6,8 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_turboquant::FIXED_SHAPE_TENSOR_EXT_ID;
-use vortex_turboquant::TurboQuant;
-use vortex_turboquant::TurboQuantArray;
 use vortex_turboquant::TurboQuantConfig;
 use vortex_turboquant::VECTOR_EXT_ID;
 use vortex_turboquant::turboquant_encode_qjl;
@@ -30,7 +25,8 @@ pub(crate) fn is_tensor_extension(ext_array: &ExtensionArray) -> bool {
 /// default compression when `None` is returned.
 ///
 /// Produces a `TurboQuantArray` with QJL correction, stored inside the Extension
-/// wrapper. The MSE codes child is bitpacked for storage efficiency.
+/// wrapper. The per-row children (codes, QJL signs) are `FixedSizeListArray`s
+/// whose inner elements will be cascading-compressed by the layout writer.
 pub(crate) fn compress_turboquant(
     ext_array: &ExtensionArray,
     config: &TurboQuantConfig,
@@ -45,58 +41,9 @@ pub(crate) fn compress_turboquant(
         return Ok(None);
     }
 
-    // Produce the TurboQuant array with QJL correction.
-    let encoded_ref = turboquant_encode_qjl(&fsl, config)?;
-    let encoded = encoded_ref
-        .as_opt::<TurboQuant>()
-        .vortex_expect("encoded should be a TurboQuantArray");
-
-    // Bitpack the codes child for storage efficiency.
-    let result = bitpack_codes(encoded)?;
+    let encoded = turboquant_encode_qjl(&fsl, config)?;
 
     Ok(Some(
-        ExtensionArray::new(ext_array.ext_dtype().clone(), result).into_array(),
+        ExtensionArray::new(ext_array.ext_dtype().clone(), encoded).into_array(),
     ))
-}
-
-/// Bitpack the codes child of a TurboQuant array.
-///
-/// The encode functions produce raw `PrimitiveArray<u8>` codes. This function
-/// applies bitpacking to compress them based on the bit_width.
-fn bitpack_codes(array: &TurboQuantArray) -> VortexResult<ArrayRef> {
-    let bit_width = array.bit_width();
-
-    if bit_width >= 8 {
-        // 8-bit codes are stored as raw u8, no bitpacking needed.
-        return Ok(array.clone().into_array());
-    }
-
-    let codes_prim: PrimitiveArray = array.codes().to_canonical()?.into_primitive();
-    let packed = bitpack_encode(&codes_prim, bit_width, None)?.into_array();
-
-    // Rebuild the array with the bitpacked codes.
-    let rebuilt = if let Some(qjl) = array.qjl() {
-        TurboQuantArray::try_new_qjl(
-            array.dtype().clone(),
-            packed,
-            array.norms().clone(),
-            array.centroids().clone(),
-            array.rotation_signs().clone(),
-            qjl.clone(),
-            array.dimension(),
-            bit_width,
-        )?
-    } else {
-        TurboQuantArray::try_new_mse(
-            array.dtype().clone(),
-            packed,
-            array.norms().clone(),
-            array.centroids().clone(),
-            array.rotation_signs().clone(),
-            array.dimension(),
-            bit_width,
-        )?
-    };
-
-    Ok(rebuilt.into_array())
 }

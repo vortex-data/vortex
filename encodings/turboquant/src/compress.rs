@@ -144,8 +144,17 @@ fn build_turboquant_mse(
 ) -> VortexResult<TurboQuantArray> {
     let dimension = fsl.list_size();
 
-    let codes =
-        PrimitiveArray::new::<u8>(core.all_indices.freeze(), Validity::NonNullable).into_array();
+    let num_rows = fsl.len();
+    let padded_dim = core.padded_dim;
+    let codes_elements =
+        PrimitiveArray::new::<u8>(core.all_indices.freeze(), Validity::NonNullable);
+    let codes = FixedSizeListArray::try_new(
+        codes_elements.into_array(),
+        padded_dim as u32,
+        Validity::NonNullable,
+        num_rows,
+    )?
+    .into_array();
     let norms_array =
         PrimitiveArray::new::<f32>(core.norms.freeze(), Validity::NonNullable).into_array();
 
@@ -300,12 +309,17 @@ pub fn turboquant_encode_qjl(
     // Attach QJL correction.
     let residual_norms_array =
         PrimitiveArray::new::<f32>(residual_norms_buf.freeze(), Validity::NonNullable);
-    let qjl_signs_prim = PrimitiveArray::new::<u8>(qjl_sign_u8.freeze(), Validity::NonNullable);
-    let qjl_signs_packed = bitpack_encode(&qjl_signs_prim, 1, None)?.into_array();
+    let qjl_signs_elements = PrimitiveArray::new::<u8>(qjl_sign_u8.freeze(), Validity::NonNullable);
+    let qjl_signs = FixedSizeListArray::try_new(
+        qjl_signs_elements.into_array(),
+        padded_dim as u32,
+        Validity::NonNullable,
+        num_rows,
+    )?;
     let qjl_rotation_signs = bitpack_rotation_signs(&qjl_rotation)?;
 
     array.qjl = Some(QjlCorrection {
-        signs: qjl_signs_packed,
+        signs: qjl_signs.into_array(),
         residual_norms: residual_norms_array.into_array(),
         rotation_signs: qjl_rotation_signs,
     });
