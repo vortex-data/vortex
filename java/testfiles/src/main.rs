@@ -5,16 +5,20 @@
 
 use std::path::Path;
 
+use vortex::VortexSessionDefault;
 use vortex::array::arrays::StructArray;
-use vortex::array::builders::{ArrayBuilder, DecimalBuilder, VarBinViewBuilder};
+use vortex::array::builders::ArrayBuilder;
+use vortex::array::builders::DecimalBuilder;
+use vortex::array::builders::VarBinViewBuilder;
 use vortex::array::validity::Validity;
-use vortex::dtype::{DType, DecimalDType, Nullability};
+use vortex::dtype::DType;
+use vortex::dtype::DecimalDType;
+use vortex::dtype::Nullability;
 use vortex::file::WriteOptionsSessionExt;
-use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::runtime::current::CurrentThreadRuntime;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
-use vortex::VortexSessionDefault;
 
 /// Generate a test dataset with the following small set of rows:
 ///
@@ -74,7 +78,8 @@ fn main() {
         10,
         Validity::NonNullable,
     )
-    .expect("Could not create struct array");
+    .expect("Could not create struct array")
+    .to_array_ref();
 
     // Save to file
     let minimal_path = Path::new(env!("CARGO_MANIFEST_DIR"))

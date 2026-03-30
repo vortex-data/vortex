@@ -30,7 +30,6 @@ impl OperationsVTable<BitPacked> for BitPacked {
 #[cfg(test)]
 mod test {
     use std::ops::Range;
-    
 
     use vortex_array::ArrayRef;
     use vortex_array::DynArray;
@@ -45,7 +44,6 @@ mod test {
     use vortex_array::dtype::PType;
     use vortex_array::patches::Patches;
     use vortex_array::scalar::Scalar;
-    
     use vortex_array::validity::Validity;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;

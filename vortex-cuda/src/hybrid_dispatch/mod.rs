@@ -88,7 +88,7 @@ pub async fn try_gpu_dispatch(
             // TODO(0ax1): execute subtrees concurrently using separate CUDA streams.
             for subtree in &pending_subtrees {
                 let canonical = subtree.clone().execute_cuda(ctx).await?;
-                subtree_buffers.push(canonical.into_primitive().into_parts().buffer);
+                subtree_buffers.push(canonical.into_primitive().into_data().into_parts().buffer);
             }
 
             let num_subtrees = subtree_buffers.len();
