@@ -185,8 +185,10 @@ pub unsafe extern "C-unwind" fn vx_file_open_reader(
             .parse()
             .map_err(|e| vortex_err!("Failed to parse URI '{}': {}", uri_str, e))?;
 
-        let prop_keys = unsafe { to_string_vec(options.property_keys, options.property_len) };
-        let prop_vals = unsafe { to_string_vec(options.property_vals, options.property_len) };
+        let prop_keys =
+            unsafe { to_string_vec(options.property_keys, options.property_len as usize) };
+        let prop_vals =
+            unsafe { to_string_vec(options.property_vals, options.property_len as usize) };
 
         let object_store = make_object_store(&uri, &prop_keys, &prop_vals)?;
 
