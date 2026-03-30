@@ -64,7 +64,9 @@ pub use native_runtime::RUNTIME;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native_runtime::SESSION;
 
-#[cfg(target_arch = "wasm32")]
+// target_os = "unknown" matches wasm32-unknown-unknown (browser), excluding WASI targets
+// where wasm-bindgen's JS interop is not available.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 mod wasm_runtime {
     use std::sync::LazyLock;
 
@@ -77,5 +79,20 @@ mod wasm_runtime {
         LazyLock::new(|| VortexSession::default().with_handle(WasmRuntime::handle()));
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub use wasm_runtime::SESSION;
+
+/// WASI targets get a session without an async runtime handle since wasm-bindgen
+/// is not available. The fuzz workloads are synchronous, so this is sufficient.
+#[cfg(all(target_arch = "wasm32", not(target_os = "unknown")))]
+mod wasi_runtime {
+    use std::sync::LazyLock;
+
+    use vortex::VortexSessionDefault;
+    use vortex_session::VortexSession;
+
+    pub static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
+}
+
+#[cfg(all(target_arch = "wasm32", not(target_os = "unknown")))]
+pub use wasi_runtime::SESSION;
