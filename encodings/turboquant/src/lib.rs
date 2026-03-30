@@ -78,7 +78,7 @@
 //! let encoded = turboquant_encode_mse(&fsl, &config).unwrap();
 //!
 //! // Verify compression: 100 vectors × 128 dims × 4 bytes = 51200 bytes input.
-//! assert!(encoded.codes().nbytes() + encoded.norms().nbytes() < 51200);
+//! assert!(encoded.nbytes() < 51200);
 //! ```
 
 pub use compress::TurboQuantConfig;
@@ -125,6 +125,7 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::matcher::Matcher;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
@@ -132,6 +133,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::TurboQuantConfig;
+    use crate::mse::TurboQuantMSE;
     use crate::rotation::RotationMatrix;
     use crate::turboquant_encode_mse;
     use crate::turboquant_encode_qjl;
@@ -212,9 +214,7 @@ mod tests {
         config: &TurboQuantConfig,
     ) -> VortexResult<(Vec<f32>, Vec<f32>)> {
         let config = config.clone();
-        encode_decode(fsl, |fsl| {
-            Ok(turboquant_encode_mse(fsl, &config)?.into_array())
-        })
+        encode_decode(fsl, |fsl| turboquant_encode_mse(fsl, &config))
     }
 
     fn encode_decode_qjl(
@@ -222,9 +222,7 @@ mod tests {
         config: &TurboQuantConfig,
     ) -> VortexResult<(Vec<f32>, Vec<f32>)> {
         let config = config.clone();
-        encode_decode(fsl, |fsl| {
-            Ok(turboquant_encode_qjl(fsl, &config)?.into_array())
-        })
+        encode_decode(fsl, |fsl| turboquant_encode_qjl(fsl, &config))
     }
 
     // -----------------------------------------------------------------------
@@ -447,9 +445,7 @@ mod tests {
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let decoded = encoded
-            .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
+        let decoded = encoded.execute::<FixedSizeListArray>(&mut ctx)?;
         assert_eq!(decoded.len(), num_rows);
         Ok(())
     }
@@ -465,9 +461,7 @@ mod tests {
         };
         let encoded = turboquant_encode_qjl(&fsl, &config)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let decoded = encoded
-            .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
+        let decoded = encoded.execute::<FixedSizeListArray>(&mut ctx)?;
         assert_eq!(decoded.len(), num_rows);
         Ok(())
     }
@@ -512,6 +506,7 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
+        let encoded = TurboQuantMSE::try_match(&*encoded).unwrap();
 
         let mut ctx = SESSION.create_execution_ctx();
         let stored_centroids_prim = encoded
@@ -543,6 +538,7 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
+        let encoded = TurboQuantMSE::try_match(&*encoded).unwrap();
 
         // Decode via the stored-signs path (normal decode).
         let mut ctx = SESSION.create_execution_ctx();
@@ -703,6 +699,7 @@ mod tests {
         };
         // Verify encoding succeeds with f64 input (f64→f32 conversion).
         let encoded = turboquant_encode_mse(&fsl, &config)?;
+        let encoded = TurboQuantMSE::try_match(&*encoded).unwrap();
         assert_eq!(encoded.norms().len(), num_rows);
         assert_eq!(encoded.dimension(), dim as u32);
         Ok(())
@@ -720,21 +717,22 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
+        let encoded = TurboQuantMSE::try_match(&*encoded).unwrap();
 
         // Serialize metadata.
-        let metadata = <crate::mse::TurboQuantMSE as VTable>::metadata(&encoded)?;
-        let serialized = <crate::mse::TurboQuantMSE as VTable>::serialize(metadata)?
-            .expect("metadata should serialize");
+        let metadata = <TurboQuantMSE as VTable>::metadata(encoded)?;
+        let serialized =
+            <TurboQuantMSE as VTable>::serialize(metadata)?.expect("metadata should serialize");
 
         // Collect children.
-        let nchildren = <crate::mse::TurboQuantMSE as VTable>::nchildren(&encoded);
+        let nchildren = <TurboQuantMSE as VTable>::nchildren(encoded);
         assert_eq!(nchildren, 4);
         let children: Vec<ArrayRef> = (0..nchildren)
-            .map(|i| <crate::mse::TurboQuantMSE as VTable>::child(&encoded, i))
+            .map(|i| <TurboQuantMSE as VTable>::child(encoded, i))
             .collect();
 
         // Deserialize and rebuild.
-        let deserialized = <crate::mse::TurboQuantMSE as VTable>::deserialize(
+        let deserialized = <TurboQuantMSE as VTable>::deserialize(
             &serialized,
             encoded.dtype(),
             encoded.len(),

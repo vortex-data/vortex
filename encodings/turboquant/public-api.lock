@@ -1,35 +1,5 @@
 pub mod vortex_turboquant
 
-pub mod vortex_turboquant::centroids
-
-pub fn vortex_turboquant::centroids::compute_boundaries(centroids: &[f32]) -> alloc::vec::Vec<f32>
-
-pub fn vortex_turboquant::centroids::find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8
-
-pub fn vortex_turboquant::centroids::get_centroids(dimension: u32, bit_width: u8) -> vortex_error::VortexResult<alloc::vec::Vec<f32>>
-
-pub mod vortex_turboquant::rotation
-
-pub struct vortex_turboquant::rotation::RotationMatrix
-
-impl vortex_turboquant::rotation::RotationMatrix
-
-pub fn vortex_turboquant::rotation::RotationMatrix::dimension(&self) -> usize
-
-pub fn vortex_turboquant::rotation::RotationMatrix::export_inverse_signs_bool_array(&self) -> vortex_array::arrays::bool::array::BoolArray
-
-pub fn vortex_turboquant::rotation::RotationMatrix::from_bool_array(signs_array: &vortex_array::arrays::bool::array::BoolArray, dim: usize) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_turboquant::rotation::RotationMatrix::inverse_rotate(&self, input: &[f32], output: &mut [f32])
-
-pub fn vortex_turboquant::rotation::RotationMatrix::norm_factor(&self) -> f32
-
-pub fn vortex_turboquant::rotation::RotationMatrix::padded_dim(&self) -> usize
-
-pub fn vortex_turboquant::rotation::RotationMatrix::rotate(&self, input: &[f32], output: &mut [f32])
-
-pub fn vortex_turboquant::rotation::RotationMatrix::try_new(seed: u64, dimension: usize) -> vortex_error::VortexResult<Self>
-
 pub struct vortex_turboquant::TurboQuantConfig
 
 pub vortex_turboquant::TurboQuantConfig::bit_width: u8
@@ -39,6 +9,10 @@ pub vortex_turboquant::TurboQuantConfig::seed: core::option::Option<u64>
 impl core::clone::Clone for vortex_turboquant::TurboQuantConfig
 
 pub fn vortex_turboquant::TurboQuantConfig::clone(&self) -> vortex_turboquant::TurboQuantConfig
+
+impl core::default::Default for vortex_turboquant::TurboQuantConfig
+
+pub fn vortex_turboquant::TurboQuantConfig::default() -> Self
 
 impl core::fmt::Debug for vortex_turboquant::TurboQuantConfig
 
@@ -270,11 +244,9 @@ pub fn vortex_turboquant::TurboQuantQJLArray::qjl_signs(&self) -> &vortex_array:
 
 pub fn vortex_turboquant::TurboQuantQJLArray::residual_norms(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::TurboQuantQJLArray::rotation_seed(&self) -> u64
-
 pub fn vortex_turboquant::TurboQuantQJLArray::rotation_signs(&self) -> &vortex_array::array::ArrayRef
 
-pub fn vortex_turboquant::TurboQuantQJLArray::try_new(dtype: vortex_array::dtype::DType, mse_inner: vortex_array::array::ArrayRef, qjl_signs: vortex_array::array::ArrayRef, residual_norms: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, bit_width: u8, padded_dim: u32, rotation_seed: u64) -> vortex_error::VortexResult<Self>
+pub fn vortex_turboquant::TurboQuantQJLArray::try_new(dtype: vortex_array::dtype::DType, mse_inner: vortex_array::array::ArrayRef, qjl_signs: vortex_array::array::ArrayRef, residual_norms: vortex_array::array::ArrayRef, rotation_signs: vortex_array::array::ArrayRef, bit_width: u8, padded_dim: u32) -> vortex_error::VortexResult<Self>
 
 impl vortex_turboquant::TurboQuantQJLArray
 
@@ -312,8 +284,6 @@ pub vortex_turboquant::TurboQuantQJLMetadata::bit_width: u32
 
 pub vortex_turboquant::TurboQuantQJLMetadata::padded_dim: u32
 
-pub vortex_turboquant::TurboQuantQJLMetadata::rotation_seed: u64
-
 impl core::clone::Clone for vortex_turboquant::TurboQuantQJLMetadata
 
 pub fn vortex_turboquant::TurboQuantQJLMetadata::clone(&self) -> vortex_turboquant::TurboQuantQJLMetadata
@@ -338,6 +308,6 @@ pub const vortex_turboquant::VECTOR_EXT_ID: &str
 
 pub fn vortex_turboquant::initialize(session: &mut vortex_session::VortexSession)
 
-pub fn vortex_turboquant::turboquant_encode_mse(fsl: &vortex_array::arrays::fixed_size_list::array::FixedSizeListArray, config: &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_turboquant::TurboQuantMSEArray>
+pub fn vortex_turboquant::turboquant_encode_mse(fsl: &vortex_array::arrays::fixed_size_list::array::FixedSizeListArray, config: &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 
-pub fn vortex_turboquant::turboquant_encode_qjl(fsl: &vortex_array::arrays::fixed_size_list::array::FixedSizeListArray, config: &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_turboquant::TurboQuantQJLArray>
+pub fn vortex_turboquant::turboquant_encode_qjl(fsl: &vortex_array::arrays::fixed_size_list::array::FixedSizeListArray, config: &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>

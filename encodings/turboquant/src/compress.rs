@@ -3,6 +3,7 @@
 
 //! TurboQuant encoding (quantization) logic.
 
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -38,7 +39,10 @@ pub struct TurboQuantConfig {
 
 impl Default for TurboQuantConfig {
     fn default() -> Self {
-        Self { bit_width: 5, seed: Some(42) }
+        Self {
+            bit_width: 5,
+            seed: Some(42),
+        }
     }
 }
 
@@ -78,7 +82,7 @@ fn l2_norm(x: &[f32]) -> f32 {
 pub fn turboquant_encode_mse(
     fsl: &FixedSizeListArray,
     config: &TurboQuantConfig,
-) -> VortexResult<TurboQuantMSEArray> {
+) -> VortexResult<ArrayRef> {
     vortex_ensure!(
         fsl.dtype().nullability() == Nullability::NonNullable,
         "TurboQuant requires non-nullable input, got nullable FixedSizeListArray"
@@ -94,15 +98,15 @@ pub fn turboquant_encode_mse(
         "TurboQuant requires dimension >= 2, got {dimension}"
     );
 
-    let seed = config.seed.unwrap_or(42);
     let num_rows = fsl.len();
+    if num_rows == 0 {
+        return Ok(fsl.clone().into_array());
+    }
+
+    let seed = config.seed.unwrap_or(42);
 
     let rotation = RotationMatrix::try_new(seed, dimension as usize)?;
     let padded_dim = rotation.padded_dim();
-
-    if num_rows == 0 {
-        return build_empty_mse_array(fsl, config.bit_width, padded_dim as u32, seed);
-    }
 
     let f32_elements = extract_f32_elements(fsl)?;
     let f32_elements = f32_elements.as_slice::<f32>();
@@ -156,7 +160,7 @@ pub fn turboquant_encode_mse(
     // Store rotation signs as a BoolArray child.
     let rotation_signs = rotation.export_inverse_signs_bool_array();
 
-    TurboQuantMSEArray::try_new(
+    Ok(TurboQuantMSEArray::try_new(
         fsl.dtype().clone(),
         codes,
         norms_array.into_array(),
@@ -166,7 +170,8 @@ pub fn turboquant_encode_mse(
         config.bit_width,
         padded_dim as u32,
         seed,
-    )
+    )?
+    .into_array())
 }
 
 /// Encode a FixedSizeListArray into a `TurboQuantQJLArray`.
@@ -177,7 +182,7 @@ pub fn turboquant_encode_mse(
 pub fn turboquant_encode_qjl(
     fsl: &FixedSizeListArray,
     config: &TurboQuantConfig,
-) -> VortexResult<TurboQuantQJLArray> {
+) -> VortexResult<ArrayRef> {
     vortex_ensure!(
         fsl.dtype().nullability() == Nullability::NonNullable,
         "TurboQuant requires non-nullable input, got nullable FixedSizeListArray"
@@ -193,9 +198,13 @@ pub fn turboquant_encode_qjl(
         "TurboQuant requires dimension >= 2, got {dimension}"
     );
 
+    let num_rows = fsl.len();
+    if num_rows == 0 {
+        return Ok(fsl.clone().into_array());
+    }
+
     let seed = config.seed.unwrap_or_else(rand::random);
     let dim = dimension as usize;
-    let num_rows = fsl.len();
     let mse_bit_width = config.bit_width - 1;
 
     // First, encode the MSE inner at (bit_width - 1).
@@ -209,10 +218,6 @@ pub fn turboquant_encode_qjl(
     // RotationMatrix from the same seed. Refactor to share it.
     let rotation = RotationMatrix::try_new(seed, dim)?;
     let padded_dim = rotation.padded_dim();
-
-    if num_rows == 0 {
-        return build_empty_qjl_array(fsl, config.bit_width, padded_dim as u32, seed);
-    }
 
     // TODO(perf): `turboquant_encode_mse` above already extracts f32 elements
     // internally. Refactor to share the buffer to avoid double materialization.
@@ -292,68 +297,14 @@ pub fn turboquant_encode_qjl(
     let qjl_signs = BoolArray::new(qjl_sign_bits.freeze(), Validity::NonNullable);
     let qjl_rotation_signs = qjl_rotation.export_inverse_signs_bool_array();
 
-    TurboQuantQJLArray::try_new(
+    Ok(TurboQuantQJLArray::try_new(
         fsl.dtype().clone(),
-        mse_inner.into_array(),
+        mse_inner,
         qjl_signs.into_array(),
         residual_norms_array.into_array(),
         qjl_rotation_signs.into_array(),
         config.bit_width,
         padded_dim as u32,
-    )
-}
-
-fn build_empty_mse_array(
-    fsl: &FixedSizeListArray,
-    bit_width: u8,
-    padded_dim: u32,
-    seed: u64,
-) -> VortexResult<TurboQuantMSEArray> {
-    let rotation = RotationMatrix::try_new(seed, fsl.list_size() as usize)?;
-    let codes = PrimitiveArray::empty::<u8>(fsl.dtype().nullability());
-    let norms = PrimitiveArray::empty::<f32>(fsl.dtype().nullability());
-    let centroids_vec = get_centroids(padded_dim as u32, bit_width)?;
-    let mut centroids_buf = BufferMut::<f32>::with_capacity(centroids_vec.len());
-    centroids_buf.extend_from_slice(&centroids_vec);
-    let centroids = PrimitiveArray::new::<f32>(centroids_buf.freeze(), Validity::NonNullable);
-    let rotation_signs = rotation.export_inverse_signs_bool_array();
-
-    TurboQuantMSEArray::try_new(
-        fsl.dtype().clone(),
-        codes.into_array(),
-        norms.into_array(),
-        centroids.into_array(),
-        rotation_signs.into_array(),
-        fsl.list_size(),
-        bit_width,
-        padded_dim as u32,
-        seed,
-    )
-}
-
-fn build_empty_qjl_array(
-    fsl: &FixedSizeListArray,
-    bit_width: u8,
-    padded_dim: u32,
-    seed: u64,
-) -> VortexResult<TurboQuantQJLArray> {
-    let mse_config = TurboQuantConfig {
-        bit_width: bit_width - 1,
-        seed: Some(seed),
-    };
-    let mse_inner = turboquant_encode_mse(fsl, &mse_config)?;
-    let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(1), fsl.list_size() as usize)?;
-    let residual_norms = PrimitiveArray::empty::<f32>(fsl.dtype().nullability());
-    let qjl_signs = BoolArray::new(BitBufferMut::new_unset(0).freeze(), Validity::NonNullable);
-    let qjl_rotation_signs = qjl_rotation.export_inverse_signs_bool_array();
-
-    TurboQuantQJLArray::try_new(
-        fsl.dtype().clone(),
-        mse_inner.into_array(),
-        qjl_signs.into_array(),
-        residual_norms.into_array(),
-        qjl_rotation_signs.into_array(),
-        bit_width,
-        padded_dim as u32,
-    )
+    )?
+    .into_array())
 }
