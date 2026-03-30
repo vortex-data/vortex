@@ -222,6 +222,43 @@ mod tests {
     }
 
     #[test]
+    fn test_filter_with_offset_nonuniform() -> VortexResult<()> {
+        // Test filtering with offset > 0 using non-uniform base values.
+        // This catches slice_chunks bugs where inner coordinates are miscalculated.
+        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
+
+        // Use non-uniform values so that incorrect slicing is detectable.
+        let base_values: Vec<u16> = (0u16..4096).collect();
+        let array = PrimitiveArray::from_iter(base_values).into_array();
+
+        // Patch at index 5 (value becomes 9999) and index 1030 (value becomes 8888).
+        let patched_indices = buffer![5u16, 1030].into_array();
+        let patched_values = buffer![9999u16, 8888].into_array();
+
+        let patches = Patches::new(4096, 0, patched_indices, patched_values, None)?;
+        let array = PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array();
+
+        // Slice to create offset > 0.
+        // After slice(5..4096), logical position 0 = original position 5 (patched to 9999).
+        let sliced = array.slice(5..4096)?.optimize()?;
+        assert_eq!(sliced.len(), 4091);
+
+        // Filter that touches the first 2 chunks.
+        // Logical indices: 0 (was 5, patched), 1 (was 6, value 6), 1025 (was 1030, patched).
+        let mask = Mask::from_indices(4091, vec![0, 1, 1025]);
+        let filtered = sliced
+            .filter(mask)?
+            .optimize()?
+            .execute::<PrimitiveArray>(&mut ctx)?;
+
+        // Expected: 9999 (patched at logical 0), 6 (original at logical 1), 8888 (patched at logical 1025).
+        let expected = PrimitiveArray::from_iter([9999u16, 6, 8888]);
+        assert_arrays_eq!(expected, filtered);
+
+        Ok(())
+    }
+
+    #[test]
     fn test_filter_with_offset_last_chunk() -> VortexResult<()> {
         // Test filtering with offset > 0 where the mask touches the last chunk.
         // This ensures we don't accidentally slice past the end of the array or mask.

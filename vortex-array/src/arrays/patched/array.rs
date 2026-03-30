@@ -231,9 +231,13 @@ impl PatchedArray {
         let indices = self.indices.clone();
         let values = self.values.clone();
 
-        // Find the new start/end for slicing range.
-        let begin = (chunks.start * 1024).max(self.offset);
-        let end = (chunks.end * 1024).min(self.len);
+        // Find the new start/end for slicing the inner array.
+        // The inner array has already been sliced to start at position `offset` in absolute terms,
+        // so we need to convert chunk boundaries to inner-relative coordinates.
+        let begin = (chunks.start * 1024).saturating_sub(self.offset);
+        let end = (chunks.end * 1024)
+            .saturating_sub(self.offset)
+            .min(self.len);
 
         let offset = if chunks.start == 0 { self.offset } else { 0 };
 
