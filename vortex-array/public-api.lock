@@ -3470,18 +3470,6 @@ impl vortex_array::IntoArray for vortex_array::arrays::ScalarFnData
 
 pub fn vortex_array::arrays::ScalarFnData::into_array(self) -> vortex_array::ArrayRef
 
-impl vortex_array::scalar_fn::ReduceNode for vortex_array::arrays::ScalarFnData
-
-pub fn vortex_array::arrays::ScalarFnData::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::arrays::ScalarFnData::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
-
-pub fn vortex_array::arrays::ScalarFnData::child_count(&self) -> usize
-
-pub fn vortex_array::arrays::ScalarFnData::node_dtype(&self) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
-pub fn vortex_array::arrays::ScalarFnData::scalar_fn(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFnRef>
-
 pub struct vortex_array::arrays::scalar_fn::ScalarFnVTable
 
 impl core::clone::Clone for vortex_array::arrays::scalar_fn::ScalarFnVTable
@@ -6785,18 +6773,6 @@ pub fn vortex_array::arrays::ScalarFnData::fmt(&self, f: &mut core::fmt::Formatt
 impl vortex_array::IntoArray for vortex_array::arrays::ScalarFnData
 
 pub fn vortex_array::arrays::ScalarFnData::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::scalar_fn::ReduceNode for vortex_array::arrays::ScalarFnData
-
-pub fn vortex_array::arrays::ScalarFnData::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::arrays::ScalarFnData::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
-
-pub fn vortex_array::arrays::ScalarFnData::child_count(&self) -> usize
-
-pub fn vortex_array::arrays::ScalarFnData::node_dtype(&self) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
-pub fn vortex_array::arrays::ScalarFnData::scalar_fn(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFnRef>
 
 pub struct vortex_array::arrays::ScalarFnVTable
 
@@ -18654,30 +18630,6 @@ pub fn vortex_array::ArrayRef::node_dtype(&self) -> vortex_error::VortexResult<v
 
 pub fn vortex_array::ArrayRef::scalar_fn(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFnRef>
 
-impl vortex_array::scalar_fn::ReduceNode for vortex_array::arrays::ScalarFnData
-
-pub fn vortex_array::arrays::ScalarFnData::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::arrays::ScalarFnData::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
-
-pub fn vortex_array::arrays::ScalarFnData::child_count(&self) -> usize
-
-pub fn vortex_array::arrays::ScalarFnData::node_dtype(&self) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
-pub fn vortex_array::arrays::ScalarFnData::scalar_fn(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFnRef>
-
-impl<V: vortex_array::vtable::VTable> vortex_array::scalar_fn::ReduceNode for vortex_array::vtable::Array<V>
-
-pub fn vortex_array::vtable::Array<V>::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::vtable::Array<V>::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
-
-pub fn vortex_array::vtable::Array<V>::child_count(&self) -> usize
-
-pub fn vortex_array::vtable::Array<V>::node_dtype(&self) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
-pub fn vortex_array::vtable::Array<V>::scalar_fn(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFnRef>
-
 pub trait vortex_array::scalar_fn::ScalarFnPlugin: 'static + core::marker::Send + core::marker::Sync
 
 pub fn vortex_array::scalar_fn::ScalarFnPlugin::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::scalar_fn::ScalarFnRef>
@@ -20673,18 +20625,6 @@ pub fn vortex_array::vtable::Array<V>::with_children(&self, children: alloc::vec
 impl<V: vortex_array::vtable::VTable> vortex_array::IntoArray for vortex_array::vtable::Array<V>
 
 pub fn vortex_array::vtable::Array<V>::into_array(self) -> vortex_array::ArrayRef
-
-impl<V: vortex_array::vtable::VTable> vortex_array::scalar_fn::ReduceNode for vortex_array::vtable::Array<V>
-
-pub fn vortex_array::vtable::Array<V>::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::vtable::Array<V>::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
-
-pub fn vortex_array::vtable::Array<V>::child_count(&self) -> usize
-
-pub fn vortex_array::vtable::Array<V>::node_dtype(&self) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
-pub fn vortex_array::vtable::Array<V>::scalar_fn(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFnRef>
 
 pub struct vortex_array::vtable::NotSupported
 
@@ -23910,7 +23850,7 @@ pub type vortex_array::ProstMetadata<M>::Output = M
 
 pub fn vortex_array::ProstMetadata<M>::deserialize(metadata: &[u8]) -> vortex_error::VortexResult<Self::Output>
 
-pub trait vortex_array::DynArray: 'static + vortex_array::array::private::Sealed + core::marker::Send + core::marker::Sync + core::fmt::Debug + vortex_array::DynArrayEq + vortex_array::DynArrayHash + vortex_array::ArrayVisitor + vortex_array::scalar_fn::ReduceNode
+pub trait vortex_array::DynArray: 'static + vortex_array::array::private::Sealed + core::marker::Send + core::marker::Sync + core::fmt::Debug + vortex_array::DynArrayEq + vortex_array::DynArrayHash + vortex_array::ArrayVisitor
 
 pub fn vortex_array::DynArray::all_invalid(&self) -> vortex_error::VortexResult<bool>
 

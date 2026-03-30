@@ -19,7 +19,7 @@ pub mod delta_decompress;
 
 /// A FastLanes-style delta-encoded array of primitive values.
 ///
-/// A [`DeltaArray`] comprises a sequence of _chunks_ each representing exactly 1,024
+/// A DeltaArray comprises a sequence of _chunks_ each representing exactly 1,024
 /// delta-encoded values. If the input array length is not a multiple of 1,024, the last chunk
 /// is padded with zeros to fill a complete 1,024-element chunk.
 ///
@@ -77,7 +77,7 @@ impl DeltaData {
         Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
     }
 
-    /// Create a [`DeltaArray`] from the given `bases` and `deltas` arrays
+    /// Create a DeltaArray from the given `bases` and `deltas` arrays
     /// with given `offset` into first chunk and `logical_len` length.
     pub fn try_new(
         bases: ArrayRef,
