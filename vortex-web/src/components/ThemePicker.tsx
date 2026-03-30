@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+import type React from 'react';
 import { useTheme, type ThemeChoice } from '../contexts/ThemeContext';
 
 const cycle: ThemeChoice[] = ['dark', 'light', 'system'];
@@ -65,7 +66,7 @@ function MonitorIcon() {
   );
 }
 
-const icons: Record<ThemeChoice, () => JSX.Element> = {
+const icons: Record<ThemeChoice, () => React.JSX.Element> = {
   light: SunIcon,
   dark: MoonIcon,
   system: MonitorIcon,

@@ -244,7 +244,7 @@ function ColumnHeader({
   approximate: boolean;
 }) {
   const [showTip, setShowTip] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const onEnter = () => {
     clearTimeout(timeoutRef.current);

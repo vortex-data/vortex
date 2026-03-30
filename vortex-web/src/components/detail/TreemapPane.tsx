@@ -151,7 +151,7 @@ export function TreemapPane({ node, segments, onSelectNode, onHoverNode }: Treem
       .paddingInner(2)
       .paddingOuter(1)
       .round(true)(root);
-    return root.descendants();
+    return root.descendants() as RectNode[];
   }, [tree, size]);
 
   // Set of nodeIds in the selected depth-1 subtree (for solid highlight).

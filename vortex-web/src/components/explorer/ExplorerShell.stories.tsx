@@ -31,7 +31,7 @@ const mockFileState: VortexFileState = {
 function ExplorerPage() {
   return (
     <div className="flex flex-col h-screen bg-vortex-white dark:bg-vortex-black">
-      <FileHeader />
+      <FileHeader onClose={() => {}} />
       <MainArea />
       <StatusBar />
     </div>
