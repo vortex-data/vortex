@@ -315,6 +315,7 @@ unexpected_cfgs = { level = "deny", check-cfg = [
     "cfg(codspeed)",
     "cfg(disable_loom)",
     "cfg(vortex_nightly)",
+    'cfg(target_os, values("unknown"))',
 ] }
 warnings = "warn"
 

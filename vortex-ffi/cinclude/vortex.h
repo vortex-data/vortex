@@ -115,6 +115,66 @@ typedef enum {
 } vx_dtype_variant;
 
 /**
+ * Equalities, inequalities, and boolean operations over possibly null values.
+ * For most operations, if either side is null, the result is null.
+ * VX_OPERATOR_KLEENE_AND, VX_OPERATOR_KLEENE_OR obey Kleene (three-valued)
+ * logic
+ */
+typedef enum {
+    /**
+     * Expressions are equal.
+     */
+    VX_OPERATOR_EQ = 0,
+    /**
+     * Expressions are not equal.
+     */
+    VX_OPERATOR_NOT_EQ = 1,
+    /**
+     * Expression is greater than another
+     */
+    VX_OPERATOR_GT = 2,
+    /**
+     * Expression is greater or equal to another
+     */
+    VX_OPERATOR_GTE = 3,
+    /**
+     * Expression is less than another
+     */
+    VX_OPERATOR_LT = 4,
+    /**
+     * Expression is less or equal to another
+     */
+    VX_OPERATOR_LTE = 5,
+    /**
+     * Boolean AND /\.
+     */
+    VX_OPERATOR_KLEENE_AND = 6,
+    /**
+     * Boolean OR \/.
+     */
+    VX_OPERATOR_KLEENE_OR = 7,
+    /**
+     * The sum of the arguments.
+     * Errors at runtime if the sum would overflow or underflow.
+     */
+    VX_OPERATOR_ADD = 8,
+    /**
+     * The difference between the arguments.
+     * Errors at runtime if the sum would overflow or underflow.
+     * The result is null at any index where either input is null.
+     */
+    VX_OPERATOR_SUB = 9,
+    /**
+     * Multiply two numbers
+     */
+    VX_OPERATOR_MUL = 10,
+    /**
+     * Divide the left side by the right side
+     */
+    VX_OPERATOR_DIV = 11,
+} vx_binary_operator;
+
+/**
  * Log levels for the Vortex library.
  */
 typedef enum {
@@ -298,6 +358,22 @@ typedef struct vx_dtype vx_dtype;
 typedef struct vx_error vx_error;
 
 /**
+ * A node in a Vortex expression tree.
+ *
+ * Expressions represent scalar computations that can be performed on
+ * data. Each expression consists of an encoding (vtable), heap-allocated
+ * metadata, and child expressions.
+ *
+ * Unless stated explicitly, all expressions returned are owned and must
+ * be freed by the caller.
+ * Unless stated explicitly, if an operation on const vx_expression* is
+ * passed NULL, NULL is returned.
+ * Operations on expressions don't take ownership of input values, and so
+ * input values must be freed by the caller.
+ */
+typedef struct vx_expression vx_expression;
+
+/**
  * A handle to a Vortex file encapsulating the footer and logic for instantiating a reader.
  */
 typedef struct vx_file vx_file;
@@ -477,6 +553,13 @@ const vx_string *vx_array_get_utf8(const vx_array *array, uint32_t index);
  * The caller must free the returned pointer.
  */
 const vx_binary *vx_array_get_binary(const vx_array *array, uint32_t index);
+
+/**
+ * Apply the expression to the array, wrapping it with a ScalarFnArray.
+ * This operation takes constant time as it doesn't execute the underlying
+ * array. Executing the underlying array still takes O(n) time.
+ */
+const vx_array *vx_array_apply(const vx_array *array, const vx_expression *expression, vx_error **error);
 
 /**
  * Free an owned [`vx_array_iterator`] object.
@@ -676,6 +759,115 @@ void vx_error_free(vx_error *ptr);
  * Do NOT free the returned string pointer - it shares the lifetime of the error.
  */
 const vx_string *vx_error_get_message(const vx_error *error);
+
+/**
+ * Free an owned [`vx_expression`] object.
+ */
+void vx_expression_free(vx_expression *ptr);
+
+/**
+ * Create a root expression. A root expression, applied to an array in
+ * vx_array_apply, takes the array itself as opposed to functions like
+ * vx_expression_column or vx_expression_select which take the array's parts.
+ *
+ * Example:
+ *
+ * const vx_array* array = ...;
+ * vx_expression* root = vx_expression_root();
+ * const vx_error* error = NULL;
+ * vx_array* applied_array = vx_array_apply(array, root, &error);
+ * // array and applied_array are identical
+ * vx_array_free(applied_array);
+ * vx_expression_free(root);
+ * vx_array_free(array);
+ *
+ */
+vx_expression *vx_expression_root(void);
+
+/**
+ * Create an expression that selects (includes) specific fields from a child
+ * expression. Child expression must have a DTYPE_STRUCT dtype. Errors in
+ * vx_array_apply if the child expression doesn't have a specified field.
+ *
+ * Example:
+ *
+ * vx_expression* root = vx_expression_root();
+ * const char* names[] = {"name", "age"};
+ * vx_expression* select = vx_expression_select(names, 2, root);
+ * vx_expression_free(select);
+ * vx_expression_free(root);
+ *
+ */
+vx_expression *vx_expression_select(const char *const *names, size_t len, const vx_expression *child);
+
+/**
+ * Create an AND expression for multiple child expressions.
+ * If there are no input expressions, returns NULL
+ */
+vx_expression *vx_expression_and(const vx_expression *const *expressions, size_t len);
+
+/**
+ * Create an OR disjunction expression for multiple child expressions.
+ * If there are no input expressions, returns NULL;
+ */
+vx_expression *vx_expression_or(const vx_expression *const *expressions, size_t len);
+
+/**
+ * Create a binary expression for two expressions of form lhs OP rhs.
+ * If either input is NULL, returns NULL.
+ *
+ * Example for a binary sum:
+ *
+ * vx_expression* age = vx_expression_column("age");
+ * vx_expression* height = vx_expression_column("height");
+ * vx_expression* sum = vx_expression_binary(VX_OPERATOR_ADD, age, height);
+ * vx_expression_free(sum);
+ * vx_expression_free(height);
+ * vx_expression_free(age);
+ *
+ * Example for a binary equality function:
+ *
+ * vx_expression* vx_expression_eq(
+ *     const vx_expression* lhs,
+ *     const vx_expression* rhs
+ * ) {
+ *     return vx_expression_binary(VX_OPERATOR_EQ, lhs, rhs);
+ * }
+ *
+ */
+vx_expression *
+vx_expression_binary(vx_binary_operator operator_, const vx_expression *lhs, const vx_expression *rhs);
+
+/**
+ * Create a logical NOT of the child expression.
+ *
+ * Returns the logical negation of the input boolean expression.
+ */
+const vx_expression *vx_expression_not(const vx_expression *child);
+
+/**
+ * Create an expression that checks for null values.
+ *
+ * Returns a boolean array indicating which positions contain null values.
+ */
+vx_expression *vx_expression_is_null(const vx_expression *child);
+
+/**
+ * Create an expression that extracts a named field from a struct expression.
+ * Child expression must have a DTYPE_STRUCT dtype.
+ * Errors in vx_array_apply if the root array doesn't have a specified field.
+ *
+ * Accesses the specified field from the result of the child expression.
+ * Equivalent to select(&item, 1, child).
+ */
+vx_expression *vx_expression_get_item(const char *item, const vx_expression *child);
+
+/**
+ * Create an expression that checks if a value is contained in a list.
+ *
+ * Returns a boolean array indicating whether the value appears in each list.
+ */
+vx_expression *vx_expression_list_contains(const vx_expression *list, const vx_expression *value);
 
 /**
  * Clone a borrowed [`vx_file`], returning an owned [`vx_file`].
