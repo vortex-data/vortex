@@ -16,6 +16,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_fastlanes::bitpack_compress::bitpack_encode;
 
 use crate::array::QjlCorrection;
 use crate::array::TurboQuantArray;
@@ -157,7 +158,7 @@ fn build_turboquant_mse(
     let centroids_array =
         PrimitiveArray::new::<f32>(centroids_buf.freeze(), Validity::NonNullable).into_array();
 
-    let rotation_signs = core.rotation.export_inverse_signs_bool_array().into_array();
+    let rotation_signs = bitpack_rotation_signs(&core.rotation)?;
 
     TurboQuantArray::try_new_mse(
         dtype.dtype().clone(),
@@ -306,13 +307,26 @@ pub fn turboquant_encode_qjl(
     let residual_norms_array =
         PrimitiveArray::new::<f32>(residual_norms_buf.freeze(), Validity::NonNullable);
     let qjl_signs = BoolArray::new(qjl_sign_bits.freeze(), Validity::NonNullable);
-    let qjl_rotation_signs = qjl_rotation.export_inverse_signs_bool_array();
+    let qjl_rotation_signs = bitpack_rotation_signs(&qjl_rotation)?;
 
     array.qjl = Some(QjlCorrection {
         signs: qjl_signs.into_array(),
         residual_norms: residual_norms_array.into_array(),
-        rotation_signs: qjl_rotation_signs.into_array(),
+        rotation_signs: qjl_rotation_signs,
     });
 
     Ok(array.into_array())
+}
+
+/// Export rotation signs as a 1-bit `BitPackedArray` for efficient storage.
+///
+/// The rotation matrix's 3 × padded_dim sign values are exported as 0/1 u8
+/// values in inverse application order, then bitpacked to 1 bit per sign.
+/// On decode, FastLanes SIMD-unpacks back to `&[u8]` of 0/1 values.
+fn bitpack_rotation_signs(rotation: &RotationMatrix) -> VortexResult<ArrayRef> {
+    let signs_u8 = rotation.export_inverse_signs_u8();
+    let mut buf = BufferMut::<u8>::with_capacity(signs_u8.len());
+    buf.extend_from_slice(&signs_u8);
+    let prim = PrimitiveArray::new::<u8>(buf.freeze(), Validity::NonNullable);
+    Ok(bitpack_encode(&prim, 1, None)?.into_array())
 }

@@ -11,23 +11,31 @@
 //!
 //! For dimensions that are not powers of 2, the input is zero-padded to the
 //! next power of 2 before the transform and truncated afterward.
+//!
+//! # Sign representation
+//!
+//! Signs are stored internally as `u32` XOR masks: `0x00000000` for +1 (no-op)
+//! and `0x80000000` for -1 (flip IEEE 754 sign bit). The sign application
+//! function uses integer XOR instead of floating-point multiply, which avoids
+//! FP dependency chains and auto-vectorizes into `vpxor`/`veor`.
 
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex_array::arrays::BoolArray;
-use vortex_array::validity::Validity;
-use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+/// IEEE 754 sign bit mask for f32.
+const F32_SIGN_BIT: u32 = 0x8000_0000;
+
 /// A structured random Hadamard transform for O(d log d) pseudo-random rotation.
 pub struct RotationMatrix {
-    /// Random ±1 signs for each of the 3 diagonal matrices, each of length `padded_dim`.
-    signs: [Vec<f32>; 3],
+    /// XOR masks for each of the 3 diagonal matrices, each of length `padded_dim`.
+    /// `0x00000000` = multiply by +1 (no-op), `0x80000000` = multiply by -1 (flip sign bit).
+    sign_masks: [Vec<u32>; 3],
     /// The padded dimension (next power of 2 >= dimension).
     padded_dim: usize,
-    /// Normalization factor: 1/padded_dim per Hadamard, applied once at the end.
+    /// Normalization factor: 1/(padded_dim * sqrt(padded_dim)), applied once at the end.
     norm_factor: f32,
 }
 
@@ -37,20 +45,11 @@ impl RotationMatrix {
         let padded_dim = dimension.next_power_of_two();
         let mut rng = StdRng::seed_from_u64(seed);
 
-        // Generate 3 random sign vectors (±1).
-        let signs = std::array::from_fn(|_| gen_random_signs(&mut rng, padded_dim));
-
-        // Each Hadamard transform has a normalization factor of 1/sqrt(padded_dim).
-        // With 3 Hadamard transforms: (1/sqrt(n))^3 = 1/(n * sqrt(n)).
-        // But we want an orthogonal-like transform that preserves norms. The
-        // standard WHT without normalization scales by sqrt(n) each time. With 3
-        // applications: output ~ n^(3/2) * input. To normalize: divide by n^(3/2).
-        // Equivalently, divide by n after each WHT (making each one orthonormal).
-        // We fold all normalization into a single factor applied at the end.
+        let sign_masks = std::array::from_fn(|_| gen_random_sign_masks(&mut rng, padded_dim));
         let norm_factor = 1.0 / (padded_dim as f32 * (padded_dim as f32).sqrt());
 
         Ok(Self {
-            signs,
+            sign_masks,
             padded_dim,
             norm_factor,
         })
@@ -88,19 +87,15 @@ impl RotationMatrix {
 
     /// Apply the SRHT: D₃ · H · D₂ · H · D₁ · x, with normalization.
     fn apply_srht(&self, buf: &mut [f32]) {
-        // Round 1: D₁ then H
-        apply_signs(buf, &self.signs[0]);
+        apply_signs_xor(buf, &self.sign_masks[0]);
         walsh_hadamard_transform(buf);
 
-        // Round 2: D₂ then H
-        apply_signs(buf, &self.signs[1]);
+        apply_signs_xor(buf, &self.sign_masks[1]);
         walsh_hadamard_transform(buf);
 
-        // Round 3: D₃ then normalize
-        apply_signs(buf, &self.signs[2]);
+        apply_signs_xor(buf, &self.sign_masks[2]);
         walsh_hadamard_transform(buf);
 
-        // Apply combined normalization factor.
         let norm = self.norm_factor;
         buf.iter_mut().for_each(|val| *val *= norm);
     }
@@ -111,100 +106,97 @@ impl RotationMatrix {
     /// Inverse is: norm · D₁ · H · D₂ · H · D₃ · H
     fn apply_inverse_srht(&self, buf: &mut [f32]) {
         walsh_hadamard_transform(buf);
-        apply_signs(buf, &self.signs[2]);
+        apply_signs_xor(buf, &self.sign_masks[2]);
 
         walsh_hadamard_transform(buf);
-        apply_signs(buf, &self.signs[1]);
+        apply_signs_xor(buf, &self.sign_masks[1]);
 
         walsh_hadamard_transform(buf);
-        apply_signs(buf, &self.signs[0]);
+        apply_signs_xor(buf, &self.sign_masks[0]);
 
         let norm = self.norm_factor;
         buf.iter_mut().for_each(|val| *val *= norm);
     }
 
-    /// Export the 3 sign vectors as a single `BoolArray` in inverse-application order.
+    /// Export the 3 sign vectors as a flat `Vec<u8>` of 0/1 values in inverse
+    /// application order `[D₃ | D₂ | D₁]`.
     ///
-    /// The output `BoolArray` has length `3 * padded_dim` and stores `[D₃ | D₂ | D₁]`
-    /// so that decompression (which applies the inverse transform) iterates sign arrays
-    /// 0→1→2 sequentially. Convention: `true` = +1, `false` = -1.
-    pub fn export_inverse_signs_bool_array(&self) -> BoolArray {
-        let total_bits = 3 * self.padded_dim;
-        let mut bits = BitBufferMut::new_unset(total_bits);
+    /// Convention: `1` = positive (+1), `0` = negative (-1).
+    /// The output has length `3 * padded_dim` and is suitable for bitpacking
+    /// via FastLanes `bitpack_encode(..., 1, None)`.
+    pub fn export_inverse_signs_u8(&self) -> Vec<u8> {
+        let total = 3 * self.padded_dim;
+        let mut out = Vec::with_capacity(total);
 
-        // Store in inverse order: signs[2] (D₃), signs[1] (D₂), signs[0] (D₁)
-        for (round, sign_idx) in [2, 1, 0].iter().enumerate() {
-            let offset = round * self.padded_dim;
-            for j in 0..self.padded_dim {
-                if self.signs[*sign_idx][j] > 0.0 {
-                    bits.set(offset + j);
-                }
+        // Store in inverse order: sign_masks[2] (D₃), sign_masks[1] (D₂), sign_masks[0] (D₁)
+        for &sign_idx in &[2, 1, 0] {
+            for &mask in &self.sign_masks[sign_idx] {
+                out.push(if mask == 0 { 1u8 } else { 0u8 });
             }
         }
-
-        BoolArray::new(bits.freeze(), Validity::NonNullable)
+        out
     }
 
-    /// Reconstruct a `RotationMatrix` from a stored `BoolArray` of signs.
+    /// Reconstruct a `RotationMatrix` from unpacked `u8` 0/1 values.
     ///
-    /// The `BoolArray` must have length `3 * padded_dim` with signs in inverse
-    /// application order `[D₃ | D₂ | D₁]` (as produced by
-    /// [`export_inverse_signs_bool_array`]).
-    pub fn from_bool_array(signs_array: &BoolArray, dimension: usize) -> VortexResult<Self> {
+    /// The input must have length `3 * padded_dim` with signs in inverse
+    /// application order `[D₃ | D₂ | D₁]` (as produced by [`export_inverse_signs_u8`]).
+    /// Convention: `1` = positive, `0` = negative.
+    ///
+    /// This is the decode-time reconstruction path: FastLanes SIMD-unpacks the
+    /// stored `BitPackedArray` into `&[u8]`, which is passed here.
+    pub fn from_u8_slice(signs_u8: &[u8], dimension: usize) -> VortexResult<Self> {
         let padded_dim = dimension.next_power_of_two();
         vortex_ensure!(
-            signs_array.len() == 3 * padded_dim,
-            "Expected BoolArray of length {}, got {}",
+            signs_u8.len() == 3 * padded_dim,
+            "Expected {} sign bytes, got {}",
             3 * padded_dim,
-            signs_array.len()
+            signs_u8.len()
         );
 
-        let bit_buf = signs_array.to_bit_buffer();
-
-        // Reconstruct in storage order (inverse): [D₃, D₂, D₁] → signs[2], signs[1], signs[0]
-        let mut signs: [Vec<f32>; 3] = std::array::from_fn(|_| Vec::with_capacity(padded_dim));
+        // Reconstruct in storage order (inverse): [D₃, D₂, D₁] → sign_masks[2], [1], [0]
+        let mut sign_masks: [Vec<u32>; 3] =
+            std::array::from_fn(|_| Vec::with_capacity(padded_dim));
 
         for (round, sign_idx) in [2, 1, 0].iter().enumerate() {
             let offset = round * padded_dim;
-            signs[*sign_idx] = (0..padded_dim)
-                .map(|j| {
-                    if bit_buf.value(offset + j) {
-                        1.0f32
-                    } else {
-                        -1.0f32
-                    }
-                })
+            sign_masks[*sign_idx] = signs_u8[offset..offset + padded_dim]
+                .iter()
+                .map(|&v| if v != 0 { 0u32 } else { F32_SIGN_BIT })
                 .collect();
         }
 
         let norm_factor = 1.0 / (padded_dim as f32 * (padded_dim as f32).sqrt());
 
         Ok(Self {
-            signs,
+            sign_masks,
             padded_dim,
             norm_factor,
         })
     }
 }
 
-/// Generate a vector of random ±1 signs.
-fn gen_random_signs(rng: &mut StdRng, len: usize) -> Vec<f32> {
+/// Generate a vector of random XOR sign masks.
+fn gen_random_sign_masks(rng: &mut StdRng, len: usize) -> Vec<u32> {
     (0..len)
         .map(|_| {
             if rng.random_bool(0.5) {
-                1.0f32
+                0u32 // +1: no-op
             } else {
-                -1.0f32
+                F32_SIGN_BIT // -1: flip sign bit
             }
         })
         .collect()
 }
 
-/// Element-wise multiply by ±1 signs.
+/// Apply sign masks via XOR on the IEEE 754 sign bit.
+///
+/// This is branchless and auto-vectorizes into `vpxor` (x86) / `veor` (ARM).
+/// Equivalent to multiplying each element by ±1.0, but avoids FP dependency chains.
 #[inline]
-fn apply_signs(buf: &mut [f32], signs: &[f32]) {
-    for (val, &sign) in buf.iter_mut().zip(signs.iter()) {
-        *val *= sign;
+fn apply_signs_xor(buf: &mut [f32], masks: &[u32]) {
+    for (val, &mask) in buf.iter_mut().zip(masks.iter()) {
+        *val = f32::from_bits(val.to_bits() ^ mask);
     }
 }
 
@@ -325,7 +317,7 @@ mod tests {
         Ok(())
     }
 
-    /// Verify that export → from_bool_array produces identical rotation output.
+    /// Verify that export → from_u8_slice produces identical rotation output.
     #[rstest]
     #[case(64)]
     #[case(128)]
@@ -334,10 +326,9 @@ mod tests {
         let rot = RotationMatrix::try_new(42, dim)?;
         let padded_dim = rot.padded_dim();
 
-        let signs_array = rot.export_inverse_signs_bool_array();
-        let rot2 = RotationMatrix::from_bool_array(&signs_array, dim)?;
+        let signs_u8 = rot.export_inverse_signs_u8();
+        let rot2 = RotationMatrix::from_u8_slice(&signs_u8, dim)?;
 
-        // Verify both produce identical rotation and inverse rotation.
         let mut input = vec![0.0f32; padded_dim];
         for i in 0..dim {
             input[i] = (i as f32 + 1.0) * 0.01;

@@ -551,20 +551,18 @@ mod tests {
 
         // Verify stored signs match seed-derived signs.
         let rot_from_seed = RotationMatrix::try_new(123, 128)?;
-        let exported = rot_from_seed.export_inverse_signs_bool_array();
+        let expected_u8 = rot_from_seed.export_inverse_signs_u8();
         let stored_signs = encoded
             .rotation_signs()
             .clone()
-            .execute::<vortex_array::arrays::BoolArray>(&mut ctx)?;
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let stored_u8 = stored_signs.as_slice::<u8>();
 
-        assert_eq!(exported.len(), stored_signs.len());
-        let exp_buf = exported.to_bit_buffer();
-        let stored_buf = stored_signs.to_bit_buffer();
-        for i in 0..exported.len() {
+        assert_eq!(expected_u8.len(), stored_u8.len());
+        for i in 0..expected_u8.len() {
             assert_eq!(
-                exp_buf.value(i),
-                stored_buf.value(i),
-                "Sign mismatch at bit {i}"
+                expected_u8[i], stored_u8[i],
+                "Sign mismatch at index {i}"
             );
         }
 

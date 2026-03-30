@@ -216,11 +216,12 @@ impl VTable for TurboQuant {
 
         let centroids = children.get(2, &norms_dtype, num_centroids)?;
 
-        let signs_dtype = DType::Bool(Nullability::NonNullable);
+        let signs_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
         let rotation_signs = children.get(3, &signs_dtype, 3 * padded_dim)?;
 
         let qjl = if metadata.has_qjl {
-            let qjl_signs = children.get(4, &signs_dtype, len * padded_dim)?;
+            let qjl_signs_dtype = DType::Bool(Nullability::NonNullable);
+            let qjl_signs = children.get(4, &qjl_signs_dtype, len * padded_dim)?;
             let qjl_residual_norms = children.get(5, &norms_dtype, len)?;
             let qjl_rotation_signs = children.get(6, &signs_dtype, 3 * padded_dim)?;
             Some(QjlCorrection {

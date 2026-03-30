@@ -54,11 +54,11 @@ pub fn execute_decompress(
     let centroids_prim = array.centroids.clone().execute::<PrimitiveArray>(ctx)?;
     let centroids = centroids_prim.as_slice::<f32>();
 
-    // Expand stored rotation signs into f32 ±1.0 vectors once (amortized over all rows).
-    // This costs 3 × padded_dim × 4 bytes of temporary memory (e.g. 12KB for dim=1024)
-    // but enables autovectorized f32 multiply in the per-row SRHT hot loop.
-    let signs_bool = array.rotation_signs.clone().execute::<BoolArray>(ctx)?;
-    let rotation = RotationMatrix::from_bool_array(&signs_bool, dim)?;
+    // FastLanes SIMD-unpacks the 1-bit bitpacked rotation signs into u8 0/1 values,
+    // then we expand to u32 XOR masks once (amortized over all rows). This enables
+    // branchless XOR-based sign application in the per-row SRHT hot loop.
+    let signs_prim = array.rotation_signs.clone().execute::<PrimitiveArray>(ctx)?;
+    let rotation = RotationMatrix::from_u8_slice(signs_prim.as_slice::<u8>(), dim)?;
 
     // Unpack codes.
     let codes_prim = array.codes.clone().execute::<PrimitiveArray>(ctx)?;
@@ -108,8 +108,8 @@ pub fn execute_decompress(
     let residual_norms_prim = qjl.residual_norms.clone().execute::<PrimitiveArray>(ctx)?;
     let residual_norms = residual_norms_prim.as_slice::<f32>();
 
-    let qjl_rot_signs_bool = qjl.rotation_signs.clone().execute::<BoolArray>(ctx)?;
-    let qjl_rot = RotationMatrix::from_bool_array(&qjl_rot_signs_bool, dim)?;
+    let qjl_rot_signs_prim = qjl.rotation_signs.clone().execute::<PrimitiveArray>(ctx)?;
+    let qjl_rot = RotationMatrix::from_u8_slice(qjl_rot_signs_prim.as_slice::<u8>(), dim)?;
 
     let qjl_scale = qjl_correction_scale(padded_dim);
     let mse_elements = mse_output.as_ref();
