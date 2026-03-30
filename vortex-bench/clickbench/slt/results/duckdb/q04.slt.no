@@ -1,1 +1,4 @@
-include ../q04.slt.no
+query T rowsort
+SELECT COUNT(DISTINCT "UserID") FROM hits
+----
+17630976

@@ -82,6 +82,14 @@ struct Args {
     #[arg(long, default_value_t = false, conflicts_with = "explain")]
     print_results: bool,
 
+    /// Regenerate `.slt.no` reference files from actual query output.
+    #[arg(
+        long,
+        default_value_t = false,
+        conflicts_with_all = ["explain", "validate"]
+    )]
+    regenerate_slt: bool,
+
     #[arg(
         long,
         default_value_t = false,
@@ -159,6 +167,8 @@ fn main() -> anyhow::Result<()> {
 
     let mode = if args.explain {
         BenchmarkMode::Explain
+    } else if args.regenerate_slt {
+        BenchmarkMode::RegenerateSlt
     } else if args.validate {
         BenchmarkMode::Run {
             iterations: 1,
@@ -201,7 +211,7 @@ fn main() -> anyhow::Result<()> {
         },
     )?;
 
-    if !args.explain && !args.validate {
+    if !args.explain && !args.validate && !args.regenerate_slt {
         let benchmark_id = format!("duckdb-{}", benchmark.dataset_name());
         let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
         runner.export_to(&args.display_format, writer)?;

@@ -1,1 +1,13 @@
-include ../q14.slt.no
+query TTT rowsort
+SELECT "SearchEngineID", "SearchPhrase", COUNT(*) AS c FROM hits WHERE "SearchPhrase" <> '' GROUP BY "SearchEngineID", "SearchPhrase" ORDER BY c DESC LIMIT 10
+----
+2 албатрутдин 13716
+2 дружке помещение 11946
+2 карелки 46258
+2 мангу в зарабей грама 18871
+2 смотреть 13108
+2 смотреть онлайн 16905
+2 смотреть онлайн бесплатно 14909
+2 экзоидные 13414
+3 албатрутдин 16748
+3 карелки 12815

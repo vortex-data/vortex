@@ -1,1 +1,4 @@
-include ../q00.slt.no
+query T rowsort
+SELECT COUNT(*) FROM hits
+----
+99997497

@@ -3,6 +3,7 @@
 
 //! Generic benchmark runner infrastructure to reduce boilerplate across engine-specific benchmarks.
 
+use std::fs;
 use std::fs::File;
 use std::future::Future;
 use std::io::Write;
@@ -33,6 +34,9 @@ pub enum BenchmarkMode {
     },
     /// Prepend `EXPLAIN` to each query, print the result, skip timing.
     Explain,
+    /// Run each query once and write (or overwrite) the engine-specific
+    /// `.slt.no` reference files with the actual `result_rows()` output.
+    RegenerateSlt,
 }
 
 /// Trait implemented by engine-specific query results so the runner can
@@ -274,6 +278,42 @@ impl SqlBenchmarkRunner {
         })
     }
 
+    /// Write a `.slt.no` reference file for a query from actual results.
+    ///
+    /// The file is written to the engine-specific path returned by
+    /// [`Self::reference_path`]. Parent directories are created if needed.
+    fn write_slt_file(
+        &self,
+        query_idx: usize,
+        query_sql: &str,
+        rows: &mut [Vec<String>],
+    ) -> anyhow::Result<()> {
+        let Some(path) = self.reference_path(query_idx) else {
+            anyhow::bail!("No expected_results_dir configured, cannot write slt file");
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        rows.sort();
+        let num_cols = rows.first().map_or(0, |r| r.len());
+        let col_types = "T".repeat(num_cols);
+
+        let mut out = String::new();
+        out.push_str(&format!("query {col_types} rowsort\n"));
+        out.push_str(query_sql.trim());
+        out.push('\n');
+        out.push_str("----\n");
+        for row in rows.iter() {
+            out.push_str(&row.join(" "));
+            out.push('\n');
+        }
+
+        fs::write(&path, &out)?;
+        eprintln!("Wrote {}", path.display());
+        Ok(())
+    }
+
     /// Validate a query result against its `.slt.no` reference file.
     ///
     /// Uses `sqllogictest::default_validator` with `value_normalizer` to compare
@@ -405,6 +445,22 @@ impl SqlBenchmarkRunner {
                     }
                 }
             }
+            BenchmarkMode::RegenerateSlt => {
+                let format = *self.formats.first().ok_or_else(|| {
+                    anyhow::anyhow!("At least one format is required for --regenerate-slt")
+                })?;
+                let mut ctx = setup(format)?;
+
+                for (query_idx, query) in queries.iter() {
+                    let query_idx = *query_idx;
+                    let (_, result) = execute(&mut ctx, query_idx, format, query.as_str())
+                        .unwrap_or_else(|err| {
+                            vortex_panic!("query {query_idx} failed: {err}");
+                        });
+                    let (_cols, mut rows) = result.result_rows();
+                    self.write_slt_file(query_idx, query, &mut rows)?;
+                }
+            }
         }
 
         Ok(())
@@ -522,6 +578,23 @@ impl SqlBenchmarkRunner {
                         println!("{}", result.display());
                         println!();
                     }
+                }
+            }
+            BenchmarkMode::RegenerateSlt => {
+                let format = *self.formats.first().ok_or_else(|| {
+                    anyhow::anyhow!("At least one format is required for --regenerate-slt")
+                })?;
+                let ctx = setup(format).await?;
+
+                for (query_idx, query) in queries.iter() {
+                    let query_idx = *query_idx;
+                    let (_, result) = execute(query_idx, &ctx, query.as_str())
+                        .await
+                        .unwrap_or_else(|err| {
+                            vortex_panic!("query {query_idx} failed: {err}");
+                        });
+                    let (_cols, mut rows) = result.result_rows();
+                    self.write_slt_file(query_idx, query, &mut rows)?;
                 }
             }
         }

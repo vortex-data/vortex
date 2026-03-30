@@ -107,6 +107,14 @@ struct Args {
     #[arg(long, default_value_t = false, conflicts_with = "explain")]
     print_results: bool,
 
+    /// Regenerate `.slt.no` reference files from actual query output.
+    #[arg(
+        long,
+        default_value_t = false,
+        conflicts_with_all = ["explain", "validate"]
+    )]
+    regenerate_slt: bool,
+
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
@@ -173,6 +181,8 @@ async fn main() -> anyhow::Result<()> {
 
     let mode = if args.explain {
         BenchmarkMode::Explain
+    } else if args.regenerate_slt {
+        BenchmarkMode::RegenerateSlt
     } else if args.validate {
         BenchmarkMode::Run {
             iterations: 1,
@@ -233,7 +243,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-    if !args.explain && !args.validate {
+    if !args.explain && !args.validate && !args.regenerate_slt {
         // Print metrics if requested
         if show_metrics {
             let plans = collected_plans.lock();

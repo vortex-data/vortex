@@ -1,1 +1,4 @@
-include ../q20.slt.no
+query T rowsort
+SELECT COUNT(*) FROM hits WHERE "URL" LIKE '%google%'
+----
+15911

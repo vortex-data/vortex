@@ -1,1 +1,4 @@
-include ../q03.slt.no
+query T rowsort
+SELECT AVG("UserID") FROM hits
+----
+2.528953029789716e18

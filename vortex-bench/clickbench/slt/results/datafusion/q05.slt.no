@@ -1,1 +1,4 @@
-include ../q05.slt.no
+query T rowsort
+SELECT COUNT(DISTINCT "SearchPhrase") FROM hits
+----
+6019103

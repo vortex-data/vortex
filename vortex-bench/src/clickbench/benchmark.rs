@@ -4,6 +4,7 @@
 use std::env;
 use std::fs;
 use std::path::Path;
+
 use anyhow::Result;
 use reqwest::Client;
 use url::Url;
@@ -121,7 +122,6 @@ impl Benchmark for ClickBenchBenchmark {
     fn table_specs(&self) -> Vec<TableSpec> {
         vec![TableSpec::new("hits", Some(HITS_SCHEMA.clone()))]
     }
-
 }
 
 fn clickbench_flavor(flavor: Flavor) -> String {

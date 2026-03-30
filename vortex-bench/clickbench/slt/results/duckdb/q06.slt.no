@@ -1,1 +1,4 @@
-include ../q06.slt.no
+query TT rowsort
+SELECT MIN("EventDate"), MAX("EventDate") FROM hits
+----
+2013-07-02 00:00:00 2013-07-31 00:00:00

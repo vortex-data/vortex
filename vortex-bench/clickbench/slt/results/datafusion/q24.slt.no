@@ -1,1 +1,0 @@
-include ../q24.slt.no

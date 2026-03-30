@@ -1,1 +1,13 @@
-include ../q10.slt.no
+query TT rowsort
+SELECT "MobilePhoneModel", COUNT(DISTINCT "UserID") AS u FROM hits WHERE "MobilePhoneModel" <> '' GROUP BY "MobilePhoneModel" ORDER BY u DESC LIMIT 10
+----
+3110000 1871
+A500 16046
+GT-I9500 1598
+GT-P7300B 1907
+N8-00 5565
+ONE TOUCH 6030A 2759
+eagle75 1492
+iPad 1090347
+iPho 3300
+iPhone 45758
