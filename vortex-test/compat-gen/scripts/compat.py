@@ -211,6 +211,47 @@ class S3Store(Store):
         return f"s3://{self.bucket}"
 
 
+class DryRunStore(Store):
+    """Wrapper that validates write credentials without actually uploading.
+
+    Reads are delegated to the inner store. Writes use ``aws s3 cp --dryrun``
+    (for S3 stores) so that IAM permissions are verified, but no data is
+    written.  For local stores, writes are silently skipped.
+    """
+
+    def __init__(self, inner: Store):
+        self.inner = inner
+
+    def read(self, key: str) -> bytes | None:
+        return self.inner.read(key)
+
+    def write(self, key: str, data: bytes) -> None:
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(data)
+            tmp_path = f.name
+        try:
+            self.write_file(key, Path(tmp_path))
+        finally:
+            os.unlink(tmp_path)
+
+    def write_file(self, key: str, local_path: Path) -> None:
+        if isinstance(self.inner, S3Store):
+            dest = f"s3://{self.inner.bucket}/{key}"
+            _info(f"  {local_path.name} -> {dest} (dry-run)")
+            subprocess.run(
+                ["aws", "s3", "cp", str(local_path), dest, "--dryrun"],
+                check=True,
+            )
+        else:
+            _info(f"  dry-run: would write {key}")
+
+    def list_versions(self) -> list[str]:
+        return self.inner.list_versions()
+
+    def display_name(self) -> str:
+        return self.inner.display_name()
+
+
 def _parse_store(spec: str) -> Store:
     """Parse a store specification into a Store instance."""
     if spec.startswith("s3://"):
@@ -409,56 +450,23 @@ def _publish_full(
         manifest = _merge_manifest(store, fixtures_json, version, prev)
         manifest_json = json.dumps(manifest, indent=2) + "\n"
 
-        if args.dry_run:
-            _info(f"dry run — would publish to {store.display_name()}")
-            existing = _read_manifest(store, version)
-            if existing:
-                existing.pop("_prefix", None)
-                existing_names = {e["name"] for e in existing["fixtures"]}
-                new_names = {e["name"] for e in manifest["fixtures"]}
-                added = new_names - existing_names
-                removed = existing_names - new_names
-                if added:
-                    _info(f"  new fixtures: {', '.join(sorted(added))}")
-                if removed:
-                    _info(f"  removed fixtures: {', '.join(sorted(removed))}")
-                if not added and not removed:
-                    _info(f"  same {len(new_names)} fixtures as existing")
-            _info("  target paths:")
-            for entry in manifest["fixtures"]:
-                _info(f"    {store.display_name()}/v{version}/arrays/{entry['name']}")
-            _info(f"    {store.display_name()}/v{version}/arrays/manifest.json")
-            _info(f"    {store.display_name()}/versions.json")
-            if version not in versions:
-                updated_versions = sorted(versions + [version], key=_version_sort_key)
-                _info(f"  versions.json would update: {versions} -> {updated_versions}")
-            else:
-                _info(f"  versions.json unchanged: {versions}")
-            return
-
-        if not args.yes:
-            _info(f"\nabout to upload {len(manifest['fixtures'])} fixtures for v{version} to {store.display_name()}")
-            answer = input("proceed? [y/N] ").strip().lower()
-            if answer not in ("y", "yes"):
-                _info("aborted")
-                sys.exit(1)
-
-        _info(f"uploading {len(manifest['fixtures'])} fixtures to {store.display_name()}...")
-        _parallel_upload(
+        write_store = _write_store(
             store,
+            args,
+            f"\nabout to upload {len(manifest['fixtures'])} fixtures for v{version} to {store.display_name()}",
+        )
+
+        _parallel_upload(
+            write_store,
             [(f"v{version}/arrays/{e['name']}", output / e["name"]) for e in manifest["fixtures"]],
         )
 
-        store.write(f"v{version}/arrays/manifest.json", manifest_json.encode())
-        _info("  uploaded manifest.json")
+        write_store.write(f"v{version}/arrays/manifest.json", manifest_json.encode())
 
         if version not in versions:
             versions.append(version)
             versions.sort(key=_version_sort_key)
-        store.write("versions.json", (json.dumps(versions, indent=2) + "\n").encode())
-        _info("  updated versions.json")
-
-        _info(f"\ndone: {len(manifest['fixtures'])} fixtures for v{version} published to {store.display_name()}")
+        write_store.write("versions.json", (json.dumps(versions, indent=2) + "\n").encode())
 
 
 def _publish_update(
@@ -510,24 +518,15 @@ def _publish_update(
             _info("no new fixtures to add")
             return
 
-        if args.dry_run:
-            _info(f"dry run — would upload {len(new_fixtures)} new fixture(s):")
-            for name in new_fixtures:
-                _info(f"  {store.display_name()}/{prefix}/{name}")
-            _info(f"  {store.display_name()}/{prefix}/manifest.json (updated)")
-            return
+        write_store = _write_store(
+            store,
+            args,
+            f"\nabout to upload {len(new_fixtures)} new fixture(s) for v{version} to {store.display_name()}",
+        )
 
-        if not args.yes:
-            _info(f"\nabout to upload {len(new_fixtures)} new fixture(s) for v{version} to {store.display_name()}")
-            answer = input("proceed? [y/N] ").strip().lower()
-            if answer not in ("y", "yes"):
-                _info("aborted")
-                sys.exit(1)
-
-        # Upload only new fixture files.
         new_fixture_names = set(new_fixtures)
         _parallel_upload(
-            store,
+            write_store,
             [(f"{prefix}/{name}", output / name) for name in new_fixtures],
         )
 
@@ -542,10 +541,7 @@ def _publish_update(
             "generated_at": datetime.now(UTC).isoformat(),
             "fixtures": new_entries,
         }
-        store.write(f"{prefix}/manifest.json", (json.dumps(updated_manifest, indent=2) + "\n").encode())
-        _info("  updated manifest.json")
-
-        _info(f"\ndone: added {len(new_fixtures)} new fixture(s) to v{version} in {store.display_name()}")
+        write_store.write(f"{prefix}/manifest.json", (json.dumps(updated_manifest, indent=2) + "\n").encode())
 
 
 def cmd_check(args: argparse.Namespace) -> None:
@@ -748,6 +744,19 @@ def cmd_validate_manifest(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _write_store(store: Store, args: argparse.Namespace, prompt: str) -> Store:
+    """Return a DryRunStore wrapper or the real store, with optional confirmation."""
+    if args.dry_run:
+        return DryRunStore(store)
+    if not args.yes:
+        _info(prompt)
+        answer = input("proceed? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            _info("aborted")
+            sys.exit(1)
+    return store
+
+
 def _parallel_upload(store: Store, items: list[tuple[str, Path]], max_workers: int = 8) -> None:
     """Upload files to the store in parallel."""
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -944,7 +953,7 @@ def main() -> None:
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Generate and show manifest, but don't upload",
+        help="Validate credentials and show what would be uploaded, without writing",
     )
     p.add_argument(
         "--force",
