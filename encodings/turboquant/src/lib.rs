@@ -87,12 +87,12 @@ pub use compress::turboquant_encode_qjl;
 pub use mse::*;
 pub use qjl::*;
 
-pub mod centroids;
+pub(crate) mod centroids;
 mod compress;
 pub(crate) mod decompress;
 mod mse;
 mod qjl;
-pub mod rotation;
+pub(crate) mod rotation;
 
 /// Extension ID for the `Vector` type from `vortex-tensor`.
 pub const VECTOR_EXT_ID: &str = "vortex.tensor.vector";
@@ -712,7 +712,6 @@ mod tests {
     #[test]
     fn mse_serde_roundtrip() -> VortexResult<()> {
         use vortex_array::DynArray;
-        use vortex_array::SerializeMetadata;
         use vortex_array::vtable::VTable;
 
         let fsl = make_fsl(10, 128, 42);

@@ -32,8 +32,14 @@ pub struct TurboQuantConfig {
     /// For MSE encoding: 1-8.
     /// For QJL encoding: 2-9 (the MSE inner uses `bit_width - 1`).
     pub bit_width: u8,
-    /// Optional seed for the rotation matrix. If None, a random seed is generated.
+    /// Optional seed for the rotation matrix. If None, the default seed is used.
     pub seed: Option<u64>,
+}
+
+impl Default for TurboQuantConfig {
+    fn default() -> Self {
+        Self { bit_width: 5, seed: Some(42) }
+    }
 }
 
 /// Extract elements from a FixedSizeListArray as a flat f32 vec.
@@ -77,25 +83,23 @@ pub fn turboquant_encode_mse(
         "MSE bit_width must be 1-8, got {}",
         config.bit_width
     );
-    let dimension = fsl.list_size();
+    let dimension = fsl.list_size() as usize;
     vortex_ensure!(
         dimension >= 2,
         "TurboQuant requires dimension >= 2, got {dimension}"
     );
 
-    let seed = config.seed.unwrap_or_else(rand::random);
-    let dim = dimension as usize;
+    let seed = config.seed.unwrap_or(42);
     let num_rows = fsl.len();
 
-    let rotation = RotationMatrix::try_new(seed, dim)?;
+    let rotation = RotationMatrix::try_new(seed, dimension as usize)?;
     let padded_dim = rotation.padded_dim();
 
     if num_rows == 0 {
-        return build_empty_mse_array(fsl, config.bit_width, padded_dim, seed);
+        return build_empty_mse_array(fsl, config.bit_width, padded_dim as u32, seed);
     }
 
     let f32_elements = extract_f32_elements(fsl)?;
-    #[allow(clippy::cast_possible_truncation)]
     let centroids = get_centroids(padded_dim as u32, config.bit_width)?;
     let boundaries = compute_boundaries(&centroids);
 
@@ -105,7 +109,7 @@ pub fn turboquant_encode_mse(
     let mut rotated = vec![0.0f32; padded_dim];
 
     for row in 0..num_rows {
-        let x = &f32_elements[row * dim..(row + 1) * dim];
+        let x = &f32_elements[row * dimension..(row + 1) * dimension];
         let norm = l2_norm(x);
         norms_buf.push(norm);
 
@@ -113,11 +117,11 @@ pub fn turboquant_encode_mse(
         // from initialization and is never overwritten.
         if norm > 0.0 {
             let inv_norm = 1.0 / norm;
-            for (dst, &src) in padded[..dim].iter_mut().zip(x.iter()) {
+            for (dst, &src) in padded[..dimension].iter_mut().zip(x.iter()) {
                 *dst = src * inv_norm;
             }
         } else {
-            padded[..dim].fill(0.0);
+            padded[..dimension].fill(0.0);
         }
         rotation.rotate(&padded, &mut rotated);
 
@@ -146,14 +150,13 @@ pub fn turboquant_encode_mse(
     // Store rotation signs as a BoolArray child.
     let rotation_signs = rotation.export_inverse_signs_bool_array();
 
-    #[allow(clippy::cast_possible_truncation)]
     TurboQuantMSEArray::try_new(
         fsl.dtype().clone(),
         codes,
         norms_array.into_array(),
         centroids_array.into_array(),
         rotation_signs.into_array(),
-        dimension,
+        dimension as u32,
         config.bit_width,
         padded_dim as u32,
         seed,
@@ -202,7 +205,7 @@ pub fn turboquant_encode_qjl(
     let padded_dim = rotation.padded_dim();
 
     if num_rows == 0 {
-        return build_empty_qjl_array(fsl, config.bit_width, padded_dim, seed);
+        return build_empty_qjl_array(fsl, config.bit_width, padded_dim as u32, seed);
     }
 
     // TODO(perf): `turboquant_encode_mse` above already extracts f32 elements
@@ -283,7 +286,6 @@ pub fn turboquant_encode_qjl(
     let qjl_signs = BoolArray::new(qjl_sign_bits.freeze(), Validity::NonNullable);
     let qjl_rotation_signs = qjl_rotation.export_inverse_signs_bool_array();
 
-    #[allow(clippy::cast_possible_truncation)]
     TurboQuantQJLArray::try_new(
         fsl.dtype().clone(),
         mse_inner.into_array(),
@@ -292,27 +294,24 @@ pub fn turboquant_encode_qjl(
         qjl_rotation_signs.into_array(),
         config.bit_width,
         padded_dim as u32,
-        seed.wrapping_add(1),
     )
 }
 
 fn build_empty_mse_array(
     fsl: &FixedSizeListArray,
     bit_width: u8,
-    padded_dim: usize,
+    padded_dim: u32,
     seed: u64,
 ) -> VortexResult<TurboQuantMSEArray> {
     let rotation = RotationMatrix::try_new(seed, fsl.list_size() as usize)?;
     let codes = PrimitiveArray::empty::<u8>(fsl.dtype().nullability());
     let norms = PrimitiveArray::empty::<f32>(fsl.dtype().nullability());
-    #[allow(clippy::cast_possible_truncation)]
     let centroids_vec = get_centroids(padded_dim as u32, bit_width)?;
     let mut centroids_buf = BufferMut::<f32>::with_capacity(centroids_vec.len());
     centroids_buf.extend_from_slice(&centroids_vec);
     let centroids = PrimitiveArray::new::<f32>(centroids_buf.freeze(), Validity::NonNullable);
     let rotation_signs = rotation.export_inverse_signs_bool_array();
 
-    #[allow(clippy::cast_possible_truncation)]
     TurboQuantMSEArray::try_new(
         fsl.dtype().clone(),
         codes.into_array(),
@@ -329,7 +328,7 @@ fn build_empty_mse_array(
 fn build_empty_qjl_array(
     fsl: &FixedSizeListArray,
     bit_width: u8,
-    padded_dim: usize,
+    padded_dim: u32,
     seed: u64,
 ) -> VortexResult<TurboQuantQJLArray> {
     let mse_config = TurboQuantConfig {
@@ -342,7 +341,6 @@ fn build_empty_qjl_array(
     let qjl_signs = BoolArray::new(BitBufferMut::new_unset(0).freeze(), Validity::NonNullable);
     let qjl_rotation_signs = qjl_rotation.export_inverse_signs_bool_array();
 
-    #[allow(clippy::cast_possible_truncation)]
     TurboQuantQJLArray::try_new(
         fsl.dtype().clone(),
         mse_inner.into_array(),
@@ -351,6 +349,5 @@ fn build_empty_qjl_array(
         qjl_rotation_signs.into_array(),
         bit_width,
         padded_dim as u32,
-        seed.wrapping_add(1),
     )
 }

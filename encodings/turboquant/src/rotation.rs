@@ -25,8 +25,6 @@ use vortex_error::vortex_ensure;
 pub struct RotationMatrix {
     /// Random ±1 signs for each of the 3 diagonal matrices, each of length `padded_dim`.
     signs: [Vec<f32>; 3],
-    /// The original (unpadded) dimension.
-    dim: usize,
     /// The padded dimension (next power of 2 >= dim).
     padded_dim: usize,
     /// Normalization factor: 1/padded_dim per Hadamard, applied once at the end.
@@ -53,7 +51,6 @@ impl RotationMatrix {
 
         Ok(Self {
             signs,
-            dim: dimension,
             padded_dim,
             norm_factor,
         })
@@ -64,9 +61,8 @@ impl RotationMatrix {
     /// Both `input` and `output` must have length `padded_dim()`. The caller
     /// is responsible for zero-padding input beyond `dim` positions.
     pub fn rotate(&self, input: &[f32], output: &mut [f32]) {
-        let pd = self.padded_dim;
-        debug_assert_eq!(input.len(), pd);
-        debug_assert_eq!(output.len(), pd);
+        debug_assert_eq!(input.len(), self.padded_dim);
+        debug_assert_eq!(output.len(), self.padded_dim);
 
         output.copy_from_slice(input);
         self.apply_srht(output);
@@ -76,9 +72,8 @@ impl RotationMatrix {
     ///
     /// Both `input` and `output` must have length `padded_dim()`.
     pub fn inverse_rotate(&self, input: &[f32], output: &mut [f32]) {
-        let pd = self.padded_dim;
-        debug_assert_eq!(input.len(), pd);
-        debug_assert_eq!(output.len(), pd);
+        debug_assert_eq!(input.len(), self.padded_dim);
+        debug_assert_eq!(output.len(), self.padded_dim);
 
         output.copy_from_slice(input);
         self.apply_inverse_srht(output);
@@ -107,9 +102,7 @@ impl RotationMatrix {
 
         // Apply combined normalization factor.
         let norm = self.norm_factor;
-        for val in buf.iter_mut() {
-            *val *= norm;
-        }
+        buf.iter_mut().for_each(|val| *val *= norm);
     }
 
     /// Apply the inverse SRHT.
@@ -127,14 +120,7 @@ impl RotationMatrix {
         apply_signs(buf, &self.signs[0]);
 
         let norm = self.norm_factor;
-        for val in buf.iter_mut() {
-            *val *= norm;
-        }
-    }
-
-    /// Returns the dimension of this rotation.
-    pub fn dimension(&self) -> usize {
-        self.dim
+        buf.iter_mut().for_each(|val| *val *= norm);
     }
 
     /// Returns the normalization factor for this transform.
@@ -169,8 +155,8 @@ impl RotationMatrix {
     /// The `BoolArray` must have length `3 * padded_dim` with signs in inverse
     /// application order `[D₃ | D₂ | D₁]` (as produced by
     /// [`export_inverse_signs_bool_array`]).
-    pub fn from_bool_array(signs_array: &BoolArray, dim: usize) -> VortexResult<Self> {
-        let padded_dim = dim.next_power_of_two();
+    pub fn from_bool_array(signs_array: &BoolArray, dimension: usize) -> VortexResult<Self> {
+        let padded_dim = dimension.next_power_of_two();
         vortex_ensure!(
             signs_array.len() == 3 * padded_dim,
             "Expected BoolArray of length {}, got {}",
@@ -200,7 +186,6 @@ impl RotationMatrix {
 
         Ok(Self {
             signs,
-            dim,
             padded_dim,
             norm_factor,
         })

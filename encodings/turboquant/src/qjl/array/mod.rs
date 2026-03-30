@@ -24,9 +24,6 @@ pub struct TurboQuantQJLMetadata {
     /// Padded dimension (next power of 2 >= dimension).
     #[prost(uint32, tag = "2")]
     pub padded_dim: u32,
-    /// QJL rotation seed (for debugging/reproducibility).
-    #[prost(uint64, tag = "3")]
-    pub rotation_seed: u64,
 }
 
 /// TurboQuant QJL array.
@@ -45,7 +42,6 @@ pub struct TurboQuantQJLArray {
     pub(crate) rotation_signs: ArrayRef,
     pub(crate) bit_width: u8,
     pub(crate) padded_dim: u32,
-    pub(crate) rotation_seed: u64,
     pub(crate) stats_set: ArrayStats,
 }
 
@@ -60,7 +56,6 @@ impl TurboQuantQJLArray {
         rotation_signs: ArrayRef,
         bit_width: u8,
         padded_dim: u32,
-        rotation_seed: u64,
     ) -> VortexResult<Self> {
         vortex_ensure!(
             (2..=9).contains(&bit_width),
@@ -74,7 +69,6 @@ impl TurboQuantQJLArray {
             rotation_signs,
             bit_width,
             padded_dim,
-            rotation_seed,
             stats_set: Default::default(),
         })
     }
@@ -87,11 +81,6 @@ impl TurboQuantQJLArray {
     /// Padded dimension.
     pub fn padded_dim(&self) -> u32 {
         self.padded_dim
-    }
-
-    /// QJL rotation seed.
-    pub fn rotation_seed(&self) -> u64 {
-        self.rotation_seed
     }
 
     /// The inner MSE array child.

@@ -74,7 +74,6 @@ impl VTable for TurboQuantQJL {
         array.dtype.hash(state);
         array.bit_width.hash(state);
         array.padded_dim.hash(state);
-        array.rotation_seed.hash(state);
         array.mse_inner.array_hash(state, precision);
         array.qjl_signs.array_hash(state, precision);
         array.residual_norms.array_hash(state, precision);
@@ -89,7 +88,6 @@ impl VTable for TurboQuantQJL {
         array.dtype == other.dtype
             && array.bit_width == other.bit_width
             && array.padded_dim == other.padded_dim
-            && array.rotation_seed == other.rotation_seed
             && array.mse_inner.array_eq(&other.mse_inner, precision)
             && array.qjl_signs.array_eq(&other.qjl_signs, precision)
             && array
@@ -140,7 +138,6 @@ impl VTable for TurboQuantQJL {
         Ok(ProstMetadata(TurboQuantQJLMetadata {
             bit_width: array.bit_width as u32,
             padded_dim: array.padded_dim,
-            rotation_seed: array.rotation_seed,
         }))
     }
 
@@ -187,7 +184,6 @@ impl VTable for TurboQuantQJL {
             rotation_signs,
             bit_width: u8::try_from(metadata.bit_width)?,
             padded_dim: metadata.padded_dim,
-            rotation_seed: metadata.rotation_seed,
             stats_set: Default::default(),
         })
     }

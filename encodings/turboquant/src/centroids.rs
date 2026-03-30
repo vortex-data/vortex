@@ -67,14 +67,14 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
         .map(|idx| -1.0 + (2.0 * (idx as f64) + 1.0) / (num_centroids as f64))
         .collect();
 
+    let mut boundaries: Vec<f64> = vec![0.0; num_centroids + 1];
     for _ in 0..MAX_ITERATIONS {
         // Compute decision boundaries (midpoints between adjacent centroids).
-        let mut boundaries = Vec::with_capacity(num_centroids + 1);
-        boundaries.push(-1.0);
+        boundaries[0] = -1.0;
         for idx in 0..num_centroids - 1 {
-            boundaries.push((centroids[idx] + centroids[idx + 1]) / 2.0);
+            boundaries[idx + 1] = (centroids[idx] + centroids[idx + 1]) / 2.0;
         }
-        boundaries.push(1.0);
+        boundaries[num_centroids] = 1.0;
 
         // Update each centroid to the conditional mean within its Voronoi cell.
         let mut max_change = 0.0f64;
@@ -91,8 +91,7 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation)]
-    centroids.iter().map(|&val| val as f32).collect()
+    centroids.into_iter().map(|val| val as f32).collect()
 }
 
 /// Compute the conditional mean of the coordinate distribution on interval [lo, hi].
@@ -152,7 +151,6 @@ pub fn compute_boundaries(centroids: &[f32]) -> Vec<f32> {
 /// centroids. Uses binary search on the midpoints, avoiding distance comparisons
 /// in the inner loop.
 #[inline]
-#[allow(clippy::cast_possible_truncation)]
 pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
     debug_assert!(
         boundaries.windows(2).all(|w| w[0] <= w[1]),
