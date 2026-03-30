@@ -4,12 +4,15 @@
 //! TurboQuant QJL array definition: wraps a TurboQuantMSEArray with 1-bit QJL
 //! residual correction for unbiased inner product estimation.
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+
+use crate::TurboQuantMSEArray;
 
 use super::TurboQuantQJL;
 
@@ -36,55 +39,44 @@ pub struct TurboQuantQJLMetadata {
 #[derive(Clone, Debug)]
 pub struct TurboQuantQJLArray {
     pub(crate) dtype: DType,
-    pub(crate) mse_inner: ArrayRef,
+    pub(crate) mse_inner: Arc<TurboQuantMSEArray>,
     pub(crate) qjl_signs: ArrayRef,
     pub(crate) residual_norms: ArrayRef,
     pub(crate) rotation_signs: ArrayRef,
-    pub(crate) bit_width: u8,
-    pub(crate) padded_dim: u32,
     pub(crate) stats_set: ArrayStats,
 }
 
 impl TurboQuantQJLArray {
     /// Build a new TurboQuantQJLArray.
-    #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         dtype: DType,
-        mse_inner: ArrayRef,
+        mse_inner: Arc<TurboQuantMSEArray>,
         qjl_signs: ArrayRef,
         residual_norms: ArrayRef,
         rotation_signs: ArrayRef,
-        bit_width: u8,
-        padded_dim: u32,
     ) -> VortexResult<Self> {
-        vortex_ensure!(
-            (2..=9).contains(&bit_width),
-            "QJL bit_width must be 2-9, got {bit_width}"
-        );
         Ok(Self {
             dtype,
             mse_inner,
             qjl_signs,
             residual_norms,
             rotation_signs,
-            bit_width,
-            padded_dim,
             stats_set: Default::default(),
         })
     }
 
     /// Total bit width (including QJL bit).
     pub fn bit_width(&self) -> u8 {
-        self.bit_width
+        self.mse_inner.bit_width() + 1
     }
 
     /// Padded dimension.
     pub fn padded_dim(&self) -> u32 {
-        self.padded_dim
+        self.mse_inner.padded_dim()
     }
 
     /// The inner MSE array child.
-    pub fn mse_inner(&self) -> &ArrayRef {
+    pub fn mse_inner(&self) -> &TurboQuantMSEArray {
         &self.mse_inner
     }
 

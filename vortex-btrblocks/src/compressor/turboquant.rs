@@ -8,6 +8,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::matcher::Matcher;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_turboquant::FIXED_SHAPE_TENSOR_EXT_ID;
@@ -43,12 +44,16 @@ pub(crate) fn compress_turboquant(
     if fsl.dtype().is_nullable() {
         return Ok(None);
     }
+    if fsl.is_empty() {
+        return Ok(None);
+    }
 
     // Produce the cascaded QJL(MSE) structure.
     let encoded = turboquant_encode_qjl(&fsl, config)?;
+    let encoded = encoded.as_opt::<TurboQuantQJL>().expect("encoded should be a QJL array");
 
     // Bitpack the MSE codes child for storage efficiency.
-    let encoded = bitpack_mse_codes(&encoded)?;
+    let encoded = bitpack_mse_codes(encoded)?;
 
     Ok(Some(
         ExtensionArray::new(ext_array.ext_dtype().clone(), encoded).into_array(),
@@ -59,29 +64,14 @@ pub(crate) fn compress_turboquant(
 ///
 /// The encode functions produce raw `PrimitiveArray<u8>` codes. This function
 /// applies bitpacking to compress them based on the MSE bit_width.
-fn bitpack_mse_codes(array: &ArrayRef) -> VortexResult<ArrayRef> {
+fn bitpack_mse_codes(qjl: &TurboQuantQJLArray) -> VortexResult<ArrayRef> {
     // If this is a QJL array, descend into its MSE inner child.
-    if let Some(qjl) = TurboQuantQJL::try_match(&**array) {
-        let mse_inner = bitpack_mse_codes(qjl.mse_inner())?;
-        return Ok(TurboQuantQJLArray::try_new(
-            qjl.dtype().clone(),
-            mse_inner,
-            qjl.qjl_signs().clone(),
-            qjl.residual_norms().clone(),
-            qjl.rotation_signs().clone(),
-            qjl.bit_width(),
-            qjl.padded_dim(),
-        )?
-        .into_array());
-    }
-
-    // If this is an MSE array, bitpack its codes.
-    if let Some(mse) = TurboQuantMSE::try_match(&**array) {
+        let mse_inner = qjl.mse_inner().as_opt::<TurboQuantMSE>().vortex_expect("mse_inner should be a TurboQuantMSE array");
         let bit_width = mse.bit_width();
         if bit_width < 8 {
             let codes_prim: PrimitiveArray = mse.codes().to_canonical()?.into_primitive();
             let packed = bitpack_encode(&codes_prim, bit_width, None)?.into_array();
-            return Ok(TurboQuantMSEArray::try_new(
+            let new_mse = TurboQuantMSEArray::try_new(
                 mse.dtype().clone(),
                 packed,
                 mse.norms().clone(),
@@ -91,10 +81,18 @@ fn bitpack_mse_codes(array: &ArrayRef) -> VortexResult<ArrayRef> {
                 bit_width,
                 mse.padded_dim(),
                 mse.rotation_seed(),
-            )?
-            .into_array());
+            );
+        return Ok(TurboQuantQJLArray::try_new(
+            qjl.dtype().clone(),
+            new_mse,
+            qjl.qjl_signs().clone(),
+            qjl.residual_norms().clone(),
+            qjl.rotation_signs().clone(),
+            qjl.bit_width(),
+            qjl.padded_dim(),
+        )?
+        .into_array());
         }
-    }
 
     // No bitpacking needed (8-bit codes or unrecognized array).
     Ok(array.clone())

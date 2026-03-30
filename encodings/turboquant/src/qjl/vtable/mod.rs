@@ -14,6 +14,7 @@ use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -72,8 +73,6 @@ impl VTable for TurboQuantQJL {
         precision: Precision,
     ) {
         array.dtype.hash(state);
-        array.bit_width.hash(state);
-        array.padded_dim.hash(state);
         array.mse_inner.array_hash(state, precision);
         array.qjl_signs.array_hash(state, precision);
         array.residual_norms.array_hash(state, precision);
@@ -86,9 +85,7 @@ impl VTable for TurboQuantQJL {
         precision: Precision,
     ) -> bool {
         array.dtype == other.dtype
-            && array.bit_width == other.bit_width
-            && array.padded_dim == other.padded_dim
-            && array.mse_inner.array_eq(&other.mse_inner, precision)
+            && array.mse_inner.array_eq(&other.mse_inner.into_array(), precision)
             && array.qjl_signs.array_eq(&other.qjl_signs, precision)
             && array
                 .residual_norms
@@ -116,7 +113,7 @@ impl VTable for TurboQuantQJL {
 
     fn child(array: &TurboQuantQJLArray, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.mse_inner.clone(),
+            0 => array.mse_inner.clone().into_array(),
             1 => array.qjl_signs.clone(),
             2 => array.residual_norms.clone(),
             3 => array.rotation_signs.clone(),
@@ -212,6 +209,6 @@ impl VTable for TurboQuantQJL {
 
 impl ValidityChild<TurboQuantQJL> for TurboQuantQJL {
     fn validity_child(array: &TurboQuantQJLArray) -> &ArrayRef {
-        array.mse_inner()
+        array.mse_inner().clone().as_ref()
     }
 }
