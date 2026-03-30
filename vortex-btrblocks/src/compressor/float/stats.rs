@@ -168,7 +168,7 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.validity_mask();
+    let validity = array.validity_mask()?;
 
     let mut runs = 1;
     let head_idx = validity

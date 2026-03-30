@@ -20,7 +20,7 @@ fn compute_is_sorted<T: NativeDecimalType>(array: &DecimalArray, strict: bool) -
 where
     dyn Iterator<Item = T>: IsSortedIteratorExt,
 {
-    match array.validity_mask() {
+    match array.validity_mask()? {
         Mask::AllFalse(_) => Ok(!strict),
         Mask::AllTrue(_) => {
             let buf = array.buffer::<T>();

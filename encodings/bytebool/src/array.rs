@@ -326,7 +326,7 @@ mod tests {
         let v = vec![true, false];
         let v_len = v.len();
 
-        let arr = ByteBoolArray::from(v);
+        let arr = ByteBoolArray::from_inner(ByteBoolData::from(v));
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
@@ -334,7 +334,7 @@ mod tests {
         }
 
         let v = vec![Some(true), None, Some(false)];
-        let arr = ByteBoolArray::from(v);
+        let arr = ByteBoolArray::from_inner(ByteBoolData::from(v));
         assert!(arr.is_valid(0).unwrap());
         assert!(!arr.is_valid(1).unwrap());
         assert!(arr.is_valid(2).unwrap());
@@ -343,7 +343,7 @@ mod tests {
         let v: Vec<Option<bool>> = vec![None, None];
         let v_len = v.len();
 
-        let arr = ByteBoolArray::from(v);
+        let arr = ByteBoolArray::from_inner(ByteBoolData::from(v));
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {

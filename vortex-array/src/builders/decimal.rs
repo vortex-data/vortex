@@ -203,7 +203,7 @@ impl ArrayBuilder for DecimalBuilder {
         });
 
         self.nulls
-            .append_validity_mask(decimal_array.validity_mask());
+            .append_validity_mask(decimal_array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, additional: usize) {

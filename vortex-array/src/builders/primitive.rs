@@ -5,6 +5,7 @@ use std::any::Any;
 use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -179,7 +180,8 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         );
 
         self.values.extend_from_slice(array.as_slice::<T>());
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls
+            .append_validity_mask(array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, additional: usize) {

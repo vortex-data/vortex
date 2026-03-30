@@ -187,11 +187,11 @@ fn try_compress_delta(
     let compressed_deltas =
         compressor.compress_canonical(Canonical::Primitive(deltas), ctx, excludes)?;
 
-    vortex_fastlanes::DeltaArray::try_new(
+    vortex_fastlanes::DeltaData::try_new(
         compressed_bases,
         compressed_deltas,
         0,
         primitive_array.len(),
     )
-    .map(vortex_fastlanes::DeltaArray::into_array)
+    .map(vortex_fastlanes::DeltaData::into_array)
 }

@@ -255,7 +255,7 @@ where
         });
     }
 
-    let validity = array.validity_mask();
+    let validity = array.validity_mask()?;
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 

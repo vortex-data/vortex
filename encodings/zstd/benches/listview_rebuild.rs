@@ -10,13 +10,13 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewRebuildMode;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_zstd::ZstdArray;
+use vortex_zstd::ZstdData;
 
 #[divan::bench(sample_size = 1000)]
 fn rebuild_naive(bencher: Bencher) {
     let dudes = VarBinViewArray::from_iter_str(["Washington", "Adams", "Jefferson", "Madison"])
         .into_array();
-    let dudes = ZstdArray::from_array(dudes, 9, 1024).unwrap().into_array();
+    let dudes = ZstdData::from_array(dudes, 9, 1024).unwrap().into_array();
 
     let offsets = std::iter::repeat_n(0u32, 1024)
         .collect::<Buffer<u32>>()

@@ -12,7 +12,6 @@ use lending_iterator::prelude::LendingIterator;
 use vortex_array::dtype::PhysicalPType;
 use vortex_buffer::ByteBuffer;
 
-use crate::BitPackedArray;
 use crate::BitPackedData;
 
 const CHUNK_SIZE: usize = 1024;

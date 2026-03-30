@@ -34,7 +34,6 @@ use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use crate::ZstdBuffersData;
 use crate::ZstdBuffersMetadata;
 
 vtable!(ZstdBuffers, ZstdBuffers, ZstdBuffersData);
@@ -467,7 +466,7 @@ impl VTable for ZstdBuffers {
             .map(|i| children.get(i, dtype, len))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let array = ZstdBuffersArray {
+        let data = ZstdBuffersData {
             inner_encoding_id: array_id_from_string(&metadata.0.inner_encoding_id),
             inner_metadata: metadata.0.inner_metadata.clone(),
             compressed_buffers,
@@ -479,8 +478,8 @@ impl VTable for ZstdBuffers {
             stats_set: Default::default(),
         };
 
-        array.validate()?;
-        Ok(array)
+        data.validate()?;
+        Ok(data)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -597,6 +596,7 @@ mod tests {
         input.statistics().set(Stat::Min, Precision::exact(0i32));
 
         let compressed = ZstdBuffersData::compress(&input, 3)?;
+        let compressed = ZstdBuffersArray::from_inner(compressed);
 
         assert!(compressed.statistics().get(Stat::Min).is_some());
         Ok(())

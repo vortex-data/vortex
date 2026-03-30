@@ -10,7 +10,7 @@ use crate::match_each_float_ptype;
 
 pub(super) fn accumulate_primitive(count: &mut u64, p: &PrimitiveArray) -> VortexResult<()> {
     match_each_float_ptype!(p.ptype(), |F| {
-        *count += compute_nan_count_with_validity(p.as_slice::<F>(), p.validity_mask()) as u64;
+        *count += compute_nan_count_with_validity(p.as_slice::<F>(), p.validity_mask()?) as u64;
     });
     Ok(())
 }

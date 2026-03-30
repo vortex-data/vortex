@@ -366,13 +366,14 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
+    use crate::DecimalByteParts;
     use crate::DecimalBytePartsArray;
 
     #[test]
     fn test_scalar_at_decimal_parts() {
         let decimal_dtype = DecimalDType::new(8, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
-        let array = DecimalBytePartsData::try_new(
+        let array = DecimalByteParts::try_new(
             PrimitiveArray::new(
                 buffer![100i32, 200i32, 400i32],
                 Validity::Array(BoolArray::from_iter(vec![false, true, true]).into_array()),

@@ -91,12 +91,13 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
+    use crate::Zstd;
     use crate::ZstdArray;
 
     #[test]
     fn test_cast_zstd_i32_to_i64() {
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]);
-        let zstd = ZstdData::from_primitive(&values, 0, 0).unwrap();
+        let zstd = Zstd::from_primitive(&values, 0, 0).unwrap();
 
         let casted = zstd
             .into_array()
@@ -114,7 +115,7 @@ mod tests {
     #[test]
     fn test_cast_zstd_nullability_change() {
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
-        let zstd = ZstdData::from_primitive(&values, 0, 0).unwrap();
+        let zstd = Zstd::from_primitive(&values, 0, 0).unwrap();
 
         let casted = zstd
             .into_array()
@@ -132,7 +133,7 @@ mod tests {
             buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([true, true, true, true, true, true]),
         );
-        let zstd = ZstdData::from_primitive(&values, 0, 128).unwrap();
+        let zstd = Zstd::from_primitive(&values, 0, 128).unwrap();
         let sliced = zstd.slice(1..5).unwrap();
         let casted = sliced
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
@@ -156,7 +157,7 @@ mod tests {
             Some(50),
             Some(60),
         ]);
-        let zstd = ZstdData::from_primitive(&values, 0, 128).unwrap();
+        let zstd = Zstd::from_primitive(&values, 0, 128).unwrap();
         let sliced = zstd.slice(1..5).unwrap();
         let casted = sliced
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
@@ -188,7 +189,7 @@ mod tests {
         Validity::NonNullable,
     ))]
     fn test_cast_zstd_conformance(#[case] values: PrimitiveArray) {
-        let zstd = ZstdData::from_primitive(&values, 0, 0).unwrap();
+        let zstd = Zstd::from_primitive(&values, 0, 0).unwrap();
         test_cast_conformance(&zstd.into_array());
     }
 }

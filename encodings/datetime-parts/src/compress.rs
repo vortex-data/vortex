@@ -14,7 +14,6 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
-use crate::DateTimePartsArray;
 use crate::DateTimePartsData;
 use crate::timestamp;
 pub struct TemporalParts {

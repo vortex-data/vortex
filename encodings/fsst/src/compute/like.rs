@@ -114,7 +114,7 @@ mod tests {
         let compressor = fsst_train_compressor(&varbin);
         let len = varbin.len();
         let dtype = varbin.dtype().clone();
-        fsst_compress(varbin, len, &dtype, &compressor)
+        FSSTArray::from_inner(fsst_compress(varbin, len, &dtype, &compressor))
     }
 
     fn run_like(array: FSSTArray, pattern: &str, opts: LikeOptions) -> VortexResult<BoolArray> {

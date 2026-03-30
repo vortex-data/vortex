@@ -393,7 +393,7 @@ impl ALPData {
     /// # Examples
     ///
     /// ```
-    /// # use vortex_alp::{ALPArray, Exponents};
+    /// # use vortex_alp::{ALPData, ALPArray, Exponents};
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     ///
@@ -414,11 +414,11 @@ impl ALPData {
     /// assert!(result.is_err());
     ///
     /// // Success!
-    /// let value = ALPData::try_new(
+    /// let value = ALPArray::from_inner(ALPData::try_new(
     ///     buffer![0i32].into_array(),
     ///     Exponents { e: 1, f: 1 },
     ///     None
-    /// ).unwrap();
+    /// ).unwrap());
     ///
     /// assert_eq!(value.scalar_at(0).unwrap(), 0f32.into());
     /// ```
@@ -853,11 +853,11 @@ mod tests {
         .unwrap();
 
         // Build a new ALPArray with the same encoded data but patches without chunk_offsets.
-        let alp_without_chunk_offsets = ALPData::new(
+        let alp_without_chunk_offsets = ALPArray::from_inner(ALPData::new(
             normally_encoded.encoded().clone(),
             normally_encoded.exponents(),
             Some(patches_without_chunk_offsets),
-        );
+        ));
 
         // The legacy decompress_into_array path should work correctly.
         let result_legacy = decompress_into_array(

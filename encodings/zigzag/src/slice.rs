@@ -10,7 +10,6 @@ use vortex_array::vtable::Array;
 use vortex_error::VortexResult;
 
 use crate::ZigZag;
-use crate::ZigZagArray;
 use crate::ZigZagData;
 
 impl SliceReduce for ZigZag {

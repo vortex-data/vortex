@@ -30,7 +30,7 @@ fn compute_min_max_with_validity<D>(array: &DecimalArray) -> VortexResult<Option
 where
     D: Into<DecimalValue> + NativeDecimalType,
 {
-    Ok(match array.validity_mask() {
+    Ok(match array.validity_mask()? {
         Mask::AllTrue(_) => compute_min_max(array.buffer::<D>().iter(), array.decimal_dtype()),
         Mask::AllFalse(_) => None,
         Mask::Values(v) => compute_min_max(

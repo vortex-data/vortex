@@ -121,13 +121,12 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use crate::RunEnd;
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEndData::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-        )
-        .unwrap()
+        RunEnd::encode(PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array())
+            .unwrap()
     }
 
     #[test]
@@ -137,7 +136,7 @@ mod tests {
 
         assert_arrays_eq!(
             filtered,
-            RunEndData::new(
+            RunEnd::new(
                 PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
                 PrimitiveArray::from_iter([1i32, 4, 2]).into_array()
             )

@@ -10,7 +10,6 @@ use vortex_array::vtable::Array;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::SequenceData;
 use crate::array::Sequence;
 use crate::compute::compare::find_intersection_scalar;
 
@@ -53,6 +52,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::DynArray;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
@@ -62,7 +62,7 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::scalar::Scalar;
 
-    use crate::SequenceArray;
+    use crate::Sequence;
 
     #[test]
     fn test_list_contains_seq() {
@@ -76,7 +76,9 @@ mod tests {
             // [1, 3] in  1
             //            2
             //            3
-            let array = SequenceData::try_new_typed(1, 1, Nullability::NonNullable, 3).unwrap();
+            let array = Sequence::try_new_typed(1, 1, Nullability::NonNullable, 3)
+                .unwrap()
+                .into_array();
 
             let expr = list_contains(lit(list_scalar.clone()), root());
             let result = array.apply(&expr).unwrap();
@@ -88,7 +90,9 @@ mod tests {
             // [1, 3] in  1
             //            3
             //            5
-            let array = SequenceData::try_new_typed(1, 2, Nullability::NonNullable, 3).unwrap();
+            let array = Sequence::try_new_typed(1, 2, Nullability::NonNullable, 3)
+                .unwrap()
+                .into_array();
 
             let expr = list_contains(lit(list_scalar), root());
             let result = array.apply(&expr).unwrap();

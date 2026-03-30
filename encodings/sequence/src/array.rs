@@ -492,11 +492,11 @@ mod tests {
     use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
 
-    use crate::array::SequenceArray;
+    use crate::Sequence;
 
     #[test]
     fn test_sequence_canonical() {
-        let arr = SequenceData::try_new_typed(2i64, 3, Nullability::NonNullable, 4).unwrap();
+        let arr = Sequence::try_new_typed(2i64, 3, Nullability::NonNullable, 4).unwrap();
 
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_sequence_slice_canonical() {
-        let arr = SequenceData::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
+        let arr = Sequence::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
             .slice(2..3)
             .unwrap();
@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_sequence_scalar_at() {
-        let scalar = SequenceData::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
+        let scalar = Sequence::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
             .scalar_at(2)
             .unwrap();
@@ -530,19 +530,19 @@ mod tests {
 
     #[test]
     fn test_sequence_min_max() {
-        assert!(SequenceData::try_new_typed(-127i8, -1i8, Nullability::NonNullable, 2).is_ok());
-        assert!(SequenceData::try_new_typed(126i8, -1i8, Nullability::NonNullable, 2).is_ok());
+        assert!(Sequence::try_new_typed(-127i8, -1i8, Nullability::NonNullable, 2).is_ok());
+        assert!(Sequence::try_new_typed(126i8, -1i8, Nullability::NonNullable, 2).is_ok());
     }
 
     #[test]
     fn test_sequence_too_big() {
-        assert!(SequenceData::try_new_typed(127i8, 1i8, Nullability::NonNullable, 2).is_err());
-        assert!(SequenceData::try_new_typed(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
+        assert!(Sequence::try_new_typed(127i8, 1i8, Nullability::NonNullable, 2).is_err());
+        assert!(Sequence::try_new_typed(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
     }
 
     #[test]
     fn positive_multiplier_is_strict_sorted() -> VortexResult<()> {
-        let arr = SequenceData::try_new_typed(0i64, 3, Nullability::NonNullable, 4)?;
+        let arr = Sequence::try_new_typed(0i64, 3, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -558,7 +558,7 @@ mod tests {
 
     #[test]
     fn zero_multiplier_is_sorted_not_strict() -> VortexResult<()> {
-        let arr = SequenceData::try_new_typed(5i64, 0, Nullability::NonNullable, 4)?;
+        let arr = Sequence::try_new_typed(5i64, 0, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -574,7 +574,7 @@ mod tests {
 
     #[test]
     fn negative_multiplier_not_sorted() -> VortexResult<()> {
-        let arr = SequenceData::try_new_typed(10i64, -1, Nullability::NonNullable, 4)?;
+        let arr = Sequence::try_new_typed(10i64, -1, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -593,7 +593,7 @@ mod tests {
     #[test]
     fn test_large_multiplier_sorted() -> VortexResult<()> {
         let large_multiplier = (i64::MAX as u64) + 1;
-        let arr = SequenceData::try_new_typed(0, large_multiplier, Nullability::NonNullable, 2)?;
+        let arr = Sequence::try_new_typed(0, large_multiplier, Nullability::NonNullable, 2)?;
 
         let is_sorted = arr
             .statistics()

@@ -16,7 +16,7 @@ use crate::arrow::null_buffer::to_null_buffer;
 pub fn canonical_bool_to_arrow(array: &BoolArray) -> VortexResult<ArrowArrayRef> {
     Ok(Arc::new(ArrowBooleanArray::new(
         array.to_bit_buffer().into(),
-        to_null_buffer(array.validity_mask()),
+        to_null_buffer(array.validity_mask()?),
     )))
 }
 

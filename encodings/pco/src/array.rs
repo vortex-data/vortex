@@ -300,7 +300,7 @@ pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
 }
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask();
+    let mask = parray.validity_mask()?;
     Ok(parray.clone().into_array().filter(mask)?.to_primitive())
 }
 
@@ -619,6 +619,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
+    use crate::Pco;
     use crate::PcoArray;
 
     #[test]
@@ -628,7 +629,7 @@ mod tests {
             buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([false, true, true, true, true, false]),
         );
-        let pco = PcoData::from_primitive(&values, 0, 128).unwrap();
+        let pco = Pco::from_primitive(&values, 0, 128).unwrap();
         assert_arrays_eq!(
             pco,
             PrimitiveArray::from_option_iter([

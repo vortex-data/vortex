@@ -14,7 +14,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 
-use crate::RunEndArray;
 use crate::RunEndData;
 
 /// A wrapper type to implement `Arbitrary` for `RunEndArray`.

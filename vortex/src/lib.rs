@@ -253,7 +253,7 @@ mod test {
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),
-            array.clone().into_array().nbytes()
+            array.into_array().nbytes()
         );
         // [compress]
 

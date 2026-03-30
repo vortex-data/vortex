@@ -329,7 +329,7 @@ impl VTable for ALPRD {
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = left_parts_dictionary;
-        let validity = left_parts.validity_mask();
+        let validity = left_parts.validity_mask()?;
 
         let decoded_array = if ptype == PType::F32 {
             // TODO(joe): use iterative execution for the patches.

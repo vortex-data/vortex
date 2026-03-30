@@ -9,6 +9,7 @@ use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
@@ -68,7 +69,8 @@ fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usi
     let compressor = fsst_train_compressor(&array);
     let len = array.len();
     let dtype = array.dtype().clone();
-    let encoded = fsst_compress(array, len, &dtype, &compressor);
+    let encoded =
+        vortex_fsst::FSSTArray::from_inner(fsst_compress(array, len, &dtype, &compressor));
 
     bencher
         .with_inputs(|| &encoded)
@@ -116,7 +118,12 @@ fn canonicalize_compare(
 ) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
-    let fsst_array = fsst_compress(&array, array.len(), array.dtype(), &compressor);
+    let fsst_array = vortex_fsst::FSSTArray::from_inner(fsst_compress(
+        &array,
+        array.len(),
+        array.dtype(),
+        &compressor,
+    ));
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
@@ -131,8 +138,7 @@ fn canonicalize_compare(
             fsst_array
                 .to_canonical()
                 .unwrap()
-                .as_ref()
-                .to_array()
+                .into_array()
                 .binary(constant.clone().into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)

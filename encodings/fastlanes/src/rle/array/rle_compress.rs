@@ -142,29 +142,33 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::RLEArray;
 
     #[test]
     fn test_encode_decode() {
         // u8
         let array_u8: Buffer<u8> = buffer![1, 1, 2, 2, 3, 3];
-        let encoded_u8 =
-            RLEData::encode(&PrimitiveArray::new(array_u8, Validity::NonNullable)).unwrap();
+        let encoded_u8 = RLEArray::from_inner(
+            RLEData::encode(&PrimitiveArray::new(array_u8, Validity::NonNullable)).unwrap(),
+        );
         let decoded_u8 = encoded_u8.to_primitive();
         let expected_u8 = PrimitiveArray::from_iter(vec![1u8, 1, 2, 2, 3, 3]);
         assert_arrays_eq!(decoded_u8, expected_u8);
 
         // u16
         let array_u16: Buffer<u16> = buffer![100, 100, 200, 200];
-        let encoded_u16 =
-            RLEData::encode(&PrimitiveArray::new(array_u16, Validity::NonNullable)).unwrap();
+        let encoded_u16 = RLEArray::from_inner(
+            RLEData::encode(&PrimitiveArray::new(array_u16, Validity::NonNullable)).unwrap(),
+        );
         let decoded_u16 = encoded_u16.to_primitive();
         let expected_u16 = PrimitiveArray::from_iter(vec![100u16, 100, 200, 200]);
         assert_arrays_eq!(decoded_u16, expected_u16);
 
         // u64
         let array_u64: Buffer<u64> = buffer![1000, 1000, 2000];
-        let encoded_u64 =
-            RLEData::encode(&PrimitiveArray::new(array_u64, Validity::NonNullable)).unwrap();
+        let encoded_u64 = RLEArray::from_inner(
+            RLEData::encode(&PrimitiveArray::new(array_u64, Validity::NonNullable)).unwrap(),
+        );
         let decoded_u64 = encoded_u64.to_primitive();
         let expected_u64 = PrimitiveArray::from_iter(vec![1000u64, 1000, 2000]);
         assert_arrays_eq!(decoded_u64, expected_u64);
@@ -173,14 +177,18 @@ mod tests {
     #[test]
     fn test_length() {
         let values: Buffer<u32> = buffer![1, 1, 2, 2, 2, 3];
-        let encoded = RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap();
+        let encoded = RLEArray::from_inner(
+            RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap(),
+        );
         assert_eq!(encoded.len(), 6);
     }
 
     #[test]
     fn test_empty_length() {
         let values: Buffer<u32> = Buffer::empty();
-        let encoded = RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap();
+        let encoded = RLEArray::from_inner(
+            RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap(),
+        );
 
         assert_eq!(encoded.len(), 0);
         assert_eq!(encoded.values().len(), 0);
@@ -190,7 +198,9 @@ mod tests {
     fn test_single_value() {
         let values: Buffer<u16> = vec![42; 2000].into_iter().collect();
 
-        let encoded = RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap();
+        let encoded = RLEArray::from_inner(
+            RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap(),
+        );
         assert_eq!(encoded.values().len(), 2); // 2 chunks, each storing value 42
 
         let decoded = encoded.to_primitive(); // Verify round-trip
@@ -202,7 +212,9 @@ mod tests {
     fn test_all_different() {
         let values: Buffer<u8> = (0u8..=255).collect();
 
-        let encoded = RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap();
+        let encoded = RLEArray::from_inner(
+            RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap(),
+        );
         assert_eq!(encoded.values().len(), 256);
 
         let decoded = encoded.to_primitive(); // Verify round-trip
@@ -216,7 +228,7 @@ mod tests {
         let values: Buffer<u32> = (0..1500).map(|i| (i / 100) as u32).collect();
         let array = PrimitiveArray::new(values, Validity::NonNullable);
 
-        let encoded = RLEData::encode(&array).unwrap();
+        let encoded = RLEArray::from_inner(RLEData::encode(&array).unwrap());
 
         assert_eq!(encoded.len(), 1500);
         assert_arrays_eq!(encoded, array);
@@ -230,7 +242,7 @@ mod tests {
         let values: Buffer<u32> = (0..2048).map(|i| (i / 100) as u32).collect();
         let array = PrimitiveArray::new(values, Validity::NonNullable);
 
-        let encoded = RLEData::encode(&array).unwrap();
+        let encoded = RLEArray::from_inner(RLEData::encode(&array).unwrap());
 
         assert_eq!(encoded.len(), 2048);
         assert_arrays_eq!(encoded, array);
@@ -251,7 +263,7 @@ mod tests {
     #[case::f64((-2000..2000).map(|i| i as f64).collect::<Buffer<f64>>())]
     fn test_roundtrip_primitive_types<T: NativePType>(#[case] values: Buffer<T>) {
         let primitive = values.clone().into_array().to_primitive();
-        let result = RLEData::encode(&primitive).unwrap();
+        let result = RLEArray::from_inner(RLEData::encode(&primitive).unwrap());
         let decoded = result.to_primitive();
         let expected = PrimitiveArray::new(values, primitive.validity().clone());
         assert_arrays_eq!(decoded, expected);
@@ -265,7 +277,7 @@ mod tests {
     #[case(vec![0f64, -0f64])]
     fn test_float_zeros<T: NativePType + RLE>(#[case] values: Vec<T>) {
         let primitive = PrimitiveArray::from_iter(values);
-        let rle = RLEData::encode(&primitive).unwrap();
+        let rle = RLEArray::from_inner(RLEData::encode(&primitive).unwrap());
         let decoded = rle.to_primitive();
         assert_arrays_eq!(primitive, decoded);
     }

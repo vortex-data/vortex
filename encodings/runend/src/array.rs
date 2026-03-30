@@ -262,6 +262,16 @@ impl RunEnd {
             ends, values, offset, length,
         )?))
     }
+
+    /// Build a new [`RunEndArray`] from ends and values (panics on invalid input).
+    pub fn new(ends: ArrayRef, values: ArrayRef) -> RunEndArray {
+        Array::from_inner(RunEndData::new(ends, values))
+    }
+
+    /// Run the array through run-end encoding.
+    pub fn encode(array: ArrayRef) -> VortexResult<RunEndArray> {
+        Ok(Array::from_inner(RunEndData::encode(array)?))
+    }
 }
 
 impl RunEndData {
@@ -353,11 +363,11 @@ impl RunEndData {
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// # use vortex_error::VortexResult;
-    /// # use vortex_runend::RunEndArray;
+    /// # use vortex_runend::RunEnd;
     /// # fn main() -> VortexResult<()> {
     /// let ends = buffer![2u8, 3u8].into_array();
     /// let values = BoolArray::from_iter([false, true]).into_array();
-    /// let run_end = RunEndData::new(ends, values);
+    /// let run_end = RunEnd::new(ends, values);
     ///
     /// // Array encodes
     /// assert_eq!(run_end.scalar_at(0)?, false.into());
@@ -567,11 +577,11 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
 
-    use crate::RunEndArray;
+    use crate::RunEnd;
 
     #[test]
     fn test_runend_constructor() {
-        let arr = RunEndData::new(
+        let arr = RunEnd::new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         );
@@ -591,7 +601,7 @@ mod tests {
     #[test]
     fn test_runend_utf8() {
         let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
-        let arr = RunEndData::new(buffer![2u32, 5, 10].into_array(), values);
+        let arr = RunEnd::new(buffer![2u32, 5, 10].into_array(), values);
         assert_eq!(arr.len(), 10);
         assert_eq!(arr.dtype(), &DType::Utf8(Nullability::NonNullable));
 
@@ -607,8 +617,7 @@ mod tests {
         let dict_codes = buffer![0u32, 1, 2].into_array();
         let dict = DictArray::try_new(dict_codes, dict_values).unwrap();
 
-        let arr =
-            RunEndData::try_new(buffer![2u32, 5, 10].into_array(), dict.into_array()).unwrap();
+        let arr = RunEnd::try_new(buffer![2u32, 5, 10].into_array(), dict.into_array()).unwrap();
         assert_eq!(arr.len(), 10);
 
         let expected =

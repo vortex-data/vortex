@@ -175,7 +175,7 @@ pub fn runend_decode_primitive(
     offset: usize,
     length: usize,
 ) -> VortexResult<PrimitiveArray> {
-    let validity_mask = values.validity_mask();
+    let validity_mask = values.validity_mask()?;
     Ok(match_each_native_ptype!(values.ptype(), |P| {
         match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
             runend_decode_typed_primitive(
@@ -275,7 +275,7 @@ pub fn runend_decode_varbinview(
     offset: usize,
     length: usize,
 ) -> VortexResult<VarBinViewArray> {
-    let validity_mask = values.validity_mask();
+    let validity_mask = values.validity_mask()?;
     let views = values.views();
 
     let (decoded_views, validity) = match_each_unsigned_integer_ptype!(ends.ptype(), |E| {

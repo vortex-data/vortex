@@ -62,6 +62,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
+    use crate::DeltaData;
     use crate::delta::DeltaArray;
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());

@@ -16,7 +16,6 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
-use crate::DateTimePartsData;
 use crate::array::DateTimeParts;
 use crate::array::DateTimePartsArray;
 use crate::timestamp;
@@ -207,6 +206,7 @@ mod test {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::DateTimePartsData;
 
     fn dtp_array_from_timestamp<T: IntegerPType>(
         value: T,

@@ -768,7 +768,7 @@ impl Patches {
                             take_indices_with_search_fn(
                                 patch_indices_slice,
                                 take_slice,
-                                take_indices.validity_mask(),
+                                take_indices.validity_mask()?,
                                 include_nulls,
                                 |take_idx| {
                                     self.search_index_chunked_batch(
@@ -783,7 +783,7 @@ impl Patches {
                         take_indices_with_search_fn(
                             patch_indices_slice,
                             take_slice,
-                            take_indices.validity_mask(),
+                            take_indices.validity_mask()?,
                             include_nulls,
                             |take_idx| {
                                 let Some(offset) = <PatchT as NumCast>::from(self.offset) else {
@@ -1289,7 +1289,7 @@ mod test {
         );
         assert_arrays_eq!(primitive_indices, PrimitiveArray::from_iter([0u64]));
         assert_eq!(
-            primitive_values.validity_mask(),
+            primitive_values.validity_mask().unwrap(),
             Mask::from_iter(vec![true])
         );
     }
@@ -1323,7 +1323,7 @@ mod test {
         assert_arrays_eq!(taken.indices(), PrimitiveArray::from_iter([0u64, 1]));
 
         assert_eq!(
-            primitive_values.validity_mask(),
+            primitive_values.validity_mask().unwrap(),
             Mask::from_iter([true, false])
         );
     }

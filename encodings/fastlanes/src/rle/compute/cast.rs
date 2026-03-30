@@ -55,7 +55,12 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
 
+    use crate::RLEData;
     use crate::rle::RLEArray;
+
+    fn rle(primitive: &PrimitiveArray) -> RLEArray {
+        RLEArray::from_inner(RLEData::encode(primitive).unwrap())
+    }
 
     #[test]
     fn try_cast_rle_success() {
@@ -63,9 +68,9 @@ mod tests {
             Buffer::from_iter([10u8, 20, 30, 40, 50]),
             Validity::from_iter([true, true, true, true, true]),
         );
-        let rle = RLEData::encode(&primitive).unwrap();
+        let encoded = rle(&primitive);
 
-        let casted = rle
+        let casted = encoded
             .into_array()
             .cast(DType::Primitive(PType::U16, Nullability::NonNullable))
             .unwrap();
@@ -79,8 +84,9 @@ mod tests {
             Buffer::from_iter([10u8, 20, 30, 40, 50]),
             Validity::from_iter([true, false, true, true, false]),
         );
-        let rle = RLEData::encode(&primitive).unwrap();
-        rle.into_array()
+        let encoded = rle(&primitive);
+        encoded
+            .into_array()
             .cast(DType::Primitive(PType::U8, Nullability::NonNullable))
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
             .unwrap();
@@ -136,7 +142,7 @@ mod tests {
         )
     )]
     fn test_cast_rle_conformance(#[case] primitive: PrimitiveArray) {
-        let rle_array = RLEData::encode(&primitive).unwrap();
+        let rle_array = rle(&primitive);
         test_cast_conformance(&rle_array.into_array());
     }
 }

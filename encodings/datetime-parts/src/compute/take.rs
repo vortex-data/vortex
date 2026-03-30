@@ -106,7 +106,7 @@ mod tests {
     use crate::DateTimePartsData;
 
     #[rstest]
-    #[case(DateTimePartsData::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimePartsArray::from_inner(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         buffer![
             0i64,
             86_400_000,  // 1 day in ms
@@ -116,8 +116,8 @@ mod tests {
         ].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    )).unwrap())]
-    #[case(DateTimePartsData::try_from(TemporalArray::new_timestamp(
+    )).unwrap()))]
+    #[case(DateTimePartsArray::from_inner(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
             Some(0i64),
             None,
@@ -127,12 +127,12 @@ mod tests {
         ]).into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    )).unwrap())]
-    #[case(DateTimePartsData::try_from(TemporalArray::new_timestamp(
+    )).unwrap()))]
+    #[case(DateTimePartsArray::from_inner(DateTimePartsData::try_from(TemporalArray::new_timestamp(
         buffer![86_400_000i64].into_array(),
         TimeUnit::Milliseconds,
         Some("UTC".into())
-    )).unwrap())]
+    )).unwrap()))]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
         test_take_conformance(&array.into_array());
     }

@@ -8,7 +8,6 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
-use crate::SparseData;
 
 impl OperationsVTable<Sparse> for Sparse {
     fn scalar_at(
@@ -32,13 +31,14 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::Sparse;
 
     #[test]
     fn slice_partially_invalid() {
         let values = buffer![0u64].into_array();
         let indices = buffer![0u8].into_array();
 
-        let sparse = SparseData::try_new(indices, values, 1000, 999u64.into()).unwrap();
+        let sparse = Sparse::try_new(indices, values, 1000, 999u64.into()).unwrap();
         let sliced = sparse.slice(0..1000).unwrap();
         let mut expected = vec![999u64; 1000];
         expected[0] = 0;

@@ -135,12 +135,9 @@ where
     }
 
     /// Returns the validity mask for this array.
-    ///
-    /// This inherent method shadows `DynArray::validity_mask()` to provide direct access
-    /// to the concrete validity mask without going through `VortexResult`.
     #[allow(clippy::same_name_method)]
-    pub fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.len)
+    pub fn validity_mask(&self) -> VortexResult<vortex_mask::Mask> {
+        Ok(self.validity().to_mask(self.len))
     }
 }
 

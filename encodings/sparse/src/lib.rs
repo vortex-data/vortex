@@ -546,6 +546,7 @@ mod test {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::Sparse;
 
     fn nullable_fill() -> Scalar {
         Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
@@ -560,7 +561,7 @@ mod test {
         let mut values = buffer![100i32, 200, 300].into_array();
         values = values.cast(fill_value.dtype().clone()).unwrap();
 
-        SparseData::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value)
+        Sparse::try_new(buffer![2u64, 5, 8].into_array(), values, 10, fill_value)
             .unwrap()
             .into_array()
     }
@@ -583,7 +584,7 @@ mod test {
 
     #[test]
     pub fn test_scalar_at_again() {
-        let arr = SparseData::try_new(
+        let arr = Sparse::try_new(
             ConstantArray::new(10u32, 1).into_array(),
             ConstantArray::new(Scalar::primitive(1234u32, Nullability::Nullable), 1).into_array(),
             100,
@@ -619,7 +620,7 @@ mod test {
 
     #[test]
     pub fn validity_mask_sliced_nonnull_fill() {
-        let sliced = SparseData::try_new(
+        let sliced = Sparse::try_new(
             buffer![2u64, 5, 8].into_array(),
             ConstantArray::new(
                 Scalar::null(DType::Primitive(PType::F32, Nullability::Nullable)),
@@ -682,7 +683,7 @@ mod test {
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
-        SparseData::try_new(indices, values, 100, 0_u32.into()).unwrap();
+        Sparse::try_new(indices, values, 100, 0_u32.into()).unwrap();
     }
 
     #[test]
@@ -690,7 +691,7 @@ mod test {
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
-        SparseData::try_new(indices, values, 101, 0_u32.into()).unwrap();
+        Sparse::try_new(indices, values, 101, 0_u32.into()).unwrap();
     }
 
     #[test]
@@ -701,8 +702,8 @@ mod test {
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ]),
         );
-        let sparse = SparseData::encode(&original.clone().into_array(), None)
-            .vortex_expect("SparseData::encode should succeed for test data");
+        let sparse = Sparse::encode(&original.clone().into_array(), None)
+            .vortex_expect("Sparse::encode should succeed for test data");
         assert_eq!(
             sparse.validity_mask().unwrap(),
             Mask::from_iter(vec![
@@ -717,7 +718,7 @@ mod test {
         let indices = buffer![0u8, 2, 4, 6, 8].into_array();
         let values = PrimitiveArray::from_option_iter([Some(0i16), Some(1), None, None, Some(4)])
             .into_array();
-        let array = SparseData::try_new(indices, values, 10, Scalar::null_native::<i16>()).unwrap();
+        let array = Sparse::try_new(indices, values, 10, Scalar::null_native::<i16>()).unwrap();
         let actual = array.validity_mask().unwrap();
         let expected = Mask::from_iter([
             true, false, true, false, false, false, false, false, true, false,

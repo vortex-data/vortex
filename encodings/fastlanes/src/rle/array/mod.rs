@@ -234,6 +234,8 @@ mod tests {
     use vortex_session::registry::ReadContext;
 
     use crate::FL_CHUNK_SIZE;
+    use crate::RLEArray;
+    use crate::RLEData;
     use crate::test::SESSION;
 
     #[test]
@@ -245,7 +247,9 @@ mod tests {
             PrimitiveArray::from_iter([0u16, 0, 1, 1, 2].iter().cycle().take(1024).copied())
                 .into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
-        let rle_array = RLEData::try_new(values, indices, values_idx_offsets, 0, 5).unwrap();
+        let rle_array = RLEArray::from_inner(
+            RLEData::try_new(values, indices, values_idx_offsets, 0, 5).unwrap(),
+        );
 
         assert_eq!(rle_array.len(), 5);
         assert_eq!(rle_array.values().len(), 3);
@@ -272,14 +276,16 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEData::try_new(
-            values.clone(),
-            indices_with_validity,
-            values_idx_offsets,
-            0,
-            3,
-        )
-        .unwrap();
+        let rle_array = RLEArray::from_inner(
+            RLEData::try_new(
+                values.clone(),
+                indices_with_validity,
+                values_idx_offsets,
+                0,
+                3,
+            )
+            .unwrap(),
+        );
 
         assert_eq!(rle_array.len(), 3);
         assert_eq!(rle_array.values().len(), 2);
@@ -308,14 +314,16 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEData::try_new(
-            values.clone(),
-            indices_with_validity,
-            values_idx_offsets,
-            0,
-            5,
-        )
-        .unwrap();
+        let rle_array = RLEArray::from_inner(
+            RLEData::try_new(
+                values.clone(),
+                indices_with_validity,
+                values_idx_offsets,
+                0,
+                5,
+            )
+            .unwrap(),
+        );
 
         let valid_slice = rle_array.slice(0..3).unwrap().to_primitive();
         // TODO(joe): replace with compute null count
@@ -345,14 +353,16 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEData::try_new(
-            values.clone(),
-            indices_with_validity,
-            values_idx_offsets,
-            0,
-            5,
-        )
-        .unwrap();
+        let rle_array = RLEArray::from_inner(
+            RLEData::try_new(
+                values.clone(),
+                indices_with_validity,
+                values_idx_offsets,
+                0,
+                5,
+            )
+            .unwrap(),
+        );
 
         // TODO(joe): replace with compute null count
         let invalid_slice = rle_array
@@ -387,14 +397,16 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEData::try_new(
-            values.clone(),
-            indices_with_validity,
-            values_idx_offsets,
-            0,
-            4,
-        )
-        .unwrap();
+        let rle_array = RLEArray::from_inner(
+            RLEData::try_new(
+                values.clone(),
+                indices_with_validity,
+                values_idx_offsets,
+                0,
+                4,
+            )
+            .unwrap(),
+        );
 
         let sliced_array = rle_array.slice(1..4).unwrap();
         let validity_mask = sliced_array.validity_mask().unwrap();
@@ -414,14 +426,16 @@ mod tests {
         let values = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         let indices = PrimitiveArray::from_iter(Vec::<u16>::new()).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
-        let rle_array = RLEData::try_new(
-            values,
-            indices.clone(),
-            values_idx_offsets,
-            0,
-            indices.len(),
-        )
-        .unwrap();
+        let rle_array = RLEArray::from_inner(
+            RLEData::try_new(
+                values,
+                indices.clone(),
+                values_idx_offsets,
+                0,
+                indices.len(),
+            )
+            .unwrap(),
+        );
 
         assert_eq!(rle_array.len(), 0);
         assert_eq!(rle_array.values().len(), 0);
@@ -432,7 +446,9 @@ mod tests {
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
         let indices = PrimitiveArray::from_iter([0u16, 1].repeat(1024)).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64, 2]).into_array();
-        let rle_array = RLEData::try_new(values, indices, values_idx_offsets, 0, 2048).unwrap();
+        let rle_array = RLEArray::from_inner(
+            RLEData::try_new(values, indices, values_idx_offsets, 0, 2048).unwrap(),
+        );
 
         assert_eq!(rle_array.len(), 2048);
         assert_eq!(rle_array.values().len(), 4);
@@ -444,7 +460,7 @@ mod tests {
     #[test]
     fn test_rle_serialization() {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
-        let rle_array = RLEData::encode(&primitive).unwrap();
+        let rle_array = RLEArray::from_inner(RLEData::encode(&primitive).unwrap());
         assert_eq!(rle_array.len(), 2048);
 
         let original_data = rle_array.to_primitive();
@@ -479,16 +495,18 @@ mod tests {
     #[test]
     fn test_rle_serialization_slice() {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
-        let rle_array = RLEData::encode(&primitive).unwrap();
+        let rle_array = RLEArray::from_inner(RLEData::encode(&primitive).unwrap());
 
-        let sliced = RLEData::try_new(
-            rle_array.values().clone(),
-            rle_array.indices().clone(),
-            rle_array.values_idx_offsets().clone(),
-            100,
-            100,
-        )
-        .unwrap();
+        let sliced = RLEArray::from_inner(
+            RLEData::try_new(
+                rle_array.values().clone(),
+                rle_array.indices().clone(),
+                rle_array.values_idx_offsets().clone(),
+                100,
+                100,
+            )
+            .unwrap(),
+        );
         assert_eq!(sliced.len(), 100);
 
         let ctx = ArrayContext::empty();
@@ -538,16 +556,16 @@ mod tests {
         // Chunk 1 (positions 1024..) is all-null.
 
         let original = PrimitiveArray::from_option_iter(values);
-        let rle = RLEData::encode(&original)?;
+        let rle = RLEArray::from_inner(RLEData::encode(&original)?);
 
         // Simulate cascading compression: narrow u16→u8 then re-encode with RLE,
         // matching the path taken by the BtrBlocks compressor.
         let indices_prim = rle.indices().to_primitive().narrow()?;
-        let re_encoded = RLEData::encode(&indices_prim)?;
+        let re_encoded = RLEArray::from_inner(RLEData::encode(&indices_prim)?);
 
         // Reconstruct the outer RLE with re-encoded indices.
         // SAFETY: we only replace the indices child; all other invariants hold.
-        let reconstructed = unsafe {
+        let reconstructed = RLEArray::from_inner(unsafe {
             RLEData::new_unchecked(
                 rle.values().clone(),
                 re_encoded.into_array(),
@@ -556,7 +574,7 @@ mod tests {
                 rle.offset(),
                 rle.len(),
             )
-        };
+        });
 
         // Decompress — panicked before the fill_forward_nulls chunk-boundary fix.
         let decoded = reconstructed.to_primitive();

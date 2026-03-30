@@ -10,7 +10,6 @@ use vortex_array::vtable::Array;
 use vortex_error::VortexResult;
 
 use crate::Sequence;
-use crate::SequenceArray;
 use crate::SequenceData;
 
 impl SliceReduce for Sequence {

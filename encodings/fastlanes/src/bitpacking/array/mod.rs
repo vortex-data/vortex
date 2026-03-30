@@ -334,6 +334,9 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
 
+    use crate::BitPackedArray;
+    use crate::BitPackedData;
+
     #[test]
     fn test_encode() {
         let values = [
@@ -346,7 +349,9 @@ mod test {
             Some(u64::MAX),
         ];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let packed = BitPackedData::encode(&uncompressed.into_array(), 1).unwrap();
+        let packed = BitPackedArray::from_inner(
+            BitPackedData::encode(&uncompressed.into_array(), 1).unwrap(),
+        );
         let expected = PrimitiveArray::from_option_iter(values);
         assert_arrays_eq!(packed.to_primitive(), expected);
     }
@@ -366,7 +371,8 @@ mod test {
         let values: Buffer<i32> = (0i32..=512).collect();
         let parray = values.clone().into_array();
 
-        let packed_with_patches = BitPackedData::encode(&parray, 9).unwrap();
+        let packed_with_patches =
+            BitPackedArray::from_inner(BitPackedData::encode(&parray, 9).unwrap());
         assert!(packed_with_patches.patches().is_some());
         assert_arrays_eq!(
             packed_with_patches.to_primitive(),

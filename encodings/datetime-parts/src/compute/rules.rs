@@ -216,7 +216,7 @@ mod tests {
             time_unit,
             None,
         );
-        DateTimePartsData::try_from(temporal).unwrap()
+        DateTimePartsArray::from_inner(DateTimePartsData::try_from(temporal).unwrap())
     }
 
     /// Create a constant timestamp scalar at midnight for the given day.

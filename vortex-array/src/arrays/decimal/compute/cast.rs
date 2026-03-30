@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(casted.len(), 3);
 
         // Check validity is preserved
-        let mask = casted.validity_mask();
+        let mask = casted.validity_mask().unwrap();
         assert!(mask.value(0));
         assert!(!mask.value(1));
         assert!(mask.value(2));

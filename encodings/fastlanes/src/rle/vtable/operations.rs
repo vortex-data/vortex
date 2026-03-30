@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 
 use super::RLE;
 use crate::FL_CHUNK_SIZE;
-use crate::RLEData;
 
 impl OperationsVTable<RLE> for RLE {
     fn scalar_at(
@@ -49,6 +48,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::RLEArray;
+    use crate::RLEData;
 
     mod fixture {
         use super::*;
@@ -65,14 +66,16 @@ mod tests {
             .into_array();
             let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
 
-            RLEData::try_new(
-                values,
-                indices.clone(),
-                values_idx_offsets,
-                0,
-                indices.len(),
+            RLEArray::from_inner(
+                RLEData::try_new(
+                    values,
+                    indices.clone(),
+                    values_idx_offsets,
+                    0,
+                    indices.len(),
+                )
+                .unwrap(),
             )
-            .unwrap()
         }
 
         pub(super) fn rle_array_with_nulls() -> RLEArray {
@@ -100,14 +103,16 @@ mod tests {
             )
             .into_array();
 
-            RLEData::try_new(
-                values,
-                indices.clone(),
-                values_idx_offsets,
-                0,
-                indices.len(),
+            RLEArray::from_inner(
+                RLEData::try_new(
+                    values,
+                    indices.clone(),
+                    values_idx_offsets,
+                    0,
+                    indices.len(),
+                )
+                .unwrap(),
             )
-            .unwrap()
         }
     }
 
@@ -168,7 +173,7 @@ mod tests {
         let expected: Vec<u16> = (0..3000).map(|i| (i / 50) as u16).collect();
         let array = values.into_array();
 
-        let encoded = RLEData::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEArray::from_inner(RLEData::encode(&array.to_primitive()).unwrap());
 
         // Access scalars from multiple chunks.
         for &idx in &[1023, 1024, 1025, 2047, 2048, 2049] {
@@ -274,7 +279,7 @@ mod tests {
         let expected: Vec<u32> = (0..2100).map(|i| (i / 100) as u32).collect();
         let array = values.into_array();
 
-        let encoded = RLEData::encode(&array.to_primitive()).unwrap();
+        let encoded = RLEArray::from_inner(RLEData::encode(&array.to_primitive()).unwrap());
 
         // Slice across first and second chunk.
         let slice = encoded.slice(500..1500).unwrap();

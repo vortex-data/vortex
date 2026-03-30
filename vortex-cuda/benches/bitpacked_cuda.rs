@@ -24,6 +24,7 @@ use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPackedArray;
+use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
@@ -56,8 +57,10 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    BitPackedArray::encode(&primitive_array.into_array(), bit_width)
-        .vortex_expect("failed to create BitPacked array")
+    BitPackedArray::from_inner(
+        BitPackedData::encode(&primitive_array.into_array(), bit_width)
+            .vortex_expect("failed to create BitPacked array"),
+    )
 }
 
 /// Create a bit-packed array with the given bit width and patch frequency.
@@ -96,8 +99,10 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-    BitPackedArray::encode(&primitive_array, bit_width)
-        .vortex_expect("failed to create BitPacked array with patches")
+    BitPackedArray::from_inner(
+        BitPackedData::encode(&primitive_array, bit_width)
+            .vortex_expect("failed to create BitPacked array with patches"),
+    )
 }
 
 /// Generic benchmark function for a specific type and bit width

@@ -13,7 +13,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 
-use crate::FSSTArray;
 /// Compress a string array using FSST.
 use crate::FSSTData;
 pub fn fsst_compress<A: ArrayAccessor<[u8]>>(
@@ -113,6 +112,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
 
+    use crate::FSSTArray;
     use crate::compress::DEFAULT_BUFFER_LEN;
     use crate::fsst_compress_iter;
 
@@ -133,7 +133,7 @@ mod tests {
             &compressor,
         );
 
-        let decoded = compressed.scalar_at(0).unwrap();
+        let decoded = FSSTArray::from_inner(compressed).scalar_at(0).unwrap();
 
         let expected = Scalar::utf8(big_string, Nullability::NonNullable);
 

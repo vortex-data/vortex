@@ -17,7 +17,6 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::DeltaArray;
-use crate::DeltaData;
 use crate::bit_transpose::untranspose_validity;
 
 pub fn delta_decompress(

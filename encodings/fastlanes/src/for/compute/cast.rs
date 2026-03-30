@@ -31,6 +31,7 @@ impl CastReduce for FoR {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -42,13 +43,19 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
 
+    use crate::FoRArray;
+    use crate::FoRData;
+
+    fn for_arr(encoded: ArrayRef, reference: Scalar) -> FoRArray {
+        FoRArray::from_inner(FoRData::try_new(encoded, reference).unwrap())
+    }
+
     #[test]
     fn test_cast_for_i32_to_i64() {
-        let for_array = FoRData::try_new(
+        let for_array = for_arr(
             buffer![0i32, 10, 20, 30, 40].into_array(),
             Scalar::from(100i32),
-        )
-        .unwrap();
+        );
 
         let casted = for_array
             .into_array()
@@ -69,7 +76,7 @@ mod tests {
     #[test]
     fn test_cast_for_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(0i32), None, Some(20), Some(30), None]);
-        let for_array = FoRData::try_new(values.into_array(), Scalar::from(50i32)).unwrap();
+        let for_array = for_arr(values.into_array(), Scalar::from(50i32));
 
         let casted = for_array
             .into_array()
@@ -82,22 +89,22 @@ mod tests {
     }
 
     #[rstest]
-    #[case(FoRData::try_new(
+    #[case(for_arr(
         buffer![0i32, 1, 2, 3, 4].into_array(),
         Scalar::from(100i32)
-    ).unwrap())]
-    #[case(FoRData::try_new(
+    ))]
+    #[case(for_arr(
         buffer![0u64, 10, 20, 30].into_array(),
         Scalar::from(1000u64)
-    ).unwrap())]
-    #[case(FoRData::try_new(
+    ))]
+    #[case(for_arr(
         PrimitiveArray::from_option_iter([Some(0i16), None, Some(5), Some(10), None]).into_array(),
         Scalar::from(50i16)
-    ).unwrap())]
-    #[case(FoRData::try_new(
+    ))]
+    #[case(for_arr(
         buffer![-10i32, -5, 0, 5, 10].into_array(),
         Scalar::from(-100i32)
-    ).unwrap())]
+    ))]
     fn test_cast_for_conformance(#[case] array: FoRArray) {
         test_cast_conformance(&array.into_array());
     }

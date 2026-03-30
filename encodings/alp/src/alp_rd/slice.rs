@@ -11,7 +11,6 @@ use vortex_array::vtable::Array;
 use vortex_error::VortexResult;
 
 use crate::alp_rd::ALPRD;
-use crate::alp_rd::ALPRDArray;
 
 impl SliceKernel for ALPRD {
     fn slice(

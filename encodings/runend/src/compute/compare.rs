@@ -16,7 +16,6 @@ use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndData;
 use crate::decompress_bool::runend_decode_bools;
 
 impl CompareKernel for RunEnd {
@@ -56,13 +55,12 @@ mod test {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::scalar_fn::fns::operators::Operator;
 
+    use crate::RunEnd;
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEndData::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-        )
-        .unwrap()
+        RunEnd::encode(PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array())
+            .unwrap()
     }
 
     #[test]

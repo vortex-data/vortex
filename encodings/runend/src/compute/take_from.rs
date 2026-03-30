@@ -12,7 +12,6 @@ use vortex_error::VortexResult;
 
 use crate::RunEnd;
 use crate::RunEndArray;
-use crate::RunEndData;
 
 #[derive(Debug)]
 pub(crate) struct RunEndTakeFrom;
@@ -39,7 +38,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
         // Create a new run-end array containing values as values, instead of indices as values.
         // SAFETY: we are copying ends from an existing valid RunEndArray
         let ree_array = unsafe {
-            RunEndData::new_unchecked(
+            RunEnd::new_unchecked(
                 array.ends().clone(),
                 dict.values().take(array.values().clone())?,
                 array.offset(),
@@ -64,6 +63,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::RunEnd;
     use crate::RunEndArray;
     use crate::compute::take_from::RunEndTakeFrom;
 
@@ -74,7 +74,7 @@ mod tests {
     /// Codes:       `[0, 0, 0, 1, 1, 0, 0]`
     /// RunEnd encoded codes: ends=`[3, 5, 7]`, values=`[0, 1, 0]`
     fn make_dict_with_runend_codes() -> (RunEndArray, DictArray) {
-        let codes = RunEndData::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array()).unwrap();
+        let codes = RunEnd::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array()).unwrap();
         let values = buffer![2i32, 3].into_array();
         let dict = DictArray::try_new(codes.clone().into_array(), values).unwrap();
         (codes, dict)
@@ -99,7 +99,7 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         // Slice codes to positions 2..5 → logical codes [0, 1, 1] → values [2, 3, 3]
         let sliced_codes = unsafe {
-            RunEndData::new_unchecked(
+            RunEnd::new_unchecked(
                 codes.ends().clone(),
                 codes.values().clone(),
                 2, // offset
@@ -122,7 +122,7 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         // Slice codes to positions 3..7 → logical codes [1, 1, 0, 0] → values [3, 3, 2, 2]
         let sliced_codes = unsafe {
-            RunEndData::new_unchecked(
+            RunEnd::new_unchecked(
                 codes.ends().clone(),
                 codes.values().clone(),
                 3, // offset at exact run boundary
@@ -145,7 +145,7 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         // Slice to single element at position 4 → code=1 → value=3
         let sliced_codes = unsafe {
-            RunEndData::new_unchecked(
+            RunEnd::new_unchecked(
                 codes.ends().slice(1..3)?,
                 codes.values().slice(1..3)?,
                 4, // offset

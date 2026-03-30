@@ -102,94 +102,95 @@ mod tests {
 
     use super::*;
 
+    fn bb(v: Vec<bool>) -> ByteBoolArray {
+        ByteBoolArray::from_inner(ByteBoolData::from(v))
+    }
+
+    fn bb_opt(v: Vec<Option<bool>>) -> ByteBoolArray {
+        ByteBoolArray::from_inner(ByteBoolData::from(v))
+    }
+
     #[test]
     fn test_slice() {
         let original = vec![Some(true), Some(true), None, Some(false), None];
-        let vortex_arr = ByteBoolArray::from(original);
+        let vortex_arr = bb_opt(original);
 
         let sliced_arr = vortex_arr.slice(1..4).unwrap();
 
-        let expected = ByteBoolArray::from(vec![Some(true), None, Some(false)]);
+        let expected = bb_opt(vec![Some(true), None, Some(false)]);
         assert_arrays_eq!(sliced_arr, expected.into_array());
     }
 
     #[test]
     fn test_compare_all_equal() {
-        let lhs = ByteBoolArray::from(vec![true; 5]);
-        let rhs = ByteBoolArray::from(vec![true; 5]);
+        let lhs = bb(vec![true; 5]);
+        let rhs = bb(vec![true; 5]);
 
         let arr = lhs
             .into_array()
             .binary(rhs.into_array(), Operator::Eq)
             .unwrap();
 
-        let expected = ByteBoolArray::from(vec![true; 5]);
+        let expected = bb(vec![true; 5]);
         assert_arrays_eq!(arr, expected.into_array());
     }
 
     #[test]
     fn test_compare_all_different() {
-        let lhs = ByteBoolArray::from(vec![false; 5]);
-        let rhs = ByteBoolArray::from(vec![true; 5]);
+        let lhs = bb(vec![false; 5]);
+        let rhs = bb(vec![true; 5]);
 
         let arr = lhs
             .into_array()
             .binary(rhs.into_array(), Operator::Eq)
             .unwrap();
 
-        let expected = ByteBoolArray::from(vec![false; 5]);
+        let expected = bb(vec![false; 5]);
         assert_arrays_eq!(arr, expected.into_array());
     }
 
     #[test]
     fn test_compare_with_nulls() {
-        let lhs = ByteBoolArray::from(vec![true; 5]);
-        let rhs = ByteBoolArray::from(vec![Some(true), Some(true), Some(true), Some(false), None]);
+        let lhs = bb(vec![true; 5]);
+        let rhs = bb_opt(vec![Some(true), Some(true), Some(true), Some(false), None]);
 
         let arr = lhs
             .into_array()
             .binary(rhs.into_array(), Operator::Eq)
             .unwrap();
 
-        let expected =
-            ByteBoolArray::from(vec![Some(true), Some(true), Some(true), Some(false), None]);
+        let expected = bb_opt(vec![Some(true), Some(true), Some(true), Some(false), None]);
         assert_arrays_eq!(arr, expected.into_array());
     }
 
     #[test]
     fn test_mask_byte_bool() {
+        test_mask_conformance(&bb(vec![true, false, true, true, false]).into_array());
         test_mask_conformance(
-            &ByteBoolArray::from(vec![true, false, true, true, false]).into_array(),
-        );
-        test_mask_conformance(
-            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None])
-                .into_array(),
+            &bb_opt(vec![Some(true), Some(true), None, Some(false), None]).into_array(),
         );
     }
 
     #[test]
     fn test_filter_byte_bool() {
+        test_filter_conformance(&bb(vec![true, false, true, true, false]).into_array());
         test_filter_conformance(
-            &ByteBoolArray::from(vec![true, false, true, true, false]).into_array(),
-        );
-        test_filter_conformance(
-            &ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None])
-                .into_array(),
+            &bb_opt(vec![Some(true), Some(true), None, Some(false), None]).into_array(),
         );
     }
 
     #[rstest]
-    #[case(ByteBoolArray::from(vec![true, false, true, true, false]))]
-    #[case(ByteBoolArray::from(vec![Some(true), Some(true), None, Some(false), None]))]
-    #[case(ByteBoolArray::from(vec![true, false]))]
-    #[case(ByteBoolArray::from(vec![true]))]
+    #[case(bb(vec![true, false, true, true, false]))]
+    #[case(bb_opt(vec![Some(true), Some(true), None, Some(false), None]))]
+    #[case(bb(vec![true, false]))]
+    #[case(bb(vec![true]))]
     fn test_take_byte_bool_conformance(#[case] array: ByteBoolArray) {
         test_take_conformance(&array.into_array());
     }
 
     #[test]
     fn test_cast_bytebool_to_nullable() {
-        let array = ByteBoolArray::from(vec![true, false, true, false]);
+        let array = bb(vec![true, false, true, false]);
         let casted = array
             .into_array()
             .cast(DType::Bool(Nullability::Nullable))
@@ -199,24 +200,24 @@ mod tests {
     }
 
     #[rstest]
-    #[case(ByteBoolArray::from(vec![true, false, true, true, false]))]
-    #[case(ByteBoolArray::from(vec![Some(true), Some(false), None, Some(true), None]))]
-    #[case(ByteBoolArray::from(vec![false]))]
-    #[case(ByteBoolArray::from(vec![true]))]
-    #[case(ByteBoolArray::from(vec![Some(true), None]))]
+    #[case(bb(vec![true, false, true, true, false]))]
+    #[case(bb_opt(vec![Some(true), Some(false), None, Some(true), None]))]
+    #[case(bb(vec![false]))]
+    #[case(bb(vec![true]))]
+    #[case(bb_opt(vec![Some(true), None]))]
     fn test_cast_bytebool_conformance(#[case] array: ByteBoolArray) {
         test_cast_conformance(&array.into_array());
     }
 
     #[rstest]
-    #[case::non_nullable(ByteBoolArray::from(vec![true, false, true, true, false]))]
-    #[case::nullable(ByteBoolArray::from(vec![Some(true), Some(false), None, Some(true), None]))]
-    #[case::all_true(ByteBoolArray::from(vec![true, true, true, true]))]
-    #[case::all_false(ByteBoolArray::from(vec![false, false, false, false]))]
-    #[case::single_true(ByteBoolArray::from(vec![true]))]
-    #[case::single_false(ByteBoolArray::from(vec![false]))]
-    #[case::single_null(ByteBoolArray::from(vec![None]))]
-    #[case::mixed_with_nulls(ByteBoolArray::from(vec![Some(true), None, Some(false), None, Some(true)]))]
+    #[case::non_nullable(bb(vec![true, false, true, true, false]))]
+    #[case::nullable(bb_opt(vec![Some(true), Some(false), None, Some(true), None]))]
+    #[case::all_true(bb(vec![true, true, true, true]))]
+    #[case::all_false(bb(vec![false, false, false, false]))]
+    #[case::single_true(bb(vec![true]))]
+    #[case::single_false(bb(vec![false]))]
+    #[case::single_null(bb_opt(vec![None]))]
+    #[case::mixed_with_nulls(bb_opt(vec![Some(true), None, Some(false), None, Some(true)]))]
     fn test_bytebool_consistency(#[case] array: ByteBoolArray) {
         test_array_consistency(&array.into_array());
     }

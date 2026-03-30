@@ -18,6 +18,7 @@ use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::encodings::zstd::ZstdBuffers;
 use vortex::encodings::zstd::ZstdBuffersArray;
+use vortex::encodings::zstd::ZstdBuffersData;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex_nvcomp::sys;
@@ -223,7 +224,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::encodings::zstd::ZstdBuffersArray;
+    use vortex::encodings::zstd::ZstdBuffersData;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
@@ -238,7 +239,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let input = PrimitiveArray::from_iter(0i64..1024).into_array();
-        let compressed = ZstdBuffersArray::compress(&input, 3)?;
+        let compressed = ZstdBuffersData::compress(&input, 3)?;
 
         let cpu_result = compressed.clone().into_array().to_canonical()?;
         let gpu_result = ZstdBuffersExecutor
@@ -265,7 +266,7 @@ mod tests {
             "baz",
         ])
         .into_array();
-        let compressed = ZstdBuffersArray::compress(&input, 3)?;
+        let compressed = ZstdBuffersData::compress(&input, 3)?;
 
         let cpu_result = compressed.clone().into_array().to_canonical()?;
         let gpu_result = ZstdBuffersExecutor

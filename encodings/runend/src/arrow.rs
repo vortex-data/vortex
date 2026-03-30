@@ -15,7 +15,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
-use crate::RunEndArray;
 use crate::RunEndData;
 use crate::ops::find_slice_end_index;
 impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
@@ -80,7 +79,8 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::RunEndArray;
+    use crate::RunEnd;
+    use crate::RunEndData;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -98,7 +98,7 @@ mod tests {
         let vortex_array = RunEndData::from_arrow(&arrow_run_array, false)?;
 
         assert_arrays_eq!(
-            vortex_array.as_ref(),
+            vortex_array.into_array(),
             buffer![10i32, 10, 10, 20, 20, 30, 30, 30].into_array()
         );
         Ok(())
@@ -115,7 +115,7 @@ mod tests {
         let vortex_array = RunEndData::from_arrow(&arrow_run_array, true)?;
 
         assert_arrays_eq!(
-            vortex_array.as_ref(),
+            vortex_array.into_array(),
             PrimitiveArray::from_option_iter([
                 Some(100i32),
                 Some(100i32),

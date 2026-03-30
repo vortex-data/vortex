@@ -12,7 +12,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::FSST;
-use crate::FSSTArray;
 use crate::FSSTData;
 
 impl SliceReduce for FSST {

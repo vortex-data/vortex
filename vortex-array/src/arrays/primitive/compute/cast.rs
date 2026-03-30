@@ -79,7 +79,7 @@ impl CastKernel for Primitive {
             }));
         }
 
-        let mask = array.validity_mask();
+        let mask = array.validity_mask()?;
 
         // Otherwise, we need to cast the values one-by-one.
         Ok(Some(match_each_native_ptype!(new_ptype, |T| {
@@ -249,7 +249,7 @@ mod test {
             PrimitiveArray::from_option_iter([None, Some(0u32), Some(10)])
         );
         assert_eq!(
-            p.validity_mask(),
+            p.validity_mask().unwrap(),
             Mask::from(BitBuffer::from(vec![false, true, true]))
         );
     }

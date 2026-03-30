@@ -170,7 +170,10 @@ mod tests {
 
         let mut builder =
             VarBinViewBuilder::with_capacity(chunked_arr.dtype().clone(), chunked_arr.len());
-        chunked_arr.append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())?;
+        chunked_arr
+            .clone()
+            .into_array()
+            .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())?;
 
         {
             let arr = builder.finish_into_canonical().into_varbinview();

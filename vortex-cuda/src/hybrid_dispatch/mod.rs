@@ -269,7 +269,7 @@ mod tests {
         use vortex::array::session::ArraySessionExt;
         use vortex::encodings::fastlanes;
         use vortex::encodings::zstd::ZstdBuffers;
-        use vortex::encodings::zstd::ZstdBuffersArray;
+        use vortex::encodings::zstd::ZstdBuffersData;
 
         let mut session = VortexSession::empty();
         fastlanes::initialize(&mut session);
@@ -290,7 +290,7 @@ mod tests {
             0u32.into(),
         )
         .vortex_expect("for");
-        let vals = ZstdBuffersArray::compress(&vals.into_array(), 3).vortex_expect("zstd");
+        let vals = ZstdBuffersData::compress(&vals.into_array(), 3).vortex_expect("zstd");
 
         // codes = FoR(BitPacked)
         let codes = PrimitiveArray::new(

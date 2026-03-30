@@ -3,6 +3,7 @@
 
 use bitvec::macros::internal::funty::Fundamental;
 use vortex::array::ExecutionCtx;
+use vortex::encodings::sequence::Sequence;
 use vortex::encodings::sequence::SequenceArray;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
