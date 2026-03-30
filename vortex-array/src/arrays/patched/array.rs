@@ -108,7 +108,7 @@ pub struct PatchedArray {
     /// should be subtracted out of the remaining offsets to get their final position in the
     /// executed array.
     pub(super) offset: usize,
-    /// Total length.
+    /// Length of the array
     pub(super) len: usize,
 
     /// lane offsets. The PType of these MUST be u32
