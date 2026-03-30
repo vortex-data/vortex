@@ -1,0 +1,444 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+
+use arrow_array::Array as ArrowArray;
+use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::Field;
+use parquet_variant_compute::VariantArray as ArrowVariantArray;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::VariantArray;
+use vortex_array::arrow::ArrowArrayExecutor;
+use vortex_array::arrow::FromArrowArray;
+use vortex_array::arrow::to_arrow_null_buffer;
+use vortex_array::dtype::DType;
+use vortex_array::stats::ArrayStats;
+use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
+
+/// Array storage for Arrow's canonical `arrow.parquet.variant` extension type.
+///
+/// `ParquetVariantArray` preserves semi-structured data stored as Parquet Variant values in a
+/// lossless form and supports both unshredded and shredded layouts. Its storage matches the
+/// canonical extension type contract:
+/// - `metadata` is always present and non-nullable.
+/// - `value` stores unshredded variant bytes when present
+/// - `typed_value` stores shredded data when present
+///
+/// At least one of `value` or `typed_value` must be present. `typed_value` may be a primitive,
+/// list, or struct, with nested shredded children following the same recursive rules as the
+/// Arrow canonical extension type docs.
+///
+/// # Nullability
+///
+/// There are three independent levels of nullability in this encoding:
+///
+/// 1. **Outer validity** (`validity`): controls which *rows* of the variant column are null.
+///    This drives the `DType::Variant(Nullable | NonNullable)` of the enclosing `VariantArray`.
+///
+/// 2. **Value child nullability**: the `value` child is `Binary` and may be nullable or
+///    non-nullable. In partially-shredded layouts some rows have their data in `typed_value`
+///    instead, so the corresponding `value` slot is null — making the child nullable.
+///
+/// 3. **Typed-value child nullability**: the `typed_value` child carries its own `DType`
+///    (which includes nullability).
+#[derive(Clone, Debug)]
+pub struct ParquetVariantArray {
+    pub(crate) dtype: DType,
+    pub(crate) validity: Validity,
+    pub(crate) metadata: ArrayRef,
+    pub(crate) value: Option<ArrayRef>,
+    pub(crate) typed_value: Option<ArrayRef>,
+    pub(crate) stats_set: ArrayStats,
+}
+
+impl ParquetVariantArray {
+    /// Creates a Parquet Variant array with explicit outer validity.
+    pub fn try_new(
+        validity: Validity,
+        metadata: ArrayRef,
+        value: Option<ArrayRef>,
+        typed_value: Option<ArrayRef>,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(
+            value.is_some() || typed_value.is_some(),
+            "at least one of value or typed_value must be present"
+        );
+        let len = metadata.len();
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure_eq!(
+                validity_len,
+                len,
+                "validity length must match metadata length"
+            );
+        }
+        if let Some(ref v) = value {
+            vortex_ensure_eq!(v.len(), len, "value length must match metadata length");
+        }
+        if let Some(ref tv) = typed_value {
+            vortex_ensure_eq!(
+                tv.len(),
+                len,
+                "typed_value length must match metadata length"
+            );
+        }
+        let nullability = validity.nullability();
+
+        Ok(Self {
+            dtype: DType::Variant(nullability),
+            validity,
+            metadata,
+            value,
+            typed_value,
+            stats_set: ArrayStats::default(),
+        })
+    }
+
+    /// Returns a reference to the metadata child array.
+    pub fn metadata_array(&self) -> &ArrayRef {
+        &self.metadata
+    }
+
+    /// Returns a reference to the un-shredded value child array, if present.
+    pub fn value_array(&self) -> Option<&ArrayRef> {
+        self.value.as_ref()
+    }
+
+    /// Returns a reference to the shredded typed_value child array, if present.
+    pub fn typed_value_array(&self) -> Option<&ArrayRef> {
+        self.typed_value.as_ref()
+    }
+
+    /// Converts an Arrow `parquet_variant_compute::VariantArray` into a Vortex `ArrayRef`
+    /// wrapping `VariantArray(ParquetVariantArray(...))`.
+    pub fn from_arrow_variant(arrow_variant: &ArrowVariantArray) -> VortexResult<ArrayRef> {
+        let storage = arrow_variant.inner();
+        let value_nullable = storage
+            .fields()
+            .iter()
+            .find(|field| field.name() == "value")
+            .map(|field| field.is_nullable())
+            .unwrap_or(false);
+        let typed_value_nullable = storage
+            .fields()
+            .iter()
+            .find(|field| field.name() == "typed_value")
+            .map(|field| field.is_nullable())
+            .unwrap_or(false);
+        let validity = arrow_variant
+            .nulls()
+            .map(|nulls| {
+                if nulls.null_count() == nulls.len() {
+                    Validity::AllInvalid
+                } else {
+                    Validity::from(BitBuffer::from(nulls.inner().clone()))
+                }
+            })
+            .unwrap_or(Validity::NonNullable);
+        let metadata =
+            ArrayRef::from_arrow(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
+
+        let value = arrow_variant
+            .value_field()
+            .map(|v| ArrayRef::from_arrow(v as &dyn ArrowArray, value_nullable))
+            .transpose()?;
+
+        let typed_value = arrow_variant
+            .typed_value_field()
+            .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
+            .transpose()?;
+
+        let pv = ParquetVariantArray::try_new(validity, metadata, value, typed_value)?;
+        Ok(VariantArray::new(pv.into_array()).into_array())
+    }
+
+    /// Converts this array back to an Arrow [`parquet_variant_compute::VariantArray`].
+    pub fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
+        let len = self.metadata.len();
+        let nulls = to_arrow_null_buffer(self.validity.clone(), len, ctx)?;
+
+        let mut fields = Vec::with_capacity(3);
+        let mut arrays: Vec<ArrowArrayRef> = Vec::with_capacity(3);
+
+        let metadata_arrow = self.metadata.clone().execute_arrow(None, ctx)?;
+        fields.push(Arc::new(Field::new(
+            "metadata",
+            metadata_arrow.data_type().clone(),
+            false,
+        )));
+        arrays.push(metadata_arrow);
+
+        if let Some(ref value) = self.value {
+            let value_arrow = value.clone().execute_arrow(None, ctx)?;
+            fields.push(Arc::new(Field::new(
+                "value",
+                value_arrow.data_type().clone(),
+                value.dtype().is_nullable(),
+            )));
+            arrays.push(value_arrow);
+        }
+
+        if let Some(ref typed_value) = self.typed_value {
+            let tv_arrow = typed_value.clone().execute_arrow(None, ctx)?;
+            fields.push(Arc::new(Field::new(
+                "typed_value",
+                tv_arrow.data_type().clone(),
+                typed_value.dtype().is_nullable(),
+            )));
+            arrays.push(tv_arrow);
+        }
+
+        let struct_array = arrow_array::StructArray::try_new(fields.into(), arrays, nulls)?;
+        Ok(ArrowVariantArray::try_new(&struct_array)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_array::Array as _;
+    use arrow_array::ArrayRef as ArrowArrayRef;
+    use arrow_array::Int32Array;
+    use arrow_array::StructArray;
+    use arrow_array::builder::BinaryViewBuilder;
+    use arrow_buffer::NullBuffer;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Fields;
+    use parquet_variant::Variant as PqVariant;
+    use parquet_variant_compute::VariantArray as ArrowVariantArray;
+    use parquet_variant_compute::VariantArrayBuilder;
+    use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::Variant;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use crate::ParquetVariant;
+    use crate::ParquetVariantArray;
+
+    fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        let inner = vortex_arr
+            .as_opt::<Variant>()
+            .unwrap()
+            .child()
+            .as_opt::<ParquetVariant>()
+            .unwrap();
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let roundtripped = inner.to_arrow(&mut ctx)?;
+        let roundtripped = roundtripped.inner();
+
+        assert_eq!(struct_array.len(), roundtripped.len());
+        assert_eq!(struct_array.column_names(), roundtripped.column_names());
+        assert_eq!(struct_array.nulls(), roundtripped.nulls());
+        assert_eq!(struct_array.fields().len(), roundtripped.fields().len());
+
+        for (expected, actual) in struct_array
+            .fields()
+            .iter()
+            .zip(roundtripped.fields().iter())
+        {
+            assert_eq!(expected.name(), actual.name());
+            assert_eq!(expected.data_type(), actual.data_type());
+            assert_eq!(expected.is_nullable(), actual.is_nullable());
+        }
+
+        for (expected, actual) in struct_array
+            .columns()
+            .iter()
+            .zip(roundtripped.columns().iter())
+        {
+            assert_eq!(expected.to_data(), actual.to_data());
+        }
+
+        Ok(())
+    }
+
+    fn binary_view_array<const N: usize>(values: [&[u8]; N]) -> ArrowArrayRef {
+        let mut builder = BinaryViewBuilder::new();
+        for value in values {
+            builder.append_value(value);
+        }
+        Arc::new(builder.finish())
+    }
+
+    #[test]
+    fn test_from_arrow_variant_basic() -> VortexResult<()> {
+        let mut builder = VariantArrayBuilder::new(3);
+        builder.append_variant(PqVariant::from(42i32));
+        builder.append_variant(PqVariant::from("hello"));
+        builder.append_variant(PqVariant::from(true));
+        let arrow_variant = builder.build();
+
+        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+
+        assert_eq!(vortex_arr.len(), 3);
+        assert_eq!(
+            vortex_arr.dtype(),
+            &DType::Variant(Nullability::NonNullable)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_from_arrow_variant_with_shredded_typed_value() -> VortexResult<()> {
+        let mut metadata_builder = BinaryViewBuilder::new();
+        let min_metadata = [1u8, 0];
+        for _ in 0..3 {
+            metadata_builder.append_value(min_metadata);
+        }
+        let metadata = metadata_builder.finish();
+
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
+
+        let struct_fields: Fields = vec![
+            Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+            Arc::new(Field::new("typed_value", DataType::Int32, false)),
+        ]
+        .into();
+        let struct_array =
+            StructArray::try_new(struct_fields, vec![Arc::new(metadata), typed_value], None)
+                .unwrap();
+
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+
+        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        assert_eq!(vortex_arr.len(), 3);
+        assert_eq!(
+            vortex_arr.dtype(),
+            &DType::Variant(Nullability::NonNullable)
+        );
+
+        let variant_arr = vortex_arr.as_opt::<Variant>().unwrap();
+        let inner = variant_arr.child().as_opt::<ParquetVariant>().unwrap();
+        assert!(inner.typed_value_array().is_some());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_arrow_basic() -> VortexResult<()> {
+        let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
+        let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
+        let pv_array =
+            ParquetVariantArray::try_new(Validity::NonNullable, metadata, Some(value), None)?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let variant_arr = pv_array.to_arrow(&mut ctx)?;
+        let struct_arr = variant_arr.inner();
+
+        assert_eq!(struct_arr.num_columns(), 2);
+        assert_eq!(struct_arr.column_names(), &["metadata", "value"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_arrow_with_typed_value() -> VortexResult<()> {
+        let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
+        let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
+        let typed_value = buffer![1i32, 2].into_array();
+        let pv_array = ParquetVariantArray::try_new(
+            Validity::NonNullable,
+            metadata,
+            Some(value),
+            Some(typed_value),
+        )?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let variant_arr = pv_array.to_arrow(&mut ctx)?;
+        let struct_arr = variant_arr.inner();
+
+        assert_eq!(struct_arr.num_columns(), 3);
+        assert_eq!(
+            struct_arr.column_names(),
+            &["metadata", "value", "typed_value"]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_arrow_variant_roundtrip_unshredded_storage() -> VortexResult<()> {
+        let mut builder = VariantArrayBuilder::new(3);
+        builder.append_variant(PqVariant::from(42i32));
+        builder.append_variant(PqVariant::from("hello"));
+        builder.append_variant(PqVariant::from(true));
+
+        assert_arrow_variant_storage_roundtrip(builder.build().into_inner())
+    }
+
+    #[test]
+    fn test_arrow_variant_roundtrip_typed_value_only_storage() -> VortexResult<()> {
+        let metadata = binary_view_array([b"\x01\x00", b"\x01\x00", b"\x01\x00"]);
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
+
+        let struct_array = StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+            ]
+            .into(),
+            vec![metadata, typed_value],
+            None,
+        )
+        .unwrap();
+
+        assert_arrow_variant_storage_roundtrip(struct_array)
+    }
+
+    #[test]
+    fn test_arrow_variant_roundtrip_value_and_typed_value_storage() -> VortexResult<()> {
+        let metadata = binary_view_array([b"\x01\x00", b"\x01\x00"]);
+        let value = binary_view_array([b"\x10", b"\x11"]);
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![1, 2]));
+
+        let struct_array = StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("value", DataType::BinaryView, true)),
+                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+            ]
+            .into(),
+            vec![metadata, value, typed_value],
+            None,
+        )
+        .unwrap();
+
+        assert_arrow_variant_storage_roundtrip(struct_array)
+    }
+
+    #[test]
+    fn test_arrow_variant_roundtrip_with_outer_nulls() -> VortexResult<()> {
+        let metadata = binary_view_array([b"\x01\x00", b"\x01\x00", b"\x01\x00"]);
+        let value = binary_view_array([b"\x10", b"\x00", b"\x11"]);
+        let struct_array = StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("value", DataType::BinaryView, true)),
+            ]
+            .into(),
+            vec![metadata, value],
+            Some(NullBuffer::from(vec![true, false, true])),
+        )
+        .unwrap();
+
+        assert_arrow_variant_storage_roundtrip(struct_array)
+    }
+}

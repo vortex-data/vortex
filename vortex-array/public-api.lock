@@ -8542,6 +8542,10 @@ pub fn vortex_array::ArrayRef::into_arrow_preferred(self) -> vortex_error::Vorte
 
 pub fn vortex_array::arrow::from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> vortex_error::VortexResult<vortex_array::ArrayRef> where vortex_array::ArrayRef: vortex_array::arrow::FromArrowArray<A>
 
+pub fn vortex_array::arrow::to_arrow_null_buffer(validity: vortex_array::validity::Validity, len: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_buffer::buffer::null::NullBuffer>>
+
+pub fn vortex_array::arrow::to_null_buffer(mask: vortex_mask::Mask) -> core::option::Option<arrow_buffer::buffer::null::NullBuffer>
+
 pub mod vortex_array::buffer
 
 pub struct vortex_array::buffer::BufferHandle(_)
