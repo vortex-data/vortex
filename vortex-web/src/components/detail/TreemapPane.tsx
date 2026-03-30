@@ -97,13 +97,6 @@ function hitTest(nodes: RectNode[], px: number, py: number): RectNode | null {
   return best;
 }
 
-/** Walk up from a node to find its depth-1 ancestor. */
-function depth1Ancestor(n: RectNode): RectNode {
-  let cur = n;
-  while (cur.depth > 1 && cur.parent) cur = cur.parent;
-  return cur;
-}
-
 /** Collect all nodeIds in a RectNode subtree. */
 function collectRectIds(n: RectNode): Set<string> {
   const ids = new Set<string>();
