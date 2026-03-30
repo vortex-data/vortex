@@ -49,7 +49,9 @@ custom-labels = { workspace = true }
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
 smol = { workspace = true }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+# target_os = "unknown" matches wasm32-unknown-unknown (browser), excluding WASI targets
+# where wasm-bindgen's JS interop is not available.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen-futures = { workspace = true }
 
 [dev-dependencies]
