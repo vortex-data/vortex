@@ -420,18 +420,28 @@ fn apply_patches_primitive<V: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
     use vortex_buffer::buffer_mut;
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    use vortex_session::registry::ReadContext;
 
+    use crate::ArrayContext;
     use crate::Canonical;
+    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::arrays::Patched;
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
     use crate::patches::Patches;
+    use crate::serde::ArrayParts;
+    use crate::serde::SerializeOptions;
     use crate::validity::Validity;
 
     #[test]
@@ -608,5 +618,130 @@ mod tests {
         .into_array();
 
         assert_arrays_eq!(expected, result);
+    }
+
+    fn make_patched_array(
+        inner: impl IntoIterator<Item = u16>,
+        patch_indices: &[u32],
+        patch_values: &[u16],
+    ) -> VortexResult<PatchedArray> {
+        let values: Vec<u16> = inner.into_iter().collect();
+        let len = values.len();
+        let array = PrimitiveArray::from_iter(values).into_array();
+
+        let indices = PrimitiveArray::from_iter(patch_indices.iter().copied()).into_array();
+        let patch_vals = PrimitiveArray::from_iter(patch_values.iter().copied()).into_array();
+
+        let patches = Patches::new(len, 0, indices, patch_vals, None)?;
+
+        let session = VortexSession::empty();
+        let mut ctx = ExecutionCtx::new(session);
+
+        PatchedArray::from_array_and_patches(array, &patches, &mut ctx)
+    }
+
+    #[rstest]
+    #[case::basic(
+        make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30]).unwrap().into_array()
+    )]
+    #[case::multi_chunk(
+        make_patched_array(vec![0u16; 4096], &[100, 1500, 2500, 3500], &[11, 22, 33, 44]).unwrap().into_array()
+    )]
+    #[case::sliced({
+        let arr = make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30]).unwrap();
+        arr.slice(2..1024).unwrap()
+    })]
+    fn test_serde_roundtrip(#[case] array: crate::ArrayRef) {
+        let dtype = array.dtype().clone();
+        let len = array.len();
+
+        let ctx = ArrayContext::empty();
+        let serialized = array
+            .clone()
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
+
+        // Concat into a single buffer.
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+        let concat = concat.freeze();
+
+        let parts = ArrayParts::try_from(concat).unwrap();
+        let decoded = parts
+            .decode(
+                &dtype,
+                len,
+                &ReadContext::new(ctx.to_ids()),
+                &LEGACY_SESSION,
+            )
+            .unwrap();
+
+        assert!(decoded.is::<Patched>());
+        assert_eq!(
+            array.display_values().to_string(),
+            decoded.display_values().to_string()
+        );
+    }
+
+    #[test]
+    fn test_with_children_basic() -> VortexResult<()> {
+        let array = make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30])?;
+
+        // Get original children via direct field access
+        let inner = array.inner.clone();
+        let lane_offsets = array.lane_offsets.clone();
+        let indices = array.indices.clone();
+        let values = array.values.clone();
+
+        // Create new PatchedArray with same children using with_children
+        let new_array =
+            array
+                .clone()
+                .into_array()
+                .with_children(vec![inner, lane_offsets, indices, values])?;
+
+        assert!(new_array.is::<Patched>());
+        assert_eq!(array.len(), new_array.len());
+        assert_eq!(array.dtype(), new_array.dtype());
+
+        // Execute both and compare results
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let original_executed = array
+            .into_array()
+            .execute::<Canonical>(&mut ctx)?
+            .into_primitive();
+        let new_executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
+
+        assert_arrays_eq!(original_executed, new_executed);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_with_children_modified_inner() -> VortexResult<()> {
+        let array = make_patched_array(vec![0u16; 10], &[1, 2, 3], &[10, 20, 30])?;
+
+        // Create a different inner array (all 5s instead of 0s)
+        let new_inner = PrimitiveArray::from_iter(vec![5u16; 10]).into_array();
+        let lane_offsets = array.lane_offsets.clone();
+        let indices = array.indices.clone();
+        let values = array.values.clone();
+
+        let new_array =
+            array
+                .into_array()
+                .with_children(vec![new_inner, lane_offsets, indices, values])?;
+
+        // Execute and verify the inner values changed (except at patch positions)
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        let executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
+
+        // Expected: all 5s except indices 1, 2, 3 which are patched to 10, 20, 30
+        let expected = PrimitiveArray::from_iter([5u16, 10, 20, 30, 5, 5, 5, 5, 5, 5]);
+        assert_arrays_eq!(expected, executed);
+
+        Ok(())
     }
 }
