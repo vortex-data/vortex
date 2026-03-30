@@ -16,7 +16,9 @@
 //!
 //! where `â_rot` and `b̂_rot` are the quantized unit-norm rotated vectors.
 
-use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_error::VortexResult;
 
 use crate::array::TurboQuantArray;
@@ -35,11 +37,12 @@ pub fn cosine_similarity_quantized(
     array: &TurboQuantArray,
     row_a: usize,
     row_b: usize,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<f32> {
     let pd = array.padded_dim() as usize;
 
-    // Read norms directly — no decompression.
-    let norms_prim = array.norms().to_canonical()?.into_primitive();
+    // Read norms — execute to handle cascade-compressed children.
+    let norms_prim = array.norms().clone().execute::<PrimitiveArray>(ctx)?;
     let norms = norms_prim.as_slice::<f32>();
     let norm_a = norms[row_a];
     let norm_b = norms[row_b];
@@ -49,12 +52,12 @@ pub fn cosine_similarity_quantized(
     }
 
     // Read codes from the FixedSizeListArray → flat u8.
-    let codes_fsl = array.codes().to_canonical()?.into_fixed_size_list();
+    let codes_fsl = array.codes().clone().execute::<FixedSizeListArray>(ctx)?;
     let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
     let all_codes = codes_prim.as_slice::<u8>();
 
     // Read centroids.
-    let centroids_prim = array.centroids().to_canonical()?.into_primitive();
+    let centroids_prim = array.centroids().clone().execute::<PrimitiveArray>(ctx)?;
     let c = centroids_prim.as_slice::<f32>();
 
     let codes_a = &all_codes[row_a * pd..(row_a + 1) * pd];

@@ -979,7 +979,8 @@ mod tests {
             let norm_b: f32 = b.iter().map(|&v| v * v).sum::<f32>().sqrt();
             let exact_cos = dot / (norm_a * norm_b);
 
-            let approx_cos = cosine_similarity_quantized(tq, row_a, row_b)?;
+            let mut ctx = SESSION.create_execution_ctx();
+            let approx_cos = cosine_similarity_quantized(tq, row_a, row_b, &mut ctx)?;
 
             // 4-bit quantization: expect reasonable accuracy.
             let error = (exact_cos - approx_cos).abs();
