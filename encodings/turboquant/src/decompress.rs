@@ -28,9 +28,8 @@ fn qjl_correction_scale(padded_dim: usize) -> f32 {
 /// Decompress a `TurboQuantArray` into a `FixedSizeListArray` of floats.
 ///
 /// Reads stored centroids and rotation signs from the array's children,
-/// avoiding any recomputation. If QJL correction is present, the MSE decode
-/// and QJL correction are fused into a single pass over rows to avoid an
-/// intermediate buffer allocation and extra memory traffic.
+/// avoiding any recomputation. If QJL correction is present, applies
+/// the residual correction after MSE decoding.
 pub fn execute_decompress(
     array: TurboQuantArray,
     ctx: &mut ExecutionCtx,
@@ -55,7 +54,8 @@ pub fn execute_decompress(
     let centroids = centroids_prim.as_slice::<f32>();
 
     // FastLanes SIMD-unpacks the 1-bit bitpacked rotation signs into u8 0/1 values,
-    // then we expand to u32 XOR masks once (amortized over all rows).
+    // then we expand to u32 XOR masks once (amortized over all rows). This enables
+    // branchless XOR-based sign application in the per-row SRHT hot loop.
     let signs_prim = array
         .rotation_signs
         .clone()
@@ -69,57 +69,73 @@ pub fn execute_decompress(
     let norms_prim = array.norms.clone().execute::<PrimitiveArray>(ctx)?;
     let norms = norms_prim.as_slice::<f32>();
 
-    // Prepare QJL data (if present) before entering the row loop.
-    // QJL reuses the MSE rotation matrix — no separate rotation to reconstruct.
-    let qjl_scale = qjl_correction_scale(padded_dim);
-    let qjl_data = if let Some(qjl) = &array.qjl {
-        let qjl_signs_prim = qjl.signs.clone().execute::<PrimitiveArray>(ctx)?;
-        let residual_norms_prim = qjl.residual_norms.clone().execute::<PrimitiveArray>(ctx)?;
-        Some((qjl_signs_prim, residual_norms_prim))
-    } else {
-        None
-    };
-
-    // Single fused loop: MSE decode + optional QJL correction per row.
-    let mut output = BufferMut::<f32>::with_capacity(num_rows * dim);
+    // MSE decode: dequantize → inverse rotate → scale by norm.
+    let mut mse_output = BufferMut::<f32>::with_capacity(num_rows * dim);
     let mut dequantized = vec![0.0f32; padded_dim];
     let mut unrotated = vec![0.0f32; padded_dim];
-    // QJL scratch buffers (only used when qjl_data is Some).
-    let mut qjl_signs_vec = vec![0.0f32; padded_dim];
-    let mut qjl_projected = vec![0.0f32; padded_dim];
 
     for row in 0..num_rows {
         let row_indices = &indices[row * padded_dim..(row + 1) * padded_dim];
         let norm = norms[row];
 
-        // MSE: dequantize → inverse rotate → scale by norm.
         for idx in 0..padded_dim {
             dequantized[idx] = centroids[row_indices[idx] as usize];
         }
+
         rotation.inverse_rotate(&dequantized, &mut unrotated);
+
         for idx in 0..dim {
             unrotated[idx] *= norm;
         }
 
-        if let Some((ref qjl_signs_prim, ref residual_norms_prim)) = qjl_data {
-            // QJL: apply residual correction inline, reusing the MSE rotation.
-            let qjl_signs_u8 = qjl_signs_prim.as_slice::<u8>();
-            let residual_norms = residual_norms_prim.as_slice::<f32>();
-            let residual_norm = residual_norms[row];
+        mse_output.extend_from_slice(&unrotated[..dim]);
+    }
 
-            let row_signs = &qjl_signs_u8[row * padded_dim..(row + 1) * padded_dim];
-            for idx in 0..padded_dim {
-                qjl_signs_vec[idx] = if row_signs[idx] != 0 { 1.0 } else { -1.0 };
-            }
+    // If no QJL correction, we're done.
+    let Some(qjl) = &array.qjl else {
+        let elements = PrimitiveArray::new::<f32>(mse_output.freeze(), Validity::NonNullable);
+        return Ok(FixedSizeListArray::try_new(
+            elements.into_array(),
+            array.dimension(),
+            Validity::NonNullable,
+            num_rows,
+        )?
+        .into_array());
+    };
 
-            rotation.inverse_rotate(&qjl_signs_vec, &mut qjl_projected);
-            let scale = qjl_scale * residual_norm;
+    // Apply QJL residual correction.
+    // FastLanes SIMD-unpacks the 1-bit bitpacked QJL signs into u8 0/1 values.
+    let qjl_signs_prim = qjl.signs.clone().execute::<PrimitiveArray>(ctx)?;
+    let qjl_signs_u8 = qjl_signs_prim.as_slice::<u8>();
 
-            for idx in 0..dim {
-                output.push(unrotated[idx] + scale * qjl_projected[idx]);
-            }
-        } else {
-            output.extend_from_slice(&unrotated[..dim]);
+    let residual_norms_prim = qjl.residual_norms.clone().execute::<PrimitiveArray>(ctx)?;
+    let residual_norms = residual_norms_prim.as_slice::<f32>();
+
+    let qjl_rot_signs_prim = qjl.rotation_signs.clone().execute::<PrimitiveArray>(ctx)?;
+    let qjl_rot = RotationMatrix::from_u8_slice(qjl_rot_signs_prim.as_slice::<u8>(), dim)?;
+
+    let qjl_scale = qjl_correction_scale(padded_dim);
+    let mse_elements = mse_output.as_ref();
+
+    let mut output = BufferMut::<f32>::with_capacity(num_rows * dim);
+    let mut qjl_signs_vec = vec![0.0f32; padded_dim];
+    let mut qjl_projected = vec![0.0f32; padded_dim];
+
+    for row in 0..num_rows {
+        let mse_row = &mse_elements[row * dim..(row + 1) * dim];
+        let residual_norm = residual_norms[row];
+
+        // Convert u8 0/1 → f32 ±1.0 for this row's signs.
+        let row_signs = &qjl_signs_u8[row * padded_dim..(row + 1) * padded_dim];
+        for idx in 0..padded_dim {
+            qjl_signs_vec[idx] = if row_signs[idx] != 0 { 1.0 } else { -1.0 };
+        }
+
+        qjl_rot.inverse_rotate(&qjl_signs_vec, &mut qjl_projected);
+        let scale = qjl_scale * residual_norm;
+
+        for idx in 0..dim {
+            output.push(mse_row[idx] + scale * qjl_projected[idx]);
         }
     }
 
