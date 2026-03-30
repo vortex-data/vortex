@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_buffer::NullBuffer;
 use arrow_schema::Field;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use vortex_array::ArrayRef;
@@ -14,6 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::arrow::FromArrowArray;
+use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::dtype::DType;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
@@ -21,7 +21,6 @@ use vortex_buffer::BitBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
-use vortex_mask::Mask;
 
 /// Array storage for Arrow's canonical `arrow.parquet.variant` extension type.
 ///
@@ -162,20 +161,7 @@ impl ParquetVariantArray {
     /// Converts this array back to an Arrow [`parquet_variant_compute::VariantArray`].
     pub fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
         let len = self.metadata.len();
-        let nulls = match &self.validity {
-            Validity::NonNullable | Validity::AllValid => None,
-            Validity::AllInvalid => Some(NullBuffer::new_null(len)),
-            Validity::Array(array) => {
-                let mask = array.clone().execute::<Mask>(ctx)?;
-                match mask {
-                    Mask::AllTrue(_) => None,
-                    Mask::AllFalse(l) => Some(NullBuffer::new_null(l)),
-                    Mask::Values(values) => Some(NullBuffer::from(
-                        arrow_buffer::BooleanBuffer::from(values.bit_buffer().clone()),
-                    )),
-                }
-            }
-        };
+        let nulls = to_arrow_null_buffer(self.validity.clone(), len, ctx)?;
 
         let mut fields = Vec::with_capacity(3);
         let mut arrays: Vec<ArrowArrayRef> = Vec::with_capacity(3);
