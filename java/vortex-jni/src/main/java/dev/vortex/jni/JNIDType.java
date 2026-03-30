@@ -6,11 +6,15 @@ package dev.vortex.jni;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import dev.vortex.api.DType;
+
+import java.lang.ref.Cleaner;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
 public final class JNIDType implements DType {
+    private static final Cleaner cleaner = Cleaner.create();
+
     OptionalLong pointer;
     final boolean isOwned; // True if this object owns the native memory
 
