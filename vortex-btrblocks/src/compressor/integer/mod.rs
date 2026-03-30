@@ -978,7 +978,7 @@ mod tests {
         let expected =
             PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity().clone())
                 .into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        assert_arrays_eq!(decoded, expected);
         Ok(())
     }
 
@@ -1004,7 +1004,7 @@ mod tests {
             array.validity().clone(),
         )
         .into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        assert_arrays_eq!(decoded, expected);
         Ok(())
     }
 
@@ -1022,7 +1022,7 @@ mod tests {
         assert!(compressed.is::<Sequence>());
         let decoded = compressed;
         let expected = PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        assert_arrays_eq!(decoded, expected);
         Ok(())
     }
 
@@ -1044,7 +1044,7 @@ mod tests {
 
         let decoded = compressed;
         let expected = Buffer::copy_from(&values).into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        assert_arrays_eq!(decoded, expected);
         Ok(())
     }
 

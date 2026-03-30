@@ -1289,7 +1289,7 @@ mod test {
         );
         assert_arrays_eq!(primitive_indices, PrimitiveArray::from_iter([0u64]));
         assert_eq!(
-            primitive_values.validity_mask().unwrap(),
+            primitive_values.validity_mask(),
             Mask::from_iter(vec![true])
         );
     }
@@ -1323,7 +1323,7 @@ mod test {
         assert_arrays_eq!(taken.indices(), PrimitiveArray::from_iter([0u64, 1]));
 
         assert_eq!(
-            primitive_values.validity_mask().unwrap(),
+            primitive_values.validity_mask(),
             Mask::from_iter([true, false])
         );
     }

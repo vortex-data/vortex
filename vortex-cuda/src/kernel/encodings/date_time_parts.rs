@@ -208,6 +208,7 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
+    use vortex::encodings::datetime_parts::DateTimeParts;
     use vortex::encodings::datetime_parts::DateTimePartsArray;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
@@ -237,7 +238,7 @@ mod tests {
             None,
         );
 
-        DateTimePartsArray::try_new(
+        DateTimeParts::try_new(
             temporal.dtype().clone(),
             days_arr,
             seconds_arr,
@@ -348,7 +349,7 @@ mod tests {
             None,
         );
 
-        let dtp_array = DateTimePartsArray::try_new(
+        let dtp_array = DateTimeParts::try_new(
             temporal.dtype().clone(),
             days_arr,
             seconds_arr,

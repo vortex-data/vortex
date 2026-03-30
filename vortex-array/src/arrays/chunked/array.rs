@@ -351,7 +351,7 @@ mod test {
 
         // Should be all_valid since all non-empty chunks are all_valid
         assert!(chunked.clone().into_array().all_valid().unwrap());
-        assert!(!chunked.clone().into_array().all_invalid().unwrap());
+        assert!(!chunked.into_array().all_invalid().unwrap());
 
         Ok(())
     }
@@ -371,7 +371,7 @@ mod test {
 
         // Should be all_invalid since all non-empty chunks are all_invalid
         assert!(!chunked.clone().into_array().all_valid().unwrap());
-        assert!(chunked.clone().into_array().all_invalid().unwrap());
+        assert!(chunked.into_array().all_invalid().unwrap());
 
         Ok(())
     }
@@ -391,7 +391,7 @@ mod test {
 
         // Should be neither all_valid nor all_invalid
         assert!(!chunked.clone().into_array().all_valid().unwrap());
-        assert!(!chunked.clone().into_array().all_invalid().unwrap());
+        assert!(!chunked.into_array().all_invalid().unwrap());
 
         Ok(())
     }

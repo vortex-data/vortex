@@ -253,7 +253,7 @@ mod test {
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),
-            array.nbytes()
+            array.clone().into_array().nbytes()
         );
         // [compress]
 
@@ -274,7 +274,7 @@ mod test {
             .write_options()
             .write(
                 &mut tokio::fs::File::create(&path).await?,
-                array.to_array_stream(),
+                array.into_array().to_array_stream(),
             )
             .await?;
 
@@ -318,7 +318,7 @@ mod test {
             )
             .write(
                 &mut tokio::fs::File::create(&path).await?,
-                array.to_array_stream(),
+                array.clone().into_array().to_array_stream(),
             )
             .await?;
 
@@ -375,7 +375,7 @@ mod test {
             .write_options()
             .write(
                 &mut tokio::fs::File::create(&path).await?,
-                array.to_array_stream(),
+                array.into_array().to_array_stream(),
             )
             .await?;
 

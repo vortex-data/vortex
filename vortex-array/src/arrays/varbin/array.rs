@@ -452,6 +452,11 @@ impl VarBinData {
 }
 
 impl Array<VarBin> {
+    /// Creates a new [`VarBinArray`].
+    pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
+        Array::from_inner(VarBinData::new(offsets, bytes, dtype, validity))
+    }
+
     /// Creates a new [`VarBinArray`] without validation.
     ///
     /// # Safety
@@ -564,5 +569,79 @@ impl FromIterator<Option<String>> for VarBinData {
 impl<'a> FromIterator<Option<&'a str>> for VarBinData {
     fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
         Self::from_iter(iter, DType::Utf8(Nullability::Nullable))
+    }
+}
+
+// --- From and FromIterator forwarding for Array<VarBin> ---
+
+impl From<Vec<&[u8]>> for Array<VarBin> {
+    fn from(value: Vec<&[u8]>) -> Self {
+        Array::from_inner(VarBinData::from(value))
+    }
+}
+
+impl From<Vec<Vec<u8>>> for Array<VarBin> {
+    fn from(value: Vec<Vec<u8>>) -> Self {
+        Array::from_inner(VarBinData::from(value))
+    }
+}
+
+impl From<Vec<String>> for Array<VarBin> {
+    fn from(value: Vec<String>) -> Self {
+        Array::from_inner(VarBinData::from(value))
+    }
+}
+
+impl From<Vec<&str>> for Array<VarBin> {
+    fn from(value: Vec<&str>) -> Self {
+        Array::from_inner(VarBinData::from(value))
+    }
+}
+
+impl From<Vec<Option<&[u8]>>> for Array<VarBin> {
+    fn from(value: Vec<Option<&[u8]>>) -> Self {
+        Array::from_inner(VarBinData::from(value))
+    }
+}
+
+impl From<Vec<Option<Vec<u8>>>> for Array<VarBin> {
+    fn from(value: Vec<Option<Vec<u8>>>) -> Self {
+        Array::from_inner(VarBinData::from(value))
+    }
+}
+
+impl From<Vec<Option<String>>> for Array<VarBin> {
+    fn from(value: Vec<Option<String>>) -> Self {
+        Array::from_inner(VarBinData::from(value))
+    }
+}
+
+impl From<Vec<Option<&str>>> for Array<VarBin> {
+    fn from(value: Vec<Option<&str>>) -> Self {
+        Array::from_inner(VarBinData::from(value))
+    }
+}
+
+impl<'a> FromIterator<Option<&'a [u8]>> for Array<VarBin> {
+    fn from_iter<T: IntoIterator<Item = Option<&'a [u8]>>>(iter: T) -> Self {
+        Array::from_inner(<VarBinData as FromIterator<_>>::from_iter(iter))
+    }
+}
+
+impl FromIterator<Option<Vec<u8>>> for Array<VarBin> {
+    fn from_iter<T: IntoIterator<Item = Option<Vec<u8>>>>(iter: T) -> Self {
+        Array::from_inner(<VarBinData as FromIterator<_>>::from_iter(iter))
+    }
+}
+
+impl FromIterator<Option<String>> for Array<VarBin> {
+    fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
+        Array::from_inner(<VarBinData as FromIterator<_>>::from_iter(iter))
+    }
+}
+
+impl<'a> FromIterator<Option<&'a str>> for Array<VarBin> {
+    fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
+        Array::from_inner(<VarBinData as FromIterator<_>>::from_iter(iter))
     }
 }

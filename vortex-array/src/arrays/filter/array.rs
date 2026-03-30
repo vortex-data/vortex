@@ -85,6 +85,11 @@ impl FilterData {
 }
 
 impl Array<Filter> {
+    /// Creates a new [`FilterArray`].
+    pub fn new(array: ArrayRef, mask: Mask) -> Self {
+        Array::from_inner(FilterData::new(array, mask))
+    }
+
     /// Constructs a new `FilterArray`.
     pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
         Ok(Array::from_inner(FilterData::try_new(array, mask)?))

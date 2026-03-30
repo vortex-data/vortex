@@ -542,6 +542,10 @@ impl VarBinViewData {
 
 impl Array<VarBinView> {
     /// Construct a [`VarBinViewArray`] from an iterator of optional byte slices.
+    #[expect(
+        clippy::same_name_method,
+        reason = "intentionally named from_iter like Iterator::from_iter"
+    )]
     pub fn from_iter<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
         dtype: DType,
@@ -567,6 +571,18 @@ impl Array<VarBinView> {
         iter: I,
     ) -> Self {
         Array::from_inner(VarBinViewData::from_iter_nullable_bin(iter))
+    }
+
+    /// Creates a new [`VarBinViewArray`].
+    pub fn try_new(
+        views: Buffer<BinaryView>,
+        buffers: Arc<[ByteBuffer]>,
+        dtype: DType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Ok(Array::from_inner(VarBinViewData::try_new(
+            views, buffers, dtype, validity,
+        )?))
     }
 
     /// Creates a new [`VarBinViewArray`] without validation.
@@ -631,5 +647,31 @@ impl FromIterator<Option<String>> for VarBinViewData {
 impl<'a> FromIterator<Option<&'a str>> for VarBinViewData {
     fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
         Self::from_iter_nullable_str(iter)
+    }
+}
+
+// --- FromIterator forwarding for Array<VarBinView> ---
+
+impl<'a> FromIterator<Option<&'a [u8]>> for Array<VarBinView> {
+    fn from_iter<T: IntoIterator<Item = Option<&'a [u8]>>>(iter: T) -> Self {
+        Array::from_inner(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+    }
+}
+
+impl FromIterator<Option<Vec<u8>>> for Array<VarBinView> {
+    fn from_iter<T: IntoIterator<Item = Option<Vec<u8>>>>(iter: T) -> Self {
+        Array::from_inner(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+    }
+}
+
+impl FromIterator<Option<String>> for Array<VarBinView> {
+    fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
+        Array::from_inner(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+    }
+}
+
+impl<'a> FromIterator<Option<&'a str>> for Array<VarBinView> {
+    fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
+        Array::from_inner(<VarBinViewData as FromIterator<_>>::from_iter(iter))
     }
 }

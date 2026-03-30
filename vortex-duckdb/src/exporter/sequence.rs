@@ -54,7 +54,7 @@ mod tests {
 
     #[test]
     fn test_sequence() {
-        let arr = SequenceArray::try_new_typed(2, 5, Nullability::NonNullable, 100).unwrap();
+        let arr = Sequence::try_new_typed(2, 5, Nullability::NonNullable, 100).unwrap();
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(&arr)

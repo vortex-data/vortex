@@ -124,7 +124,7 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
-    use vortex::encodings::alp::ALPArray;
+    use vortex::encodings::alp::ALP;
     use vortex::encodings::alp::Exponents;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
@@ -155,7 +155,7 @@ mod tests {
         )
         .unwrap();
 
-        let alp_array = ALPArray::try_new(
+        let alp_array = ALP::try_new(
             PrimitiveArray::new(Buffer::from(encoded_data.clone()), Validity::NonNullable)
                 .into_array(),
             exponents,

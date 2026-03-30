@@ -824,13 +824,13 @@ pub struct vortex_layout::layouts::zoned::zone_map::ZoneMap
 
 impl vortex_layout::layouts::zoned::zone_map::ZoneMap
 
-pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::array(&self) -> &vortex_array::arrays::struct_::array::StructArray
+pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::array(&self) -> &vortex_array::arrays::struct_::vtable::StructArray
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::dtype_for_stats_table(column_dtype: &vortex_array::dtype::DType, present_stats: &[vortex_array::expr::stats::Stat]) -> vortex_array::dtype::DType
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::get_stat(&self, stat: vortex_array::expr::stats::Stat) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub unsafe fn vortex_layout::layouts::zoned::zone_map::ZoneMap::new_unchecked(array: vortex_array::arrays::struct_::array::StructArray, stats: alloc::sync::Arc<[vortex_array::expr::stats::Stat]>) -> Self
+pub unsafe fn vortex_layout::layouts::zoned::zone_map::ZoneMap::new_unchecked(array: vortex_array::arrays::struct_::vtable::StructArray, stats: alloc::sync::Arc<[vortex_array::expr::stats::Stat]>) -> Self
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::present_stats(&self) -> &alloc::sync::Arc<[vortex_array::expr::stats::Stat]>
 
@@ -838,7 +838,7 @@ pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::prune(&self, predicate:
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::to_stats_set(&self, stats: &[vortex_array::expr::stats::Stat], ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::stats::stats_set::StatsSet>
 
-pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::try_new(column_dtype: vortex_array::dtype::DType, array: vortex_array::arrays::struct_::array::StructArray, stats: alloc::sync::Arc<[vortex_array::expr::stats::Stat]>) -> vortex_error::VortexResult<Self>
+pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::try_new(column_dtype: vortex_array::dtype::DType, array: vortex_array::arrays::struct_::vtable::StructArray, stats: alloc::sync::Arc<[vortex_array::expr::stats::Stat]>) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_layout::layouts::zoned::zone_map::ZoneMap
 

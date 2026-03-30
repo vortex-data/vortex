@@ -912,8 +912,8 @@ fn test_recursive_compact_list_of_lists() {
 
     // Verify data integrity is preserved
     assert_eq!(
-        non_recursive.scalar_at(0).unwrap(),
-        recursive.scalar_at(0).unwrap()
+        non_recursive.clone().into_array().scalar_at(0).unwrap(),
+        recursive.clone().into_array().scalar_at(0).unwrap()
     );
 }
 

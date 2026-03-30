@@ -195,6 +195,11 @@ impl Array<Primitive> {
         Array::from_inner(PrimitiveData::new(buffer, validity))
     }
 
+    /// Constructs a new `PrimitiveArray`.
+    pub fn try_new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> VortexResult<Self> {
+        Ok(Array::from_inner(PrimitiveData::try_new(buffer, validity)?))
+    }
+
     /// Creates a new [`PrimitiveArray`] without validation.
     ///
     /// # Safety

@@ -171,7 +171,7 @@ mod tests {
         let PrimitiveArrayParts {
             buffer: cuda_buffer,
             ..
-        } = values.into_parts();
+        } = values.into_inner().into_parts();
 
         let handle = ctx.ensure_on_device(cuda_buffer).await.unwrap();
         let device_buf = handle

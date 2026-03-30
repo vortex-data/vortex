@@ -249,7 +249,7 @@ mod test {
             PrimitiveArray::from_option_iter([None, Some(0u32), Some(10)])
         );
         assert_eq!(
-            p.validity_mask().unwrap(),
+            p.validity_mask(),
             Mask::from(BitBuffer::from(vec![false, true, true]))
         );
     }

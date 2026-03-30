@@ -250,7 +250,7 @@ mod tests {
                 .write_stream(
                     ctx,
                     segments.clone(),
-                    array.to_array_stream().sequenced(ptr),
+                    array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
@@ -299,7 +299,7 @@ mod tests {
                 .write_stream(
                     ctx,
                     segments.clone(),
-                    array.to_array_stream().sequenced(ptr),
+                    array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
@@ -366,7 +366,7 @@ mod tests {
                     .write_stream(
                         ctx,
                         segments.clone(),
-                        array.to_array_stream().sequenced(ptr),
+                        array.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,
                     )
@@ -434,7 +434,7 @@ mod tests {
                     .write_stream(
                         ctx,
                         segments.clone(),
-                        filter.to_array_stream().sequenced(ptr),
+                        filter.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,
                     )
@@ -476,7 +476,7 @@ mod tests {
                     .write_stream(
                         ctx,
                         segments.clone(),
-                        dict.to_array_stream().sequenced(ptr),
+                        dict.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,
                     )

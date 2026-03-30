@@ -64,7 +64,7 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::scalar_fn::array::ScalarFnArray;
+    use crate::arrays::ScalarFnArray;
     use crate::assert_arrays_eq;
     use crate::scalar_fn::ScalarFn;
     use crate::scalar_fn::fns::binary::Binary;

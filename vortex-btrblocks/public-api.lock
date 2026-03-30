@@ -272,13 +272,13 @@ pub type vortex_btrblocks::IntegerStats::ArrayVTable = vortex_array::arrays::pri
 
 pub fn vortex_btrblocks::IntegerStats::generate(input: &<Self::ArrayVTable as vortex_array::vtable::VTable>::Array) -> Self
 
-pub fn vortex_btrblocks::IntegerStats::generate_opts(input: &vortex_array::arrays::primitive::array::PrimitiveArray, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
+pub fn vortex_btrblocks::IntegerStats::generate_opts(input: &vortex_array::arrays::primitive::array::PrimitiveData, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
 
 pub fn vortex_btrblocks::IntegerStats::sample(&self, sample_size: u32, sample_count: u32) -> Self
 
 pub fn vortex_btrblocks::IntegerStats::sample_opts(&self, sample_size: u32, sample_count: u32, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
 
-pub fn vortex_btrblocks::IntegerStats::source(&self) -> &vortex_array::arrays::primitive::array::PrimitiveArray
+pub fn vortex_btrblocks::IntegerStats::source(&self) -> &vortex_array::arrays::primitive::array::PrimitiveData
 
 pub trait vortex_btrblocks::CanonicalCompressor
 
@@ -320,12 +320,12 @@ pub type vortex_btrblocks::IntegerStats::ArrayVTable = vortex_array::arrays::pri
 
 pub fn vortex_btrblocks::IntegerStats::generate(input: &<Self::ArrayVTable as vortex_array::vtable::VTable>::Array) -> Self
 
-pub fn vortex_btrblocks::IntegerStats::generate_opts(input: &vortex_array::arrays::primitive::array::PrimitiveArray, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
+pub fn vortex_btrblocks::IntegerStats::generate_opts(input: &vortex_array::arrays::primitive::array::PrimitiveData, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
 
 pub fn vortex_btrblocks::IntegerStats::sample(&self, sample_size: u32, sample_count: u32) -> Self
 
 pub fn vortex_btrblocks::IntegerStats::sample_opts(&self, sample_size: u32, sample_count: u32, opts: vortex_btrblocks::GenerateStatsOptions) -> Self
 
-pub fn vortex_btrblocks::IntegerStats::source(&self) -> &vortex_array::arrays::primitive::array::PrimitiveArray
+pub fn vortex_btrblocks::IntegerStats::source(&self) -> &vortex_array::arrays::primitive::array::PrimitiveData
 
-pub fn vortex_btrblocks::integer_dictionary_encode(stats: &vortex_btrblocks::IntegerStats) -> vortex_array::arrays::dict::array::DictArray
+pub fn vortex_btrblocks::integer_dictionary_encode(stats: &vortex_btrblocks::IntegerStats) -> vortex_array::arrays::dict::vtable::DictArray

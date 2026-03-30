@@ -14,6 +14,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::NullArray;
@@ -29,7 +30,10 @@ mod test {
         let sliced = nulls.slice(0..4).unwrap().to_null();
 
         assert_eq!(sliced.len(), 4);
-        assert!(matches!(sliced.validity_mask().unwrap(), Mask::AllFalse(4)));
+        assert!(matches!(
+            DynArray::validity_mask(&sliced).unwrap(),
+            Mask::AllFalse(4)
+        ));
     }
 
     #[test]
@@ -41,7 +45,10 @@ mod test {
             .to_null();
 
         assert_eq!(taken.len(), 5);
-        assert!(matches!(taken.validity_mask().unwrap(), Mask::AllFalse(5)));
+        assert!(matches!(
+            DynArray::validity_mask(&taken).unwrap(),
+            Mask::AllFalse(5)
+        ));
     }
 
     #[test]

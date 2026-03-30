@@ -72,7 +72,7 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([42u8, 8, 42, 10, 42]));
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(p.validity_mask().all_true());
     }
 
     #[test]
@@ -85,7 +85,7 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([255u8, 255, 255, 255, 255]));
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(p.validity_mask().all_true());
     }
 
     #[test]
@@ -100,7 +100,7 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]));
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(p.validity_mask().all_true());
     }
 
     #[test]
@@ -108,6 +108,6 @@ mod test {
         let arr = buffer![8u8, 10, 12, 14, 16].into_array();
         let p = arr.fill_null(Scalar::from(255u8)).unwrap().to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]));
-        assert!(p.validity_mask().unwrap().all_true());
+        assert!(p.validity_mask().all_true());
     }
 }

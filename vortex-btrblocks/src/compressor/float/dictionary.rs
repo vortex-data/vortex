@@ -131,6 +131,6 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array()),
         )
         .into_array();
-        assert_arrays_eq!(undict.as_ref(), expected.as_ref());
+        assert_arrays_eq!(undict, expected);
     }
 }

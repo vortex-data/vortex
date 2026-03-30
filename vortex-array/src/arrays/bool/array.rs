@@ -359,6 +359,7 @@ mod tests {
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
 
+    use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;

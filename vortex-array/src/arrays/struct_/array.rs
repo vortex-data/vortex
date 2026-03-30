@@ -557,6 +557,18 @@ impl Array<Struct> {
             iter, validity,
         )?))
     }
+
+    /// Create a [`StructArray`] from an iterator of (name, array) pairs.
+    pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
+        iter: T,
+    ) -> VortexResult<Self> {
+        Ok(Array::from_inner(StructData::try_from_iter(iter)?))
+    }
+
+    /// Create a fieldless [`StructArray`] with the given length.
+    pub fn new_fieldless_with_len(len: usize) -> Self {
+        Array::from_inner(StructData::new_fieldless_with_len(len))
+    }
 }
 
 impl StructData {

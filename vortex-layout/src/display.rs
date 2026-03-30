@@ -265,7 +265,7 @@ mod tests {
                 .write_stream(
                     ctx.clone(),
                     segments.clone(),
-                    array1.to_array_stream().sequenced(ptr1),
+                    array1.into_array().to_array_stream().sequenced(ptr1),
                     eof1,
                     handle.clone(),
                 )
@@ -288,7 +288,11 @@ mod tests {
                 .write_stream(
                     ctx.clone(),
                     segments.clone(),
-                    builder.finish().to_array_stream().sequenced(ptr2),
+                    builder
+                        .finish()
+                        .into_array()
+                        .to_array_stream()
+                        .sequenced(ptr2),
                     eof2,
                     handle.clone(),
                 )
@@ -348,7 +352,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
                 .write_stream(
                     ctx.clone(),
                     segments.clone(),
-                    array1.to_array_stream().sequenced(ptr1),
+                    array1.into_array().to_array_stream().sequenced(ptr1),
                     eof1,
                     handle.clone(),
                 )
@@ -362,7 +366,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
                 .write_stream(
                     ctx.clone(),
                     segments.clone(),
-                    array2.to_array_stream().sequenced(ptr2),
+                    array2.into_array().to_array_stream().sequenced(ptr2),
                     eof2,
                     handle.clone(),
                 )
@@ -407,7 +411,7 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
                 .write_stream(
                     ctx.clone(),
                     segments.clone(),
-                    array.to_array_stream().sequenced(ptr),
+                    array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
@@ -449,7 +453,7 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
                 .write_stream(
                     ctx,
                     segments.clone(),
-                    array.to_array_stream().sequenced(ptr),
+                    array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )

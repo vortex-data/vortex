@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
 
     session
         .write_options()
-        .write(&mut f, st.to_array_stream())
+        .write(&mut f, st.into_array().to_array_stream())
         .await?;
 
     // [register]

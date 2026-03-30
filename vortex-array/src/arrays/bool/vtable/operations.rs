@@ -29,6 +29,7 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
 
     #[test]

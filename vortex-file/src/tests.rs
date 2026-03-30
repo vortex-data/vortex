@@ -111,7 +111,7 @@ async fn test_read_simple() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -187,11 +187,12 @@ async fn test_round_trip_many_types() {
         ("decimal_35", decimal_35),
     ])
     .unwrap();
+    let dtype = st.dtype().clone();
     let mut buf = ByteBufferMut::empty();
 
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -207,7 +208,7 @@ async fn test_round_trip_many_types() {
         .await
         .unwrap();
 
-    let read = ChunkedArray::try_new(chunks, st.dtype().clone()).unwrap();
+    let read = ChunkedArray::try_new(chunks, dtype).unwrap();
 
     assert_eq!(read.len(), 3);
 }
@@ -248,7 +249,7 @@ async fn test_read_simple_with_spawn() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -279,7 +280,7 @@ async fn test_read_projection() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -304,7 +305,7 @@ async fn test_read_projection() {
 
     let actual = array.to_struct().unmasked_fields()[0].clone();
     let expected = VarBinArray::from(strings_expected.to_vec()).into_array();
-    assert_arrays_eq!(actual.as_ref(), expected.as_ref());
+    assert_arrays_eq!(actual, expected);
 
     let array = file
         .scan()
@@ -326,7 +327,7 @@ async fn test_read_projection() {
 
     let actual = array.to_struct().unmasked_fields()[0].clone();
     let expected = Buffer::copy_from(numbers_expected).into_array();
-    assert_arrays_eq!(actual.as_ref(), expected.as_ref());
+    assert_arrays_eq!(actual, expected);
 }
 
 #[tokio::test]
@@ -348,7 +349,7 @@ async fn unequal_batches() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -408,7 +409,7 @@ async fn write_chunked() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, chunked_st.to_array_stream())
+        .write(&mut buf, chunked_st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -435,11 +436,12 @@ async fn test_empty_varbin_array_roundtrip() {
     let empty = VarBinArray::from(Vec::<&str>::new()).into_array();
 
     let st = StructArray::from_fields(&[("a", empty)]).unwrap();
+    let dtype = st.dtype().clone();
 
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -455,7 +457,7 @@ async fn test_empty_varbin_array_roundtrip() {
         .unwrap();
 
     assert_eq!(result.len(), 0);
-    assert_eq!(result.dtype(), st.dtype());
+    assert_eq!(result.dtype(), &dtype);
 }
 
 #[tokio::test]
@@ -518,7 +520,7 @@ async fn filter_string() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -540,11 +542,11 @@ async fn filter_string() {
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
-    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+    assert_arrays_eq!(names_actual, names_expected);
 
     let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
-    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
+    assert_arrays_eq!(ages_actual, ages_expected);
 }
 
 #[tokio::test]
@@ -567,7 +569,7 @@ async fn filter_or() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -597,11 +599,11 @@ async fn filter_or() {
         DType::Utf8(Nullability::Nullable),
     )
     .into_array();
-    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+    assert_arrays_eq!(names_actual, names_expected);
 
     let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), None]).into_array();
-    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
+    assert_arrays_eq!(ages_actual, ages_expected);
 }
 
 #[tokio::test]
@@ -624,7 +626,7 @@ async fn filter_and() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -651,11 +653,11 @@ async fn filter_and() {
         DType::Utf8(Nullability::Nullable),
     )
     .into_array();
-    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+    assert_arrays_eq!(names_actual, names_expected);
 
     let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), Some(31i32)]).into_array();
-    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
+    assert_arrays_eq!(ages_actual, ages_expected);
 }
 
 #[tokio::test]
@@ -678,7 +680,7 @@ async fn test_with_indices_simple() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, expected_array.to_array_stream())
+        .write(&mut buf, expected_array.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -718,7 +720,7 @@ async fn test_with_indices_simple() {
         .map(|&x| expected_numbers[x as usize])
         .collect();
     let expected_array = Buffer::copy_from(&expected_kept_numbers).into_array();
-    assert_arrays_eq!(actual_kept_numbers_array.as_ref(), expected_array.as_ref());
+    assert_arrays_eq!(actual_kept_numbers_array, expected_array);
 
     // test all indices
     let actual_array = file
@@ -733,7 +735,7 @@ async fn test_with_indices_simple() {
         .to_struct();
     let actual_numbers_array = actual_array.unmasked_fields()[0].clone();
     let expected_array = Buffer::copy_from(&expected_numbers).into_array();
-    assert_arrays_eq!(actual_numbers_array.as_ref(), expected_array.as_ref());
+    assert_arrays_eq!(actual_numbers_array, expected_array);
 }
 
 #[tokio::test]
@@ -757,7 +759,7 @@ async fn test_with_indices_on_two_columns() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -782,7 +784,7 @@ async fn test_with_indices_on_two_columns() {
         .map(|&x| strings_expected[x as usize])
         .collect();
     let strings_expected_array = VarBinArray::from(strings_expected_vec).into_array();
-    assert_arrays_eq!(strings_actual.as_ref(), strings_expected_array.as_ref());
+    assert_arrays_eq!(strings_actual, strings_expected_array);
 
     let numbers_actual = array.unmasked_fields()[1].clone();
     let numbers_expected_vec: Vec<u32> = kept_indices
@@ -790,7 +792,7 @@ async fn test_with_indices_on_two_columns() {
         .map(|&x| numbers_expected[x as usize])
         .collect();
     let numbers_expected_array = Buffer::copy_from(&numbers_expected_vec).into_array();
-    assert_arrays_eq!(numbers_actual.as_ref(), numbers_expected_array.as_ref());
+    assert_arrays_eq!(numbers_actual, numbers_expected_array);
 }
 
 #[tokio::test]
@@ -813,7 +815,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, expected_array.to_array_stream())
+        .write(&mut buf, expected_array.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -856,7 +858,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .filter(|&x| x > 50)
         .collect();
     let expected_array = expected_kept_numbers.into_array();
-    assert_arrays_eq!(actual_kept_numbers_array.as_ref(), expected_array.as_ref());
+    assert_arrays_eq!(actual_kept_numbers_array, expected_array);
 
     // test all indices
     let actual_array = file
@@ -878,10 +880,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .cloned()
         .collect();
     let expected_numbers_array = expected_filtered.into_array();
-    assert_arrays_eq!(
-        actual_numbers_array.as_ref(),
-        expected_numbers_array.as_ref()
-    );
+    assert_arrays_eq!(actual_numbers_array, expected_numbers_array);
 }
 
 #[tokio::test]
@@ -938,11 +937,11 @@ async fn filter_string_chunked() {
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
-    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+    assert_arrays_eq!(names_actual, names_expected);
 
     let ages_actual = actual_array.unmasked_fields()[1].clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
-    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
+    assert_arrays_eq!(ages_actual, ages_expected);
 }
 
 #[tokio::test]
@@ -1039,7 +1038,7 @@ async fn test_pruning_with_or() {
         Some("P".to_owned()),
     ])
     .into_array();
-    assert_arrays_eq!(letters_actual.as_ref(), letters_expected.as_ref());
+    assert_arrays_eq!(letters_actual, letters_expected);
 
     let numbers_actual = actual_array.unmasked_fields()[1].clone();
     let numbers_expected = PrimitiveArray::from_option_iter([
@@ -1055,7 +1054,7 @@ async fn test_pruning_with_or() {
         Some(22),
     ])
     .into_array();
-    assert_arrays_eq!(numbers_actual.as_ref(), numbers_expected.as_ref());
+    assert_arrays_eq!(numbers_actual, numbers_expected);
 }
 
 #[tokio::test]
@@ -1077,7 +1076,7 @@ async fn test_repeated_projection() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, single_column_array.to_array_stream())
+        .write(&mut buf, single_column_array.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -1120,7 +1119,7 @@ async fn basic_file_roundtrip() -> VortexResult<()> {
     let result = vxf.scan()?.into_array_stream()?.read_all().await?;
 
     let expected = buffer![0i32, 1, 2, 3, 4, 5, 6, 7, 8].into_array();
-    assert_arrays_eq!(result.as_ref(), expected.as_ref());
+    assert_arrays_eq!(result, expected);
 
     Ok(())
 }
@@ -1168,7 +1167,7 @@ async fn file_take() -> VortexResult<()> {
         .await?;
 
     let expected = buffer![0i32, 1, 8].into_array();
-    assert_arrays_eq!(result.as_ref(), expected.as_ref());
+    assert_arrays_eq!(result, expected);
 
     Ok(())
 }
@@ -1291,7 +1290,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.into_array().to_array_stream())
         .await?;
 
     let file = SESSION.open_options().open_buffer(buf)?;
@@ -1383,7 +1382,7 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
-    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
+    assert_arrays_eq!(numbers, expected);
 
     Ok(())
 }
@@ -1417,7 +1416,7 @@ async fn test_writer_push_stream() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
-    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
+    assert_arrays_eq!(numbers, expected);
 
     Ok(())
 }
@@ -1481,7 +1480,7 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2].into_array();
-    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
+    assert_arrays_eq!(numbers, expected);
 
     Ok(())
 }
@@ -1519,7 +1518,7 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
         .unmasked_field_by_name("numbers")?
         .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
-    assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
+    assert_arrays_eq!(numbers, expected);
 
     Ok(())
 }

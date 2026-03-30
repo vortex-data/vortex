@@ -166,6 +166,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
+    use vortex::encodings::runend::RunEnd;
     use vortex::encodings::runend::RunEndArray;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
@@ -184,7 +185,7 @@ mod tests {
             PrimitiveArray::new(Buffer::from(ends), Validity::NonNullable).into_array();
         let values_array =
             PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array();
-        RunEndArray::new(ends_array, values_array)
+        RunEnd::new(ends_array, values_array)
     }
 
     #[rstest]

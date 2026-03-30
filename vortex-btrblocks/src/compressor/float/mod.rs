@@ -633,7 +633,7 @@ mod tests {
 
         let decoded = compressed;
         let expected = Buffer::copy_from(&values).into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        assert_arrays_eq!(decoded, expected);
         Ok(())
     }
 

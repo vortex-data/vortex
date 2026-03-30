@@ -230,6 +230,7 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::Canonical;
+    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -290,7 +291,7 @@ mod tests {
 
         assert!(decoded.is::<Masked>());
         assert_eq!(
-            array.as_ref().display_values().to_string(),
+            array.to_array().display_values().to_string(),
             decoded.display_values().to_string()
         );
     }
@@ -316,7 +317,7 @@ mod tests {
         let result: Canonical = array.into_array().execute(&mut ctx)?;
 
         assert_eq!(
-            result.as_ref().dtype().nullability(),
+            result.dtype().nullability(),
             Nullability::Nullable,
             "MaskedArray execute should produce Nullable dtype"
         );

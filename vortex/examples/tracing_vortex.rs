@@ -393,7 +393,7 @@ async fn write_batch_to_vortex(
     );
 
     write_opts
-        .write(&mut file, struct_array.to_array_stream())
+        .write(&mut file, struct_array.into_array().to_array_stream())
         .await?;
 
     println!(

@@ -348,7 +348,7 @@ mod test {
                 .unwrap();
 
             let expected = PrimitiveArray::new(buffer![3i32, 4], Validity::AllValid).into_array();
-            assert_arrays_eq!(result.as_ref(), expected.as_ref());
+            assert_arrays_eq!(result, expected);
         })
     }
 }
