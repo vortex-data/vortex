@@ -25,7 +25,7 @@ use vortex_error::vortex_ensure;
 pub struct RotationMatrix {
     /// Random ±1 signs for each of the 3 diagonal matrices, each of length `padded_dim`.
     signs: [Vec<f32>; 3],
-    /// The padded dimension (next power of 2 >= dim).
+    /// The padded dimension (next power of 2 >= dimension).
     padded_dim: usize,
     /// Normalization factor: 1/padded_dim per Hadamard, applied once at the end.
     norm_factor: f32,
@@ -121,11 +121,6 @@ impl RotationMatrix {
 
         let norm = self.norm_factor;
         buf.iter_mut().for_each(|val| *val *= norm);
-    }
-
-    /// Returns the normalization factor for this transform.
-    pub fn norm_factor(&self) -> f32 {
-        self.norm_factor
     }
 
     /// Export the 3 sign vectors as a single `BoolArray` in inverse-application order.

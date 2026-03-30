@@ -17,6 +17,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+half = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
 vortex-array = { workspace = true }

@@ -44,13 +44,18 @@ impl Default for TurboQuantConfig {
 
 /// Extract elements from a FixedSizeListArray as a flat f32 vec.
 #[allow(clippy::cast_possible_truncation)]
-fn extract_f32_elements(fsl: &FixedSizeListArray) -> VortexResult<Vec<f32>> {
+fn extract_f32_elements(fsl: &FixedSizeListArray) -> VortexResult<PrimitiveArray> {
     let elements = fsl.elements();
     let primitive = elements.to_canonical()?.into_primitive();
     let ptype = primitive.ptype();
 
     match ptype {
-        PType::F32 => Ok(primitive.as_slice::<f32>().to_vec()),
+        PType::F16 => Ok(primitive
+            .as_slice::<half::f16>()
+            .iter()
+            .map(|&v| f32::from(v))
+            .collect()),
+        PType::F32 => Ok(primitive),
         PType::F64 => Ok(primitive
             .as_slice::<f64>()
             .iter()
@@ -100,6 +105,7 @@ pub fn turboquant_encode_mse(
     }
 
     let f32_elements = extract_f32_elements(fsl)?;
+    let f32_elements = f32_elements.as_slice::<f32>();
     let centroids = get_centroids(padded_dim as u32, config.bit_width)?;
     let boundaries = compute_boundaries(&centroids);
 
@@ -211,7 +217,7 @@ pub fn turboquant_encode_qjl(
     // TODO(perf): `turboquant_encode_mse` above already extracts f32 elements
     // internally. Refactor to share the buffer to avoid double materialization.
     let f32_elements = extract_f32_elements(fsl)?;
-    #[allow(clippy::cast_possible_truncation)]
+    let f32_elements = f32_elements.as_slice::<f32>();
     let centroids = get_centroids(padded_dim as u32, mse_bit_width)?;
     let boundaries = compute_boundaries(&centroids);
 
