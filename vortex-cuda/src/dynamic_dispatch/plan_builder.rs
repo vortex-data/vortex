@@ -54,8 +54,6 @@ use vortex::error::vortex_err;
 use vortex::session::VortexSession;
 
 use super::CudaDispatchPlan;
-use super::MAX_SCALAR_OPS;
-use super::MAX_STAGES;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
 use super::SourceOp;
@@ -65,7 +63,7 @@ use crate::CudaExecutionCtx;
 
 /// A plan whose source buffers have been copied to the device, ready for kernel launch.
 pub struct MaterializedPlan {
-    /// The C ABI plan struct, ready to upload to the device.
+    /// Packed plan byte buffer, to upload to the device.
     pub dispatch_plan: CudaDispatchPlan,
     /// Device buffer handles that must be kept alive while the plan is in use.
     pub device_buffers: Vec<BufferHandle>,
@@ -257,22 +255,18 @@ impl UnmaterializedPlan {
         let output = plan.walk(array.clone())?;
         plan.stages.push((output, plan.smem_cursor, len));
 
-        assert!(plan.stages.len() <= MAX_STAGES as usize);
-        assert!(
-            plan.stages
-                .iter()
-                .all(|(s, ..)| (s.scalar_ops.len() as u32) <= MAX_SCALAR_OPS)
-        );
-
         Ok(plan)
     }
 
     /// Shared memory bytes needed to launch this plan.
     ///
-    /// Shared memory holds the *output* of each stage so later stages can
-    /// reference it (e.g., dictionary values, run-end endpoints). The total
-    /// is the sum of all input stage lengths plus the output tile size,
-    /// multiplied by the element byte width.
+    /// Stages that require shared memory, offset the cursor during plan
+    /// construction `SMEM_TILE_SIZE` is used for the final output stage.
+    ///
+    /// Currently, the dynamic dispatch only operates on a uniform type
+    /// such that ` * self.elem_bytes` is sufficient. In the future more
+    /// fine grained shared memory tracking will be needed once mixed
+    /// types are supported.
     pub fn shared_mem_bytes(&self) -> u32 {
         (self.smem_cursor + SMEM_TILE_SIZE) * self.elem_bytes
     }
@@ -302,17 +296,19 @@ impl UnmaterializedPlan {
             }
         };
 
-        let mut stages = Vec::with_capacity(self.stages.len());
-
-        for (stage, smem_offset, len) in &self.stages {
-            stages.push(Stage::new(
-                resolve_ptr(stage),
-                *smem_offset,
-                *len,
-                stage.source,
-                &stage.scalar_ops,
-            ));
-        }
+        let stages: Vec<Stage> = self
+            .stages
+            .iter()
+            .map(|(stage, smem_offset, len)| {
+                Stage::new(
+                    resolve_ptr(stage),
+                    *smem_offset,
+                    *len,
+                    stage.source,
+                    &stage.scalar_ops,
+                )
+            })
+            .collect();
 
         Ok(MaterializedPlan {
             dispatch_plan: CudaDispatchPlan::new(stages),

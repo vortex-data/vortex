@@ -1,0 +1,49 @@
+# Dispatches benchmark workflows when benchmark labels are added to pull requests.
+# This is a separate workflow so that non-benchmark label events don't create
+# phantom check suites that obscure in-progress benchmark runs on the PR.
+
+name: Benchmark Dispatch
+
+on:
+  pull_request:
+    types: [labeled]
+    branches: ["develop"]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: write  # for label removal and PR comments
+  id-token: write  # enables AWS-GitHub OIDC
+
+jobs:
+  remove-bench-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    if: github.event.label.name == 'action/benchmark'
+    steps:
+      - uses: actions-ecosystem/action-remove-labels@v1
+        if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+        with:
+          labels: action/benchmark
+          fail_on_error: true
+
+  bench:
+    needs: remove-bench-label
+    uses: ./.github/workflows/bench-pr.yml
+    secrets: inherit
+
+  remove-sql-label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    if: github.event.label.name == 'action/benchmark-sql'
+    steps:
+      - uses: actions-ecosystem/action-remove-labels@v1
+        if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
+        with:
+          labels: action/benchmark-sql
+          fail_on_error: true
+
+  sql-bench:
+    needs: remove-sql-label
+    uses: ./.github/workflows/sql-pr.yml
+    secrets: inherit

@@ -30,6 +30,8 @@ use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArray;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
+use crate::classes::record_batch_reader_class;
+use crate::classes::table_class;
 use crate::dataset::PyVortexDataset;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
@@ -425,11 +427,11 @@ fn try_arrow_stream_to_iterator(
     ob: &Borrowed<'_, '_, PyAny>,
 ) -> PyResult<Box<dyn ArrayIterator + Send>> {
     let py = ob.py();
-    let pa = py.import("pyarrow")?;
-    let pa_table = pa.getattr("Table")?;
-    let pa_record_batch_reader = pa.getattr("RecordBatchReader")?;
 
-    if ob.is_instance(&pa_table)? || ob.is_instance(&pa_record_batch_reader)? {
+    let pa_table = table_class(py)?;
+    let pa_record_batch_reader = record_batch_reader_class(py)?;
+
+    if ob.is_instance(pa_table)? || ob.is_instance(pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
         let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
         let dtype = DType::from_arrow(arrow_stream.schema());
