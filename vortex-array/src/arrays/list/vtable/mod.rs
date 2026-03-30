@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -13,7 +14,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
@@ -33,6 +34,7 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -56,7 +58,11 @@ impl VTable for List {
     type Metadata = ProstMetadata<ListMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &List
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -122,7 +128,7 @@ impl VTable for List {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -211,14 +217,14 @@ impl VTable for List {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            list_view_from_list(array.clone(), ctx)?.into_array(),
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            list_view_from_list(ListArray::clone(&array), ctx)?.into_array(),
         ))
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -227,7 +233,7 @@ impl VTable for List {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct List;
 
 impl List {

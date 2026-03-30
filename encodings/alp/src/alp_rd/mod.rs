@@ -294,8 +294,8 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     left_parts: Buffer<u16>,
     left_parts_dict: &[u16],
     right_bit_width: u8,
-    right_parts: BufferMut<T::UINT>,
-    left_parts_patches: Option<&Patches>,
+    right_parts: Buffer<T::UINT>,
+    left_parts_patches: Option<Patches>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>> {
     if left_parts.len() != right_parts.len() {
@@ -347,7 +347,7 @@ fn alp_rd_apply_patches(
 fn alp_rd_decode_core<T: ALPRDFloat>(
     _left_parts_dict: &[u16],
     right_bit_width: u8,
-    right_parts: BufferMut<T::UINT>,
+    right_parts: Buffer<T::UINT>,
     values: BufferMut<u16>,
 ) -> Buffer<T> {
     // Shift the left-parts and add in the right-parts.
@@ -361,7 +361,6 @@ fn alp_rd_decode_core<T: ALPRDFloat>(
         })
         .freeze()
 }
-
 /// Find the best "cut point" for a set of floating point values such that we can
 /// cast them all to the relevant value instead.
 fn find_best_dictionary<T: ALPRDFloat>(samples: &[T]) -> ALPRDDictionary {

@@ -21,7 +21,7 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
-use vortex::scan::SplitBy;
+use vortex::layout::scan::split_by::SplitBy;
 
 use crate::RUNTIME;
 use crate::SESSION;

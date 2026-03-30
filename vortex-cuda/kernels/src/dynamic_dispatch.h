@@ -6,19 +6,15 @@
 /// The plan builder walks an encoding tree and emits a linear sequence of
 /// stages. The kernel executes stages in order within a single launch.
 ///
-/// Shared memory: The plan builder bump-allocates shared memory regions for
-/// each input stage's output. The output stage (last) is placed after all
-/// input stages. Since all regions must coexist for the output stage to
-/// reference, the total shared memory is the end of whichever region extends
-/// furthest, in elements, times `sizeof(T)`.
+/// ## Stage plan
 ///
-/// Example: RunEnd(ends=FoR(BitPacked), values=FoR(BitPacked)) with 100 runs
+/// The plan is packed as a variable-length byte buffer.
 ///
-///   Stage 0 (input):  BITUNPACK(7) → FoR(0)            → smem[0..100)      // run ends
-///   Stage 1 (input):  BITUNPACK(10) → FoR(50)          → smem[100..200)    // run values
-///   Stage 2 (output): RUNEND(ends=0, values=100)        → smem[200..1224)  // resolved
-///
-///   shared_mem_bytes = (200 + 1024) * sizeof(T)
+/// Layout (contiguous bytes):
+///   [PlanHeader]
+///   [PackedStage 0][ScalarOp × N0]
+///   [PackedStage 1][ScalarOp × N1]
+///   ...
 
 #pragma once
 
@@ -27,12 +23,7 @@
 /// Elements processed per CUDA block.
 #define ELEMENTS_PER_BLOCK 2048
 
-/// Shared memory tile size for the output stage. Each block decompresses
-/// ELEMENTS_PER_BLOCK elements but only holds SMEM_TILE_SIZE in smem at a
-/// time — each tile is written to global memory before the next is decoded
-/// into the same region. Input stages cannot tile because their outputs must
-/// remain accessible for random access (e.g., dictionary lookup, run-end
-/// binary search). Smaller tiles reduce smem per block, improving occupancy.
+/// Each tile is flushed to global before the next is decoded.
 #define SMEM_TILE_SIZE 1024
 
 #ifdef __cplusplus
@@ -41,14 +32,13 @@ extern "C" {
 
 /// Parameters for source ops, which decode data into a stage's shared memory region.
 union SourceParams {
-    /// Unpack bit-packed data using FastLanes layout.
+    /// Unpack FastLanes bit-packed data.
     struct BitunpackParams {
         uint8_t bit_width;
         uint32_t element_offset; // Sub-byte offset
     } bitunpack;
 
-    /// Copy elements verbatim from global memory to shared memory.
-    /// The input pointer is pre-adjusted on the host to account for slicing.
+    /// Copy from global to shared memory.
     struct LoadParams {
         uint8_t _placeholder;
     } load;
@@ -58,12 +48,18 @@ union SourceParams {
         uint32_t ends_smem_offset;   // element offset to decoded ends in smem
         uint32_t values_smem_offset; // element offset to decoded values in smem
         uint64_t num_runs;
-        uint64_t offset;
+        uint64_t offset; // slice offset into the run-end encoded array
     } runend;
+
+    /// Generate a linear sequence: `value[i] = base + i * multiplier`.
+    struct SequenceParams {
+        int64_t base;
+        int64_t multiplier;
+    } sequence;
 };
 
 struct SourceOp {
-    enum SourceOpCode { BITUNPACK, LOAD, RUNEND } op_code;
+    enum SourceOpCode { BITUNPACK, LOAD, RUNEND, SEQUENCE } op_code;
     union SourceParams params;
 };
 
@@ -90,38 +86,62 @@ struct ScalarOp {
     union ScalarParams params;
 };
 
-#define MAX_SCALAR_OPS 4
-
-/// A single stage in the dispatch plan.
-///
-/// Each stage is a pipeline (source + scalar ops) that writes decoded data
-/// into a shared memory region at `smem_offset`. Input stage outputs persist
-/// in smem so the output stage can reference them (via DICT or RUNEND offsets).
-struct Stage {
+/// Packed stage header, followed by `num_scalar_ops` inline ScalarOps.
+struct PackedStage {
     uint64_t input_ptr;   // global memory pointer to this stage's encoded input
     uint32_t smem_offset; // element offset within dynamic shared memory for output
     uint32_t len;         // number of elements this stage produces
 
     struct SourceOp source;
     uint8_t num_scalar_ops;
-    struct ScalarOp scalar_ops[MAX_SCALAR_OPS];
 };
 
-#define MAX_STAGES 4
-
-/// Dispatch plan: a sequence of stages.
-///
-/// The plan builder walks the encoding tree recursively, emitting an input
-/// stage each time it encounters a child array that needs to live in shared
-/// memory (e.g., dictionary values, run-end endpoints). Shared memory
-/// offsets are assigned with a simple bump allocator.
-///
-/// The last stage is the output pipeline which directly writes to global memory.
-struct DynamicDispatchPlan {
+/// Header for the packed plan byte buffer.
+struct __attribute__((aligned(8))) PlanHeader {
     uint8_t num_stages;
-    struct Stage stages[MAX_STAGES];
+    uint16_t plan_size_bytes; // total size of the packed plan including this header
 };
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef __cplusplus
+
+/// Stage parsed from the packed plan byte buffer.
+///
+/// Input stages decode data (e.g. dict values, run-end endpoints) into a
+/// shared memory region for the output stage to reference. The output stage
+/// decodes the root encoding and writes to global memory.
+struct Stage {
+    uint64_t input_ptr;                // encoded input in global memory
+    uint32_t smem_offset;              // output offset in shared memory (elements)
+    uint32_t len;                      // elements produced
+    struct SourceOp source;            // source decode op
+    uint8_t num_scalar_ops;            // number of scalar ops
+    const struct ScalarOp *scalar_ops; // scalar deoode ops
+};
+
+/// Parse a single stage from the packed plan byte buffer and advance the cursor.
+///
+/// @param cursor  Pointer into the packed plan buffer, pointing at a PackedStage.
+///                On return, advanced past this stage's ScalarOps.
+/// @return        A Stage referencing data within the packed plan buffer.
+__device__ inline Stage parse_stage(const uint8_t *&cursor) {
+    const auto *packed_stage = reinterpret_cast<const struct PackedStage *>(cursor);
+    cursor += sizeof(struct PackedStage);
+
+    const auto *ops = reinterpret_cast<const struct ScalarOp *>(cursor);
+    cursor += packed_stage->num_scalar_ops * sizeof(struct ScalarOp);
+
+    return Stage {
+        .input_ptr = packed_stage->input_ptr,
+        .smem_offset = packed_stage->smem_offset,
+        .len = packed_stage->len,
+        .source = packed_stage->source,
+        .num_scalar_ops = packed_stage->num_scalar_ops,
+        .scalar_ops = ops,
+    };
+}
+
 #endif

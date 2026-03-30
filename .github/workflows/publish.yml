@@ -31,7 +31,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "false"
       - name: Install cargo-edit
-        uses: taiki-e/cache-cargo-install-action@24c4eaa867646941dd8cd6f08c1497ea68d732ba
+        uses: taiki-e/cache-cargo-install-action@1ce845d7672f06bdf703007779598583b6c62f61
         with:
           tool: cargo-edit
 
@@ -110,3 +110,13 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.ORG_GRADLE_PROJECT_SIGNINGINMEMORYKEYPASSWORD }}
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALUSERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.ORG_GRADLE_PROJECT_MAVENCENTRALPASSWORD }}
+
+  compat-upload:
+    uses: ./.github/workflows/compat-gen-upload.yml
+    with:
+      git_ref: ${{ github.event.release.tag_name }}
+      confirm_upload: "yes"
+    secrets: inherit
+    permissions:
+      id-token: write
+      contents: read

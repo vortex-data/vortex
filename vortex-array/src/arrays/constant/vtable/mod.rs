@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -13,7 +14,7 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
@@ -36,6 +37,7 @@ use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 pub(crate) mod canonical;
@@ -44,7 +46,7 @@ mod validity;
 
 vtable!(Constant);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Constant;
 
 impl Constant {
@@ -58,7 +60,11 @@ impl VTable for Constant {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Constant
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -171,16 +177,16 @@ impl VTable for Constant {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            constant_canonicalize(array)?.into_array(),
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            constant_canonicalize(&array)?.into_array(),
         ))
     }
 

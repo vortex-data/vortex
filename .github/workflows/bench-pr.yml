@@ -1,4 +1,5 @@
-# Runs all benchmarks once when we add the `action/benchmark` tag to a pull request.
+# Runs all benchmarks once for a pull request.
+# Called from bench-dispatch.yml when the `action/benchmark` label is added.
 
 name: PR Benchmarks
 
@@ -9,32 +10,16 @@ concurrency:
   cancel-in-progress: false
 
 on:
-  pull_request:
-    types: [labeled, synchronize]
-    branches: ["develop"]
+  workflow_call: { }
   workflow_dispatch: { }
 
 permissions:
-  actions: write  # for removing labels
   contents: read
   pull-requests: write  # for commenting on PRs
   id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
-  label_trigger:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'action/benchmark' && github.event_name == 'pull_request' }}
-    steps:
-      # We remove the benchmark label first so that the workflow can be re-triggered.
-      - uses: actions-ecosystem/action-remove-labels@v1
-        if: ${{ github.event.pull_request.head.repo.full_name == 'vortex-data/vortex' }}
-        with:
-          labels: action/benchmark
-          fail_on_error: true
-
   bench:
-    needs: label_trigger
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -48,7 +33,6 @@ jobs:
             build_args: "--features lance"
           - id: compress-bench
             name: Compression
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'action/benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false
@@ -137,17 +121,16 @@ jobs:
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
 
       - name: Comment PR on failure
-        if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        if: failure() && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@v3
         with:
           message: |
-            # 🚨🚨🚨❌❌❌ BENCHMARK FAILED ❌❌❌🚨🚨🚨
+            # BENCHMARK FAILED
 
             Benchmark `${{ matrix.benchmark.name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
 
   sql:
-    needs: label_trigger
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
     with:

@@ -3,30 +3,245 @@
 
 //! Host interface for dynamic CUDA kernel dispatch.
 //!
-//! A [`DynamicDispatchPlan`] is a linear sequence of stages produced by
-//! [`build_plan`], which walks an encoding tree (e.g., `ALP(FoR(BitPacked))`)
-//! and flattens it into input stages followed by a single output stage.
+//! An [`UnmaterializedPlan`] walks an encoding tree (e.g., `ALP(FoR(BitPacked))`)
+//! and flattens it into a linear sequence of stages. Call
+//! [`materialize`](UnmaterializedPlan::materialize) to copy source buffers to
+//! the device, producing a [`MaterializedPlan`] ready for kernel launch.
 //!
-//! Input stages write intermediate results (dictionary values, run-end
-//! endpoints) into bump-allocated shared memory regions. The output stage
-//! references those regions and writes final results to global memory.
+//! For partially-fusable trees, [`find_unfusable_nodes`] identifies nodes
+//! that need separate kernels, and [`UnmaterializedPlan::new_with_subtree_inputs`] builds a plan
+//!  that incorporates their pre-executed arrays.
 //!
 //! Shared memory is dynamically sized at launch time via
-//! [`DynamicDispatchPlan::shared_mem_bytes`].
+//! [`UnmaterializedPlan::shared_mem_bytes`].
 
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 #![allow(clippy::cast_possible_truncation)]
 
-mod plan_builder;
-pub use plan_builder::build_plan;
+use std::borrow::Borrow;
+use std::mem::size_of;
+use std::slice::from_raw_parts;
+use std::sync::Arc;
+
+use cudarc::driver::DevicePtr;
+use cudarc::driver::LaunchConfig;
+use cudarc::driver::PushKernelArg;
+use vortex::array::Canonical;
+use vortex::array::arrays::PrimitiveArray;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::buffer::DeviceBufferExt;
+use vortex::array::match_each_unsigned_integer_ptype;
+use vortex::array::validity::Validity;
+use vortex::buffer::Alignment;
+use vortex::buffer::ByteBuffer;
+use vortex::buffer::ByteBufferMut;
+use vortex::dtype::Nullability;
+use vortex::dtype::PType;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
+use vortex::error::vortex_err;
+
+use crate::CudaDeviceBuffer;
+use crate::executor::CudaExecutionCtx;
+
+pub(crate) mod plan_builder;
+pub use plan_builder::MaterializedPlan;
+pub use plan_builder::UnmaterializedPlan;
+pub use plan_builder::find_unfusable_nodes;
 
 include!(concat!(env!("OUT_DIR"), "/dynamic_dispatch.rs"));
 
-// SAFETY: C ABI structs with contiguous memory.
-unsafe impl cudarc::driver::DeviceRepr for DynamicDispatchPlan {}
-unsafe impl cudarc::driver::DeviceRepr for Stage {}
+/// Reinterpret a `&T` as a byte slice for serialization into the packed plan.
+///
+/// # Safety
+///
+/// The caller must ensure `T` is a `#[repr(C)]` type with no padding that
+/// contains uninitialised bytes.  All the types we serialise (`PlanHeader`,
+/// `PackedStage`, `ScalarOp`) satisfy this because they are bindgen-generated
+/// `#[repr(C)]` structs whose padding bytes are always written before
+/// serialisation.
+fn as_bytes<T: Sized>(val: &T) -> &[u8] {
+    unsafe { from_raw_parts(std::ptr::addr_of!(*val).cast(), size_of::<T>()) }
+}
+
+/// A stage used to build a [`CudaDispatchPlan`] on the host side.
+///
+/// This is NOT a C ABI struct — it exists purely on the Rust side and is
+/// serialized into the packed plan byte buffer by [`CudaDispatchPlan::new`].
+#[derive(Clone)]
+pub struct Stage {
+    pub input_ptr: u64,
+    pub smem_offset: u32,
+    pub len: u32,
+    pub source: SourceOp,
+    pub scalar_ops: Vec<ScalarOp>,
+}
+
+impl Stage {
+    pub fn new(
+        input_ptr: u64,
+        smem_offset: u32,
+        len: u32,
+        source: SourceOp,
+        scalar_ops: &[ScalarOp],
+    ) -> Self {
+        Self {
+            input_ptr,
+            smem_offset,
+            len,
+            source,
+            scalar_ops: scalar_ops.to_vec(),
+        }
+    }
+}
+
+/// Read-only view of a parsed stage from a [`CudaDispatchPlan`].
+///
+/// Returned by [`CudaDispatchPlan::stage`] for test inspection.
+#[derive(Clone)]
+pub struct ParsedStage {
+    pub input_ptr: u64,
+    pub smem_offset: u32,
+    pub len: u32,
+    pub source: SourceOp,
+    pub num_scalar_ops: u8,
+    pub scalar_ops: Vec<ScalarOp>,
+}
+
+/// A dispatch plan serialized as a packed byte buffer.
+///
+/// Layout (matching the C-side `PlanHeader` + `PackedStage` format in
+/// `dynamic_dispatch.h`):
+///
+/// ```text
+/// [PlanHeader]                            — sizeof(PlanHeader) bytes
+/// [PackedStage 0][ScalarOp × N0]          — variable
+/// [PackedStage 1][ScalarOp × N1]          — variable
+/// ...
+/// ```
+///
+/// This is uploaded to the device and cooperatively copied into shared memory
+/// by the kernel.
+#[derive(Clone)]
+pub struct CudaDispatchPlan {
+    buffer: ByteBuffer,
+}
+
+impl CudaDispatchPlan {
+    /// Build a packed plan from a sequence of stages.
+    ///
+    /// The last stage is the output pipeline; earlier stages are input stages.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `stages` is empty or the serialized plan exceeds 65535 bytes.
+    pub fn new<I>(stages: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Borrow<Stage>,
+    {
+        let stages: Vec<Stage> = stages.into_iter().map(|s| s.borrow().clone()).collect();
+        assert!(!stages.is_empty());
+
+        let header_size = size_of::<PlanHeader>();
+        let stage_header_size = size_of::<PackedStage>();
+        let scalar_op_size = size_of::<ScalarOp>();
+
+        // Calculate total size and validate.
+        let mut total_size = header_size;
+        for stage in &stages {
+            total_size += stage_header_size;
+            total_size += stage.scalar_ops.len() * scalar_op_size;
+        }
+        assert!(
+            total_size <= u16::MAX as usize,
+            "packed plan size {total_size} exceeds u16::MAX"
+        );
+
+        let mut buffer = ByteBufferMut::with_capacity_aligned(total_size, Alignment::of::<u32>());
+
+        // Write header.
+        let header = PlanHeader {
+            num_stages: stages.len() as u8,
+            plan_size_bytes: total_size as u16,
+        };
+        buffer.extend_from_slice(as_bytes(&header));
+
+        // Write each stage header followed by its scalar ops.
+        for stage in &stages {
+            let packed_stage = PackedStage {
+                input_ptr: stage.input_ptr,
+                smem_offset: stage.smem_offset,
+                len: stage.len,
+                source: stage.source,
+                num_scalar_ops: stage.scalar_ops.len() as u8,
+            };
+            buffer.extend_from_slice(as_bytes(&packed_stage));
+            for op in &stage.scalar_ops {
+                buffer.extend_from_slice(as_bytes(op));
+            }
+        }
+
+        assert_eq!(buffer.len(), total_size);
+        Self {
+            buffer: buffer.freeze(),
+        }
+    }
+
+    /// The raw packed plan bytes, ready for upload to the device.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.buffer.as_ref()
+    }
+
+    /// Number of stages in the plan.
+    pub fn num_stages(&self) -> u8 {
+        let header: PlanHeader = unsafe { *self.buffer.as_ptr().cast() };
+        header.num_stages
+    }
+
+    /// Parse and return a read-only view of the stage at `index`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index >= num_stages()`.
+    pub fn stage(&self, index: usize) -> ParsedStage {
+        let header_size = size_of::<PlanHeader>();
+        let stage_header_size = size_of::<PackedStage>();
+        let scalar_op_size = size_of::<ScalarOp>();
+
+        let mut offset = header_size;
+
+        // Skip past stages before `index`.
+        for _ in 0..index {
+            assert!(offset + stage_header_size <= self.buffer.len());
+            let ps: PackedStage = unsafe { *self.buffer.as_ptr().add(offset).cast() };
+            offset += stage_header_size + ps.num_scalar_ops as usize * scalar_op_size;
+        }
+
+        assert!(offset + stage_header_size <= self.buffer.len());
+        let ps: PackedStage = unsafe { *self.buffer.as_ptr().add(offset).cast() };
+        offset += stage_header_size;
+
+        let mut scalar_ops = Vec::with_capacity(ps.num_scalar_ops as usize);
+        for _ in 0..ps.num_scalar_ops {
+            assert!(offset + scalar_op_size <= self.buffer.len());
+            let op: ScalarOp = unsafe { *self.buffer.as_ptr().add(offset).cast() };
+            scalar_ops.push(op);
+            offset += scalar_op_size;
+        }
+
+        ParsedStage {
+            input_ptr: ps.input_ptr,
+            smem_offset: ps.smem_offset,
+            len: ps.len,
+            source: ps.source,
+            num_scalar_ops: ps.num_scalar_ops,
+            scalar_ops,
+        }
+    }
+}
 
 impl SourceOp {
     /// Unpack bit-packed data using FastLanes layout.
@@ -55,8 +270,14 @@ impl SourceOp {
         }
     }
 
-    /// Decode run-end encoding. Offsets reference shared memory regions
-    /// populated by earlier input stages.
+    /// Decode run-end encoding.
+    ///
+    /// # Arguments
+    ///
+    /// * `ends_smem_offset` - smem region holding run-end endpoints
+    /// * `values_smem_offset` - smem region holding per-run values
+    /// * `num_runs` - number of runs (length of ends/values)
+    /// * `offset` - logical offset for sliced arrays
     pub fn runend(
         ends_smem_offset: u32,
         values_smem_offset: u32,
@@ -72,6 +293,17 @@ impl SourceOp {
                     num_runs,
                     offset,
                 },
+            },
+        }
+    }
+
+    /// Generate a linear sequence: `value[i] = base + i * multiplier`.
+    /// Used for SequenceArray (e.g. monotonic run-end endpoints).
+    pub fn sequence(base: i64, multiplier: i64) -> Self {
+        Self {
+            op_code: SourceOp_SourceOpCode_SEQUENCE,
+            params: SourceParams {
+                sequence: SourceParams_SequenceParams { base, multiplier },
             },
         }
     }
@@ -119,76 +351,72 @@ impl ScalarOp {
     }
 }
 
-impl Stage {
-    /// Create an input stage that decodes an input into a shared memory region.
-    /// The output persists at `smem_offset` for the output stage to reference.
-    pub fn input(
-        input_ptr: u64,
-        smem_offset: u32,
-        len: u32,
-        source: SourceOp,
-        scalar_ops: &[ScalarOp],
-    ) -> Self {
-        assert!(scalar_ops.len() <= MAX_SCALAR_OPS as usize);
-        let mut ops: [ScalarOp; MAX_SCALAR_OPS as usize] = unsafe { std::mem::zeroed() };
-        ops[..scalar_ops.len()].copy_from_slice(scalar_ops);
-        Self {
-            input_ptr,
-            smem_offset,
-            len,
-            source,
-            num_scalar_ops: scalar_ops.len() as u8,
-            scalar_ops: ops,
-        }
+impl MaterializedPlan {
+    pub fn execute(
+        self,
+        output_ptype: PType,
+        len: usize,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<Canonical> {
+        let unsigned_ptype = match output_ptype {
+            PType::U8 | PType::I8 => PType::U8,
+            PType::U16 | PType::I16 => PType::U16,
+            PType::U32 | PType::I32 | PType::F32 => PType::U32,
+            PType::U64 | PType::I64 => PType::U64,
+            other => vortex_bail!("dynamic dispatch does not support PType {:?}", other),
+        };
+        match_each_unsigned_integer_ptype!(unsigned_ptype, |T| {
+            self.execute_typed::<T>(output_ptype, len, ctx)
+        })
     }
 
-    /// Create the output stage. The kernel tiles `ELEMENTS_PER_BLOCK` elements
-    /// through a [`SMEM_TILE_SIZE`] shared-memory region to reduce usage.
-    pub fn output(
-        input_ptr: u64,
-        smem_offset: u32,
-        source: SourceOp,
-        scalar_ops: &[ScalarOp],
-    ) -> Self {
-        Self::input(input_ptr, smem_offset, SMEM_TILE_SIZE, source, scalar_ops)
-    }
-}
-
-impl DynamicDispatchPlan {
-    /// Create a dispatch plan from a sequence of stages.
-    /// The last stage is the output pipeline; earlier stages are input stages.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `stages` is empty or exceeds `MAX_STAGES`.
-    pub fn new(stages: impl AsRef<[Stage]>) -> Self {
-        let stages_slice = stages.as_ref();
-        assert!(!stages_slice.is_empty());
-        assert!(stages_slice.len() <= MAX_STAGES as usize);
-        let mut buf: [Stage; MAX_STAGES as usize] = unsafe { std::mem::zeroed() };
-        buf[..stages_slice.len()].copy_from_slice(stages_slice);
-        Self {
-            num_stages: stages_slice.len() as u8,
-            stages: buf,
+    fn execute_typed<T>(
+        self,
+        output_ptype: PType,
+        len: usize,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<Canonical>
+    where
+        T: cudarc::driver::DeviceRepr + vortex::dtype::NativePType,
+    {
+        if len == 0 {
+            return Ok(Canonical::Primitive(PrimitiveArray::empty::<T>(
+                Nullability::NonNullable,
+            )));
         }
-    }
 
-    /// Compute the dynamic shared memory bytes needed for this plan.
-    ///
-    /// All input stage outputs must remain in shared memory simultaneously
-    /// so the output stage can reference them (e.g., dictionary lookups,
-    /// run-end resolution). The total is `max(smem_offset + len)` across
-    /// all stages, multiplied by the element size.
-    pub fn shared_mem_bytes<T>(&self) -> u32 {
-        let elem_size = size_of::<T>() as u32;
-        let mut max_end: u32 = 0;
-        for i in 0..self.num_stages as usize {
-            let end = self.stages[i].smem_offset + self.stages[i].len;
-            if end > max_end {
-                max_end = end;
-            }
-        }
-        max_end * elem_size
+        let output_buf = CudaDeviceBuffer::new(ctx.device_alloc::<T>(len.next_multiple_of(1024))?);
+
+        // Upload the packed plan bytes to the device.
+        let device_plan = Arc::new(
+            ctx.stream()
+                .clone_htod(self.dispatch_plan.as_bytes())
+                .map_err(|e| vortex_err!("copy plan to device: {e}"))?,
+        );
+
+        let cuda_function = ctx.load_function("dynamic_dispatch", &[T::PTYPE])?;
+        let num_blocks = u32::try_from(len.div_ceil(2048))?;
+        let config = LaunchConfig {
+            grid_dim: (num_blocks, 1, 1),
+            block_dim: (64, 1, 1),
+            shared_mem_bytes: self.shared_mem_bytes,
+        };
+
+        let output_ptr = output_buf.offset_ptr();
+        let plan_ptr = device_plan.device_ptr(ctx.stream()).0;
+        let array_len_u64 = len as u64;
+
+        ctx.launch_kernel_config(&cuda_function, config, len, |args| {
+            args.arg(&output_ptr);
+            args.arg(&array_len_u64);
+            args.arg(&plan_ptr);
+        })?;
+
+        Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_device(output_buf.slice_typed::<T>(0..len)),
+            output_ptype,
+            Validity::NonNullable,
+        )))
     }
 }
 
@@ -220,12 +448,12 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
 
-    use super::DynamicDispatchPlan;
+    use super::CudaDispatchPlan;
     use super::SMEM_TILE_SIZE;
     use super::ScalarOp;
     use super::SourceOp;
     use super::Stage;
-    use super::build_plan;
+    use super::UnmaterializedPlan;
     use crate::CudaBufferExt;
     use crate::CudaDeviceBuffer;
     use crate::CudaExecutionCtx;
@@ -264,15 +492,16 @@ mod tests {
             .map(|&r| ScalarOp::frame_of_ref(r as u64))
             .collect();
 
-        let plan = DynamicDispatchPlan::new([Stage::output(
+        let plan = CudaDispatchPlan::new([Stage::new(
             input_ptr,
             0,
+            len as u32,
             SourceOp::bitunpack(bit_width, 0),
             &scalar_ops,
         )]);
-        assert_eq!(plan.stages[0].num_scalar_ops, 4);
+        assert_eq!(plan.stage(0).num_scalar_ops, 4);
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan, SMEM_TILE_SIZE * 4)?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -282,36 +511,39 @@ mod tests {
     fn test_plan_structure() {
         // Stage 0: input dict values (BP→FoR) into smem[0..256)
         // Stage 1: output codes (BP→FoR→DICT) into smem[256..2304), gather from smem[0]
-        let plan = DynamicDispatchPlan::new([
-            Stage::input(
+        let plan = CudaDispatchPlan::new([
+            Stage::new(
                 0xAAAA,
                 0,
                 256,
                 SourceOp::bitunpack(4, 0),
                 &[ScalarOp::frame_of_ref(10)],
             ),
-            Stage::output(
+            Stage::new(
                 0xBBBB,
                 256,
+                1024,
                 SourceOp::bitunpack(6, 0),
                 &[ScalarOp::frame_of_ref(42), ScalarOp::dict(0)],
             ),
         ]);
 
-        assert_eq!(plan.num_stages, 2);
+        assert_eq!(plan.num_stages(), 2);
 
         // Input stage
-        assert_eq!(plan.stages[0].smem_offset, 0);
-        assert_eq!(plan.stages[0].len, 256);
-        assert_eq!(plan.stages[0].input_ptr, 0xAAAA);
+        let s0 = plan.stage(0);
+        assert_eq!(s0.smem_offset, 0);
+        assert_eq!(s0.len, 256);
+        assert_eq!(s0.input_ptr, 0xAAAA);
 
         // Output stage
-        assert_eq!(plan.stages[1].smem_offset, 256);
-        assert_eq!(plan.stages[1].len, SMEM_TILE_SIZE);
-        assert_eq!(plan.stages[1].input_ptr, 0xBBBB);
-        assert_eq!(plan.stages[1].num_scalar_ops, 2);
+        let s1 = plan.stage(1);
+        assert_eq!(s1.smem_offset, 256);
+        assert_eq!(s1.len, SMEM_TILE_SIZE);
+        assert_eq!(s1.input_ptr, 0xBBBB);
+        assert_eq!(s1.num_scalar_ops, 2);
         assert_eq!(
-            unsafe { plan.stages[1].scalar_ops[1].params.dict.values_smem_offset },
+            unsafe { s1.scalar_ops[1].params.dict.values_smem_offset },
             0
         );
     }
@@ -349,9 +581,10 @@ mod tests {
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (input_ptr, _di) = copy_raw_to_device(&cuda_ctx, &data)?;
 
-        let plan = DynamicDispatchPlan::new([Stage::output(
+        let plan = CudaDispatchPlan::new([Stage::new(
             input_ptr,
             0,
+            len as u32,
             SourceOp::load(),
             &[
                 ScalarOp::frame_of_ref(reference as u64),
@@ -360,7 +593,7 @@ mod tests {
             ],
         )]);
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan, SMEM_TILE_SIZE * 4)?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -370,10 +603,9 @@ mod tests {
     fn run_dynamic_dispatch_plan(
         cuda_ctx: &CudaExecutionCtx,
         output_len: usize,
-        plan: &DynamicDispatchPlan,
+        plan: &CudaDispatchPlan,
+        shared_mem_bytes: u32,
     ) -> VortexResult<Vec<u32>> {
-        let smem_bytes = plan.shared_mem_bytes::<u32>();
-
         let output_slice = cuda_ctx
             .device_alloc::<u32>(output_len)
             .vortex_expect("alloc output");
@@ -384,7 +616,7 @@ mod tests {
         let device_plan = Arc::new(
             cuda_ctx
                 .stream()
-                .clone_htod(std::slice::from_ref(plan))
+                .clone_htod(plan.as_bytes())
                 .expect("copy plan to device"),
         );
         let (plan_ptr, record_plan) = device_plan.device_ptr(cuda_ctx.stream());
@@ -404,7 +636,7 @@ mod tests {
         let config = LaunchConfig {
             grid_dim: (num_blocks, 1, 1),
             block_dim: (64, 1, 1),
-            shared_mem_bytes: smem_bytes,
+            shared_mem_bytes,
         };
         unsafe {
             launch_builder.launch(config).expect("kernel launch");
@@ -420,9 +652,10 @@ mod tests {
     fn run_dispatch_plan_f32(
         cuda_ctx: &CudaExecutionCtx,
         output_len: usize,
-        plan: &DynamicDispatchPlan,
+        plan: &CudaDispatchPlan,
+        shared_mem_bytes: u32,
     ) -> VortexResult<Vec<f32>> {
-        let actual = run_dynamic_dispatch_plan(cuda_ctx, output_len, plan)?;
+        let actual = run_dynamic_dispatch_plan(cuda_ctx, output_len, plan, shared_mem_bytes)?;
         // SAFETY: f32 and u32 have identical size and alignment.
         Ok(unsafe { std::mem::transmute::<Vec<u32>, Vec<f32>>(actual) })
     }
@@ -438,9 +671,10 @@ mod tests {
 
         let bp = make_bitpacked_array_u32(bit_width, len);
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&bp.into_array(), &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&bp.into_array())?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -462,9 +696,10 @@ mod tests {
         let for_arr = FoRArray::try_new(bp.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&for_arr.into_array(), &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&for_arr.into_array())?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -487,9 +722,10 @@ mod tests {
         let re = RunEndArray::new(ends_arr, values_arr);
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&re.into_array(), &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&re.into_array())?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -519,9 +755,10 @@ mod tests {
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&dict.into_array(), &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&dict.into_array())?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -550,9 +787,10 @@ mod tests {
         );
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&tree.into_array(), &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&tree.into_array())?.materialize(&cuda_ctx)?;
 
-        let actual = run_dispatch_plan_f32(&cuda_ctx, len, &plan)?;
+        let actual =
+            run_dispatch_plan_f32(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, floats);
 
         Ok(())
@@ -578,9 +816,10 @@ mod tests {
         let zz = ZigZagArray::try_new(bp.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&zz.into_array(), &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&zz.into_array())?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -606,9 +845,10 @@ mod tests {
         let for_arr = FoRArray::try_new(re.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&for_arr.into_array(), &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&for_arr.into_array())?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -634,9 +874,10 @@ mod tests {
         let for_arr = FoRArray::try_new(dict.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&for_arr.into_array(), &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&for_arr.into_array())?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -661,9 +902,10 @@ mod tests {
         let dict = DictArray::try_new(codes_for.into_array(), values_prim.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&dict.into_array(), &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&dict.into_array())?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -685,10 +927,42 @@ mod tests {
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&dict.into_array(), &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&dict.into_array())?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan)?;
+        let actual =
+            run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
         assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[crate::test]
+    fn test_dict_mismatched_ptypes_rejected() -> VortexResult<()> {
+        let dict_values: Vec<u32> = vec![100, 200, 300, 400];
+        let len = 3000;
+        let codes: Vec<u8> = (0..len).map(|i| (i % dict_values.len()) as u8).collect();
+
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+        let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
+        let dict = DictArray::try_new(codes_prim.into_array(), values_prim.into_array())?;
+
+        // UnmaterializedPlan::new should fail because u8 codes != u32 values in byte width.
+        assert!(UnmaterializedPlan::new(&dict.into_array()).is_err());
+
+        Ok(())
+    }
+
+    #[crate::test]
+    fn test_runend_mismatched_ptypes_rejected() -> VortexResult<()> {
+        let ends: Vec<u64> = vec![1000, 2000, 3000];
+        let values: Vec<i32> = vec![10, 20, 30];
+
+        let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
+        let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
+        let re = RunEndArray::new(ends_arr, values_arr);
+
+        // UnmaterializedPlan::new should fail because u64 ends != i32 values in byte width.
+        assert!(UnmaterializedPlan::new(&re.into_array()).is_err());
 
         Ok(())
     }
@@ -723,9 +997,14 @@ mod tests {
         let expected: Vec<u32> = data[slice_start..slice_end].to_vec();
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&sliced)?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -769,9 +1048,14 @@ mod tests {
         let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&sliced)?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -814,9 +1098,14 @@ mod tests {
             .collect();
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&sliced)?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -854,9 +1143,14 @@ mod tests {
         let expected: Vec<u32> = data[slice_start..slice_end].to_vec();
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&sliced)?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -898,9 +1192,14 @@ mod tests {
         let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&sliced)?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -945,9 +1244,14 @@ mod tests {
         let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&sliced)?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
         assert_eq!(actual, expected);
 
         Ok(())
@@ -997,9 +1301,80 @@ mod tests {
         let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let (plan, _bufs) = build_plan(&sliced, &cuda_ctx)?;
+        let plan = UnmaterializedPlan::new(&sliced)?.materialize(&cuda_ctx)?;
 
-        let actual = run_dynamic_dispatch_plan(&cuda_ctx, expected.len(), &plan)?;
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0u32, 1u32, 100)]
+    #[case(5u32, 3u32, 2048)]
+    #[case(0u32, 1u32, 4096)]
+    #[case(100u32, 7u32, 5000)]
+    #[crate::test]
+    fn test_sequence_unsigned(
+        #[case] base: u32,
+        #[case] multiplier: u32,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        use vortex::dtype::Nullability;
+        use vortex::encodings::sequence::SequenceArray;
+
+        let expected: Vec<u32> = (0..len).map(|i| base + (i as u32) * multiplier).collect();
+
+        let seq = SequenceArray::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = UnmaterializedPlan::new(&seq.into_array())?.materialize(&cuda_ctx)?;
+
+        let actual = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0i32, 1i32, 100)]
+    #[case(-10i32, 3i32, 2048)]
+    #[case(100i32, -1i32, 100)]
+    #[case(-500i32, -7i32, 50)]
+    #[case(0i32, 1i32, 5000)]
+    #[crate::test]
+    fn test_sequence_signed(
+        #[case] base: i32,
+        #[case] multiplier: i32,
+        #[case] len: usize,
+    ) -> VortexResult<()> {
+        use vortex::dtype::Nullability;
+        use vortex::encodings::sequence::SequenceArray;
+
+        let expected: Vec<i32> = (0..len).map(|i| base + (i as i32) * multiplier).collect();
+
+        let seq = SequenceArray::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
+
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let plan = UnmaterializedPlan::new(&seq.into_array())?.materialize(&cuda_ctx)?;
+
+        let actual_u32 = run_dynamic_dispatch_plan(
+            &cuda_ctx,
+            expected.len(),
+            &plan.dispatch_plan,
+            plan.shared_mem_bytes,
+        )?;
+        let actual: Vec<i32> = actual_u32.into_iter().map(|v| v as i32).collect();
         assert_eq!(actual, expected);
 
         Ok(())

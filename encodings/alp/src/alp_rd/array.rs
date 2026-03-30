@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayEq;
@@ -11,11 +12,12 @@ use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -23,11 +25,13 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_child;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -36,12 +40,12 @@ use vortex_array::vtable::patches_child;
 use vortex_array::vtable::patches_child_name;
 use vortex_array::vtable::patches_nchildren;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
@@ -71,7 +75,11 @@ impl VTable for ALPRD {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ALPRD
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -296,50 +304,66 @@ impl VTable for ALPRD {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
-        let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.left_parts(), 0 => Primitive);
+        let array = require_child!(array, array.right_parts(), 1 => Primitive);
+
+        let right_bit_width = array.right_bit_width();
+        let ALPRDArrayParts {
+            left_parts,
+            right_parts,
+            left_parts_dictionary,
+            left_parts_patches,
+            dtype,
+            ..
+        } = Arc::unwrap_or_clone(array).into_inner().into_parts();
+        let ptype = dtype.as_ptype();
+
+        let left_parts = left_parts
+            .try_into::<Primitive>()
+            .ok()
+            .vortex_expect("ALPRD execute: left_parts is primitive");
+        let right_parts = right_parts
+            .try_into::<Primitive>()
+            .ok()
+            .vortex_expect("ALPRD execute: right_parts is primitive");
 
         // Decode the left_parts using our builtin dictionary.
-        let left_parts_dict = array.left_parts_dictionary();
+        let left_parts_dict = left_parts_dictionary;
+        let validity = left_parts.validity_mask()?;
 
-        let validity = array
-            .left_parts()
-            .validity()?
-            .to_array(array.len())
-            .execute::<Mask>(ctx)?;
-
-        let decoded_array = if array.is_f32() {
+        let decoded_array = if ptype == PType::F32 {
+            // TODO(joe): use iterative execution for the patches.
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
                     left_parts.into_buffer::<u16>(),
-                    left_parts_dict,
-                    array.right_bit_width,
-                    right_parts.into_buffer_mut::<u32>(),
-                    array.left_parts_patches(),
+                    &left_parts_dict,
+                    right_bit_width,
+                    right_parts.into_buffer::<u32>(),
+                    left_parts_patches,
                     ctx,
                 )?,
-                Validity::from_mask(validity, array.dtype().nullability()),
+                Validity::from_mask(validity, dtype.nullability()),
             )
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
                     left_parts.into_buffer::<u16>(),
-                    left_parts_dict,
-                    array.right_bit_width,
-                    right_parts.into_buffer_mut::<u64>(),
-                    array.left_parts_patches(),
+                    &left_parts_dict,
+                    right_bit_width,
+                    right_parts.into_buffer::<u64>(),
+                    left_parts_patches,
                     ctx,
                 )?,
-                Validity::from_mask(validity, array.dtype().nullability()),
+                Validity::from_mask(validity, dtype.nullability()),
             )
         };
 
-        Ok(ExecutionStep::Done(decoded_array.into_array()))
+        Ok(ExecutionResult::done(decoded_array.into_array()))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -347,7 +371,7 @@ impl VTable for ALPRD {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -367,7 +391,16 @@ pub struct ALPRDArray {
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
+pub struct ALPRDArrayParts {
+    pub dtype: DType,
+    pub left_parts: ArrayRef,
+    pub left_parts_patches: Option<Patches>,
+    pub left_parts_dictionary: Buffer<u16>,
+    pub right_parts: ArrayRef,
+}
+
+#[derive(Clone, Debug)]
 pub struct ALPRD;
 
 impl ALPRD {
@@ -458,6 +491,17 @@ impl ALPRDArray {
             right_parts,
             right_bit_width,
             stats_set: Default::default(),
+        }
+    }
+
+    /// Return all the owned parts of the array
+    pub fn into_parts(self) -> ALPRDArrayParts {
+        ALPRDArrayParts {
+            dtype: self.dtype,
+            left_parts: self.left_parts,
+            left_parts_patches: self.left_parts_patches,
+            left_parts_dictionary: self.left_parts_dictionary,
+            right_parts: self.right_parts,
         }
     }
 

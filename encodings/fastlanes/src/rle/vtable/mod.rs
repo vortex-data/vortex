@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use prost::Message;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -19,6 +20,7 @@ use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
@@ -62,7 +64,11 @@ impl VTable for RLE {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &RLE
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -133,7 +139,7 @@ impl VTable for RLE {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -223,7 +229,7 @@ impl VTable for RLE {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -231,14 +237,14 @@ impl VTable for RLE {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            rle_decompress(array, ctx)?.into_array(),
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            rle_decompress(&array, ctx)?.into_array(),
         ))
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RLE;
 
 impl RLE {

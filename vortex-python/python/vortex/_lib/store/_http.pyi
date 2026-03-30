@@ -9,13 +9,13 @@ from ._retry import RetryConfig
 class HTTPStore:
     """Configure a connection to a generic HTTP server."""
 
-    def __init__(
+    def __new__(
         self,
         url: str,
         *,
         client_options: ClientConfig | None = None,
         retry_config: RetryConfig | None = None,
-    ) -> None:
+    ) -> Self:
         """Construct a new HTTPStore from a URL.
 
         Any path on the URL will be assigned as the `prefix` for the store. So if you

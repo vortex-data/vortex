@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
@@ -13,8 +15,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
@@ -26,6 +27,7 @@ use crate::match_each_decimal_value_type;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
@@ -58,7 +60,11 @@ impl VTable for Decimal {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Decimal
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -207,12 +213,12 @@ impl VTable for Decimal {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -220,7 +226,7 @@ impl VTable for Decimal {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -229,7 +235,7 @@ impl VTable for Decimal {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Decimal;
 
 impl Decimal {

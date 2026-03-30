@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 
 use crate::dtype::DType;
 use crate::dtype::PType;
+use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ExtVTable;
 use crate::scalar::ScalarValue;
@@ -51,10 +52,7 @@ impl ExtVTable for DivisibleInt {
         Ok(Divisor(n))
     }
 
-    fn validate_dtype(
-        &self,
-        ext_dtype: &crate::dtype::extension::ExtDType<Self>,
-    ) -> VortexResult<()> {
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
             matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::U64, _)),
             "divisible int storage dtype must be u64"
@@ -63,8 +61,7 @@ impl ExtVTable for DivisibleInt {
     }
 
     fn unpack_native<'a>(
-        &self,
-        ext_dtype: &'a crate::dtype::extension::ExtDType<Self>,
+        ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {
         let value = storage_value.as_primitive().cast::<u64>()?;

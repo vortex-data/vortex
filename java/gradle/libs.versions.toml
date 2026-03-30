@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[versions]
+arrow = "18.3.0"
+errorprone = "2.36.0"
+guava = "33.5.0-jre"
+immutables = "2.12.1"
+junit-jupiter = "6.0.3"
+logback = "1.5.32"
+netty = "4.2.7.Final"
+nopen = "1.0.1"
+protobuf = "4.33.5"
+slf4j = "2.0.17"
+spark3 = "3.5.8"
+spark4 = "4.1.1"
+s3mock = "4.11.0"
+testcontainers-jupiter = "1.20.4"
+
+[libraries]
+arrow-c-data = { module = "org.apache.arrow:arrow-c-data", version.ref = "arrow" }
+arrow-memory-core = { module = "org.apache.arrow:arrow-memory-core", version.ref = "arrow" }
+arrow-memory-netty = { module = "org.apache.arrow:arrow-memory-netty", version.ref = "arrow" }
+errorprone-annotations = { module = "com.google.errorprone:error_prone_annotations", version.ref = "errorprone" }
+errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
+guava = { module = "com.google.guava:guava", version.ref = "guava" }
+immutables-value = { module = "org.immutables:value", version.ref = "immutables" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit-jupiter" }
+junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit-jupiter" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+netty-bom = { module = "io.netty:netty-bom", version.ref = "netty" }
+nopen-annotations = { module = "com.jakewharton.nopen:nopen-annotations", version.ref = "nopen" }
+nopen-checker = { module = "com.jakewharton.nopen:nopen-checker", version.ref = "nopen" }
+protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobuf" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
+s3mock-testcontainers = { module = "com.adobe.testing:s3mock-testcontainers", version.ref = "s3mock" }
+testcontainers-juputer = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers-jupiter" }

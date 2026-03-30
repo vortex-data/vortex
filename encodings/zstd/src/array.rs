@@ -13,7 +13,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
@@ -34,6 +34,7 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -91,7 +92,11 @@ impl VTable for Zstd {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Zstd
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -275,15 +280,15 @@ impl VTable for Zstd {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         array
             .decompress(ctx)?
             .execute::<ArrayRef>(ctx)
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -291,7 +296,7 @@ impl VTable for Zstd {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Zstd;
 
 impl Zstd {
@@ -958,7 +963,7 @@ impl ValiditySliceHelper for ZstdArray {
 }
 
 impl OperationsVTable<Zstd> for Zstd {
-    fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &ZstdArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         array
             ._slice(index, index + 1)

@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -27,12 +28,13 @@ use crate::arrays::filter::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
-use crate::executor::ExecutionStep;
+use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -40,7 +42,7 @@ use crate::vtable::ValidityVTable;
 
 vtable!(Filter);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Filter;
 
 impl Filter {
@@ -52,7 +54,11 @@ impl VTable for Filter {
     type Metadata = FilterMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Filter
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -155,9 +161,9 @@ impl VTable for Filter {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        if let Some(canonical) = execute_filter_fast_paths(array, ctx)? {
-            return Ok(ExecutionStep::Done(canonical));
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        if let Some(canonical) = execute_filter_fast_paths(&array, ctx)? {
+            return Ok(ExecutionResult::done(canonical));
         }
         let Mask::Values(mask_values) = &array.mask else {
             unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse")
@@ -165,25 +171,29 @@ impl VTable for Filter {
 
         // We rely on the optimization pass that runs prior to this execution for filter pushdown,
         // so now we can just execute the filter without worrying.
-        Ok(ExecutionStep::Done(
+        Ok(ExecutionResult::done(
             execute_filter(array.child.clone().execute(ctx)?, mask_values).into_array(),
         ))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
     }
 }
 impl OperationsVTable<Filter> for Filter {
-    fn scalar_at(array: &FilterArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &FilterArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let rank_idx = array.mask.rank(index);
         array.child.scalar_at(rank_idx)
     }

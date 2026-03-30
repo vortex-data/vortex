@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -12,8 +14,10 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use super::DictArray;
+use super::DictArrayParts;
 use super::DictMetadata;
 use super::take_canonical;
+use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
@@ -23,19 +27,22 @@ use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
+use crate::arrays::Primitive;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
-use crate::executor::ExecutionStep;
+use crate::executor::ExecutionResult;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
+use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 mod kernel;
@@ -44,7 +51,7 @@ mod validity;
 
 vtable!(Dict);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Dict;
 
 impl Dict {
@@ -58,7 +65,11 @@ impl VTable for Dict {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Dict
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -191,31 +202,46 @@ impl VTable for Dict {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        if let Some(canonical) = execute_fast_path(array, ctx)? {
-            return Ok(ExecutionStep::Done(canonical));
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        if array.is_empty() {
+            let result_dtype = array
+                .dtype()
+                .union_nullability(array.codes().dtype().nullability());
+            return Ok(ExecutionResult::done(Canonical::empty(&result_dtype)));
         }
 
-        // TODO(joe): if the values are constant return a constant
-        let values = array.values().clone().execute::<Canonical>(ctx)?;
-        let codes = array
-            .codes()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_primitive();
+        let array = require_child!(array, array.codes(), 0 => Primitive);
 
-        // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
-        //  the filter function since they're typically optimised for this case.
-        // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
-        //  such that canonicalize does less work.
+        // TODO(joe): use stat get instead computing.
+        // Also not the check to do here it take value validity using code validity, but this approx
+        // is correct.
+        if array.codes().all_invalid()? {
+            return Ok(ExecutionResult::done(
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
+                    .into_array(),
+            ));
+        }
 
-        Ok(ExecutionStep::Done(
+        let array = require_child!(array, array.values(), 1 => AnyCanonical);
+
+        let DictArrayParts { codes, values, .. } =
+            Arc::unwrap_or_clone(array).into_inner().into_parts();
+
+        let codes = codes
+            .try_into::<Primitive>()
+            .ok()
+            .vortex_expect("must be primitive");
+        debug_assert!(values.is_canonical());
+        // TODO: add canonical owned cast.
+        let values = values.to_canonical()?;
+
+        Ok(ExecutionResult::done(
             take_canonical(values, &codes, ctx)?.into_array(),
         ))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -223,35 +249,11 @@ impl VTable for Dict {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
-}
-
-/// Check for fast-path execution conditions.
-pub(super) fn execute_fast_path(
-    array: &DictArray,
-    _ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
-    // Empty array - nothing to do
-    if array.is_empty() {
-        let result_dtype = array
-            .dtype()
-            .union_nullability(array.codes().dtype().nullability());
-        return Ok(Some(Canonical::empty(&result_dtype).into_array()));
-    }
-
-    // All codes are null - result is all nulls
-    if array.codes.all_invalid()? {
-        return Ok(Some(
-            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
-                .into_array(),
-        ));
-    }
-
-    Ok(None)
 }

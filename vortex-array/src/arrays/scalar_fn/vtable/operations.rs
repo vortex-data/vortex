@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 
 use crate::DynArray;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -16,7 +17,11 @@ use crate::scalar_fn::VecExecutionArgs;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
-    fn scalar_at(array: &ScalarFnArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &ScalarFnArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let inputs: Vec<_> = array
             .children
             .iter()
@@ -25,13 +30,13 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let args = VecExecutionArgs::new(inputs, 1);
-        let result = array.scalar_fn.execute(&args, &mut ctx)?;
+        let result = array.scalar_fn().execute(&args, &mut ctx)?;
 
         let scalar = match result.execute::<Columnar>(&mut ctx)? {
             Columnar::Canonical(arr) => {
                 tracing::info!(
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
-                    array.scalar_fn,
+                    array.scalar_fn(),
                 );
                 arr.as_ref().scalar_at(0)?
             }
@@ -42,7 +47,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             scalar.dtype(),
             &array.dtype,
             "Scalar function {} returned dtype {:?} but expected {:?}",
-            array.scalar_fn,
+            array.scalar_fn(),
             scalar.dtype(),
             array.dtype
         );

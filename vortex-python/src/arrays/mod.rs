@@ -15,6 +15,7 @@ use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::PyIndexError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
+use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use pyo3::types::PyList;
@@ -742,7 +743,7 @@ impl PyArray {
         let dtype_buffers: Vec<Vec<u8>> = dtype_buffers.iter().map(|b| b.to_vec()).collect();
 
         let vortex_module = PyModule::import(py, "vortex")?;
-        let unpickle_fn = vortex_module.getattr("_unpickle_array")?;
+        let unpickle_fn = vortex_module.getattr(intern!(py, "_unpickle_array"))?;
 
         let args = (array_buffers, dtype_buffers).into_pyobject(py)?;
         Ok((unpickle_fn, args.into_any()))
@@ -769,7 +770,7 @@ impl PyArray {
         let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()))?;
 
         let pickle_module = PyModule::import(py, "pickle")?;
-        let pickle_buffer_class = pickle_module.getattr("PickleBuffer")?;
+        let pickle_buffer_class = pickle_module.getattr(intern!(py, "PickleBuffer"))?;
 
         let mut pickle_buffers = Vec::new();
         for buf in array_buffers.into_iter() {
@@ -788,7 +789,7 @@ impl PyArray {
         }
 
         let vortex_module = PyModule::import(py, "vortex")?;
-        let unpickle_fn = vortex_module.getattr("_unpickle_array")?;
+        let unpickle_fn = vortex_module.getattr(intern!(py, "_unpickle_array"))?;
 
         let args = (pickle_buffers, dtype_pickle_buffers).into_pyobject(py)?;
         Ok((unpickle_fn, args.into_any()))

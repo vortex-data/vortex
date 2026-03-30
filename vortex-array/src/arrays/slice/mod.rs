@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Reduce and execute adaptors for slice operations.
+//!
+//! Encodings that know how to slice themselves implement [`SliceReduce`] (metadata-only)
+//! or [`SliceKernel`] (buffer-reading). The adaptors [`SliceReduceAdaptor`] and
+//! [`SliceExecuteAdaptor`] bridge these into the execution model as
+//! [`ArrayParentReduceRule`] and [`ExecuteParentKernel`] respectively.
+
 mod array;
 mod rules;
 mod slice_;
@@ -64,6 +71,7 @@ fn precondition<V: VTable>(array: &V::Array, range: &Range<usize>) -> Option<Arr
     None
 }
 
+/// Adaptor that wraps a [`SliceReduce`] impl as an [`ArrayParentReduceRule`].
 #[derive(Default, Debug)]
 pub struct SliceReduceAdaptor<V>(pub V);
 
@@ -87,6 +95,7 @@ where
     }
 }
 
+/// Adaptor that wraps a [`SliceKernel`] impl as an [`ExecuteParentKernel`].
 #[derive(Default, Debug)]
 pub struct SliceExecuteAdaptor<V>(pub V);
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
@@ -11,7 +12,7 @@ use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
 
 impl OperationsVTable<RLE> for RLE {
-    fn scalar_at(array: &RLEArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &RLEArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         let offset_in_chunk = array.offset();
         let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index)?;
 

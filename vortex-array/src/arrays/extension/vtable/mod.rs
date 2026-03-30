@@ -6,6 +6,7 @@ mod operations;
 mod validity;
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
@@ -18,8 +19,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::ExtensionArray;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
@@ -30,6 +30,7 @@ use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromChild;
@@ -43,7 +44,11 @@ impl VTable for Extension {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Extension
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -153,12 +158,12 @@ impl VTable for Extension {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -166,7 +171,7 @@ impl VTable for Extension {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -175,7 +180,7 @@ impl VTable for Extension {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Extension;
 
 impl Extension {

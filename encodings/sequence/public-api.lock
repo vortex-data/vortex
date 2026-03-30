@@ -6,6 +6,10 @@ impl vortex_sequence::Sequence
 
 pub const vortex_sequence::Sequence::ID: vortex_array::vtable::dyn_::ArrayId
 
+impl core::clone::Clone for vortex_sequence::Sequence
+
+pub fn vortex_sequence::Sequence::clone(&self) -> vortex_sequence::Sequence
+
 impl core::fmt::Debug for vortex_sequence::Sequence
 
 pub fn vortex_sequence::Sequence::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -62,11 +66,11 @@ pub fn vortex_sequence::Sequence::deserialize(bytes: &[u8], dtype: &vortex_array
 
 pub fn vortex_sequence::Sequence::dtype(array: &vortex_sequence::SequenceArray) -> &vortex_array::dtype::DType
 
-pub fn vortex_sequence::Sequence::execute(array: &Self::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionStep>
+pub fn vortex_sequence::Sequence::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_sequence::Sequence::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sequence::Sequence::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_sequence::Sequence::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_sequence::Sequence::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
 pub fn vortex_sequence::Sequence::len(array: &vortex_sequence::SequenceArray) -> usize
 
@@ -76,17 +80,19 @@ pub fn vortex_sequence::Sequence::nbuffers(_array: &vortex_sequence::SequenceArr
 
 pub fn vortex_sequence::Sequence::nchildren(_array: &vortex_sequence::SequenceArray) -> usize
 
-pub fn vortex_sequence::Sequence::reduce_parent(array: &vortex_sequence::SequenceArray, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sequence::Sequence::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_sequence::Sequence::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_sequence::Sequence::stats(array: &vortex_sequence::SequenceArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
+pub fn vortex_sequence::Sequence::vtable(_array: &Self::Array) -> &Self
+
 pub fn vortex_sequence::Sequence::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 
-pub fn vortex_sequence::Sequence::scalar_at(array: &vortex_sequence::SequenceArray, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_sequence::Sequence::scalar_at(array: &vortex_sequence::SequenceArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 

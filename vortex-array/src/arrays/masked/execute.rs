@@ -6,6 +6,7 @@
 use std::ops::BitAnd;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::Canonical;
@@ -52,6 +53,9 @@ pub fn mask_validity_canonical(
         Canonical::Struct(a) => Canonical::Struct(mask_validity_struct(a, validity_mask, ctx)?),
         Canonical::Extension(a) => {
             Canonical::Extension(mask_validity_extension(a, validity_mask, ctx)?)
+        }
+        Canonical::Variant(_) => {
+            vortex_bail!("Variant arrays don't masking validity")
         }
     })
 }

@@ -36,6 +36,7 @@ vortex-array = { workspace = true, features = ["arbitrary", "_test-harness"] }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-runend = { workspace = true, features = ["arbitrary"] }
@@ -85,6 +86,14 @@ bench = false
 doc = false
 name = "compress_roundtrip"
 path = "fuzz_targets/compress_roundtrip.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
+name = "fsst_like"
+path = "fuzz_targets/fsst_like.rs"
 test = false
 required-features = ["native"]
 

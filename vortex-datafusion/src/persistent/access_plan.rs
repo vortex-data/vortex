@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::scan::ScanBuilder;
-use vortex::scan::Selection;
+use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::scan::selection::Selection;
 
 /// Custom Vortex-specific information that can be provided by external indexes or other sources.
 ///

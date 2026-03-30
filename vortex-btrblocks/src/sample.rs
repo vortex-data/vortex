@@ -55,7 +55,7 @@ pub(crate) fn sample_count_approx_one_percent(len: usize) -> u32 {
     )
 }
 
-pub fn stratified_slices(
+fn stratified_slices(
     length: usize,
     sample_size: u32,
     sample_count: u32,
@@ -88,7 +88,7 @@ pub fn stratified_slices(
 
 /// Split a range of array indices into as-equal-as-possible slices. If the provided `num_partitions` doesn't
 /// evenly divide into `length`, then the first `(length % num_partitions)` slices will have an extra element.
-pub fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> {
+fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> {
     let num_long_parts = length % num_partitions as usize;
     let short_step = length / num_partitions as usize;
     let long_step = short_step + 1;
@@ -103,4 +103,33 @@ pub fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usiz
                 .map(|off| (off, off + short_step)),
         )
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+
+    use super::*;
+
+    #[test]
+    fn sample_is_deterministic() -> VortexResult<()> {
+        // Create a deterministic array with linear-with-noise pattern
+        let values: Vec<i64> = (0i64..100_000).map(|i| i + (i * 7 + 3) % 11).collect();
+
+        let array =
+            PrimitiveArray::new(Buffer::from_iter(values), Validity::NonNullable).into_array();
+
+        let first = sample(&array, SAMPLE_SIZE, SAMPLE_COUNT);
+        for _ in 0..10 {
+            let again = sample(&array, SAMPLE_SIZE, SAMPLE_COUNT);
+            assert_eq!(first.nbytes(), again.nbytes());
+            assert_arrays_eq!(&first, &again);
+        }
+        Ok(())
+    }
 }

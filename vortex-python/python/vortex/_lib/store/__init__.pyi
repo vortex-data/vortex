@@ -130,13 +130,13 @@ class LocalStore:
     ```
     """
 
-    def __init__(
+    def __new__(
         self,
         prefix: str | Path | None = None,
         *,
         automatic_cleanup: bool = False,
         mkdir: bool = False,
-    ) -> None:
+    ) -> Self:
         """Create a new LocalStore.
 
         Args:

@@ -13,6 +13,7 @@ use std::fmt::Formatter;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use self::bool::check_bool_sorted;
 use self::decimal::check_decimal_sorted;
@@ -231,16 +232,47 @@ impl AggregateFnVTable for IsSorted {
         AggregateFnId::new_ref("vortex.is_sorted")
     }
 
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![u8::from(options.strict)]))
+    }
+
+    fn deserialize(
+        &self,
+        metadata: &[u8],
+        _session: &vortex_session::VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let &[strict_byte] = metadata else {
+            vortex_bail!(
+                "IsSorted: expected 1 byte of metadata, got {}",
+                metadata.len()
+            );
+        };
+        let strict = match strict_byte {
+            0 => false,
+            1 => true,
+            _ => vortex_bail!("IsSorted: expected 0 or 1 for strict, got {}", strict_byte),
+        };
+        Ok(IsSortedOptions { strict })
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::Null | DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => None,
+            DType::Null
+            | DType::Struct(..)
+            | DType::List(..)
+            | DType::FixedSizeList(..)
+            | DType::Variant(..) => None,
             _ => Some(DType::Bool(Nullability::NonNullable)),
         }
     }
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::Null | DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => None,
+            DType::Null
+            | DType::Struct(..)
+            | DType::List(..)
+            | DType::FixedSizeList(..)
+            | DType::Variant(..) => None,
             _ => Some(make_is_sorted_partial_dtype(input_dtype)),
         }
     }

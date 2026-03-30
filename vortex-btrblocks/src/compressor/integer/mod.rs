@@ -1093,6 +1093,7 @@ mod scheme_selection_tests {
     use crate::BtrBlocksCompressor;
     use crate::CompressorContext;
     use crate::CompressorExt;
+    use crate::IntCode;
 
     #[test]
     fn test_constant_compressed() -> VortexResult<()> {
@@ -1205,14 +1206,17 @@ mod scheme_selection_tests {
     #[test]
     fn test_rle_compressed() -> VortexResult<()> {
         let mut values: Vec<i32> = Vec::new();
-        for i in 0..10 {
-            values.extend(iter::repeat_n(i, 100));
+        for i in 0..1024 {
+            values.extend(iter::repeat_n(i, 10));
         }
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
         let btr = BtrBlocksCompressor::default();
-        let compressed =
-            btr.integer_compressor()
-                .compress(&btr, &array, CompressorContext::default(), &[])?;
+        let compressed = btr.integer_compressor().compress(
+            &btr,
+            &array,
+            CompressorContext::default(),
+            &[IntCode::RunEnd],
+        )?;
         assert!(compressed.is::<RLE>());
         Ok(())
     }

@@ -134,6 +134,7 @@ mod tests {
     use crate::dtype::vx_dtype;
     use crate::dtype::vx_dtype_free;
     use crate::error::vx_error_free;
+    use crate::session::vx_session_free;
     use crate::session::vx_session_new;
 
     #[test]
@@ -168,6 +169,7 @@ mod tests {
             // Cleanup
             vx_array_free(vx_array_ptr);
             vx_dtype_free(vx_dtype_ptr);
+            vx_session_free(session);
         }
     }
 
@@ -207,6 +209,7 @@ mod tests {
             assert!(error.is_null());
 
             vx_dtype_free(vx_dtype_ptr);
+            vx_session_free(session);
         }
     }
 
@@ -251,6 +254,7 @@ mod tests {
             }
 
             vx_dtype_free(vx_dtype_ptr);
+            vx_session_free(session);
         }
     }
 
@@ -273,6 +277,7 @@ mod tests {
 
             vx_error_free(error);
             vx_dtype_free(vx_dtype_ptr);
+            vx_session_free(session);
         }
     }
 }

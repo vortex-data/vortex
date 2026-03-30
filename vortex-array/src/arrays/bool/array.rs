@@ -224,7 +224,9 @@ impl BoolArray {
 
     /// Returns the underlying [`BitBuffer`] of the array
     pub fn into_bit_buffer(self) -> BitBuffer {
-        self.to_bit_buffer()
+        let buffer = self.bits.unwrap_host();
+
+        BitBuffer::new_with_offset(buffer, self.len, self.offset)
     }
 
     pub fn to_mask(&self) -> Mask {

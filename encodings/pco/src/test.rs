@@ -32,7 +32,7 @@ use vortex_session::registry::ReadContext;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty().with::<ArraySession>();
-    session.arrays().register(Pco::ID, Pco);
+    session.arrays().register(Pco);
     session
 });
 

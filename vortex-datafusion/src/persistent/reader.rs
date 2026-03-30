@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Factory for creating [`VortexReadAt`][vortex::io::VortexReadAt] instances
+//! from [`PartitionedFile`]s.
+
 use std::fmt::Debug;
 use std::sync::Arc;
 
 use datafusion_common::Result as DFResult;
+use datafusion_datasource::PartitionedFile;
 use object_store::ObjectStore;
 use vortex::io::VortexReadAt;
 use vortex::io::object_store::ObjectStoreReadAt;
@@ -14,8 +18,11 @@ use vortex::session::VortexSession;
 /// Factory to create [`VortexReadAt`] instances to read the target file.
 pub trait VortexReaderFactory: Debug + Send + Sync + 'static {
     /// Create a reader for a target object.
-    fn create_reader(&self, path: &str, session: &VortexSession)
-    -> DFResult<Arc<dyn VortexReadAt>>;
+    fn create_reader(
+        &self,
+        file: &PartitionedFile,
+        session: &VortexSession,
+    ) -> DFResult<Arc<dyn VortexReadAt>>;
 }
 
 /// Default factory, creates [`ObjectStore`] backed readers for files,
@@ -35,12 +42,12 @@ impl DefaultVortexReaderFactory {
 impl VortexReaderFactory for DefaultVortexReaderFactory {
     fn create_reader(
         &self,
-        path: &str,
+        file: &PartitionedFile,
         session: &VortexSession,
     ) -> DFResult<Arc<dyn VortexReadAt>> {
         Ok(Arc::new(ObjectStoreReadAt::new(
             self.object_store.clone(),
-            path.into(),
+            file.path().as_ref().into(),
             session.handle(),
         )) as _)
     }

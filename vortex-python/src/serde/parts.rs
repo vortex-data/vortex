@@ -7,6 +7,7 @@ use pyo3::Bound;
 use pyo3::PyAny;
 use pyo3::PyRef;
 use pyo3::Python;
+use pyo3::intern;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::pyclass;
 use pyo3::pymethods;
@@ -100,7 +101,8 @@ impl PyArrayParts {
             let addr = buffer.as_ptr() as usize;
             let size = buffer.len();
             let base = &slf;
-            let pa_buffer = pyarrow.call_method("foreign_buffer", (addr, size, base), None)?;
+            let pa_buffer =
+                pyarrow.call_method(intern!(py, "foreign_buffer"), (addr, size, base), None)?;
             buffers.push(pa_buffer);
         }
 

@@ -56,7 +56,7 @@ where
 
     let indices = array.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let indices = indices.as_slice::<I>();
-    assert_eq!(indices.len() % FL_CHUNK_SIZE, 0);
+    assert!(indices.len().is_multiple_of(FL_CHUNK_SIZE));
 
     let chunk_start_idx = array.offset() / FL_CHUNK_SIZE;
     let chunk_end_idx = (array.offset() + array.len()).div_ceil(FL_CHUNK_SIZE);

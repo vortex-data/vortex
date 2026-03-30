@@ -5,6 +5,7 @@ mod operations;
 mod validity;
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -25,7 +26,7 @@ use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
-use crate::executor::ExecutionStep;
+use crate::executor::ExecutionResult;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
@@ -33,6 +34,7 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -40,7 +42,7 @@ use crate::vtable::validity_nchildren;
 use crate::vtable::validity_to_child;
 vtable!(Masked);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Masked;
 
 impl Masked {
@@ -54,7 +56,11 @@ impl VTable for Masked {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Masked
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -161,12 +167,12 @@ impl VTable for Masked {
         MaskedArray::try_new(child, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
-            return Ok(ExecutionStep::Done(
+            return Ok(ExecutionResult::done(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),
             ));
@@ -179,13 +185,13 @@ impl VTable for Masked {
         // `AllTrue` masks (no data copying), so there's no benefit.
 
         let child = array.child().clone().execute::<Canonical>(ctx)?;
-        Ok(ExecutionStep::Done(
+        Ok(ExecutionResult::done(
             mask_validity_canonical(child, &validity_mask, ctx)?.into_array(),
         ))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

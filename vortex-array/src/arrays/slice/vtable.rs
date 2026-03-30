@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -26,12 +27,13 @@ use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
-use crate::executor::ExecutionStep;
+use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -39,7 +41,7 @@ use crate::vtable::ValidityVTable;
 
 vtable!(Slice);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Slice;
 
 impl Slice {
@@ -51,7 +53,11 @@ impl VTable for Slice {
     type Metadata = SliceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Slice
+    }
+
+    fn id(&self) -> ArrayId {
         Slice::ID
     }
 
@@ -155,7 +161,7 @@ impl VTable for Slice {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // Execute the child to get canonical form, then slice it
         let Some(canonical) = array.child.as_opt::<AnyCanonical>() else {
             // If the child is not canonical, recurse.
@@ -164,18 +170,18 @@ impl VTable for Slice {
                 .clone()
                 .execute::<ArrayRef>(ctx)?
                 .slice(array.slice_range().clone())
-                .map(ExecutionStep::Done);
+                .map(ExecutionResult::done);
         };
 
         // TODO(ngates): we should inline canonical slice logic here.
         Canonical::from(canonical)
             .as_ref()
             .slice(array.range.clone())
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -183,7 +189,11 @@ impl VTable for Slice {
     }
 }
 impl OperationsVTable<Slice> for Slice {
-    fn scalar_at(array: &SliceArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &SliceArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         array.child.scalar_at(array.range.start + index)
     }
 }

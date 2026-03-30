@@ -14,6 +14,7 @@ use itertools::Itertools;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
+use parquet::file::metadata::PageIndexPolicy;
 use stream::StreamExt;
 use tokio::fs::File;
 use vortex::array::Canonical;
@@ -100,7 +101,7 @@ impl ParquetRandomAccessor {
     /// Open a Parquet file, parse the footer, and return a ready-to-use accessor.
     pub async fn open(path: PathBuf, name: impl Into<String>) -> anyhow::Result<Self> {
         let mut file = File::open(&path).await?;
-        let options = ArrowReaderOptions::new().with_page_index(true);
+        let options = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required);
         let arrow_metadata = ArrowReaderMetadata::load_async(&mut file, options).await?;
 
         let row_group_offsets = once(0)

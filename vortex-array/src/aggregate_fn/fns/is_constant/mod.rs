@@ -12,6 +12,7 @@ mod varbin;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use self::bool::check_bool_constant;
@@ -259,16 +260,28 @@ impl AggregateFnVTable for IsConstant {
         AggregateFnId::new_ref("vortex.is_constant")
     }
 
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &vortex_session::VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::Null => None,
+            DType::Null | DType::Variant(..) => None,
             _ => Some(DType::Bool(Nullability::NonNullable)),
         }
     }
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
-            DType::Null => None,
+            DType::Null | DType::Variant(..) => None,
             _ => Some(make_is_constant_partial_dtype(input_dtype)),
         }
     }
@@ -396,6 +409,9 @@ impl AggregateFnVTable for IsConstant {
                     Canonical::List(l) => check_listview_constant(l, ctx)?,
                     Canonical::FixedSizeList(f) => check_fixed_size_list_constant(f, ctx)?,
                     Canonical::Null(_) => true,
+                    Canonical::Variant(_) => {
+                        vortex_bail!("Variant arrays don't support IsConstant")
+                    }
                 };
 
                 if !batch_is_constant {

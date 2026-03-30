@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -12,7 +13,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::SharedArray;
 use crate::buffer::BufferHandle;
@@ -23,6 +24,7 @@ use crate::scalar::Scalar;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -32,7 +34,7 @@ vtable!(Shared);
 
 // TODO(ngates): consider hooking Shared into the iterative execution model. Cache either the
 //  most executed, or after each iteration, and return a shared cache for each execution.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Shared;
 
 impl Shared {
@@ -44,7 +46,11 @@ impl VTable for Shared {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Shared
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -145,14 +151,18 @@ impl VTable for Shared {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         array
             .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 }
 impl OperationsVTable<Shared> for Shared {
-    fn scalar_at(array: &SharedArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &SharedArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         array.current_array_ref().scalar_at(index)
     }
 }

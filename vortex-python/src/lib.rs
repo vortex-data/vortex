@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use std::ops::Deref;
 use std::sync::LazyLock;
 
 use pyo3::exceptions::PyRuntimeError;
+use pyo3::intern;
 use pyo3::prelude::*;
 
 pub(crate) mod arrays;
 pub mod arrow;
+pub(crate) mod classes;
 #[cfg(feature = "tui")]
 mod cli;
 mod compress;
@@ -107,10 +113,10 @@ pub fn install_module(name: &str, module: &Bound<PyModule>) -> PyResult<()> {
     module
         .py()
         .import("sys")?
-        .getattr("modules")?
+        .getattr(intern!(module.py(), "modules"))?
         .set_item(name, module)?;
     // needs to be set *after* `add_submodule()`
-    module.setattr("__name__", name)?;
+    module.setattr(intern!(module.py(), "__name__"), name)?;
     Ok(())
 }
 

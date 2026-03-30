@@ -26,17 +26,90 @@ item cannot be referenced in the documentation if it does not have a documentati
 
 ## Updating Headers
 
-To rebuild the header file (requires nightly toolchain):
+To rebuild the header file:
 
-```shell
+```sh
 cargo +nightly build -p vortex-ffi
 ```
 
 The header generation uses cbindgen's macro expansion feature which requires nightly.
 Stable builds use the checked-in header file at `cinclude/vortex.h`.
 
-### Development Workflow
+### Testing C part
 
-- **For header changes**: Use nightly toolchain to regenerate headers after modifying FFI code
-- **For regular development**: Stable toolchain builds work with existing checked-in headers
-- **CI validation**: Automated checks verify header freshness using nightly toolchain
+Build the test library
+
+```sh
+cmake -Bbuild
+cmake --build build -j $(nproc)
+```
+
+Run the tests
+
+```sh
+ctest --test-dir build -j $(nproc)
+```
+
+You would need C++ compiler toolchain to run the tests since they use Catch2.
+
+### Testing Rust part with sanitizers
+
+AddressSanitizer:
+
+```sh
+# inside vortex-ffi
+RUSTFLAGS="-Z sanitizer=address" \
+cargo +nightly test -Zbuild-std \
+    --no-default-features --target <target triple> \
+    -- --no-capture
+```
+
+MemorySanitizer:
+
+```sh
+RUSTFLAGS="-Z sanitizer=memory -Cunsafe-allow-abi-mismatch=sanitizer" \
+cargo +nightly test -Zbuild-std \
+    --no-default-features --target <target triple> \
+    -- --no-capture
+```
+
+ThreadSanitizer:
+
+```sh
+RUSTFLAGS="-Z sanitizer=thread -Cunsafe-allow-abi-mismatch=sanitizer" \
+cargo +nightly test -Zbuild-std \
+    --no-default-features --target <target triple> \
+    -- --no-capture
+```
+
+- `-Zbuild-std` is needed as memory and thread sanitizers report std errors
+  otherwise.
+- `--no-default-features` is needed as we use Mimalloc otherwise which interferes
+with sanitizers.
+- `allow-abi-mismatch` is safe because in our dependency graph only crates like
+  `compiler_builtins` unset sanitization, and they do it on purpose.
+- Make sure to use `cargo test` and not `cargo nextest` as nextest reports less
+leaks.
+- If you want stack trace symbolization, install `llvm-symbolizer`.
+
+### Testing Rust and C with sanitizers
+
+1. Build FFI library with external sanitizer runtime:
+
+```sh
+RUSTFLAGS="-Zsanitizer=address -Zexternal-clangrt" \
+cargo +nightly build -Zbuild-std --target=<target triple> \
+--no-default-features -p vortex-ffi
+```
+
+2. Build tests with target triple
+
+```sh
+cmake -Bbuild -DWITH_ASAN=1 -DTARGET_TRIPLE=<target triple>
+```
+
+3. Run the tests (ctest doesn't output failures in detail):
+
+```
+./build/test/vortex_ffi_test 2>& 1 | rustfilt -i-
+```

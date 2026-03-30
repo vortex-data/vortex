@@ -31,6 +31,7 @@ use vortex::scalar::Scalar;
 use vortex::scalar::StructScalar;
 
 use crate::PyVortex;
+use crate::classes::decimal_class;
 
 impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
     type Target = PyAny;
@@ -204,8 +205,7 @@ fn decimal_value_to_py(
     scale: i8,
     decimal_value: DecimalValue,
 ) -> PyResult<Bound<PyAny>> {
-    let m = py.import("decimal")?;
-    let decimal_class = m.getattr("Decimal")?;
+    let decimal_class = decimal_class(py)?;
 
     match_each_decimal_value!(decimal_value, |value| {
         let (whole, decimal) = value.decimal_parts(scale);

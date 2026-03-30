@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
@@ -16,7 +17,11 @@ use crate::timestamp;
 use crate::timestamp::TimestampParts;
 
 impl OperationsVTable<DateTimeParts> for DateTimeParts {
-    fn scalar_at(array: &DateTimePartsArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &DateTimePartsArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let DType::Extension(ext) = array.dtype().clone() else {
             vortex_panic!(
                 "DateTimePartsArray must have extension dtype, found {}",
