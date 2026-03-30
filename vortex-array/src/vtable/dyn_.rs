@@ -120,7 +120,7 @@ impl<V: VTable> DynVTable for V {
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let Some(reduced) = V::reduce(downcast_owned::<V>(array.clone()))? else {
+        let Some(reduced) = V::reduce(&downcast_owned::<V>(array.clone()))? else {
             return Ok(None);
         };
         vortex_ensure!(
@@ -222,8 +222,7 @@ impl<V: VTable> DynVTable for V {
 
 /// Borrow-downcast an `ArrayRef` to `&Array<V>`.
 fn downcast<V: VTable>(array: &ArrayRef) -> &Array<V> {
-    array
-        .as_any()
+    DynArray::as_any(array.as_ref())
         .downcast_ref::<Array<V>>()
         .vortex_expect("Failed to downcast array to expected encoding type")
 }
