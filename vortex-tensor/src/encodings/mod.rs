@@ -7,5 +7,5 @@
 // pub mod norm; // Unit-normalized vectors.
 // pub mod spherical; // Spherical transform on unit-normalized vectors.
 
-// TODO(will):
-// pub mod turboquant;
+#[allow(clippy::cast_possible_truncation)]
+pub mod turboquant;

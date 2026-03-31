@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Dictionary compressor that reuses the unique values in the `IntegerStats`.
+//! Dictionary compressor that reuses the unique values in the [`IntegerStats`].
 //!
-//! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
+//! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted
+//! for external compatibility.
 
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
@@ -11,26 +12,38 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 
-use super::IntegerStats;
-use super::stats::ErasedStats;
+use crate::stats::IntegerErasedStats;
+use crate::stats::IntegerStats;
 
+/// Encodes a typed integer array into a [`DictArray`] using the pre-computed distinct values.
 macro_rules! typed_encode {
     ($stats:ident, $typed:ident, $validity:ident, $typ:ty) => {{
-        let values: Buffer<$typ> = $typed.distinct_values.keys().map(|x| x.0).collect();
+        let distinct = $typed.distinct().vortex_expect(
+            "this must be present since `DictScheme` declared that we need distinct values",
+        );
+
+        let values: Buffer<$typ> = distinct.distinct_values().keys().map(|x| x.0).collect();
 
         let max_code = values.len();
         let codes = if max_code <= u8::MAX as usize {
-            let buf =
-                <DictEncoder as Encode<$typ, u8>>::encode(&values, $stats.src.as_slice::<$typ>());
+            let buf = <DictEncoder as Encode<$typ, u8>>::encode(
+                &values,
+                $stats.source().as_slice::<$typ>(),
+            );
             PrimitiveArray::new(buf, $validity.clone()).into_array()
         } else if max_code <= u16::MAX as usize {
-            let buf =
-                <DictEncoder as Encode<$typ, u16>>::encode(&values, $stats.src.as_slice::<$typ>());
+            let buf = <DictEncoder as Encode<$typ, u16>>::encode(
+                &values,
+                $stats.source().as_slice::<$typ>(),
+            );
             PrimitiveArray::new(buf, $validity.clone()).into_array()
         } else {
-            let buf =
-                <DictEncoder as Encode<$typ, u32>>::encode(&values, $stats.src.as_slice::<$typ>());
+            let buf = <DictEncoder as Encode<$typ, u32>>::encode(
+                &values,
+                $stats.source().as_slice::<$typ>(),
+            );
             PrimitiveArray::new(buf, $validity.clone()).into_array()
         };
 
@@ -40,39 +53,41 @@ macro_rules! typed_encode {
         };
 
         let values = PrimitiveArray::new(values, values_validity).into_array();
-        // SAFETY: invariants enforced in DictEncoder
+        // SAFETY: invariants enforced in DictEncoder.
         unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) }
     }};
 }
 
-/// Compresses an integer array into a dictionary arrays according to attached stats.
+/// Compresses an integer array into a dictionary array according to attached stats.
 #[expect(
     clippy::cognitive_complexity,
     reason = "complexity from match on all integer types"
 )]
 pub fn dictionary_encode(stats: &IntegerStats) -> DictArray {
-    // We need to preserve the nullability somehow from the original
-    let src_validity = stats.src.validity();
+    let src_validity = stats.source().validity();
 
-    match &stats.typed {
-        ErasedStats::U8(typed) => typed_encode!(stats, typed, src_validity, u8),
-        ErasedStats::U16(typed) => typed_encode!(stats, typed, src_validity, u16),
-        ErasedStats::U32(typed) => typed_encode!(stats, typed, src_validity, u32),
-        ErasedStats::U64(typed) => typed_encode!(stats, typed, src_validity, u64),
-        ErasedStats::I8(typed) => typed_encode!(stats, typed, src_validity, i8),
-        ErasedStats::I16(typed) => typed_encode!(stats, typed, src_validity, i16),
-        ErasedStats::I32(typed) => typed_encode!(stats, typed, src_validity, i32),
-        ErasedStats::I64(typed) => typed_encode!(stats, typed, src_validity, i64),
+    match stats.erased() {
+        IntegerErasedStats::U8(typed) => typed_encode!(stats, typed, src_validity, u8),
+        IntegerErasedStats::U16(typed) => typed_encode!(stats, typed, src_validity, u16),
+        IntegerErasedStats::U32(typed) => typed_encode!(stats, typed, src_validity, u32),
+        IntegerErasedStats::U64(typed) => typed_encode!(stats, typed, src_validity, u64),
+        IntegerErasedStats::I8(typed) => typed_encode!(stats, typed, src_validity, i8),
+        IntegerErasedStats::I16(typed) => typed_encode!(stats, typed, src_validity, i16),
+        IntegerErasedStats::I32(typed) => typed_encode!(stats, typed, src_validity, i32),
+        IntegerErasedStats::I64(typed) => typed_encode!(stats, typed, src_validity, i64),
     }
 }
 
+/// Stateless encoder that maps values to dictionary codes via a `HashMap`.
 struct DictEncoder;
 
+/// Trait for encoding values of type `T` into codes of type `I`.
 trait Encode<T, I> {
     /// Using the distinct value set, turn the values into a set of codes.
     fn encode(distinct: &[T], values: &[T]) -> Buffer<I>;
 }
 
+/// Implements [`Encode`] for an integer type with all code width variants (u8, u16, u32).
 macro_rules! impl_encode {
     ($typ:ty) => { impl_encode!($typ, u8, u16, u32); };
     ($typ:ty, $($ityp:ty),+) => {
@@ -90,13 +105,12 @@ macro_rules! impl_encode {
 
                 let mut output = vortex_buffer::BufferMut::with_capacity(values.len());
                 for value in values {
-                    // Any code lookups which fail are for nulls, so their value
-                    // does not matter.
+                    // Any code lookups which fail are for nulls, so their value does not matter.
                     // SAFETY: we have exactly sized output to be as large as values.
                     unsafe { output.push_unchecked(codes.get(value).copied().unwrap_or_default()) };
                 }
 
-                return output.freeze();
+                output.freeze()
             }
         }
         )*
@@ -122,32 +136,31 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use super::IntegerStats;
     use super::dictionary_encode;
-    use crate::CompressorStats;
+    use crate::stats::IntegerStats;
 
     #[test]
     fn test_dict_encode_integer_stats() {
-        // Create an array that has some nulls
         let data = buffer![100i32, 200, 100, 0, 100];
         let validity =
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array());
         let array = PrimitiveArray::new(data, validity);
 
-        let stats = IntegerStats::generate(&array);
+        let stats = IntegerStats::generate_opts(
+            &array,
+            crate::stats::GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+        );
         let dict_array = dictionary_encode(&stats);
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 
-        let undict = dict_array;
-
-        // We just use code zero, but it doesn't really matter.
-        // We can just shove a whole validity buffer in there instead.
         let expected = PrimitiveArray::new(
             buffer![100i32, 200, 100, 100, 100],
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array()),
         )
         .into_array();
-        assert_arrays_eq!(undict.as_ref(), expected.as_ref());
+        assert_arrays_eq!(dict_array.as_ref(), expected.as_ref());
     }
 }

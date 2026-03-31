@@ -9,7 +9,6 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::validity::Validity;
-use vortex_btrblocks::CompressorStats;
 use vortex_btrblocks::IntegerStats;
 use vortex_btrblocks::integer_dictionary_encode;
 use vortex_buffer::BufferMut;

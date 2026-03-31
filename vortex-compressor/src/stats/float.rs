@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Float compression statistics.
+
 use std::hash::Hash;
 
 use itertools::Itertools;
 use num_traits::Float;
 use rustc_hash::FxBuildHasher;
-use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
-use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
@@ -21,52 +20,92 @@ use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::CompressorStats;
-use crate::GenerateStatsOptions;
-use crate::compressor::rle::RLEStats;
-use crate::sample::sample;
+use super::GenerateStatsOptions;
 
+/// Information about the distinct values in a float array.
 #[derive(Debug, Clone)]
-pub struct DistinctValues<T> {
-    pub values: HashSet<NativeValue<T>, FxBuildHasher>,
+pub struct DistinctInfo<T> {
+    /// The set of distinct float values.
+    distinct_values: HashSet<NativeValue<T>, FxBuildHasher>,
+    /// The count of unique values.
+    distinct_count: u32,
 }
 
-#[derive(Debug, Clone)]
-pub enum ErasedDistinctValues {
-    F16(DistinctValues<f16>),
-    F32(DistinctValues<f32>),
-    F64(DistinctValues<f64>),
+impl<T> DistinctInfo<T> {
+    /// Returns a reference to the distinct values set.
+    pub fn distinct_values(&self) -> &HashSet<NativeValue<T>, FxBuildHasher> {
+        &self.distinct_values
+    }
 }
 
+/// Typed statistics for a specific float type.
+#[derive(Debug, Clone)]
+pub struct TypedStats<T> {
+    /// Distinct value information, or `None` if not computed.
+    distinct: Option<DistinctInfo<T>>,
+}
+
+impl<T> TypedStats<T> {
+    /// Returns the distinct value information, if computed.
+    pub fn distinct(&self) -> Option<&DistinctInfo<T>> {
+        self.distinct.as_ref()
+    }
+}
+
+/// Type-erased container for one of the [`TypedStats`] variants.
+#[derive(Debug, Clone)]
+pub enum ErasedStats {
+    /// Stats for `f16` arrays.
+    F16(TypedStats<f16>),
+    /// Stats for `f32` arrays.
+    F32(TypedStats<f32>),
+    /// Stats for `f64` arrays.
+    F64(TypedStats<f64>),
+}
+
+impl ErasedStats {
+    /// Get the count of distinct values, if we have computed it already.
+    fn distinct_count(&self) -> Option<u32> {
+        match self {
+            ErasedStats::F16(x) => x.distinct.as_ref().map(|d| d.distinct_count),
+            ErasedStats::F32(x) => x.distinct.as_ref().map(|d| d.distinct_count),
+            ErasedStats::F64(x) => x.distinct.as_ref().map(|d| d.distinct_count),
+        }
+    }
+}
+
+/// Implements `From<TypedStats<$T>>` for [`ErasedStats`].
 macro_rules! impl_from_typed {
-    ($typ:ty, $variant:path) => {
-        impl From<DistinctValues<$typ>> for ErasedDistinctValues {
-            fn from(value: DistinctValues<$typ>) -> Self {
-                $variant(value)
+    ($T:ty, $variant:path) => {
+        impl From<TypedStats<$T>> for ErasedStats {
+            fn from(typed: TypedStats<$T>) -> Self {
+                $variant(typed)
             }
         }
     };
 }
 
-impl_from_typed!(f16, ErasedDistinctValues::F16);
-impl_from_typed!(f32, ErasedDistinctValues::F32);
-impl_from_typed!(f64, ErasedDistinctValues::F64);
+impl_from_typed!(f16, ErasedStats::F16);
+impl_from_typed!(f32, ErasedStats::F32);
+impl_from_typed!(f64, ErasedStats::F64);
 
 /// Array of floating-point numbers and relevant stats for compression.
 #[derive(Debug, Clone)]
 pub struct FloatStats {
-    pub(crate) src: PrimitiveArray,
-    // cache for validity.false_count()
-    pub(crate) null_count: u32,
-    // cache for validity.true_count()
-    pub(crate) value_count: u32,
-    #[allow(dead_code)]
-    pub(crate) average_run_length: u32,
-    pub(crate) distinct_values: ErasedDistinctValues,
-    pub(crate) distinct_values_count: u32,
+    /// The underlying source array.
+    src: PrimitiveArray,
+    /// Cache for `validity.false_count()`.
+    null_count: u32,
+    /// Cache for `validity.true_count()`.
+    value_count: u32,
+    /// The average run length.
+    average_run_length: u32,
+    /// Type-erased typed statistics.
+    erased: ErasedStats,
 }
 
 impl FloatStats {
+    /// Generates stats, returning an error on failure.
     fn generate_opts_fallible(
         input: &PrimitiveArray,
         opts: GenerateStatsOptions,
@@ -78,62 +117,68 @@ impl FloatStats {
             _ => vortex_panic!("cannot generate FloatStats from ptype {}", input.ptype()),
         }
     }
+
+    /// Get the count of distinct values, if we have computed it already.
+    pub fn distinct_count(&self) -> Option<u32> {
+        self.erased.distinct_count()
+    }
 }
 
-impl CompressorStats for FloatStats {
-    type ArrayVTable = Primitive;
+impl FloatStats {
+    /// Generates stats with default options.
+    pub fn generate(input: &PrimitiveArray) -> Self {
+        Self::generate_opts(input, GenerateStatsOptions::default())
+    }
 
-    fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
+    /// Generates stats with provided options.
+    pub fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
             .vortex_expect("FloatStats::generate_opts should not fail")
     }
 
-    fn source(&self) -> &PrimitiveArray {
+    /// Returns the underlying source array.
+    pub fn source(&self) -> &PrimitiveArray {
         &self.src
     }
 
-    fn sample_opts(&self, sample_size: u32, sample_count: u32, opts: GenerateStatsOptions) -> Self {
-        let sampled =
-            sample(&self.src.clone().into_array(), sample_size, sample_count).to_primitive();
-
-        Self::generate_opts(&sampled, opts)
+    /// Returns the number of null values.
+    pub fn null_count(&self) -> u32 {
+        self.null_count
     }
-}
 
-impl RLEStats for FloatStats {
-    fn value_count(&self) -> u32 {
+    /// Returns the number of non-null values.
+    pub fn value_count(&self) -> u32 {
         self.value_count
     }
 
-    fn average_run_length(&self) -> u32 {
+    /// Returns the average run length.
+    pub fn average_run_length(&self) -> u32 {
         self.average_run_length
     }
 
-    fn source(&self) -> &PrimitiveArray {
-        &self.src
+    /// Returns the type-erased typed statistics.
+    pub fn erased(&self) -> &ErasedStats {
+        &self.erased
     }
 }
 
+/// Computes typed float statistics for a specific float type.
 fn typed_float_stats<T: NativePType + Float>(
     array: &PrimitiveArray,
     count_distinct_values: bool,
 ) -> VortexResult<FloatStats>
 where
-    DistinctValues<T>: Into<ErasedDistinctValues>,
     NativeValue<T>: Hash + Eq,
+    TypedStats<T>: Into<ErasedStats>,
 {
-    // Special case: empty array
+    // Special case: empty array.
     if array.is_empty() {
         return Ok(FloatStats {
             src: array.clone(),
             null_count: 0,
             value_count: 0,
             average_run_length: 0,
-            distinct_values_count: 0,
-            distinct_values: DistinctValues {
-                values: HashSet::<NativeValue<T>, FxBuildHasher>::with_hasher(FxBuildHasher),
-            }
-            .into(),
+            erased: TypedStats { distinct: None }.into(),
         });
     } else if array.all_invalid()? {
         return Ok(FloatStats {
@@ -141,11 +186,7 @@ where
             null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
-            distinct_values_count: 0,
-            distinct_values: DistinctValues {
-                values: HashSet::<NativeValue<T>, FxBuildHasher>::with_hasher(FxBuildHasher),
-            }
-            .into(),
+            erased: TypedStats { distinct: None }.into(),
         });
     }
 
@@ -208,22 +249,19 @@ where
 
     let null_count = u32::try_from(null_count)?;
     let value_count = u32::try_from(value_count)?;
-    let distinct_values_count = if count_distinct_values {
-        u32::try_from(distinct_values.len())?
-    } else {
-        u32::MAX
-    };
+
+    let distinct = count_distinct_values.then(|| DistinctInfo {
+        distinct_count: u32::try_from(distinct_values.len())
+            .vortex_expect("more than u32::MAX distinct values"),
+        distinct_values,
+    });
 
     Ok(FloatStats {
         null_count,
         value_count,
-        distinct_values_count,
         src: array.clone(),
         average_run_length: value_count / runs,
-        distinct_values: DistinctValues {
-            values: distinct_values,
-        }
-        .into(),
+        erased: TypedStats { distinct }.into(),
     })
 }
 
@@ -236,19 +274,23 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::FloatStats;
-    use crate::CompressorStats;
 
     #[test]
     fn test_float_stats() {
         let floats = buffer![0.0f32, 1.0f32, 2.0f32].into_array();
         let floats = floats.to_primitive();
 
-        let stats = FloatStats::generate(&floats);
+        let stats = FloatStats::generate_opts(
+            &floats,
+            crate::stats::GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+        );
 
         assert_eq!(stats.value_count, 3);
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.average_run_length, 1);
-        assert_eq!(stats.distinct_values_count, 3);
+        assert_eq!(stats.distinct_count().unwrap(), 3);
     }
 
     #[test]
@@ -258,11 +300,16 @@ mod tests {
             Validity::from_iter([false, true, true]),
         );
 
-        let stats = FloatStats::generate(&floats);
+        let stats = FloatStats::generate_opts(
+            &floats,
+            crate::stats::GenerateStatsOptions {
+                count_distinct_values: true,
+            },
+        );
 
         assert_eq!(stats.value_count, 2);
         assert_eq!(stats.null_count, 1);
         assert_eq!(stats.average_run_length, 1);
-        assert_eq!(stats.distinct_values_count, 2);
+        assert_eq!(stats.distinct_count().unwrap(), 2);
     }
 }

@@ -22,11 +22,9 @@ pub use vortex::compressor::BtrBlocksCompressor
 
 pub use vortex::compressor::BtrBlocksCompressorBuilder
 
-pub use vortex::compressor::FloatCode
+pub use vortex::compressor::Scheme
 
-pub use vortex::compressor::IntCode
-
-pub use vortex::compressor::StringCode
+pub use vortex::compressor::SchemeId
 
 pub mod vortex::dtype
 

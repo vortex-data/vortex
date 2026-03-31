@@ -44,7 +44,6 @@ vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-sparse = { workspace = true }
-vortex-turboquant = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }

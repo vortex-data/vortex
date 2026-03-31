@@ -28,13 +28,6 @@ use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArrayRegistry;
 use vortex_array::session::ArraySession;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::FloatCode;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::IntCode;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::StringCode;
 use vortex_bytebool::ByteBool;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_decimal_byte_parts::DecimalByteParts;
@@ -60,9 +53,18 @@ use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
-use vortex_turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_zigzag::ZigZag;
+
+#[rustfmt::skip]
+#[cfg(feature = "zstd")]
+use vortex_btrblocks::{
+    BtrBlocksCompressorBuilder,
+    SchemeExt,
+    schemes::float,
+    schemes::integer,
+    schemes::string,
+};
 #[cfg(feature = "zstd")]
 use vortex_zstd::Zstd;
 #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
@@ -110,7 +112,6 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
     session.register(Sequence);
     session.register(Sparse);
     session.register(ZigZag);
-    session.register(TurboQuant);
 
     #[cfg(feature = "zstd")]
     session.register(Zstd);
@@ -127,7 +128,6 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
 /// bulk decoding performance, and IOPS required to perform an indexed read.
 pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
-    turboquant_config: Option<vortex_turboquant::TurboQuantConfig>,
     row_block_size: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<ArrayRegistry>,
@@ -140,7 +140,6 @@ impl Default for WriteStrategyBuilder {
     fn default() -> Self {
         Self {
             compressor: None,
-            turboquant_config: None,
             row_block_size: 8192,
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
@@ -199,18 +198,22 @@ impl WriteStrategyBuilder {
     /// GPU decompression. Without it, strings use interleaved Zstd compression.
     #[cfg(feature = "zstd")]
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
-        let mut builder = BtrBlocksCompressorBuilder::default()
-            .exclude_int([IntCode::Sparse, IntCode::Rle])
-            .exclude_float([FloatCode::Rle, FloatCode::Sparse])
-            .exclude_string([StringCode::Dict, StringCode::Fsst]);
+        let mut builder = BtrBlocksCompressorBuilder::default().exclude([
+            integer::SparseScheme.id(),
+            integer::RLE_INTEGER_SCHEME.id(),
+            float::RLE_FLOAT_SCHEME.id(),
+            float::NullDominatedSparseScheme.id(),
+            string::StringDictScheme.id(),
+            string::FSSTScheme.id(),
+        ]);
 
         #[cfg(feature = "unstable_encodings")]
         {
-            builder = builder.include_string([StringCode::ZstdBuffers]);
+            builder = builder.include([string::ZstdBuffersScheme.id()]);
         }
         #[cfg(not(feature = "unstable_encodings"))]
         {
-            builder = builder.include_string([StringCode::Zstd]);
+            builder = builder.include([string::ZstdScheme.id()]);
         }
 
         self.compressor = Some(Arc::new(builder.build()));
@@ -225,35 +228,14 @@ impl WriteStrategyBuilder {
     #[cfg(feature = "zstd")]
     pub fn with_compact_encodings(mut self) -> Self {
         let btrblocks = BtrBlocksCompressorBuilder::default()
-            .include_string([StringCode::Zstd])
-            .include_int([IntCode::Pco])
-            .include_float([FloatCode::Pco])
+            .include([
+                string::ZstdScheme.id(),
+                integer::PcoScheme.id(),
+                float::PcoScheme.id(),
+            ])
             .build();
 
         self.compressor = Some(Arc::new(btrblocks));
-        self
-    }
-
-    /// Configure lossy vector quantization for tensor columns using TurboQuant.
-    ///
-    /// Columns with `Vector` or `FixedShapeTensor` extension types will be quantized at the
-    /// specified bit-width. All other columns use the default BtrBlocks compression strategy.
-    /// The TurboQuant array's children (norms, codes) are recursively compressed by the
-    /// BtrBlocks compressor.
-    ///
-    /// This can be combined with other builder methods. If a custom compressor is also set
-    /// via [`with_compressor`](Self::with_compressor), the custom compressor takes precedence
-    /// and the TurboQuant config is ignored.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// WriteStrategyBuilder::default()
-    ///     .with_vector_quantization(TurboQuantConfig { bit_width: 3, seed: None })
-    ///     .build()
-    /// ```
-    pub fn with_vector_quantization(mut self, config: vortex_turboquant::TurboQuantConfig) -> Self {
-        self.turboquant_config = Some(config);
         self
     }
 
@@ -275,14 +257,6 @@ impl WriteStrategyBuilder {
         // 5. compress each chunk
         let compressing = if let Some(ref compressor) = self.compressor {
             CompressingStrategy::new_opaque(buffered, compressor.clone())
-        } else if let Some(tq_config) = self.turboquant_config {
-            let btrblocks = BtrBlocksCompressorBuilder::default()
-                .with_turboquant(tq_config)
-                .build();
-            CompressingStrategy::new_opaque(
-                buffered,
-                Arc::new(btrblocks) as Arc<dyn CompressorPlugin>,
-            )
         } else {
             CompressingStrategy::new_btrblocks(buffered, true)
         };
