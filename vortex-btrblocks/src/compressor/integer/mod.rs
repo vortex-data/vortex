@@ -975,8 +975,7 @@ mod tests {
         assert!(compressed.is::<Sparse>());
         let decoded = compressed.clone();
         let expected =
-            PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity())
-                .into_array();
+            PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity()).into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
         Ok(())
     }
