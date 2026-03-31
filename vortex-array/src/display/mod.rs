@@ -7,6 +7,7 @@ mod tree_display;
 
 use std::fmt::Display;
 
+pub use extractor::IndentedFormatter;
 pub use extractor::TreeContext;
 pub use extractor::TreeExtractor;
 pub use extractors::BufferExtractor;

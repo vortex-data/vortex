@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
+use std::fmt::Write;
 
 use humansize::DECIMAL;
 use humansize::format_size;
 
 use crate::DynArray;
+use crate::display::extractor::IndentedFormatter;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
 
@@ -21,7 +23,7 @@ impl TreeExtractor for BufferExtractor {
         &self,
         array: &dyn DynArray,
         _ctx: &TreeContext,
-        f: &mut dyn fmt::Write,
+        f: &mut IndentedFormatter<'_, '_>,
     ) -> fmt::Result {
         let nbytes = array.nbytes();
         for (name, buffer) in array.named_buffers() {

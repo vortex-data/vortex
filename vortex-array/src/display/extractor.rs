@@ -37,7 +37,11 @@ impl TreeContext {
 }
 
 /// A formatter wrapper that automatically prepends indentation at the start of each line.
-pub(crate) struct IndentedFormatter<'a, 'b> {
+///
+/// Implements [`fmt::Write`] so content written through it is automatically indented.
+/// Use [`formatter()`](Self::formatter) to access the underlying [`fmt::Formatter`] directly
+/// when you need formatting flags (width, precision, fill, etc.).
+pub struct IndentedFormatter<'a, 'b> {
     inner: &'a mut fmt::Formatter<'b>,
     indent: &'a str,
     at_line_start: bool,
@@ -50,6 +54,13 @@ impl<'a, 'b> IndentedFormatter<'a, 'b> {
             indent,
             at_line_start: true,
         }
+    }
+
+    /// Access the underlying [`fmt::Formatter`] directly.
+    ///
+    /// Writes through this bypass indentation but have access to formatting flags.
+    pub fn formatter(&mut self) -> &mut fmt::Formatter<'b> {
+        self.inner
     }
 }
 
@@ -101,12 +112,14 @@ pub trait TreeExtractor: Send + Sync {
 
     /// Write detail lines below the header.
     ///
-    /// The caller handles indentation — extractors just write their content directly.
+    /// Content written through `f` is automatically indented. Use
+    /// [`f.formatter()`](IndentedFormatter::formatter) to access the underlying
+    /// [`fmt::Formatter`] for formatting flags.
     fn write_details(
         &self,
         array: &dyn DynArray,
         ctx: &TreeContext,
-        f: &mut dyn Write,
+        f: &mut IndentedFormatter<'_, '_>,
     ) -> fmt::Result {
         let _ = (array, ctx, f);
         Ok(())
