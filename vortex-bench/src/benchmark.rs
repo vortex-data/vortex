@@ -93,4 +93,13 @@ pub trait Benchmark: Send + Sync {
                 .join("results"),
         )
     }
+
+    /// Path to a per-engine `.slt` file containing all queries and expected results.
+    ///
+    /// Each engine (e.g. `"datafusion"`, `"duckdb"`) has its own SLT file with
+    /// exact expected output for that engine, avoiding float normalization issues.
+    fn slt_path(&self, engine: &str) -> Option<PathBuf> {
+        let _ = engine;
+        None
+    }
 }

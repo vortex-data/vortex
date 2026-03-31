@@ -1,0 +1,5 @@
+query T rowsort bench_20
+SELECT COUNT(*) FROM hits WHERE "URL" LIKE '%google%'
+----
+15911
+

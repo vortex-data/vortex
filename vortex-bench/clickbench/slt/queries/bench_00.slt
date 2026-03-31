@@ -1,0 +1,5 @@
+query T rowsort bench_0
+SELECT COUNT(*) FROM hits
+----
+99997497
+

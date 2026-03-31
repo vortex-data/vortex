@@ -1,0 +1,5 @@
+query TTT rowsort bench_2
+SELECT SUM("AdvEngineID"), COUNT(*), AVG("ResolutionWidth") FROM hits
+----
+7280088 99997497 1513.4879349030107
+

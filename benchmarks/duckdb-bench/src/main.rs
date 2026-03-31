@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod validation;
-
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -82,14 +80,6 @@ struct Args {
     #[arg(long, default_value_t = false, conflicts_with = "explain")]
     print_results: bool,
 
-    /// Regenerate `.slt.no` reference files from actual query output.
-    #[arg(
-        long,
-        default_value_t = false,
-        conflicts_with_all = ["explain", "validate"]
-    )]
-    regenerate_slt: bool,
-
     #[arg(
         long,
         default_value_t = false,
@@ -165,28 +155,11 @@ fn main() -> anyhow::Result<()> {
 
     let benchmark_name = benchmark.dataset().to_string();
 
-    let mode = if args.explain {
-        BenchmarkMode::Explain
-    } else if args.regenerate_slt {
-        BenchmarkMode::RegenerateSlt
-    } else if args.validate {
-        BenchmarkMode::Run {
-            iterations: 1,
-            validate: true,
-            print_results: false,
-        }
-    } else {
-        BenchmarkMode::Run {
-            iterations: args.iterations,
-            validate: std::env::var("CI").is_ok(),
-            print_results: args.print_results,
-        }
-    };
+    let validate = args.validate || std::env::var("CI").is_ok();
+    let iterations = if args.validate { 1 } else { args.iterations };
 
-    runner.run_all(
-        &filtered_queries,
-        mode,
-        |format| {
+    if let Some(slt_path) = benchmark.slt_path("duckdb") {
+        for &format in &args.formats {
             let ctx = DuckClient::new(
                 &*benchmark,
                 format,
@@ -194,24 +167,62 @@ fn main() -> anyhow::Result<()> {
                 args.threads,
             )?;
             ctx.register_tables(&*benchmark, format)?;
-            Ok(ctx)
-        },
-        |ctx, query_idx, format, query| {
-            set_global_labels(vec![
-                ("format", format.to_string()),
-                ("benchmark_name", benchmark_name.clone()),
-                ("query_idx", query_idx.to_string()),
-            ]);
 
-            // Make sure to reopen the duckdb connection between iterations
-            if !args.reuse {
-                ctx.reopen()?;
+            runner.run_slt(
+                &slt_path,
+                "duckdb",
+                format,
+                iterations,
+                validate,
+                args.queries.as_ref(),
+                args.exclude_queries.as_ref(),
+                |sql| {
+                    let _ = ctx.execute_query(sql)?;
+                    Ok(())
+                },
+                |query| ctx.execute_query_result(query),
+            )?;
+        }
+    } else {
+        let mode = if args.explain {
+            BenchmarkMode::Explain
+        } else {
+            BenchmarkMode::Run {
+                iterations,
+                validate,
+                print_results: args.print_results,
             }
-            ctx.execute_query_result(query)
-        },
-    )?;
+        };
 
-    if !args.explain && !args.validate && !args.regenerate_slt {
+        runner.run_all(
+            &filtered_queries,
+            mode,
+            |format| {
+                let ctx = DuckClient::new(
+                    &*benchmark,
+                    format,
+                    args.delete_duckdb_database,
+                    args.threads,
+                )?;
+                ctx.register_tables(&*benchmark, format)?;
+                Ok(ctx)
+            },
+            |ctx, query_idx, format, query| {
+                set_global_labels(vec![
+                    ("format", format.to_string()),
+                    ("benchmark_name", benchmark_name.clone()),
+                    ("query_idx", query_idx.to_string()),
+                ]);
+
+                if !args.reuse {
+                    ctx.reopen()?;
+                }
+                ctx.execute_query_result(query)
+            },
+        )?;
+    }
+
+    if !args.explain {
         let benchmark_id = format!("duckdb-{}", benchmark.dataset_name());
         let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
         runner.export_to(&args.display_format, writer)?;

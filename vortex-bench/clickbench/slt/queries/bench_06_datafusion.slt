@@ -1,0 +1,5 @@
+query TT rowsort bench_6
+SELECT MIN("EventDate"), MAX("EventDate") FROM hits
+----
+2013-07-02T00:00:00 2013-07-31T00:00:00
+

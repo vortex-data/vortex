@@ -1,0 +1,5 @@
+query T rowsort bench_3
+SELECT AVG("UserID") FROM hits
+----
+2.528953029789716e18
+

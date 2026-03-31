@@ -154,6 +154,18 @@ impl Benchmark for TpcHBenchmark {
         }
     }
 
+    fn slt_path(&self, engine: &str) -> Option<PathBuf> {
+        match self.scale_factor.as_str() {
+            "1.0" => Some(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join(self.dataset_name())
+                    .join("slt")
+                    .join(format!("tpch_{engine}.slt")),
+            ),
+            _ => None,
+        }
+    }
+
     #[expect(clippy::expect_used, clippy::unwrap_in_result)]
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
         Some(

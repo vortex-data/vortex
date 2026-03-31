@@ -107,14 +107,6 @@ struct Args {
     #[arg(long, default_value_t = false, conflicts_with = "explain")]
     print_results: bool,
 
-    /// Regenerate `.slt.no` reference files from actual query output.
-    #[arg(
-        long,
-        default_value_t = false,
-        conflicts_with_all = ["explain", "validate"]
-    )]
-    regenerate_slt: bool,
-
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
@@ -179,71 +171,108 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(Mutex::new(Vec::new()));
     let show_metrics = args.show_metrics;
 
-    let mode = if args.explain {
-        BenchmarkMode::Explain
-    } else if args.regenerate_slt {
-        BenchmarkMode::RegenerateSlt
-    } else if args.validate {
-        BenchmarkMode::Run {
-            iterations: 1,
-            validate: true,
-            print_results: false,
+    let validate = args.validate || std::env::var("CI").is_ok();
+    let iterations = if args.validate { 1 } else { args.iterations };
+
+    if let Some(slt_path) = benchmark.slt_path("datafusion") {
+        for &format in &args.formats {
+            let session = Arc::new(datafusion_bench::get_session_context());
+            datafusion_bench::make_object_store(&session, benchmark.data_url())?;
+            register_benchmark_tables(&session, &*benchmark, format).await?;
+
+            runner
+                .run_slt_async(
+                    &slt_path,
+                    "datafusion",
+                    format,
+                    iterations,
+                    validate,
+                    args.queries.as_ref(),
+                    args.exclude_queries.as_ref(),
+                    |sql| {
+                        let session = Arc::clone(&session);
+                        let sql = sql.to_string();
+                        async move {
+                            session.sql(&sql).await?.collect().await?;
+                            Ok(())
+                        }
+                    },
+                    |query| {
+                        let session = Arc::clone(&session);
+                        let plans = Arc::clone(&collected_plans);
+                        Box::pin(async move {
+                            let timer = Instant::now();
+                            let (batches, plan) = execute_query(&session, query).await?;
+                            let time = timer.elapsed();
+
+                            if show_metrics {
+                                let mut plans_mut = plans.lock();
+                                plans_mut.push((0, format, plan.clone()));
+                            }
+
+                            anyhow::Ok((Some(time), DataFusionQueryResult(batches)))
+                        })
+                    },
+                )
+                .await?;
         }
     } else {
-        BenchmarkMode::Run {
-            iterations: args.iterations,
-            validate: std::env::var("CI").is_ok(),
-            print_results: args.print_results,
-        }
-    };
+        let mode = if args.explain {
+            BenchmarkMode::Explain
+        } else {
+            BenchmarkMode::Run {
+                iterations,
+                validate,
+                print_results: args.print_results,
+            }
+        };
 
-    runner
-        .run_all_async(
-            &filtered_queries,
-            mode,
-            |format| {
-                let benchmark = &*benchmark;
-                async move {
-                    let session = datafusion_bench::get_session_context();
-                    datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format).await?;
-                    Ok((session, format))
-                }
-            },
-            |query_idx, (session, format), query| {
-                let plans = Arc::clone(&collected_plans);
-
-                let labelset = set_labels(benchmark_name.clone(), query_idx, *format);
-
-                Box::pin(
+        runner
+            .run_all_async(
+                &filtered_queries,
+                mode,
+                |format| {
+                    let benchmark = &*benchmark;
                     async move {
-                        let timer = Instant::now();
-                        let (batches, plan) = execute_query(session, query)
-                            .with_labelset(get_labelset_from_global())
-                            .await?;
-                        let time = timer.elapsed();
-
-                        // Store plan for metrics (only store once per query/format combination)
-                        if show_metrics {
-                            let mut plans_mut = plans.lock();
-                            // Only store if we don't already have this query/format combo
-                            if !plans_mut
-                                .iter()
-                                .any(|(idx, f, _)| *idx == query_idx && *f == *format)
-                            {
-                                plans_mut.push((query_idx, *format, plan.clone()));
-                            }
-                        }
-
-                        anyhow::Ok((Some(time), DataFusionQueryResult(batches)))
+                        let session = datafusion_bench::get_session_context();
+                        datafusion_bench::make_object_store(&session, benchmark.data_url())?;
+                        register_benchmark_tables(&session, benchmark, format).await?;
+                        Ok((session, format))
                     }
-                    .with_labelset(labelset),
-                )
-            },
-        )
-        .await?;
+                },
+                |query_idx, (session, format), query| {
+                    let plans = Arc::clone(&collected_plans);
 
-    if !args.explain && !args.validate && !args.regenerate_slt {
+                    let labelset = set_labels(benchmark_name.clone(), query_idx, *format);
+
+                    Box::pin(
+                        async move {
+                            let timer = Instant::now();
+                            let (batches, plan) = execute_query(session, query)
+                                .with_labelset(get_labelset_from_global())
+                                .await?;
+                            let time = timer.elapsed();
+
+                            if show_metrics {
+                                let mut plans_mut = plans.lock();
+                                if !plans_mut
+                                    .iter()
+                                    .any(|(idx, f, _)| *idx == query_idx && *f == *format)
+                                {
+                                    plans_mut.push((query_idx, *format, plan.clone()));
+                                }
+                            }
+
+                            anyhow::Ok((Some(time), DataFusionQueryResult(batches)))
+                        }
+                        .with_labelset(labelset),
+                    )
+                },
+            )
+            .await?;
+    }
+
+    if !args.explain {
         // Print metrics if requested
         if show_metrics {
             let plans = collected_plans.lock();

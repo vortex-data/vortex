@@ -7,12 +7,20 @@ use std::fs;
 use std::fs::File;
 use std::future::Future;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::time::Duration;
 use std::time::Instant;
 
+use datafusion_sqllogictest::value_normalizer;
 use indicatif::ProgressBar;
+use sqllogictest::Condition;
+use sqllogictest::DefaultColumnType;
+use sqllogictest::QueryExpect;
+use sqllogictest::Record;
+use sqllogictest::default_validator;
+use sqllogictest::parse_file;
 use vortex::error::vortex_panic;
 
 use crate::Benchmark;
@@ -611,6 +619,325 @@ impl SqlBenchmarkRunner {
         }
 
         Ok(())
+    }
+
+    /// Run benchmarks driven by a consolidated `.slt` file.
+    ///
+    /// Parses the SLT file, filters records by `engine_label` (via `onlyif`/`skipif`
+    /// conditions), and for each matching `query` record with a `bench_N` label:
+    /// executes `iterations` times, validates against expected results, and records
+    /// timing measurements.
+    ///
+    /// `Statement` records are executed once as setup (not timed).
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_slt<R, S, E>(
+        &mut self,
+        slt_path: &Path,
+        engine_label: &str,
+        format: Format,
+        iterations: usize,
+        validate: bool,
+        include_queries: Option<&Vec<usize>>,
+        exclude_queries: Option<&Vec<usize>>,
+        mut setup: S,
+        mut execute: E,
+    ) -> anyhow::Result<()>
+    where
+        R: BenchmarkQueryResult,
+        S: FnMut(&str) -> anyhow::Result<()>,
+        E: FnMut(&str) -> anyhow::Result<(Option<Duration>, R)>,
+    {
+        let records = parse_file::<DefaultColumnType>(slt_path)
+            .map_err(|e| anyhow::anyhow!("Failed to parse {}: {e}", slt_path.display()))?;
+
+        let bench_records = collect_bench_records(&records, engine_label);
+
+        let progress_bar = if self.hide_progress_bar || bench_records.is_empty() {
+            ProgressBar::hidden()
+        } else {
+            ProgressBar::new(bench_records.len() as u64)
+        };
+
+        let mut validation_failures = Vec::new();
+
+        for record in &records {
+            match record {
+                Record::Statement {
+                    conditions, sql, ..
+                } if !should_skip(conditions, engine_label) => {
+                    setup(sql)?;
+                }
+                Record::Query {
+                    conditions,
+                    sql,
+                    expected,
+                    ..
+                } if !should_skip(conditions, engine_label) => {
+                    let (query_idx, expected_results) =
+                        match extract_bench_query(expected, include_queries, exclude_queries) {
+                            Some(v) => v,
+                            None => continue,
+                        };
+
+                    let result = self.run_query(query_idx, format, iterations, || {
+                        execute(sql).unwrap_or_else(|err| {
+                            vortex_panic!("query {query_idx} failed: {err}");
+                        })
+                    });
+
+                    if validate {
+                        let (_cols, mut rows) = result.result_rows();
+                        rows.sort();
+                        if !default_validator(value_normalizer, &rows, expected_results) {
+                            let actual_flat: Vec<String> =
+                                rows.iter().map(|row| row.join(" ")).collect();
+                            eprintln!(
+                                "=== Result mismatch for bench_{query_idx} ({engine}) ===",
+                                engine = self.engine
+                            );
+                            print_validation_diff(expected_results, &actual_flat);
+                            validation_failures.push(query_idx);
+                        }
+                    }
+
+                    progress_bar.inc(1);
+                }
+                _ => {}
+            }
+        }
+
+        progress_bar.finish();
+
+        if !validation_failures.is_empty() {
+            let failed: Vec<String> = validation_failures
+                .iter()
+                .map(|q| format!("bench_{q}"))
+                .collect();
+            anyhow::bail!(
+                "SLT validation failed for {engine}: {failed}",
+                engine = self.engine,
+                failed = failed.join(", "),
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Async version of [`Self::run_slt`].
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_slt_async<R, S, SFut, E>(
+        &mut self,
+        slt_path: &Path,
+        engine_label: &str,
+        format: Format,
+        iterations: usize,
+        validate: bool,
+        include_queries: Option<&Vec<usize>>,
+        exclude_queries: Option<&Vec<usize>>,
+        setup: S,
+        mut execute: E,
+    ) -> anyhow::Result<()>
+    where
+        R: BenchmarkQueryResult,
+        S: Fn(&str) -> SFut,
+        SFut: Future<Output = anyhow::Result<()>>,
+        E: for<'a> FnMut(
+            &'a str,
+        ) -> Pin<
+            Box<dyn Future<Output = anyhow::Result<(Option<Duration>, R)>> + 'a>,
+        >,
+    {
+        let records = parse_file::<DefaultColumnType>(slt_path)
+            .map_err(|e| anyhow::anyhow!("Failed to parse {}: {e}", slt_path.display()))?;
+
+        let bench_records = collect_bench_records(&records, engine_label);
+
+        let progress_bar = if self.hide_progress_bar || bench_records.is_empty() {
+            ProgressBar::hidden()
+        } else {
+            ProgressBar::new(bench_records.len() as u64)
+        };
+
+        let mut validation_failures = Vec::new();
+
+        for record in &records {
+            match record {
+                Record::Statement {
+                    conditions, sql, ..
+                } if !should_skip(conditions, engine_label) => {
+                    setup(sql).await?;
+                }
+                Record::Query {
+                    conditions,
+                    sql,
+                    expected,
+                    ..
+                } if !should_skip(conditions, engine_label) => {
+                    let (query_idx, expected_results) =
+                        match extract_bench_query(expected, include_queries, exclude_queries) {
+                            Some(v) => v,
+                            None => continue,
+                        };
+
+                    self.start_query();
+
+                    let mut runs = Vec::with_capacity(iterations);
+                    let mut last_result: Option<R> = None;
+
+                    for _ in 0..iterations {
+                        let start = Instant::now();
+                        let (timing, result) = execute(sql).await.unwrap_or_else(|err| {
+                            vortex_panic!("query {query_idx} failed: {err}");
+                        });
+                        let elapsed = timing.unwrap_or_else(|| start.elapsed());
+                        runs.push(elapsed);
+                        last_result = Some(result);
+                    }
+
+                    let result = last_result.expect("iterations must be > 0");
+                    let row_count = result.row_count();
+                    self.record_query(query_idx, format, runs, row_count);
+
+                    if validate {
+                        let (_cols, mut rows) = result.result_rows();
+                        rows.sort();
+                        if !default_validator(value_normalizer, &rows, expected_results) {
+                            let actual_flat: Vec<String> =
+                                rows.iter().map(|row| row.join(" ")).collect();
+                            eprintln!(
+                                "=== Result mismatch for bench_{query_idx} ({engine}) ===",
+                                engine = self.engine
+                            );
+                            print_validation_diff(expected_results, &actual_flat);
+                            validation_failures.push(query_idx);
+                        }
+                    }
+
+                    progress_bar.inc(1);
+                }
+                _ => {}
+            }
+        }
+
+        progress_bar.finish();
+
+        if !validation_failures.is_empty() {
+            let failed: Vec<String> = validation_failures
+                .iter()
+                .map(|q| format!("bench_{q}"))
+                .collect();
+            anyhow::bail!(
+                "SLT validation failed for {engine}: {failed}",
+                engine = self.engine,
+                failed = failed.join(", "),
+            );
+        }
+
+        Ok(())
+    }
+}
+
+/// Check whether a record should be skipped for the given engine label.
+fn should_skip(conditions: &[Condition], engine_label: &str) -> bool {
+    for cond in conditions {
+        match cond {
+            Condition::OnlyIf { label } => {
+                if label != engine_label {
+                    return true;
+                }
+            }
+            Condition::SkipIf { label } => {
+                if label == engine_label {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Extract the query index and expected results from a `bench_N` labeled query record.
+///
+/// Returns `None` if the record doesn't have a `bench_` label or is filtered out
+/// by `include_queries`.
+fn extract_bench_query<'a>(
+    expected: &'a QueryExpect<DefaultColumnType>,
+    include_queries: Option<&Vec<usize>>,
+    exclude_queries: Option<&Vec<usize>>,
+) -> Option<(usize, &'a Vec<String>)> {
+    let QueryExpect::Results {
+        label: Some(label),
+        results,
+        ..
+    } = expected
+    else {
+        return None;
+    };
+
+    let name = label.strip_prefix("bench_")?;
+    let query_idx: usize = name.parse().ok()?;
+
+    if let Some(included) = include_queries
+        && !included.contains(&query_idx)
+    {
+        return None;
+    }
+
+    if let Some(excluded) = exclude_queries
+        && excluded.contains(&query_idx)
+    {
+        return None;
+    }
+
+    Some((query_idx, results))
+}
+
+/// Count the bench query records that match the engine label and will be executed.
+fn collect_bench_records(records: &[Record<DefaultColumnType>], engine_label: &str) -> Vec<usize> {
+    records
+        .iter()
+        .filter_map(|record| {
+            if let Record::Query {
+                conditions,
+                expected,
+                ..
+            } = record
+            {
+                if should_skip(conditions, engine_label) {
+                    return None;
+                }
+                if let QueryExpect::Results {
+                    label: Some(label), ..
+                } = expected
+                    && let Some(name) = label.strip_prefix("bench_")
+                {
+                    return name.parse::<usize>().ok();
+                }
+            }
+            None
+        })
+        .collect()
+}
+
+/// Print a human-readable diff between expected and actual results.
+fn print_validation_diff(expected: &[String], actual: &[String]) {
+    eprintln!(
+        "Expected {} lines, got {} lines",
+        expected.len(),
+        actual.len()
+    );
+
+    let max_lines = expected.len().max(actual.len()).min(20);
+    for i in 0..max_lines {
+        let exp = expected.get(i).map(String::as_str).unwrap_or("<missing>");
+        let act = actual.get(i).map(String::as_str).unwrap_or("<missing>");
+        if exp != act {
+            eprintln!("  line {i}: expected: {exp}");
+            eprintln!("  line {i}:   actual: {act}");
+        }
+    }
+    if expected.len().max(actual.len()) > 20 {
+        eprintln!("  ... (truncated)");
     }
 }
 

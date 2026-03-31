@@ -1,0 +1,24 @@
+# TPC-H benchmark queries — duckdb expected results.
+
+include queries/bench_01_duckdb.slt
+include queries/bench_02.slt
+include queries/bench_03.slt
+include queries/bench_04.slt
+include queries/bench_05.slt
+include queries/bench_06.slt
+include queries/bench_07.slt
+include queries/bench_08_duckdb.slt
+include queries/bench_09.slt
+include queries/bench_10.slt
+include queries/bench_11.slt
+include queries/bench_12.slt
+include queries/bench_13.slt
+include queries/bench_14_duckdb.slt
+include queries/bench_15.slt
+include queries/bench_16.slt
+include queries/bench_17.slt
+include queries/bench_18.slt
+include queries/bench_19.slt
+include queries/bench_20.slt
+include queries/bench_21.slt
+include queries/bench_22.slt

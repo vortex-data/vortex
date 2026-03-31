@@ -1,0 +1,37 @@
+# ClickBench benchmark queries — datafusion expected results.
+
+include queries/bench_00.slt
+include queries/bench_01.slt
+include queries/bench_02.slt
+include queries/bench_03_datafusion.slt
+include queries/bench_04.slt
+include queries/bench_05.slt
+include queries/bench_06_datafusion.slt
+include queries/bench_07.slt
+include queries/bench_08.slt
+include queries/bench_09.slt
+include queries/bench_10.slt
+include queries/bench_11.slt
+include queries/bench_12.slt
+include queries/bench_13.slt
+include queries/bench_14.slt
+include queries/bench_15.slt
+include queries/bench_16.slt
+include queries/bench_18.slt
+include queries/bench_19.slt
+include queries/bench_20.slt
+include queries/bench_21.slt
+include queries/bench_22.slt
+include queries/bench_25.slt
+include queries/bench_26.slt
+include queries/bench_27.slt
+include queries/bench_28.slt
+include queries/bench_29.slt
+include queries/bench_30_datafusion.slt
+include queries/bench_33.slt
+include queries/bench_34.slt
+include queries/bench_35.slt
+include queries/bench_36.slt
+include queries/bench_37.slt
+include queries/bench_41_datafusion.slt
+include queries/bench_42_datafusion.slt

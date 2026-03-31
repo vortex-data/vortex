@@ -1,0 +1,5 @@
+query T rowsort bench_4
+SELECT COUNT(DISTINCT "UserID") FROM hits
+----
+17630976
+
