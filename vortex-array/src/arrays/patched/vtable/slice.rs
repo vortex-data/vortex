@@ -13,23 +13,23 @@ use crate::arrays::PatchedArray;
 use crate::arrays::slice::SliceReduce;
 use crate::stats::ArrayStats;
 
-/// Is this something that uses a SliceKernel or a SliceReduce
 impl SliceReduce for Patched {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // We **always** slice at 1024-element chunk boundaries. We keep the offset + len
+        // We **always** slice the patches at 1024-element chunk boundaries. We keep the offset + len
         // around so that when we execute we know how much to chop off.
         let new_offset = (range.start + array.offset) % 1024;
         let new_len = range.end - range.start;
 
         let chunk_start = (range.start + array.offset) / 1024;
         let chunk_stop = (range.end + array.offset).div_ceil(1024);
-
-        let inner = array.inner.slice(range.start..range.end)?;
-
-        // Slice to only maintain offsets to the sliced chunks
         let sliced_lane_offsets = array
             .lane_offsets
             .slice((chunk_start * array.n_lanes)..(chunk_stop * array.n_lanes) + 1)?;
+
+        // Unlike the patches, we slice the inner to the exact range. This is handled
+        // at execution time by making sure to skip patch indices that are < offset
+        // or >= len.
+        let inner = array.inner.slice(range.start..range.end)?;
 
         Ok(Some(
             PatchedArray {
