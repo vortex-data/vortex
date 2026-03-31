@@ -101,29 +101,62 @@ fn mean_sum_count_decimal(values: &[i128], scale: u32) -> Option<f64> {
     Some(sum as f64 / count as f64 / scale_factor)
 }
 
-/// Sub-mean merge for decimal (i128 fixed-point).
-/// Each chunk: sum the chunk (checked), compute chunk_sum and chunk_count.
-/// Merge: combined_sum = sum_A + sum_B (can overflow!), so instead we use
-/// the weighted mean formula on f64-converted means.
-/// Returns the mean as f64 for error comparison.
-fn mean_chunk_merge_decimal(values: &[i128], scale: u32, chunk_size: usize) -> f64 {
+/// Sub-mean merge for decimal — PURE INTEGER arithmetic, no f64 intermediate.
+///
+/// Each chunk computes `chunk_mean = chunk_sum / chunk_count` (integer truncation).
+/// Chunks are merged via:
+///   `mean = mean_A + (n_B * (mean_B - mean_A)) / (n_A + n_B)`
+///
+/// All operations are i128. Two truncation points per merge:
+///   1. `chunk_sum / chunk_count` (intra-chunk mean)
+///   2. `(n_B * delta) / total_count` (merge step)
+///
+/// Returns the final integer mean (unscaled). Caller divides by scale_factor.
+fn mean_chunk_merge_decimal_integer(values: &[i128], chunk_size: usize) -> i128 {
+    let mut global_mean: i128 = 0;
+    let mut global_count: i128 = 0;
+
+    for chunk in values.chunks(chunk_size) {
+        // Chunk sum — small enough chunk that this won't overflow.
+        let mut chunk_sum: i128 = 0;
+        let chunk_count = chunk.len() as i128;
+        for &v in chunk {
+            chunk_sum = chunk_sum.wrapping_add(v);
+        }
+        // TRUNCATION POINT 1: integer division for chunk mean.
+        let chunk_mean = chunk_sum / chunk_count;
+
+        let new_count = global_count + chunk_count;
+        if global_count == 0 {
+            global_mean = chunk_mean;
+        } else {
+            // TRUNCATION POINT 2: integer division for merge.
+            // mean = mean_A + (n_B * (mean_B - mean_A)) / (n_A + n_B)
+            let delta = chunk_mean - global_mean;
+            global_mean += (chunk_count * delta) / new_count;
+        }
+        global_count = new_count;
+    }
+    global_mean
+}
+
+/// Wrapper that also does the f64-via-intermediate approach for comparison.
+/// Each chunk sums in integer, but merges chunk means via f64 weighted average.
+fn mean_chunk_merge_decimal_via_f64(values: &[i128], scale: u32, chunk_size: usize) -> f64 {
     let scale_factor = 10f64.powi(scale as i32);
     let mut global_mean: f64 = 0.0;
     let mut global_count: u64 = 0;
 
     for chunk in values.chunks(chunk_size) {
-        // Chunk sum in integer domain (exact within chunk if no overflow).
         let mut chunk_sum: i128 = 0;
-        let mut chunk_count: u64 = 0;
+        let chunk_count = chunk.len() as u64;
         for &v in chunk {
-            // Use wrapping here to show the algorithm; in production we'd checked_add.
             chunk_sum = chunk_sum.wrapping_add(v);
-            chunk_count += 1;
         }
         let chunk_mean = (chunk_sum as f64) / (chunk_count as f64) / scale_factor;
 
         let new_count = global_count + chunk_count;
-        if new_count == chunk_count {
+        if global_count == 0 {
             global_mean = chunk_mean;
         } else {
             global_mean +=
@@ -259,66 +292,96 @@ fn error_analysis_f64() {
 fn error_analysis_decimal() {
     println!("\n--- Decimal (i128, scale=2) ---");
     println!(
-        "{:<40} {:>18} {:>18}",
-        "Scenario", "sum/count", "chunk-merge"
+        "{:<40} {:>18} {:>18} {:>18}",
+        "Scenario", "sum/count", "int-merge", "f64-merge"
     );
-    println!("{}", "-".repeat(78));
+    println!("{}", "-".repeat(96));
 
     let scale = 2u32;
     let scale_factor = 10f64.powi(scale as i32);
 
-    // Scenario 1: Normal values (both exact)
+    // Helper: compute relative error, or "OVERFLOW" if None.
+    let fmt_err = |result: Option<f64>, truth: f64| -> String {
+        match result {
+            Some(v) if truth.abs() > 0.0 => format!("{:.6e}", (v - truth).abs() / truth.abs()),
+            Some(_) => format!("{:.6e}", 0.0),
+            None => "OVERFLOW (null)".to_string(),
+        }
+    };
+
+    // Scenario 1: Normal values
     {
         let n = 100_000usize;
         let values: Vec<i128> = (0..n).map(|i| (i as i128) * 100 + 150).collect();
-        let truth = values.iter().sum::<i128>() as f64 / n as f64 / scale_factor;
+        // Ground truth: exact sum (fits i128) / n / scale.
+        let exact_sum: i128 = values.iter().sum();
+        let truth = exact_sum as f64 / n as f64 / scale_factor;
 
         let sc = mean_sum_count_decimal(&values, scale);
-        let cm = mean_chunk_merge_decimal(&values, scale, 1024);
+        let int_merge = mean_chunk_merge_decimal_integer(&values, 1024);
+        let int_merge_f64 = int_merge as f64 / scale_factor;
+        let f64_merge = mean_chunk_merge_decimal_via_f64(&values, scale, 1024);
 
+        // Also show the raw integer truncation: exact_sum/n vs int_merge.
+        let exact_int_mean = exact_sum / n as i128;
         println!(
-            "{:<40} {:>18.6e} {:>18.6e}",
+            "{:<40} {:>18} {:>18} {:>18}",
             "normal range (100K)",
-            sc.map(|v| (v - truth).abs() / truth.abs())
-                .unwrap_or(f64::INFINITY),
-            (cm - truth).abs() / truth.abs(),
+            fmt_err(sc, truth),
+            fmt_err(Some(int_merge_f64), truth),
+            fmt_err(Some(f64_merge), truth),
+        );
+        println!(
+            "  exact_sum/n={}, int_merge={}, diff={}",
+            exact_int_mean, int_merge, int_merge - exact_int_mean,
         );
     }
 
-    // Scenario 2: Near i128 overflow — sum/count fails, chunk-merge survives
+    // Scenario 2: Near i128 overflow — sum/count fails
     {
         let n = 1000usize;
-        let big = i128::MAX / 500; // sum of 1000 of these overflows i128
+        let big = i128::MAX / 500;
         let values: Vec<i128> = vec![big; n];
         let truth = big as f64 / scale_factor;
 
         let sc = mean_sum_count_decimal(&values, scale);
-        let cm = mean_chunk_merge_decimal(&values, scale, 100);
+        let int_merge = mean_chunk_merge_decimal_integer(&values, 100);
+        let int_merge_f64 = int_merge as f64 / scale_factor;
+        let f64_merge = mean_chunk_merge_decimal_via_f64(&values, scale, 100);
 
         println!(
-            "{:<40} {:>18} {:>18.6e}",
+            "{:<40} {:>18} {:>18} {:>18}",
             "near i128 overflow (1K × MAX/500)",
-            sc.map(|v| format!("{:.6e}", (v - truth).abs() / truth.abs()))
-                .unwrap_or_else(|| "OVERFLOW (null)".to_string()),
-            (cm - truth).abs() / truth.abs(),
+            fmt_err(sc, truth),
+            fmt_err(Some(int_merge_f64), truth),
+            fmt_err(Some(f64_merge), truth),
         );
+        println!("  expected={}, int_merge={}, diff={}", big, int_merge, int_merge - big);
     }
 
-    // Scenario 3: Large count, moderate values
+    // Scenario 3: Large count, moderate values — shows truncation accumulation.
     {
         let n = 10_000_000usize;
         let values: Vec<i128> = (0..n).map(|i| (i as i128 % 100_000) * 100).collect();
-        let truth = values.iter().sum::<i128>() as f64 / n as f64 / scale_factor;
+        let exact_sum: i128 = values.iter().sum();
+        let truth = exact_sum as f64 / n as f64 / scale_factor;
 
         let sc = mean_sum_count_decimal(&values, scale);
-        let cm = mean_chunk_merge_decimal(&values, scale, 4096);
+        let int_merge = mean_chunk_merge_decimal_integer(&values, 4096);
+        let int_merge_f64 = int_merge as f64 / scale_factor;
+        let f64_merge = mean_chunk_merge_decimal_via_f64(&values, scale, 4096);
 
+        let exact_int_mean = exact_sum / n as i128;
         println!(
-            "{:<40} {:>18.6e} {:>18.6e}",
+            "{:<40} {:>18} {:>18} {:>18}",
             "moderate values (10M)",
-            sc.map(|v| (v - truth).abs() / truth.abs())
-                .unwrap_or(f64::INFINITY),
-            (cm - truth).abs() / truth.abs(),
+            fmt_err(sc, truth),
+            fmt_err(Some(int_merge_f64), truth),
+            fmt_err(Some(f64_merge), truth),
+        );
+        println!(
+            "  exact_sum/n={}, int_merge={}, diff={}",
+            exact_int_mean, int_merge, int_merge - exact_int_mean,
         );
     }
 
@@ -329,20 +392,40 @@ fn error_analysis_decimal() {
         let values: Vec<i128> = (0..n)
             .map(|i| if i % 2 == 0 { big } else { -big + 1 })
             .collect();
-        // True mean ≈ 0.5 / scale_factor in decimal terms
+        // Exact: n/2 * big + n/2 * (-big+1) = n/2 * 1 = 1000
+        // Mean = 1000 / 2000 = 0 (integer truncation!) but true mean = 0.5
         let truth_unscaled = 0.5_f64;
         let truth = truth_unscaled / scale_factor;
 
         let sc = mean_sum_count_decimal(&values, scale);
-        let cm = mean_chunk_merge_decimal(&values, scale, 100);
+        let int_merge = mean_chunk_merge_decimal_integer(&values, 100);
+        let int_merge_f64 = int_merge as f64 / scale_factor;
+        let f64_merge = mean_chunk_merge_decimal_via_f64(&values, scale, 100);
 
         println!(
-            "{:<40} {:>18} {:>18.6e}",
+            "{:<40} {:>18} {:>18} {:>18}",
             "alternating ±big (2K)",
-            sc.map(|v| format!("{:.6e}", (v - truth).abs() / truth.abs()))
-                .unwrap_or_else(|| "OVERFLOW (null)".to_string()),
-            (cm - truth).abs() / truth.abs(),
+            fmt_err(sc, truth),
+            fmt_err(Some(int_merge_f64), truth),
+            fmt_err(Some(f64_merge), truth),
         );
+        println!("  int_merge={} (should be 0 due to truncation, true=0.5)", int_merge);
+    }
+
+    // Scenario 5: Chunk size sensitivity — same data, varying chunk sizes.
+    {
+        let n = 1_000_000usize;
+        let values: Vec<i128> = (0..n).map(|i| (i as i128) * 7 + 3).collect();
+        let exact_sum: i128 = values.iter().sum();
+        let exact_int_mean = exact_sum / n as i128;
+        println!("\n  Chunk size sensitivity (1M values, exact_int_mean={}):", exact_int_mean);
+        for &cs in &[64, 256, 1024, 4096, 65536] {
+            let int_merge = mean_chunk_merge_decimal_integer(&values, cs);
+            println!(
+                "    chunk_size={:>6}: int_merge={}, diff={}",
+                cs, int_merge, int_merge - exact_int_mean,
+            );
+        }
     }
 }
 
@@ -397,7 +480,19 @@ fn decimal_sum_count(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn decimal_chunk_merge(bencher: Bencher) {
+fn decimal_int_merge(bencher: Bencher) {
     let data = make_decimal_data();
-    bencher.bench_local(|| black_box(mean_chunk_merge_decimal(black_box(&data), 2, CHUNK_SIZE)));
+    bencher.bench_local(|| black_box(mean_chunk_merge_decimal_integer(black_box(&data), CHUNK_SIZE)));
+}
+
+#[divan::bench]
+fn decimal_f64_merge(bencher: Bencher) {
+    let data = make_decimal_data();
+    bencher.bench_local(|| {
+        black_box(mean_chunk_merge_decimal_via_f64(
+            black_box(&data),
+            2,
+            CHUNK_SIZE,
+        ))
+    });
 }
