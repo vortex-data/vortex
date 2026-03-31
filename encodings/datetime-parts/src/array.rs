@@ -316,17 +316,17 @@ impl DateTimePartsArray {
         }
     }
 
-    pub fn into_parts(self) -> DateTimePartsArrayParts {
+    pub fn into_parts(mut self) -> DateTimePartsArrayParts {
         DateTimePartsArrayParts {
             dtype: self.dtype,
             days: self.slots[DAYS_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("DateTimePartsArray days slot"),
             seconds: self.slots[SECONDS_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("DateTimePartsArray seconds slot"),
             subseconds: self.slots[SUBSECONDS_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("DateTimePartsArray subseconds slot"),
         }
     }

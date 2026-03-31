@@ -338,18 +338,18 @@ impl ListViewArray {
         .is_ok()
     }
 
-    pub fn into_parts(self) -> ListViewArrayParts {
+    pub fn into_parts(mut self) -> ListViewArrayParts {
         let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
         ListViewArrayParts {
             elements_dtype: dtype,
             elements: self.slots[ELEMENTS_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("ListViewArray elements slot"),
             offsets: self.slots[OFFSETS_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("ListViewArray offsets slot"),
             sizes: self.slots[SIZES_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("ListViewArray sizes slot"),
             validity: self.validity,
         }

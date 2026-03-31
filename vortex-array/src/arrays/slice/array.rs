@@ -59,10 +59,10 @@ impl SliceArray {
     }
 
     /// Consume the slice array and return its components.
-    pub fn into_parts(self) -> SliceArrayParts {
+    pub fn into_parts(mut self) -> SliceArrayParts {
         SliceArrayParts {
             child: self.slots[CHILD_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("SliceArray child slot"),
             range: self.range,
         }

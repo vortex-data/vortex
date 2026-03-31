@@ -72,10 +72,10 @@ impl FilterArray {
     }
 
     /// Consume the array and return its individual components.
-    pub fn into_parts(self) -> FilterArrayParts {
+    pub fn into_parts(mut self) -> FilterArrayParts {
         FilterArrayParts {
             child: self.slots[CHILD_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("FilterArray child slot"),
             mask: self.mask,
         }

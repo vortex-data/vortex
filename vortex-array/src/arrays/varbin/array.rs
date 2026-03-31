@@ -381,9 +381,9 @@ impl VarBinArray {
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
-    pub fn into_parts(self) -> (DType, BufferHandle, ArrayRef, Validity) {
+    pub fn into_parts(mut self) -> (DType, BufferHandle, ArrayRef, Validity) {
         let offsets = self.slots[OFFSETS_SLOT]
-            .clone()
+            .take()
             .vortex_expect("VarBinArray offsets slot");
         (self.dtype, self.bytes, offsets, self.validity)
     }

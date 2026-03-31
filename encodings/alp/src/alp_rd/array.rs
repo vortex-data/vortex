@@ -496,12 +496,12 @@ impl ALPRDArray {
     }
 
     /// Return all the owned parts of the array
-    pub fn into_parts(self) -> ALPRDArrayParts {
+    pub fn into_parts(mut self) -> ALPRDArrayParts {
         let left_parts = self.slots[LEFT_PARTS_SLOT]
-            .clone()
+            .take()
             .vortex_expect("ALPRDArray left_parts slot");
         let right_parts = self.slots[RIGHT_PARTS_SLOT]
-            .clone()
+            .take()
             .vortex_expect("ALPRDArray right_parts slot");
         ALPRDArrayParts {
             dtype: self.dtype,

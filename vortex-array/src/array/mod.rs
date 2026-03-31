@@ -346,17 +346,24 @@ impl dyn DynArray + '_ {
     }
 
     /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
-    pub fn with_slot(&self, slot_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
-        let slots = self.slots();
+    ///
+    /// Takes ownership to allow in-place mutation when the refcount is 1.
+    pub fn with_slot(
+        self: ArrayRef,
+        slot_idx: usize,
+        replacement: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        let nslots = self.slots().len();
         vortex_ensure!(
-            slot_idx < slots.len(),
+            slot_idx < nslots,
             "slot index {} out of bounds for array with {} slots",
             slot_idx,
-            slots.len()
+            nslots
         );
-        let mut slots = slots.to_vec();
+        let mut slots = self.slots().to_vec();
         slots[slot_idx] = Some(replacement);
-        self.vtable().with_slots(&self.to_array(), slots)
+        let vtable = self.vtable().clone_boxed();
+        vtable.with_slots(self, slots)
     }
 }
 

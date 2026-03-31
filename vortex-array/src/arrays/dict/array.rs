@@ -123,13 +123,13 @@ impl DictArray {
         Ok(unsafe { Self::new_unchecked(codes, values) })
     }
 
-    pub fn into_parts(self) -> DictArrayParts {
+    pub fn into_parts(mut self) -> DictArrayParts {
         DictArrayParts {
             codes: self.slots[CODES_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("DictArray codes slot"),
             values: self.slots[VALUES_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("DictArray values slot"),
             dtype: self.dtype,
         }

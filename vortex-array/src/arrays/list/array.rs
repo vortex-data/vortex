@@ -250,14 +250,14 @@ impl ListArray {
     }
 
     /// Splits an array into its parts
-    pub fn into_parts(self) -> ListArrayParts {
+    pub fn into_parts(mut self) -> ListArrayParts {
         ListArrayParts {
             dtype: self.dtype,
             elements: self.slots[ELEMENTS_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("ListArray elements slot"),
             offsets: self.slots[OFFSETS_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("ListArray offsets slot"),
             validity: self.validity,
         }

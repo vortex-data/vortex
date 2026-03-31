@@ -22246,7 +22246,7 @@ pub fn vortex_array::vtable::DynVTable::reduce(&self, array: &vortex_array::Arra
 
 pub fn vortex_array::vtable::DynVTable::reduce_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub fn vortex_array::vtable::DynVTable::with_slots(&self, array: &vortex_array::ArrayRef, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::vtable::DynVTable::with_slots(&self, array: vortex_array::ArrayRef, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 impl<V: vortex_array::vtable::VTable> vortex_array::vtable::DynVTable for V
 
@@ -22262,7 +22262,7 @@ pub fn V::reduce(&self, array: &vortex_array::ArrayRef) -> vortex_error::VortexR
 
 pub fn V::reduce_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub fn V::with_slots(&self, array: &vortex_array::ArrayRef, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn V::with_slots(&self, array: vortex_array::ArrayRef, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub trait vortex_array::vtable::OperationsVTable<V: vortex_array::vtable::VTable>
 

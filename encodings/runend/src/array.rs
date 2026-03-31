@@ -448,13 +448,13 @@ impl RunEndArray {
 
     /// Split an `RunEndArray` into parts.
     #[inline]
-    pub fn into_parts(self) -> RunEndArrayParts {
+    pub fn into_parts(mut self) -> RunEndArrayParts {
         RunEndArrayParts {
             ends: self.slots[ENDS_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("RunEndArray ends slot"),
             values: self.slots[VALUES_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("RunEndArray values slot"),
         }
     }

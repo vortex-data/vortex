@@ -49,7 +49,7 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
     /// See [`VTable::with_slots`]
-    fn with_slots(&self, array: &ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
+    fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
 
     /// See [`VTable::reduce`]
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
@@ -113,10 +113,11 @@ impl<V: VTable> DynVTable for V {
         Ok(array.into_array())
     }
 
-    fn with_slots(&self, array: &ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
-        let mut array = array.as_::<V>().clone();
-        V::with_slots(&mut array, slots)?;
-        Ok(array.into_array())
+    fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+        let arc = downcast_owned::<V>(array);
+        let mut inner = Arc::try_unwrap(arc).unwrap_or_else(|arc| arc.as_ref().clone());
+        V::with_slots(&mut inner.array, slots)?;
+        Ok(inner.into_array())
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

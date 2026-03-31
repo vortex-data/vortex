@@ -256,10 +256,10 @@ impl DecimalBytePartsArray {
     }
 
     /// If `_lower_parts` is supported check all calls use this correctly.
-    pub fn into_parts(self) -> DecimalBytePartsArrayParts {
+    pub fn into_parts(mut self) -> DecimalBytePartsArrayParts {
         DecimalBytePartsArrayParts {
             msp: self.slots[MSP_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("DecimalBytePartsArray msp slot"),
             dtype: self.dtype,
         }

@@ -478,9 +478,9 @@ impl ALPArray {
 
     /// Consumes the array and returns its parts.
     #[inline]
-    pub fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
+    pub fn into_parts(mut self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
         let encoded = self.slots[ENCODED_SLOT]
-            .clone()
+            .take()
             .vortex_expect("ALPArray encoded slot");
         (encoded, self.exponents, self.patches, self.dtype)
     }

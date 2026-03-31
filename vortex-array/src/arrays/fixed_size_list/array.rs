@@ -172,10 +172,10 @@ impl FixedSizeListArray {
         }
     }
 
-    pub fn into_parts(self) -> (ArrayRef, Validity, DType) {
+    pub fn into_parts(mut self) -> (ArrayRef, Validity, DType) {
         (
             self.slots[ELEMENTS_SLOT]
-                .clone()
+                .take()
                 .vortex_expect("FixedSizeListArray elements slot"),
             self.validity,
             self.dtype,

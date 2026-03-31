@@ -107,9 +107,8 @@ fn try_optimize_recursive(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
     }
 
     if any_slot_optimized {
-        current_array = current_array
-            .vtable()
-            .with_slots(&current_array, new_slots)?;
+        let vtable = current_array.vtable().clone_boxed();
+        current_array = vtable.with_slots(current_array, new_slots)?;
         any_optimizations = true;
     }
 
