@@ -12,11 +12,11 @@ use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl CompareKernel for Extension {
     fn compare(
-        lhs: &Array<Extension>,
+        lhs: ArrayView<'_, Extension>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,

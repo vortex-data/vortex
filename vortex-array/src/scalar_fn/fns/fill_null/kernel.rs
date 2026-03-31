@@ -17,7 +17,7 @@ use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNull as FillNullExpr;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
 /// Fill nulls in an array with a scalar value without reading buffers.
@@ -31,7 +31,8 @@ use crate::vtable::VTable;
 /// The fill value is guaranteed to be non-null. The array is guaranteed to have mixed
 /// validity (neither all-valid nor all-invalid).
 pub trait FillNullReduce: VTable {
-    fn fill_null(array: &Array<Self>, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>>;
+    fn fill_null(array: ArrayView<'_, Self>, fill_value: &Scalar)
+    -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Fill nulls in an array with a scalar value, potentially reading buffers.
@@ -45,7 +46,7 @@ pub trait FillNullReduce: VTable {
 /// validity (neither all-valid nor all-invalid).
 pub trait FillNullKernel: VTable {
     fn fill_null(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -82,7 +83,7 @@ pub(super) fn precondition(
 /// Fill null on a [`ConstantArray`] by replacing null scalars with the fill value,
 /// or casting non-null scalars to the fill value's dtype.
 pub(crate) fn fill_null_constant(
-    array: &ConstantArray,
+    array: &crate::arrays::ConstantData,
     fill_value: &Scalar,
 ) -> VortexResult<ArrayRef> {
     let scalar = if array.scalar().is_null() {
@@ -105,7 +106,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, FillNullExpr>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -119,7 +120,7 @@ where
         let fill_value = scalar_fn_array.children()[1]
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
-        let arr = array.clone().into_array();
+        let arr = array.array_ref().clone();
         if let Some(result) = precondition(&arr, &fill_value)? {
             return Ok(Some(result));
         }
@@ -139,7 +140,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, FillNullExpr>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -154,7 +155,7 @@ where
         let fill_value = scalar_fn_array.children()[1]
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
-        let arr = array.clone().into_array();
+        let arr = array.array_ref().clone();
         if let Some(result) = precondition(&arr, &fill_value)? {
             return Ok(Some(result));
         }

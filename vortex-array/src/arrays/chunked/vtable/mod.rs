@@ -38,6 +38,7 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 mod canonical;
 mod operations;
@@ -77,7 +78,11 @@ impl VTable for Chunked {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
         array.len.hash(state);
         array
@@ -90,7 +95,11 @@ impl VTable for Chunked {
         }
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.dtype == other.dtype
             && array.len == other.len
             && array
@@ -106,37 +115,37 @@ impl VTable for Chunked {
                 .all(|(a, b)| a.array_eq(b, precision))
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ChunkedArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         1 + array.chunks().len()
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.chunk_offsets.clone().into_array(),
             n => array.chunks()[n - 1].clone(),
         }
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "chunk_offsets".to_string(),
             n => format!("chunks[{}]", n - 1),
         }
     }
 
-    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -241,7 +250,7 @@ impl VTable for Chunked {
     }
 
     fn append_to_builder(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
@@ -257,7 +266,7 @@ impl VTable for Chunked {
         ))
     }
 
-    fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         Ok(match array.chunks.len() {
             0 => Some(Canonical::empty(array.dtype()).into_array()),
             1 => Some(array.chunks[0].clone()),
@@ -266,7 +275,7 @@ impl VTable for Chunked {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -274,7 +283,7 @@ impl VTable for Chunked {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

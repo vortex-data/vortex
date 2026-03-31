@@ -9,10 +9,10 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::not::NotReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl NotReduce for Constant {
-    fn invert(array: &Array<Constant>) -> VortexResult<Option<ArrayRef>> {
+    fn invert(array: ArrayView<'_, Constant>) -> VortexResult<Option<ArrayRef>> {
         let value = match array.scalar().as_bool().value() {
             Some(b) => Scalar::bool(!b, array.dtype().nullability()),
             None => Scalar::null(array.dtype().clone()),

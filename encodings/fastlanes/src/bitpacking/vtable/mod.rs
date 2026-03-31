@@ -27,6 +27,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_array::vtable::patches_child;
@@ -92,7 +93,11 @@ impl VTable for BitPacked {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.offset.hash(state);
         array.len.hash(state);
         array.dtype.hash(state);
@@ -102,7 +107,11 @@ impl VTable for BitPacked {
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.offset == other.offset
             && array.len == other.len
             && array.dtype == other.dtype
@@ -112,29 +121,29 @@ impl VTable for BitPacked {
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.packed().clone(),
             _ => vortex_panic!("BitPackedArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("packed".to_string()),
             _ => None,
         }
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         array.patches().map_or(0, patches_nchildren) + validity_nchildren(&array.validity)
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         let pc = array.patches().map_or(0, patches_nchildren);
         if idx < pc {
             patches_child(
@@ -151,7 +160,7 @@ impl VTable for BitPacked {
         }
     }
 
-    fn child_name(array: &Array<Self>, idx: usize) -> String {
+    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         let pc = array.patches().map_or(0, patches_nchildren);
         if idx < pc {
             patches_child_name(idx).to_string()
@@ -161,7 +170,7 @@ impl VTable for BitPacked {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -237,7 +246,7 @@ impl VTable for BitPacked {
         Ok(())
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(BitPackedMetadata {
             bit_width: array.bit_width() as u32,
             offset: array.offset() as u32,
@@ -340,13 +349,13 @@ impl VTable for BitPacked {
     }
 
     fn append_to_builder(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         match_each_integer_ptype!(array.ptype(), |T| {
             unpack_into_primitive_builder::<T>(
-                array,
+                &array,
                 builder
                     .as_any_mut()
                     .downcast_mut()
@@ -363,7 +372,7 @@ impl VTable for BitPacked {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

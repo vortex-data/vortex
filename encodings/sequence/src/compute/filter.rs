@@ -9,17 +9,17 @@ use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ArrayView;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::Sequence;
-use crate::SequenceArray;
 
 impl FilterKernel for Sequence {
     fn filter(
-        array: &SequenceArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

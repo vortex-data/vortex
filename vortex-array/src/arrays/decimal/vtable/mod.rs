@@ -28,6 +28,7 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::validity_nchildren;
@@ -88,43 +89,51 @@ impl VTable for Decimal {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
         array.values.array_hash(state, precision);
         std::mem::discriminant(&array.values_type).hash(state);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.dtype == other.dtype
             && array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.values.clone(),
             _ => vortex_panic!("DecimalArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("values".to_string()),
             _ => None,
         }
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         validity_nchildren(&array.validity)
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => validity_to_child(&array.validity, array.len())
                 .vortex_expect("DecimalArray child index out of bounds"),
@@ -132,11 +141,11 @@ impl VTable for Decimal {
         }
     }
 
-    fn child_name(_array: &Array<Self>, _idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
         "validity".to_string()
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DecimalMetadata {
             values_type: array.values_type() as i32,
         }))
@@ -218,7 +227,7 @@ impl VTable for Decimal {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -226,7 +235,7 @@ impl VTable for Decimal {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

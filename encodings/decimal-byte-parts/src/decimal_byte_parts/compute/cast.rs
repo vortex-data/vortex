@@ -6,12 +6,12 @@ use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
-use crate::DecimalBytePartsArray;
 impl CastReduce for DecimalByteParts {
-    fn cast(array: &DecimalBytePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // DecimalBytePartsArray can only have Decimal dtype, so we only handle decimal-to-decimal casts
         let DType::Decimal(target_decimal, target_nullability) = dtype else {
             // Cannot cast decimal to non-decimal types - delegate to canonical form

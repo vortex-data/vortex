@@ -171,13 +171,14 @@ fn fill_null_canonical(
         return result.execute::<ArrayRef>(ctx);
     }
     match canonical {
-        CanonicalView::Bool(a) => <Bool as FillNullKernel>::fill_null(a, fill_value, ctx)?
+        CanonicalView::Bool(a) => a
+            .with_view(|v| <Bool as FillNullKernel>::fill_null(v, fill_value, ctx))?
             .ok_or_else(|| vortex_err!("FillNullKernel for BoolArray returned None")),
-        CanonicalView::Primitive(a) => {
-            <Primitive as FillNullKernel>::fill_null(a, fill_value, ctx)?
-                .ok_or_else(|| vortex_err!("FillNullKernel for PrimitiveArray returned None"))
-        }
-        CanonicalView::Decimal(a) => <Decimal as FillNullKernel>::fill_null(a, fill_value, ctx)?
+        CanonicalView::Primitive(a) => a
+            .with_view(|v| <Primitive as FillNullKernel>::fill_null(v, fill_value, ctx))?
+            .ok_or_else(|| vortex_err!("FillNullKernel for PrimitiveArray returned None")),
+        CanonicalView::Decimal(a) => a
+            .with_view(|v| <Decimal as FillNullKernel>::fill_null(v, fill_value, ctx))?
             .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
         other => vortex_bail!(
             "No FillNullKernel for canonical array {}",

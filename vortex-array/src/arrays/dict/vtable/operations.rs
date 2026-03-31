@@ -7,12 +7,12 @@ use vortex_error::VortexResult;
 use super::Dict;
 use crate::ExecutionCtx;
 use crate::scalar::Scalar;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Dict> for Dict {
     fn scalar_at(
-        array: &Array<Dict>,
+        array: ArrayView<'_, Dict>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

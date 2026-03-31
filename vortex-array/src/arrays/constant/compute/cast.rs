@@ -9,10 +9,10 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl CastReduce for Constant {
-    fn cast(array: &Array<Constant>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Constant>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         match array.scalar().cast(dtype) {
             Ok(scalar) => Ok(Some(ConstantArray::new(scalar, array.len()).into_array())),
             Err(_e) => Ok(None),

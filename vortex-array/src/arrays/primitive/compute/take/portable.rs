@@ -25,6 +25,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
+use crate::arrays::primitive::vtable::Primitive;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
@@ -32,14 +33,15 @@ use crate::dtype::half::f16;
 use crate::match_each_native_simd_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
+use crate::vtable::ArrayView;
 
 pub(super) struct TakeKernelPortableSimd;
 
 impl TakeImpl for TakeKernelPortableSimd {
     fn take(
         &self,
-        array: &PrimitiveArray,
-        unsigned_indices: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
+        unsigned_indices: ArrayView<'_, Primitive>,
         validity: Validity,
     ) -> VortexResult<ArrayRef> {
         if array.ptype() == PType::F16 {

@@ -6,12 +6,12 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::arrays::Bool;
 use crate::scalar::Scalar;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Bool> for Bool {
     fn scalar_at(
-        array: &Array<Bool>,
+        array: ArrayView<'_, Bool>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

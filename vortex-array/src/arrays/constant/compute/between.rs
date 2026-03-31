@@ -10,11 +10,11 @@ use crate::arrays::ConstantArray;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::BetweenReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl BetweenReduce for Constant {
     fn between(
-        array: &Array<Constant>,
+        array: ArrayView<'_, Constant>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,

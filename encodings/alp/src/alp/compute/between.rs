@@ -14,16 +14,17 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
 use vortex_array::scalar_fn::fns::between::BetweenReduce;
 use vortex_array::scalar_fn::fns::between::StrictComparison;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::ALP;
-use crate::ALPArray;
+use crate::ALPData;
 use crate::ALPFloat;
 use crate::match_each_alp_float_ptype;
 
 impl BetweenReduce for ALP {
     fn between(
-        array: &ALPArray,
+        array: ArrayView<'_, Self>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -40,7 +41,7 @@ impl BetweenReduce for ALP {
             array.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
         match_each_alp_float_ptype!(array.ptype(), |F| {
             between_impl::<F>(
-                array,
+                &array,
                 F::try_from(&lower)?,
                 F::try_from(&upper)?,
                 nullability,
@@ -52,7 +53,7 @@ impl BetweenReduce for ALP {
 }
 
 fn between_impl<T: NativePType + ALPFloat>(
-    array: &ALPArray,
+    array: &ALPData,
     lower: T,
     upper: T,
     nullability: Nullability,

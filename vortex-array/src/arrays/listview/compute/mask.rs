@@ -9,10 +9,10 @@ use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl MaskReduce for ListView {
-    fn mask(array: &Array<ListView>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: ArrayView<'_, ListView>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: masking the validity does not affect the invariants
         Ok(Some(
             unsafe {

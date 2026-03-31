@@ -31,6 +31,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::patches_child;
@@ -100,20 +101,28 @@ impl VTable for Sparse {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.patches.array_hash(state, precision);
         array.fill_value.hash(state);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.patches.array_eq(&other.patches, precision) && array.fill_value == other.fill_value
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => {
                 let fill_value_buffer =
@@ -124,26 +133,26 @@ impl VTable for Sparse {
         }
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("fill_value".to_string()),
             _ => vortex_panic!("SparseArray buffer_name index {idx} out of bounds"),
         }
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         patches_nchildren(array.patches())
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         patches_child(array.patches(), idx)
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         patches_child_name(idx).to_string()
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         let patches = array.patches().to_metadata(array.len(), array.dtype())?;
 
         Ok(SparseMetadata {
@@ -243,7 +252,7 @@ impl VTable for Sparse {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -251,7 +260,7 @@ impl VTable for Sparse {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -502,7 +511,7 @@ impl SparseData {
 }
 
 impl ValidityVTable<Sparse> for Sparse {
-    fn validity(array: &Array<Sparse>) -> VortexResult<Validity> {
+    fn validity(array: ArrayView<'_, Sparse>) -> VortexResult<Validity> {
         let patches = unsafe {
             Patches::new_unchecked(
                 array.patches.array_len(),

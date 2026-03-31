@@ -7,13 +7,13 @@ use vortex_array::arrays::VarBin;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::FSST;
-use crate::FSSTArray;
 use crate::FSSTData;
 impl CastReduce for FSST {
-    fn cast(array: &FSSTArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FSST is a string compression encoding.
         // For nullability changes, we can cast the codes and symbols arrays
         if array.dtype().eq_ignore_nullability(dtype) {

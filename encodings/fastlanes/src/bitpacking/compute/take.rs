@@ -16,6 +16,7 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ArrayView;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect as _;
@@ -23,7 +24,7 @@ use vortex_error::VortexResult;
 
 use super::chunked_indices;
 use crate::BitPacked;
-use crate::BitPackedArray;
+use crate::BitPackedData;
 use crate::bitpack_decompress;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
@@ -34,13 +35,13 @@ pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
 impl TakeExecute for BitPacked {
     fn take(
-        array: &BitPackedArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            let prim = array.clone().into_array().execute::<PrimitiveArray>(ctx)?;
+            let prim = array.array_ref().clone().execute::<PrimitiveArray>(ctx)?;
             return prim.into_array().take(indices.to_array()).map(Some);
         }
 
@@ -53,7 +54,7 @@ impl TakeExecute for BitPacked {
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
-                take_primitive::<T, I>(array, &indices, taken_validity, ctx)?
+                take_primitive::<T, I>(&array, &indices, taken_validity, ctx)?
             })
         });
         Ok(Some(taken.reinterpret_cast(ptype).into_array()))
@@ -61,7 +62,7 @@ impl TakeExecute for BitPacked {
 }
 
 fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
-    array: &BitPackedArray,
+    array: &BitPackedData,
     indices: &PrimitiveArray,
     taken_validity: Validity,
     ctx: &mut ExecutionCtx,
@@ -127,11 +128,14 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         }
     });
 
-    let mut unpatched_taken = PrimitiveArray::new(output, taken_validity);
-    // Flip back to signed type before patching.
-    if array.ptype().is_signed_int() {
-        unpatched_taken = unpatched_taken.reinterpret_cast(array.ptype());
-    }
+    let mut unpatched_taken = if array.ptype().is_signed_int() {
+        // Flip back to signed type before patching.
+        PrimitiveArray::try_from_data(
+            PrimitiveArray::new(output, taken_validity).reinterpret_cast(array.ptype()),
+        )?
+    } else {
+        PrimitiveArray::new(output, taken_validity)
+    };
     if let Some(patches) = array.patches()
         && let Some(patches) = patches.take(&indices.clone().into_array(), ctx)?
     {

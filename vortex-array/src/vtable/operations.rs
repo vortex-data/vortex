@@ -6,7 +6,7 @@ use vortex_error::vortex_bail;
 
 use crate::ExecutionCtx;
 use crate::scalar::Scalar;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
@@ -17,11 +17,19 @@ pub trait OperationsVTable<V: VTable> {
     ///
     /// Bounds-checking has already been performed by the time this function is called,
     /// and the index is guaranteed to be non-null.
-    fn scalar_at(array: &Array<V>, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar>;
+    fn scalar_at(
+        array: ArrayView<'_, V>,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar>;
 }
 
 impl<V: VTable> OperationsVTable<V> for NotSupported {
-    fn scalar_at(array: &Array<V>, _index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: ArrayView<'_, V>,
+        _index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         vortex_bail!(
             "Legacy scalar_at operation is not supported for {} arrays",
             array.encoding_id()

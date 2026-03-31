@@ -17,11 +17,11 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl FillNullKernel for Dict {
     fn fill_null(
-        array: &Array<Dict>,
+        array: ArrayView<'_, Dict>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -43,8 +43,8 @@ impl FillNullKernel for Dict {
             // No fill values found, so we must canonicalize and fill_null.
             return Ok(Some(
                 array
+                    .array_ref()
                     .clone()
-                    .into_array()
                     .execute::<Canonical>(ctx)?
                     .into_array()
                     .fill_null(fill_value.clone())?,

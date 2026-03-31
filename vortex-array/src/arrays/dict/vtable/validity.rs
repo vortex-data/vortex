@@ -10,11 +10,11 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<Dict> for Dict {
-    fn validity(array: &Array<Dict>) -> VortexResult<Validity> {
+    fn validity(array: ArrayView<'_, Dict>) -> VortexResult<Validity> {
         Ok(
             match (array.codes().validity()?, array.values().validity()?) {
                 (

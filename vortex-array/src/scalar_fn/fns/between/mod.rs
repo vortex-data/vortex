@@ -151,13 +151,14 @@ fn between_canonical(
 
     // Try type-specific kernels
     if let Some(prim) = arr.as_opt::<Primitive>()
-        && let Some(result) =
-            <Primitive as BetweenKernel>::between(prim, lower, upper, options, ctx)?
+        && let Some(result) = prim
+            .with_view(|v| <Primitive as BetweenKernel>::between(v, lower, upper, options, ctx))?
     {
         return Ok(result);
     }
     if let Some(dec) = arr.as_opt::<Decimal>()
-        && let Some(result) = <Decimal as BetweenKernel>::between(dec, lower, upper, options, ctx)?
+        && let Some(result) =
+            dec.with_view(|v| <Decimal as BetweenKernel>::between(v, lower, upper, options, ctx))?
     {
         return Ok(result);
     }

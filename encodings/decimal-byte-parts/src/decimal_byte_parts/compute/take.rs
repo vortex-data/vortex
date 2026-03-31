@@ -5,15 +5,15 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use super::DecimalBytePartsData;
 use crate::DecimalByteParts;
-use crate::DecimalBytePartsArray;
 
 impl TakeExecute for DecimalByteParts {
     fn take(
-        array: &DecimalBytePartsArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

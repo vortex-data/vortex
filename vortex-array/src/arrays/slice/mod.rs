@@ -27,7 +27,7 @@ use crate::IntoArray;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
 pub trait SliceReduce: VTable {
@@ -42,7 +42,7 @@ pub trait SliceReduce: VTable {
     /// The range is guaranteed to be within bounds of the array (i.e., `range.end <= array.len()`).
     ///
     /// Additionally, the range is guaranteed to be non-empty (i.e., `range.start < range.end`).
-    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>>;
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>>;
 }
 
 pub trait SliceKernel: VTable {
@@ -57,18 +57,18 @@ pub trait SliceKernel: VTable {
     ///
     /// Additionally, the range is guaranteed to be non-empty (i.e., `range.start < range.end`).
     fn slice(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         range: Range<usize>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-fn precondition<V: VTable>(array: &Array<V>, range: &Range<usize>) -> Option<ArrayRef> {
-    if range.start == 0 && range.end == V::len(array) {
-        return Some(array.clone().into_array());
+fn precondition<V: VTable>(array: ArrayView<'_, V>, range: &Range<usize>) -> Option<ArrayRef> {
+    if range.start == 0 && range.end == array.len() {
+        return Some(array.array_ref().clone());
     };
     if range.start == range.end {
-        return Some(Canonical::empty(V::dtype(array)).into_array());
+        return Some(Canonical::empty(array.dtype()).into_array());
     }
     None
 }
@@ -85,7 +85,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         parent: <Self::Parent as Matcher>::Match<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -109,7 +109,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         parent: <Self::Parent as Matcher>::Match<'_>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

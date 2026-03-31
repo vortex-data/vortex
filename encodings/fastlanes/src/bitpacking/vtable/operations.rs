@@ -3,7 +3,7 @@
 
 use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
@@ -11,7 +11,7 @@ use crate::BitPacked;
 use crate::bitpack_decompress;
 impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(
-        array: &Array<BitPacked>,
+        array: ArrayView<'_, BitPacked>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -21,7 +21,7 @@ impl OperationsVTable<BitPacked> for BitPacked {
             {
                 patch
             } else {
-                bitpack_decompress::unpack_single(array, index)
+                bitpack_decompress::unpack_single(&array, index)
             },
         )
     }

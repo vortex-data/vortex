@@ -19,10 +19,11 @@ use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
+use crate::vtable::ArrayView;
 
 impl TakeExecute for Bool {
     fn take(
-        array: &BoolArray,
+        array: ArrayView<'_, Bool>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

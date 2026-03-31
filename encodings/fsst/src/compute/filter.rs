@@ -6,22 +6,26 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::filter::FilterKernel;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::FSST;
-use crate::FSSTArray;
 use crate::FSSTData;
+
 impl FilterKernel for FSST {
     fn filter(
-        array: &FSSTArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Directly invoke VarBin's FilterKernel to get a concrete VarBinArray back.
-        let filtered_codes = <VarBin as FilterKernel>::filter(array.codes(), mask, ctx)?
-            .vortex_expect("VarBin filter kernel always returns Some")
+        // Directly invoke VarBin's FilterKernel on the codes child.
+        let codes = array.codes().clone();
+        let filtered_codes_ref = codes
+            .with_view(|v| <VarBin as FilterKernel>::filter(v, mask, ctx))?
+            .vortex_expect("VarBin filter kernel always returns Some");
+        let filtered_codes = filtered_codes_ref
             .try_into::<VarBin>()
             .ok()
             .vortex_expect("must be VarBin");
@@ -36,59 +40,5 @@ impl FilterKernel for FSST {
             )?
             .into_array(),
         ))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::varbin::builder::VarBinBuilder;
-    use vortex_array::compute::conformance::filter::test_filter_conformance;
-    use vortex_array::dtype::DType;
-    use vortex_array::dtype::Nullability;
-
-    use crate::fsst_compress;
-    use crate::fsst_train_compressor;
-
-    #[test]
-    fn test_filter_fsst_array() {
-        // Test with small strings
-        let mut builder = VarBinBuilder::<i32>::with_capacity(5);
-        builder.append_value(b"hello");
-        builder.append_value(b"world");
-        builder.append_value(b"hello");
-        builder.append_value(b"rust");
-        builder.append_value(b"world");
-        let varbin = builder.finish(DType::Utf8(Nullability::NonNullable));
-
-        let compressor = fsst_train_compressor(&varbin);
-        let array = fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor);
-        test_filter_conformance(&array.into_array());
-
-        // Test with longer strings that benefit from compression
-        let mut builder = VarBinBuilder::<i32>::with_capacity(5);
-        builder.append_value(b"the quick brown fox");
-        builder.append_value(b"the quick brown fox jumps");
-        builder.append_value(b"the lazy dog");
-        builder.append_value(b"the quick brown fox jumps over");
-        builder.append_value(b"the lazy dog sleeps");
-        let varbin = builder.finish(DType::Utf8(Nullability::NonNullable));
-
-        let compressor = fsst_train_compressor(&varbin);
-        let array = fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor);
-        test_filter_conformance(&array.into_array());
-
-        // Test with nullable strings
-        let mut builder = VarBinBuilder::<i32>::with_capacity(5);
-        builder.append_value(b"compress");
-        builder.append_null();
-        builder.append_value(b"decompress");
-        builder.append_value(b"compress");
-        builder.append_null();
-        let varbin = builder.finish(DType::Utf8(Nullability::Nullable));
-
-        let compressor = fsst_train_compressor(&varbin);
-        let array = fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor);
-        test_filter_conformance(&array.into_array());
     }
 }

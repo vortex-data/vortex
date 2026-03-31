@@ -25,6 +25,7 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -74,37 +75,45 @@ impl VTable for ALP {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
         array.encoded.array_hash(state, precision);
         array.exponents.hash(state);
         array.patches.array_hash(state, precision);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.dtype == other.dtype
             && array.encoded.array_eq(&other.encoded, precision)
             && array.exponents == other.exponents
             && array.patches.array_eq(&other.patches, precision)
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ALPArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         1 + array.patches().map_or(0, patches_nchildren)
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.encoded().clone(),
             _ => {
@@ -116,7 +125,7 @@ impl VTable for ALP {
         }
     }
 
-    fn child_name(array: &Array<Self>, idx: usize) -> String {
+    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "encoded".to_string(),
             _ => {
@@ -128,7 +137,7 @@ impl VTable for ALP {
         }
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         let exponents = array.exponents();
         Ok(ProstMetadata(ALPMetadata {
             exp_e: exponents.e as u32,
@@ -246,7 +255,7 @@ impl VTable for ALP {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -254,7 +263,7 @@ impl VTable for ALP {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

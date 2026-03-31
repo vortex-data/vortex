@@ -12,14 +12,15 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ArrayView;
+use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
 use super::ByteBool;
-use super::ByteBoolArray;
 use super::ByteBoolData;
 
 impl CastReduce for ByteBool {
-    fn cast(array: &ByteBoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // ByteBool is essentially a bool array stored as bytes
         // The main difference from BoolArray is the storage format
         // For casting, we can decode to canonical (BoolArray) and let it handle the cast
@@ -42,7 +43,7 @@ impl CastReduce for ByteBool {
 }
 
 impl MaskReduce for ByteBool {
-    fn mask(array: &ByteBoolArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ByteBoolData::new(
                 array.buffer().clone(),
@@ -58,7 +59,7 @@ impl MaskReduce for ByteBool {
 
 impl TakeExecute for ByteBool {
     fn take(
-        array: &ByteBoolArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -101,6 +102,7 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::ByteBoolArray;
 
     fn bb(v: Vec<bool>) -> ByteBoolArray {
         ByteBoolArray::try_from_data(ByteBoolData::from(v))

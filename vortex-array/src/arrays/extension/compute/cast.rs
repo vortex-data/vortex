@@ -8,11 +8,11 @@ use crate::arrays::ExtensionArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl CastReduce for Extension {
     fn cast(
-        array: &Array<Extension>,
+        array: ArrayView<'_, Extension>,
         dtype: &DType,
     ) -> vortex_error::VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {

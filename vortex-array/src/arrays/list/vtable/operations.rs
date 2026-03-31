@@ -8,12 +8,12 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::arrays::List;
 use crate::scalar::Scalar;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<List> for List {
     fn scalar_at(
-        array: &Array<List>,
+        array: ArrayView<'_, List>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

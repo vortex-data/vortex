@@ -13,6 +13,7 @@ use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ArrayView;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer_mut;
 use vortex_error::VortexExpect;
@@ -20,14 +21,13 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::RunEnd;
-use crate::RunEndArray;
 use crate::RunEndData;
 use crate::compute::take::take_indices_unchecked;
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
 impl FilterKernel for RunEnd {
     fn filter(
-        array: &RunEndArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -39,7 +39,7 @@ impl FilterKernel for RunEnd {
 
         if runs_ratio < FILTER_TAKE_THRESHOLD || mask_values.true_count() < 25 {
             Ok(Some(take_indices_unchecked(
-                array,
+                &array,
                 mask_values.indices(),
                 &Validity::NonNullable,
             )?))

@@ -40,6 +40,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValiditySliceHelper;
@@ -111,7 +112,11 @@ impl VTable for Pco {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
         array.unsliced_validity.array_hash(state, precision);
         array.unsliced_n_rows.hash(state);
@@ -126,7 +131,11 @@ impl VTable for Pco {
         }
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         if array.dtype != other.dtype
             || !array
                 .unsliced_validity
@@ -152,11 +161,11 @@ impl VTable for Pco {
         true
     }
 
-    fn nbuffers(array: &Array<Self>) -> usize {
+    fn nbuffers(array: ArrayView<'_, Self>) -> usize {
         array.chunk_metas.len() + array.pages.len()
     }
 
-    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         if idx < array.chunk_metas.len() {
             BufferHandle::new_host(array.chunk_metas[idx].clone())
         } else {
@@ -165,7 +174,7 @@ impl VTable for Pco {
         }
     }
 
-    fn buffer_name(array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         if idx < array.chunk_metas.len() {
             Some(format!("chunk_meta_{idx}"))
         } else {
@@ -173,23 +182,23 @@ impl VTable for Pco {
         }
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         validity_nchildren(&array.unsliced_validity)
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         validity_to_child(&array.unsliced_validity, array.unsliced_n_rows)
             .unwrap_or_else(|| vortex_panic!("PcoArray child index {idx} out of bounds"))
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "validity".to_string(),
             _ => vortex_panic!("PcoArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(array.metadata.clone()))
     }
 
@@ -273,7 +282,7 @@ impl VTable for Pco {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -592,7 +601,7 @@ impl ValiditySliceHelper for PcoData {
 
 impl OperationsVTable<Pco> for Pco {
     fn scalar_at(
-        array: &Array<Pco>,
+        array: ArrayView<'_, Pco>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

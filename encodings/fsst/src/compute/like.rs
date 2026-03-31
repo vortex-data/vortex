@@ -11,16 +11,16 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::like::LikeKernel;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::FSST;
-use crate::FSSTArray;
 use crate::dfa::FsstMatcher;
 use crate::dfa::dfa_scan_to_bitbuf;
 
 impl LikeKernel for FSST {
     fn like(
-        array: &FSSTArray,
+        array: ArrayView<'_, Self>,
         pattern: &ArrayRef,
         options: LikeOptions,
         _ctx: &mut ExecutionCtx,
@@ -238,7 +238,9 @@ mod tests {
         let pattern = ConstantArray::new("http%", fsst.len()).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let result = <FSST as LikeKernel>::like(&fsst, &pattern, LikeOptions::default(), &mut ctx)?;
+        let result = fsst.with_view(|v| {
+            <FSST as LikeKernel>::like(v, &pattern, LikeOptions::default(), &mut ctx)
+        })?;
         assert!(result.is_some(), "FSST LikeKernel should handle prefix%");
         assert_arrays_eq!(result.unwrap(), BoolArray::from_iter([true, false]));
         Ok(())
@@ -254,7 +256,9 @@ mod tests {
         let pattern = ConstantArray::new("%world%", fsst.len()).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
-        let result = <FSST as LikeKernel>::like(&fsst, &pattern, LikeOptions::default(), &mut ctx)?;
+        let result = fsst.with_view(|v| {
+            <FSST as LikeKernel>::like(v, &pattern, LikeOptions::default(), &mut ctx)
+        })?;
         assert!(result.is_some(), "FSST LikeKernel should handle %needle%");
         assert_arrays_eq!(result.unwrap(), BoolArray::from_iter([true, false]));
         Ok(())
@@ -268,7 +272,9 @@ mod tests {
 
         // Underscore wildcard -- not handled.
         let pattern = ConstantArray::new("a_c", fsst.len()).into_array();
-        let result = <FSST as LikeKernel>::like(&fsst, &pattern, LikeOptions::default(), &mut ctx)?;
+        let result = fsst.with_view(|v| {
+            <FSST as LikeKernel>::like(v, &pattern, LikeOptions::default(), &mut ctx)
+        })?;
         assert!(result.is_none(), "underscore pattern should fall back");
 
         // Case-insensitive -- not handled.
@@ -277,7 +283,7 @@ mod tests {
             negated: false,
             case_insensitive: true,
         };
-        let result = <FSST as LikeKernel>::like(&fsst, &pattern, opts, &mut ctx)?;
+        let result = fsst.with_view(|v| <FSST as LikeKernel>::like(v, &pattern, opts, &mut ctx))?;
         assert!(result.is_none(), "ilike should fall back");
 
         Ok(())
@@ -295,12 +301,14 @@ mod tests {
         );
         let pattern = "abcdefghijklmn%";
 
-        let direct = <FSST as LikeKernel>::like(
-            &fsst,
-            &ConstantArray::new(pattern, fsst.len()).into_array(),
-            LikeOptions::default(),
-            &mut SESSION.create_execution_ctx(),
-        )?;
+        let direct = fsst.with_view(|v| {
+            <FSST as LikeKernel>::like(
+                v,
+                &ConstantArray::new(pattern, fsst.len()).into_array(),
+                LikeOptions::default(),
+                &mut SESSION.create_execution_ctx(),
+            )
+        })?;
         assert!(
             direct.is_some(),
             "14-byte prefixes are now handled by the flat prefix DFA"
@@ -322,12 +330,14 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let direct = <FSST as LikeKernel>::like(
-            &fsst,
-            &ConstantArray::new(pattern.as_str(), fsst.len()).into_array(),
-            LikeOptions::default(),
-            &mut SESSION.create_execution_ctx(),
-        )?;
+        let direct = fsst.with_view(|v| {
+            <FSST as LikeKernel>::like(
+                v,
+                &ConstantArray::new(pattern.as_str(), fsst.len()).into_array(),
+                LikeOptions::default(),
+                &mut SESSION.create_execution_ctx(),
+            )
+        })?;
         assert!(
             direct.is_none(),
             "contains needles longer than 254 bytes exceed the DFA's u8 state space"
@@ -350,12 +360,14 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let direct = <FSST as LikeKernel>::like(
-            &fsst,
-            &ConstantArray::new(pattern.as_str(), fsst.len()).into_array(),
-            LikeOptions::default(),
-            &mut SESSION.create_execution_ctx(),
-        )?;
+        let direct = fsst.with_view(|v| {
+            <FSST as LikeKernel>::like(
+                v,
+                &ConstantArray::new(pattern.as_str(), fsst.len()).into_array(),
+                LikeOptions::default(),
+                &mut SESSION.create_execution_ctx(),
+            )
+        })?;
         assert!(
             direct.is_some(),
             "254-byte contains needle should stay on the DFA path"

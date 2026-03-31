@@ -23,7 +23,7 @@ use crate::vtable::VTable;
 ///
 /// This struct holds the vtable instance, common fields (dtype, len, stats), and the
 /// encoding-specific data (`V::Array`). It implements [`Deref`] to `V::Array`, so
-/// encoding-specific methods are callable directly on `&Array<V>`.
+/// encoding-specific methods are callable directly on `ArrayView<'_, V>`.
 ///
 /// Construct via encoding-specific constructors and type-erase with
 /// [`into_array()`](IntoArray::into_array).
@@ -119,6 +119,18 @@ impl<V: VTable> Array<V> {
     pub fn to_array_ref(&self) -> ArrayRef {
         ArrayRef::from(self.clone())
     }
+
+    /// Calls `f` with an [`ArrayView`] backed by a temporary [`ArrayRef`].
+    ///
+    /// This creates a temporary `ArrayRef` via cloning, then constructs an `ArrayView` from it.
+    /// The result of `f` must not borrow from the view (the view's lifetime is limited to the
+    /// closure).
+    pub fn with_view<R>(&self, f: impl FnOnce(ArrayView<'_, V>) -> R) -> R {
+        let tmp = self.to_array_ref();
+        // SAFETY: `self.data` is the `V::ArrayData` stored inside `tmp` (same clone).
+        let view = unsafe { ArrayView::new(&tmp, &self.data) };
+        f(view)
+    }
 }
 
 impl<V: VTable> Array<V>
@@ -200,7 +212,7 @@ impl<V: VTable> Array<V> {
     /// Returns the number of buffers this array would serialize.
     #[allow(clippy::same_name_method)]
     pub fn nbuffers(&self) -> usize {
-        V::nbuffers(self)
+        self.with_view(V::nbuffers)
     }
 
     /// If this array is a constant, returns the scalar value.
@@ -291,5 +303,88 @@ impl<V: VTable> IntoArray for Array<V> {
 impl<V: VTable> IntoArray for Arc<Array<V>> {
     fn into_array(self) -> ArrayRef {
         ArrayRef::from(self)
+    }
+}
+
+/// A lightweight, `Copy`-able typed view into an [`ArrayRef`].
+///
+/// `ArrayView` pairs a reference to the type-erased [`ArrayRef`] with a reference to the
+/// encoding-specific data (`V::ArrayData`), allowing zero-cost typed access without cloning
+/// or re-wrapping. It [`Deref`]s to `V::ArrayData` for direct field access.
+pub struct ArrayView<'a, V: VTable> {
+    array: &'a ArrayRef,
+    data: &'a V::ArrayData,
+}
+
+// Manual Copy/Clone impls to avoid requiring `V: Copy/Clone`.
+impl<V: VTable> Copy for ArrayView<'_, V> {}
+
+impl<V: VTable> Clone for ArrayView<'_, V> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'a, V: VTable> ArrayView<'a, V> {
+    /// Create a new `ArrayView`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `data` is the `V::ArrayData` stored inside `array`.
+    pub(crate) unsafe fn new(array: &'a ArrayRef, data: &'a V::ArrayData) -> Self {
+        Self { array, data }
+    }
+
+    /// Returns the underlying [`ArrayRef`].
+    pub fn array_ref(&self) -> &'a ArrayRef {
+        self.array
+    }
+
+    /// Returns a reference to the encoding-specific data.
+    pub fn data(&self) -> &'a V::ArrayData {
+        self.data
+    }
+
+    /// Returns the dtype of this array.
+    pub fn dtype(&self) -> &DType {
+        self.array.dtype()
+    }
+
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.array.len()
+    }
+
+    /// Returns whether this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.array.len() == 0
+    }
+
+    /// Returns the encoding ID of this array.
+    pub fn encoding_id(&self) -> ArrayId {
+        self.array.encoding_id()
+    }
+
+    /// Returns the statistics for this array.
+    pub fn statistics(&self) -> StatsSetRef<'_> {
+        self.array.statistics()
+    }
+}
+
+impl<V: VTable> Deref for ArrayView<'_, V> {
+    type Target = V::ArrayData;
+
+    fn deref(&self) -> &V::ArrayData {
+        self.data
+    }
+}
+
+impl<V: VTable> Debug for ArrayView<'_, V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArrayView")
+            .field("encoding", &self.array.encoding_id())
+            .field("dtype", self.array.dtype())
+            .field("len", &self.array.len())
+            .finish()
     }
 }

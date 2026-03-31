@@ -14,10 +14,10 @@ use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndArray;
 use crate::RunEndData;
 use crate::compute::take_from::RunEndTakeFrom;
 
@@ -41,16 +41,16 @@ impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
 
     fn execute_parent(
         &self,
-        array: &RunEndArray,
+        array: ArrayView<'_, RunEnd>,
         parent: &SliceArray,
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        slice(array, parent.slice_range().clone()).map(Some)
+        slice(&array, parent.slice_range().clone()).map(Some)
     }
 }
 
-fn slice(array: &RunEndArray, range: Range<usize>) -> VortexResult<ArrayRef> {
+fn slice(array: &RunEndData, range: Range<usize>) -> VortexResult<ArrayRef> {
     let new_length = range.len();
 
     let slice_begin = array.find_physical_index(range.start)?;

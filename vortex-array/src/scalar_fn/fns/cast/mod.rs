@@ -205,15 +205,19 @@ fn cast_canonical(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     match canonical {
-        CanonicalView::Null(a) => <Null as CastReduce>::cast(a, dtype),
-        CanonicalView::Bool(a) => <Bool as CastReduce>::cast(a, dtype),
-        CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::VarBinView(a) => <VarBinView as CastReduce>::cast(a, dtype),
-        CanonicalView::List(a) => <ListView as CastReduce>::cast(a, dtype),
-        CanonicalView::FixedSizeList(a) => <FixedSizeList as CastReduce>::cast(a, dtype),
-        CanonicalView::Struct(a) => <Struct as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),
+        CanonicalView::Null(a) => a.with_view(|v| <Null as CastReduce>::cast(v, dtype)),
+        CanonicalView::Bool(a) => a.with_view(|v| <Bool as CastReduce>::cast(v, dtype)),
+        CanonicalView::Primitive(a) => {
+            a.with_view(|v| <Primitive as CastKernel>::cast(v, dtype, ctx))
+        }
+        CanonicalView::Decimal(a) => a.with_view(|v| <Decimal as CastKernel>::cast(v, dtype, ctx)),
+        CanonicalView::VarBinView(a) => a.with_view(|v| <VarBinView as CastReduce>::cast(v, dtype)),
+        CanonicalView::List(a) => a.with_view(|v| <ListView as CastReduce>::cast(v, dtype)),
+        CanonicalView::FixedSizeList(a) => {
+            a.with_view(|v| <FixedSizeList as CastReduce>::cast(v, dtype))
+        }
+        CanonicalView::Struct(a) => a.with_view(|v| <Struct as CastKernel>::cast(v, dtype, ctx)),
+        CanonicalView::Extension(a) => a.with_view(|v| <Extension as CastReduce>::cast(v, dtype)),
         CanonicalView::Variant(_) => {
             vortex_bail!("Variant arrays don't support casting")
         }
@@ -222,7 +226,7 @@ fn cast_canonical(
 
 /// Cast a constant array by dispatching to its [`CastReduce`] implementation.
 fn cast_constant(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-    <Constant as CastReduce>::cast(array, dtype)
+    array.with_view(|v| <Constant as CastReduce>::cast(v, dtype))
 }
 
 #[cfg(test)]

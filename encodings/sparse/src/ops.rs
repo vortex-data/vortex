@@ -3,7 +3,7 @@
 
 use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
@@ -11,7 +11,7 @@ use crate::Sparse;
 
 impl OperationsVTable<Sparse> for Sparse {
     fn scalar_at(
-        array: &Array<Sparse>,
+        array: ArrayView<'_, Sparse>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

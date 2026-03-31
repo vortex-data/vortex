@@ -17,7 +17,7 @@ use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalMaskedValidityRule),
@@ -37,7 +37,7 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
 
     fn reduce_parent(
         &self,
-        array: &Array<Decimal>,
+        array: ArrayView<'_, Decimal>,
         parent: &MaskedArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -61,7 +61,7 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
 }
 
 impl SliceReduce for Decimal {
-    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let result = match_each_decimal_value_type!(array.values_type(), |D| {
             let sliced = array.buffer::<D>().slice(range.clone());
             let validity = array.validity().clone().slice(range)?;

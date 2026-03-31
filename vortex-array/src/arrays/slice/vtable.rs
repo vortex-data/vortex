@@ -35,6 +35,7 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -73,47 +74,51 @@ impl VTable for Slice {
         &array.stats
     }
 
-    fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.child.array_hash(state, precision);
         array.range.start.hash(state);
         array.range.end.hash(state);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.child.array_eq(&other.child, precision) && array.range == other.range
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, _idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
         vortex_panic!("SliceArray has no buffers")
     }
 
-    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Array<Self>) -> usize {
+    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.child.clone(),
             _ => vortex_panic!("SliceArray child index {idx} out of bounds"),
         }
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "child".to_string(),
             _ => vortex_panic!("SliceArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(SliceMetadata(array.range.clone()))
     }
 
@@ -181,7 +186,7 @@ impl VTable for Slice {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -190,7 +195,7 @@ impl VTable for Slice {
 }
 impl OperationsVTable<Slice> for Slice {
     fn scalar_at(
-        array: &Array<Slice>,
+        array: ArrayView<'_, Slice>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -199,7 +204,7 @@ impl OperationsVTable<Slice> for Slice {
 }
 
 impl ValidityVTable<Slice> for Slice {
-    fn validity(array: &Array<Slice>) -> VortexResult<Validity> {
+    fn validity(array: ArrayView<'_, Slice>) -> VortexResult<Validity> {
         array.child.validity()?.slice(array.range.clone())
     }
 }

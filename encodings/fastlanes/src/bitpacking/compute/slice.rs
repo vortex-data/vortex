@@ -7,14 +7,14 @@ use std::ops::Range;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitPackedArray;
 use crate::BitPackedData;
 
 impl SliceReduce for BitPacked {
-    fn slice(array: &BitPackedArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let offset_start = range.start + array.offset() as usize;
         let offset_stop = range.end + array.offset() as usize;
         let offset = offset_start % 1024;

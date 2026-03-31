@@ -35,6 +35,7 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -73,46 +74,50 @@ impl VTable for Filter {
         &array.stats
     }
 
-    fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.child.array_hash(state, precision);
         array.mask.array_hash(state, precision);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.child.array_eq(&other.child, precision) && array.mask.array_eq(&other.mask, precision)
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, _idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
         vortex_panic!("FilterArray has no buffers")
     }
 
-    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Array<Self>) -> usize {
+    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.child.clone(),
             _ => vortex_panic!("FilterArray child index {idx} out of bounds"),
         }
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "child".to_string(),
             _ => vortex_panic!("FilterArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(FilterMetadata(array.mask.clone()))
     }
 
@@ -176,20 +181,20 @@ impl VTable for Filter {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
     }
 }
 impl OperationsVTable<Filter> for Filter {
     fn scalar_at(
-        array: &Array<Filter>,
+        array: ArrayView<'_, Filter>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -199,7 +204,7 @@ impl OperationsVTable<Filter> for Filter {
 }
 
 impl ValidityVTable<Filter> for Filter {
-    fn validity(array: &Array<Filter>) -> VortexResult<Validity> {
+    fn validity(array: ArrayView<'_, Filter>) -> VortexResult<Validity> {
         array.child.validity()?.filter(&array.mask)
     }
 }

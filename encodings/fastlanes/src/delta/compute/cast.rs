@@ -7,14 +7,14 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability::NonNullable;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DeltaData;
 use crate::delta::Delta;
-use crate::delta::DeltaArray;
 impl CastReduce for Delta {
-    fn cast(array: &DeltaArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Delta encoding stores differences between consecutive values, which requires
         // unsigned integers to avoid overflow issues. Signed integers could produce
         // negative deltas that wouldn't fit in the unsigned delta representation.

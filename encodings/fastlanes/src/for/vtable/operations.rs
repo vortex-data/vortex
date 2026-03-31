@@ -4,7 +4,7 @@
 use vortex_array::ExecutionCtx;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 use super::FoR;
 impl OperationsVTable<FoR> for FoR {
     fn scalar_at(
-        array: &Array<FoR>,
+        array: ArrayView<'_, FoR>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

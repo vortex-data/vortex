@@ -7,14 +7,14 @@ use std::ops::Range;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::DeltaData;
 use crate::delta::vtable::Delta;
 
 impl SliceReduce for Delta {
-    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let physical_start = range.start + array.offset();
         let physical_stop = range.end + array.offset();
 

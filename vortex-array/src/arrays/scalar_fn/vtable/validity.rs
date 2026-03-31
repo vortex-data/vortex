@@ -17,7 +17,7 @@ use crate::scalar_fn::VecExecutionArgs;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::ValidityVTable;
 
 /// Execute an expression tree recursively.
@@ -50,7 +50,7 @@ fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
 }
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
-    fn validity(array: &Array<ScalarFnVTable>) -> VortexResult<Validity> {
+    fn validity(array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Validity> {
         let inputs: Vec<_> = array
             .children
             .iter()

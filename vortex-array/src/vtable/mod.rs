@@ -74,40 +74,44 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn stats(array: &Self::ArrayData) -> &ArrayStats;
 
     /// Hashes the array contents.
-    fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision);
+    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision);
 
     /// Compares two arrays of the same type for equality.
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool;
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool;
 
     /// Returns the number of buffers in the array.
-    fn nbuffers(array: &Array<Self>) -> usize;
+    fn nbuffers(array: ArrayView<'_, Self>) -> usize;
 
     /// Returns the buffer at the given index.
     ///
     /// # Panics
     /// Panics if `idx >= nbuffers(array)`.
-    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle;
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle;
 
     /// Returns the name of the buffer at the given index, or `None` if unnamed.
-    fn buffer_name(array: &Array<Self>, idx: usize) -> Option<String>;
+    fn buffer_name(array: ArrayView<'_, Self>, idx: usize) -> Option<String>;
 
     /// Returns the number of children in the array.
-    fn nchildren(array: &Array<Self>) -> usize;
+    fn nchildren(array: ArrayView<'_, Self>) -> usize;
 
     /// Returns the child at the given index.
     ///
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef;
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef;
 
     /// Returns the name of the child at the given index.
     ///
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
-    fn child_name(array: &Array<Self>, idx: usize) -> String;
+    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String;
 
     /// Exports metadata for an array.
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata>;
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata>;
 
     /// Serialize metadata into a byte buffer for IPC or file storage.
     /// Return `None` if the array cannot be serialized.
@@ -124,11 +128,15 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Writes the array into a canonical builder.
     fn append_to_builder(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let canonical = array.to_array().execute::<Canonical>(ctx)?.into_array();
+        let canonical = array
+            .array_ref()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_array();
         builder.extend_from_array(&canonical);
         Ok(())
     }
@@ -150,7 +158,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Attempt to execute the parent of this array.
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -160,14 +168,14 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     }
 
     /// Attempt to reduce the array to a simpler representation.
-    fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         _ = array;
         Ok(None)
     }
 
     /// Attempt to perform a reduction of the parent of this array.
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

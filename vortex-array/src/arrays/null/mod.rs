@@ -25,6 +25,7 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -60,39 +61,47 @@ impl VTable for Null {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, _precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        _precision: Precision,
+    ) {
         array.len.hash(state);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, _precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        _precision: Precision,
+    ) -> bool {
         array.len == other.len
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("NullArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Array<Self>) -> usize {
+    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn child(_array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(_array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         vortex_panic!("NullArray child index {idx} out of bounds")
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("NullArray child_name index {idx} out of bounds")
     }
 
-    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -130,7 +139,7 @@ impl VTable for Null {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -213,7 +222,7 @@ impl NullData {
 }
 impl OperationsVTable<Null> for Null {
     fn scalar_at(
-        _array: &Array<Null>,
+        _array: ArrayView<'_, Null>,
         _index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -222,7 +231,7 @@ impl OperationsVTable<Null> for Null {
 }
 
 impl ValidityVTable<Null> for Null {
-    fn validity(_array: &Array<Null>) -> VortexResult<Validity> {
+    fn validity(_array: ArrayView<'_, Null>) -> VortexResult<Validity> {
         Ok(Validity::AllInvalid)
     }
 }

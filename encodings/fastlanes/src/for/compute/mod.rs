@@ -11,16 +11,16 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::filter::FilterReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::FoR;
-use crate::FoRArray;
 use crate::FoRData;
 
 impl TakeExecute for FoR {
     fn take(
-        array: &FoRArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -35,7 +35,7 @@ impl TakeExecute for FoR {
 }
 
 impl FilterReduce for FoR {
-    fn filter(array: &FoRArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         FoRData::try_new(
             array.encoded().filter(mask.clone())?,
             array.reference_scalar().clone(),

@@ -5,7 +5,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
 use vortex_array::scalar_fn::fns::list_contains::ListContainsElementReduce;
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -13,7 +13,10 @@ use crate::array::Sequence;
 use crate::compute::compare::find_intersection_scalar;
 
 impl ListContainsElementReduce for Sequence {
-    fn list_contains(list: &ArrayRef, element: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
+    fn list_contains(
+        list: &ArrayRef,
+        element: ArrayView<'_, Self>,
+    ) -> VortexResult<Option<ArrayRef>> {
         let Some(list_scalar) = list.as_constant() else {
             return Ok(None);
         };

@@ -16,6 +16,7 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ArrayView;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -24,7 +25,6 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::Sequence;
-use crate::SequenceArray;
 
 fn take_inner<T: IntegerPType, S: NativePType>(
     mul: S,
@@ -73,7 +73,7 @@ fn take_inner<T: IntegerPType, S: NativePType>(
 
 impl TakeExecute for Sequence {
     fn take(
-        array: &SequenceArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

@@ -9,11 +9,11 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::kernel::ParentKernelSet;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
-use crate::RLEArray;
 use crate::RLEData;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<RLE> =
@@ -21,7 +21,7 @@ pub(crate) static PARENT_KERNELS: ParentKernelSet<RLE> =
 
 impl SliceKernel for RLE {
     fn slice(
-        array: &RLEArray,
+        array: ArrayView<'_, Self>,
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

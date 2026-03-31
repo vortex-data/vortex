@@ -23,6 +23,7 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
 use vortex_error::VortexExpect;
@@ -86,7 +87,11 @@ impl VTable for RLE {
         array.stats_set()
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype().hash(state);
         array.values().array_hash(state, precision);
         array.indices().array_hash(state, precision);
@@ -95,7 +100,11 @@ impl VTable for RLE {
         array.len().hash(state);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.dtype() == other.dtype()
             && array.values().array_eq(other.values(), precision)
             && array.indices().array_eq(other.indices(), precision)
@@ -106,23 +115,23 @@ impl VTable for RLE {
             && array.len() == other.len()
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("RLEArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Array<Self>) -> usize {
+    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
         3
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.values().clone(),
             1 => array.indices().clone(),
@@ -131,7 +140,7 @@ impl VTable for RLE {
         }
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "values".to_string(),
             1 => "indices".to_string(),
@@ -141,7 +150,7 @@ impl VTable for RLE {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -167,7 +176,7 @@ impl VTable for RLE {
         Ok(())
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(RLEMetadata {
             values_len: array.values().len() as u64,
             indices_len: array.indices().len() as u64,
@@ -231,7 +240,7 @@ impl VTable for RLE {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

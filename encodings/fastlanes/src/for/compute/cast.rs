@@ -6,13 +6,13 @@ use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::FoRData;
 use crate::r#for::FoR;
-use crate::r#for::FoRArray;
 impl CastReduce for FoR {
-    fn cast(array: &FoRArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FoR only supports integer types
         if !dtype.is_int() {
             return Ok(None);

@@ -11,11 +11,11 @@ use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use super::DecimalBytePartsData;
 use crate::DecimalByteParts;
-use crate::DecimalBytePartsArray;
 
 pub(super) const PARENT_RULES: ParentRuleSet<DecimalByteParts> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalBytePartsFilterPushDownRule),
@@ -33,7 +33,7 @@ impl ArrayParentReduceRule<DecimalByteParts> for DecimalBytePartsFilterPushDownR
 
     fn reduce_parent(
         &self,
-        child: &DecimalBytePartsArray,
+        child: ArrayView<'_, DecimalByteParts>,
         parent: &FilterArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

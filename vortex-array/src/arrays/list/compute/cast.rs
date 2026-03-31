@@ -10,10 +10,10 @@ use crate::arrays::ListArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl CastReduce for List {
-    fn cast(array: &Array<List>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, List>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let Some(target_element_type) = dtype.as_list_element_opt() else {
             return Ok(None);
         };

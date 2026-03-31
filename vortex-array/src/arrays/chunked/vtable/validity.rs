@@ -10,11 +10,11 @@ use crate::arrays::ChunkedData;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<Chunked> for Chunked {
-    fn validity(array: &Array<Chunked>) -> VortexResult<Validity> {
+    fn validity(array: ArrayView<'_, Chunked>) -> VortexResult<Validity> {
         let validities: Vec<Validity> =
             array.chunks().iter().map(|c| c.validity()).try_collect()?;
 

@@ -11,15 +11,15 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndArray;
 use crate::decompress_bool::runend_decode_bools;
 
 impl CompareKernel for RunEnd {
     fn compare(
-        lhs: &RunEndArray,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,

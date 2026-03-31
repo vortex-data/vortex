@@ -8,11 +8,14 @@ use crate::arrays::Constant;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullReduce;
 use crate::scalar_fn::fns::fill_null::fill_null_constant;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl FillNullReduce for Constant {
-    fn fill_null(array: &Array<Constant>, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
-        fill_null_constant(array, fill_value).map(Some)
+    fn fill_null(
+        array: ArrayView<'_, Constant>,
+        fill_value: &Scalar,
+    ) -> VortexResult<Option<ArrayRef>> {
+        fill_null_constant(&array, fill_value).map(Some)
     }
 }
 

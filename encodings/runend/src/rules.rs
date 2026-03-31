@@ -12,10 +12,10 @@ use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndArray;
 use crate::RunEndData;
 
 pub(super) const RULES: ParentRuleSet<RunEnd> = ParentRuleSet::new(&[
@@ -38,7 +38,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
 
     fn reduce_parent(
         &self,
-        run_end: &RunEndArray,
+        run_end: ArrayView<'_, RunEnd>,
         parent: &ScalarFnArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

@@ -13,11 +13,11 @@ use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::kernel::ParentKernelSet;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ParquetVariant;
-use crate::ParquetVariantArray;
 use crate::array::ParquetVariantData;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[
@@ -28,7 +28,7 @@ pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernel
 
 impl SliceKernel for ParquetVariant {
     fn slice(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, Self>,
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -52,7 +52,7 @@ impl SliceKernel for ParquetVariant {
 
 impl FilterKernel for ParquetVariant {
     fn filter(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -76,7 +76,7 @@ impl FilterKernel for ParquetVariant {
 
 impl TakeExecute for ParquetVariant {
     fn take(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

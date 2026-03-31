@@ -21,11 +21,11 @@ use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
-use crate::DateTimePartsArray;
 use crate::DateTimePartsData;
 use crate::timestamp;
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new(&[
@@ -47,7 +47,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
 
     fn reduce_parent(
         &self,
-        child: &DateTimePartsArray,
+        child: ArrayView<'_, DateTimeParts>,
         parent: &FilterArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -93,7 +93,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
 
     fn reduce_parent(
         &self,
-        child: &DateTimePartsArray,
+        child: ArrayView<'_, DateTimeParts>,
         parent: &ScalarFnArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -193,6 +193,7 @@ mod tests {
     use vortex_buffer::Buffer;
 
     use super::*;
+    use crate::DateTimePartsArray;
 
     const SECONDS_PER_DAY: i64 = 86400;
 

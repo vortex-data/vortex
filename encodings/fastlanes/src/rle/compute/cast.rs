@@ -5,13 +5,13 @@ use vortex_array::ArrayRef;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::RLEData;
 use crate::rle::RLE;
-use crate::rle::RLEArray;
 impl CastReduce for RLE {
-    fn cast(array: &RLEArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast RLE values.
         let casted_values = array.values().cast(dtype.clone())?;
 

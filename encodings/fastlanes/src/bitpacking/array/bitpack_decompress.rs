@@ -17,21 +17,18 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::BitPackedArray;
+use crate::BitPackedData;
 use crate::unpack_iter::BitPacked;
 
 /// Unpacks a bit-packed array into a primitive array.
-pub fn unpack_array(
-    array: &BitPackedArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
+pub fn unpack_array(array: &BitPackedData, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     match_each_integer_ptype!(array.ptype(), |P| {
         unpack_primitive_array::<P>(array, ctx)
     })
 }
 
 pub fn unpack_primitive_array<T: BitPacked>(
-    array: &BitPackedArray,
+    array: &BitPackedData,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
@@ -41,7 +38,7 @@ pub fn unpack_primitive_array<T: BitPacked>(
 }
 
 pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
-    array: &BitPackedArray,
+    array: &BitPackedData,
     // TODO(ngates): do we want to use fastlanes alignment for this buffer?
     builder: &mut PrimitiveBuilder<T>,
     ctx: &mut ExecutionCtx,
@@ -56,7 +53,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     // SAFETY: We later initialize the the uninitialized range of values with `copy_from_slice`.
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(array.validity_mask()?);
+        uninit_range.append_mask(array.validity_mask());
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -109,7 +106,7 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
     Ok(())
 }
 
-pub fn unpack_single(array: &BitPackedArray, index: usize) -> Scalar {
+pub fn unpack_single(array: &BitPackedData, index: usize) -> Scalar {
     let bit_width = array.bit_width() as usize;
     let ptype = array.ptype();
     // let packed = array.packed().into_primitive()?;

@@ -8,13 +8,13 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar_fn::fns::mask::MaskKernel;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::ALP;
-use crate::ALPArray;
 
 impl MaskReduce for ALP {
-    fn mask(array: &ALPArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // Masking sparse patches requires reading indices, fall back to kernel.
         if array.patches().is_some() {
             return Ok(None);
@@ -28,7 +28,7 @@ impl MaskReduce for ALP {
 
 impl MaskKernel for ALP {
     fn mask(
-        array: &ALPArray,
+        array: ArrayView<'_, Self>,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

@@ -5,14 +5,14 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::Pco;
-use crate::PcoArray;
 use crate::PcoData;
 impl CastReduce for Pco {
-    fn cast(array: &PcoArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if !dtype.is_nullable() || !array.all_valid()? {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        if !dtype.is_nullable() || !array.array_ref().all_valid()? {
             // TODO(joe): fixme
             // We cannot cast to non-nullable since the validity containing nulls is used to decode
             // the PCO array, this would require rewriting tables.

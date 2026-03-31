@@ -16,7 +16,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 pub(super) const PARENT_RULES: ParentRuleSet<Filter> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&FilterFilterRule)]);
@@ -34,7 +34,7 @@ impl ArrayParentReduceRule<Filter> for FilterFilterRule {
 
     fn reduce_parent(
         &self,
-        child: &Array<Filter>,
+        child: ArrayView<'_, Filter>,
         parent: &FilterArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -49,7 +49,7 @@ impl ArrayParentReduceRule<Filter> for FilterFilterRule {
 struct TrivialFilterRule;
 
 impl ArrayReduceRule<Filter> for TrivialFilterRule {
-    fn reduce(&self, array: &Array<Filter>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: ArrayView<'_, Filter>) -> VortexResult<Option<ArrayRef>> {
         match array.filter_mask() {
             Mask::AllTrue(_) => Ok(Some(array.child.clone())),
             Mask::AllFalse(_) => Ok(Some(Canonical::empty(array.dtype()).into_array())),
@@ -63,7 +63,7 @@ impl ArrayReduceRule<Filter> for TrivialFilterRule {
 struct FilterStructRule;
 
 impl ArrayReduceRule<Filter> for FilterStructRule {
-    fn reduce(&self, array: &Array<Filter>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: ArrayView<'_, Filter>) -> VortexResult<Option<ArrayRef>> {
         let mask = array.filter_mask();
         let Some(struct_array) = array.child().as_opt::<Struct>() else {
             return Ok(None);

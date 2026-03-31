@@ -9,10 +9,13 @@ use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl MaskReduce for FixedSizeList {
-    fn mask(array: &Array<FixedSizeList>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(
+        array: ArrayView<'_, FixedSizeList>,
+        mask: &ArrayRef,
+    ) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: masking the validity does not affect the invariants
         Ok(Some(
             unsafe {

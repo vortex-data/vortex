@@ -10,10 +10,10 @@ use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::slice::SliceReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl SliceReduce for Constant {
-    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ConstantArray::new(array.scalar.clone(), range.len()).into_array(),
         ))

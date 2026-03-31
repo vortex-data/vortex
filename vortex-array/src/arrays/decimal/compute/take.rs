@@ -15,11 +15,11 @@ use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl TakeExecute for Decimal {
     fn take(
-        array: &Array<Decimal>,
+        array: ArrayView<'_, Decimal>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

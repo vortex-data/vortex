@@ -46,6 +46,7 @@ use crate::stats::ArrayStats;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
 vtable!(ScalarFn, ScalarFnVTable, ScalarFnData);
@@ -81,7 +82,7 @@ impl VTable for ScalarFnVTable {
         &array.stats
     }
 
-    fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.len.hash(state);
         array.dtype.hash(state);
         array.scalar_fn().hash(state);
@@ -90,7 +91,11 @@ impl VTable for ScalarFnVTable {
         }
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         if array.len != other.len {
             return false;
         }
@@ -108,27 +113,27 @@ impl VTable for ScalarFnVTable {
         true
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ScalarFnArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("ScalarFnArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         array.children.len()
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         array.children[idx].clone()
     }
 
-    fn child_name(array: &Array<Self>, idx: usize) -> String {
+    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         array
             .scalar_fn()
             .signature()
@@ -137,7 +142,7 @@ impl VTable for ScalarFnVTable {
             .to_string()
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         let child_dtypes = array.children().iter().map(|c| c.dtype().clone()).collect();
         Ok(ScalarFnMetadata {
             scalar_fn: array.scalar_fn().clone(),
@@ -214,12 +219,12 @@ impl VTable for ScalarFnVTable {
             .map(ExecutionResult::done)
     }
 
-    fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

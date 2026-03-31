@@ -9,10 +9,10 @@ use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl MaskReduce for VarBinView {
-    fn mask(array: &Array<VarBinView>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: ArrayView<'_, VarBinView>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: masking the validity does not affect the invariants
         unsafe {
             Ok(Some(

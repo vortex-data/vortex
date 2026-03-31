@@ -8,14 +8,14 @@ use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::Sequence;
-use crate::SequenceArray;
 use crate::SequenceData;
 impl CastReduce for Sequence {
-    fn cast(array: &SequenceArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // SequenceArray represents arithmetic sequences (base + i * multiplier) which
         // only makes sense for integer types. Floating-point sequences would accumulate
         // rounding errors, and other types don't support arithmetic operations.

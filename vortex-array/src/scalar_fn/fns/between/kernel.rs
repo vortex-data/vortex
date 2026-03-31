@@ -9,13 +9,12 @@ use super::BetweenOptions;
 use super::precondition;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
 /// Reduce rule for between: restructure the array without reading buffers.
@@ -23,7 +22,7 @@ use crate::vtable::VTable;
 /// Returns `Ok(None)` if the rule doesn't apply or buffer access is needed.
 pub trait BetweenReduce: VTable {
     fn between(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -35,7 +34,7 @@ pub trait BetweenReduce: VTable {
 /// Returns `Ok(None)` if this kernel cannot handle the given inputs.
 pub trait BetweenKernel: VTable {
     fn between(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -55,7 +54,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, Between>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -69,7 +68,7 @@ where
         let children = scalar_fn_array.children();
         let lower = &children[1];
         let upper = &children[2];
-        let arr = array.clone().into_array();
+        let arr = array.array_ref().clone();
         if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));
         }
@@ -89,7 +88,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, Between>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -104,7 +103,7 @@ where
         let children = scalar_fn_array.children();
         let lower = &children[1];
         let upper = &children[2];
-        let arr = array.clone().into_array();
+        let arr = array.array_ref().clone();
         if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));
         }

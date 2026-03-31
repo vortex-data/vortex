@@ -12,12 +12,12 @@ use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::columnar::Columnar;
 use crate::scalar::Scalar;
 use crate::scalar_fn::VecExecutionArgs;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn scalar_at(
-        array: &Array<ScalarFnVTable>,
+        array: ArrayView<'_, ScalarFnVTable>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

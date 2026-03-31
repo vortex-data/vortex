@@ -11,10 +11,10 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl MaskReduce for Extension {
-    fn mask(array: &Array<Extension>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: ArrayView<'_, Extension>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_storage = MaskExpr.try_new_array(
             array.storage_array().len(),
             EmptyOptions,

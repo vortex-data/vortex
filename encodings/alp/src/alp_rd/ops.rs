@@ -3,7 +3,7 @@
 
 use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -12,7 +12,7 @@ use crate::ALPRD;
 
 impl OperationsVTable<ALPRD> for ALPRD {
     fn scalar_at(
-        array: &Array<ALPRD>,
+        array: ArrayView<'_, ALPRD>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

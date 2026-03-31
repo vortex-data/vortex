@@ -9,10 +9,10 @@ use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::filter::FilterReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl FilterReduce for Constant {
-    fn filter(array: &Array<Constant>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: ArrayView<'_, Constant>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ConstantArray::new(array.scalar().clone(), mask.true_count()).into_array(),
         ))

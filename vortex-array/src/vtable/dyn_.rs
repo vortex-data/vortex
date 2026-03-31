@@ -21,6 +21,7 @@ use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
@@ -119,7 +120,7 @@ impl<V: VTable> DynVTable for V {
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let Some(reduced) = V::reduce(&downcast_owned::<V>(array.clone()))? else {
+        let Some(reduced) = V::reduce(view::<V>(array))? else {
             return Ok(None);
         };
         vortex_ensure!(
@@ -143,7 +144,7 @@ impl<V: VTable> DynVTable for V {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(reduced) = V::reduce_parent(downcast::<V>(array), parent, child_idx)? else {
+        let Some(reduced) = V::reduce_parent(view::<V>(array), parent, child_idx)? else {
             return Ok(None);
         };
 
@@ -200,7 +201,7 @@ impl<V: VTable> DynVTable for V {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(result) = V::execute_parent(downcast::<V>(array), parent, child_idx, ctx)? else {
+        let Some(result) = V::execute_parent(view::<V>(array), parent, child_idx, ctx)? else {
             return Ok(None);
         };
 
@@ -219,11 +220,13 @@ impl<V: VTable> DynVTable for V {
     }
 }
 
-/// Borrow-downcast an `ArrayRef` to `&Array<V>`.
-fn downcast<V: VTable>(array: &ArrayRef) -> &Array<V> {
-    DynArray::as_any(array.as_ref())
+/// Create an [`ArrayView`] from an `&ArrayRef`.
+fn view<'a, V: VTable>(array: &'a ArrayRef) -> ArrayView<'a, V> {
+    let typed = DynArray::as_any(array.as_ref())
         .downcast_ref::<Array<V>>()
-        .vortex_expect("Failed to downcast array to expected encoding type")
+        .vortex_expect("Failed to downcast array to expected encoding type");
+    // SAFETY: `typed.data` is the `V::ArrayData` stored inside `array`.
+    unsafe { ArrayView::new(array, &typed.data) }
 }
 
 /// Downcast an `ArrayRef` into an `Arc<Array<V>>`.

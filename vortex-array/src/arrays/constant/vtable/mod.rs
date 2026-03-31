@@ -39,6 +39,7 @@ use crate::stats::ArrayStats;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 pub(crate) mod canonical;
 mod operations;
@@ -80,20 +81,28 @@ impl VTable for Constant {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, _precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        _precision: Precision,
+    ) {
         array.scalar.hash(state);
         array.len.hash(state);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, _precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        _precision: Precision,
+    ) -> bool {
         array.scalar == other.scalar && array.len == other.len
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => BufferHandle::new_host(
                 ScalarValue::to_proto_bytes::<ByteBufferMut>(array.scalar.value()).freeze(),
@@ -102,26 +111,26 @@ impl VTable for Constant {
         }
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("scalar".to_string()),
             _ => None,
         }
     }
 
-    fn nchildren(_array: &Array<Self>) -> usize {
+    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn child(_array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(_array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         vortex_panic!("ConstantArray child index {idx} out of bounds")
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray child_name index {idx} out of bounds")
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(array.scalar().clone())
     }
 
@@ -173,7 +182,7 @@ impl VTable for Constant {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -187,7 +196,7 @@ impl VTable for Constant {
     }
 
     fn append_to_builder(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
@@ -251,8 +260,8 @@ impl VTable for Constant {
             // TODO: add fast paths for DType::Struct, DType::List, DType::FixedSizeList, DType::Extension.
             _ => {
                 let canonical = array
+                    .array_ref()
                     .clone()
-                    .into_array()
                     .execute::<Canonical>(ctx)?
                     .into_array();
                 builder.extend_from_array(&canonical);

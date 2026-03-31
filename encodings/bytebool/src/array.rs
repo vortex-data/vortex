@@ -23,6 +23,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
@@ -70,41 +71,49 @@ impl VTable for ByteBool {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
         array.buffer.array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.dtype == other.dtype
             && array.buffer.array_eq(&other.buffer, precision)
             && array.validity.array_eq(&other.validity, precision)
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.buffer().clone(),
             _ => vortex_panic!("ByteBoolArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("values".to_string()),
             _ => vortex_panic!("ByteBoolArray buffer_name index {idx} out of bounds"),
         }
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         validity_nchildren(array.validity())
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => validity_to_child(array.validity(), array.len())
                 .vortex_expect("ByteBoolArray validity child out of bounds"),
@@ -112,14 +121,14 @@ impl VTable for ByteBool {
         }
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "validity".to_string(),
             _ => vortex_panic!("ByteBoolArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(_array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -178,7 +187,7 @@ impl VTable for ByteBool {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -194,7 +203,7 @@ impl VTable for ByteBool {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -290,7 +299,7 @@ impl ValidityHelper for ByteBoolData {
 
 impl OperationsVTable<ByteBool> for ByteBool {
     fn scalar_at(
-        array: &Array<ByteBool>,
+        array: ArrayView<'_, ByteBool>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

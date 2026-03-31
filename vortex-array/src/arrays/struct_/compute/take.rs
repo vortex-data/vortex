@@ -11,10 +11,10 @@ use crate::arrays::dict::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl TakeReduce for Struct {
-    fn take(array: &Array<Struct>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: ArrayView<'_, Struct>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // If the struct array is empty then the indices must be all null, otherwise it will access
         // an out of bounds element.
         if array.is_empty() {

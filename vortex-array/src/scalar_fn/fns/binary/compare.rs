@@ -29,7 +29,7 @@ use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
 /// Trait for encoding-specific comparison kernels that operate in encoded space.
@@ -39,7 +39,7 @@ use crate::vtable::VTable;
 /// the left-hand side, swapping the operator when necessary.
 pub trait CompareKernel: VTable {
     fn compare(
-        lhs: &Array<Self>,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
@@ -62,7 +62,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, Binary>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -86,8 +86,8 @@ where
             _ => return Ok(None),
         };
 
-        let len = V::len(array);
-        let nullable = V::dtype(array).is_nullable() || other.dtype().is_nullable();
+        let len = array.len();
+        let nullable = array.dtype().is_nullable() || other.dtype().is_nullable();
 
         // Empty array → empty bool result
         if len == 0 {

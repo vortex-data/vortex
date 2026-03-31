@@ -18,7 +18,7 @@ use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 /// Take implementation for [`FixedSizeListArray`].
 ///
@@ -27,7 +27,7 @@ use crate::vtable::Array;
 /// into element indices and push them down to the child elements array.
 impl TakeExecute for FixedSizeList {
     fn take(
-        array: &Array<FixedSizeList>,
+        array: ArrayView<'_, FixedSizeList>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -40,7 +40,7 @@ impl TakeExecute for FixedSizeList {
 
 /// Dispatches to the appropriate take implementation based on list size and nullability.
 fn take_with_indices<I: IntegerPType>(
-    array: &Array<FixedSizeList>,
+    array: ArrayView<'_, FixedSizeList>,
     indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -74,17 +74,17 @@ fn take_with_indices<I: IntegerPType>(
     } else {
         // The result's nullability is the union of the input nullabilities.
         if array.dtype().is_nullable() || indices_array.dtype().is_nullable() {
-            take_nullable_fsl::<I>(array, &indices_array)
+            indices_array.with_view(|idx_view| take_nullable_fsl::<I>(array, idx_view))
         } else {
-            take_non_nullable_fsl::<I>(array, &indices_array)
+            indices_array.with_view(|idx_view| take_non_nullable_fsl::<I>(array, idx_view))
         }
     }
 }
 
 /// Takes from an array when both the array and indices are non-nullable.
 fn take_non_nullable_fsl<I: IntegerPType>(
-    array: &Array<FixedSizeList>,
-    indices_array: &Array<Primitive>,
+    array: ArrayView<'_, FixedSizeList>,
+    indices_array: ArrayView<'_, Primitive>,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
     let indices: &[I] = indices_array.as_slice::<I>();
@@ -132,15 +132,15 @@ fn take_non_nullable_fsl<I: IntegerPType>(
 
 /// Takes from an array when either the array or indices are nullable.
 fn take_nullable_fsl<I: IntegerPType>(
-    array: &Array<FixedSizeList>,
-    indices_array: &Array<Primitive>,
+    array: ArrayView<'_, FixedSizeList>,
+    indices_array: ArrayView<'_, Primitive>,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
     let indices: &[I] = indices_array.as_slice::<I>();
     let new_len = indices.len();
 
-    let array_validity = array.validity_mask()?;
-    let indices_validity = indices_array.validity_mask()?;
+    let array_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
 
     // We must use placeholder zeros for null lists to maintain the array length without
     // propagating nullability to the element array's take operation.

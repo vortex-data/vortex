@@ -17,12 +17,12 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 // TODO(joe): this is pretty unoptimized but better than before. We want canonical using a builder
 // we also want to return a chunked array ideally.
 fn take_chunked(
-    array: &Array<Chunked>,
+    array: ArrayView<'_, Chunked>,
     indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
@@ -102,7 +102,7 @@ fn take_chunked(
 
 impl TakeExecute for Chunked {
     fn take(
-        array: &Array<Chunked>,
+        array: ArrayView<'_, Chunked>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

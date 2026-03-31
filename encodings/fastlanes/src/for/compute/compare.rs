@@ -17,16 +17,17 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
 use crate::FoR;
-use crate::FoRArray;
+use crate::FoRData;
 
 impl CompareKernel for FoR {
     fn compare(
-        lhs: &FoRArray,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
@@ -36,7 +37,7 @@ impl CompareKernel for FoR {
         {
             match_each_integer_ptype!(constant.ptype(), |T| {
                 return compare_constant(
-                    lhs,
+                    &lhs,
                     constant
                         .typed_value::<T>()
                         .vortex_expect("null scalar handled in adaptor"),
@@ -51,7 +52,7 @@ impl CompareKernel for FoR {
 }
 
 fn compare_constant<T>(
-    lhs: &FoRArray,
+    lhs: &FoRData,
     mut rhs: T,
     nullability: Nullability,
     operator: CompareOperator,

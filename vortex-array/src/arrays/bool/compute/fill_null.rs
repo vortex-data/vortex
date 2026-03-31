@@ -12,10 +12,11 @@ use crate::arrays::BoolArray;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
+use crate::vtable::ArrayView;
 
 impl FillNullKernel for Bool {
     fn fill_null(
-        array: &BoolArray,
+        array: ArrayView<'_, Bool>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

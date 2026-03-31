@@ -18,27 +18,27 @@ pub fn vortex_fsst::FSST::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::take(array: &vortex_fsst::FSSTArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSST::take(array: vortex_array::vtable::typed::ArrayView<'_, Self>, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::filter(array: &vortex_fsst::FSSTArray, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSST::filter(array: vortex_array::vtable::typed::ArrayView<'_, Self>, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::slice::SliceReduce for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::slice(array: &vortex_array::vtable::typed::Array<Self>, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSST::slice(array: vortex_array::vtable::typed::ArrayView<'_, Self>, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::compare(lhs: &vortex_fsst::FSSTArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSST::compare(lhs: vortex_array::vtable::typed::ArrayView<'_, Self>, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::cast(array: &vortex_fsst::FSSTArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSST::cast(array: vortex_array::vtable::typed::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::like::kernel::LikeKernel for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::like(array: &vortex_fsst::FSSTArray, pattern: &vortex_array::array::ArrayRef, options: vortex_array::scalar_fn::fns::like::LikeOptions, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSST::like(array: vortex_array::vtable::typed::ArrayView<'_, Self>, pattern: &vortex_array::array::ArrayRef, options: vortex_array::scalar_fn::fns::like::LikeOptions, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_fsst::FSST
 
@@ -50,21 +50,21 @@ pub type vortex_fsst::FSST::OperationsVTable = vortex_fsst::FSST
 
 pub type vortex_fsst::FSST::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_fsst::FSST::append_to_builder(array: &vortex_array::vtable::typed::Array<Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_fsst::FSST::append_to_builder(array: vortex_array::vtable::typed::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_fsst::FSST::array_eq(array: &vortex_array::vtable::typed::Array<Self>, other: &vortex_array::vtable::typed::Array<Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_fsst::FSST::array_eq(array: vortex_array::vtable::typed::ArrayView<'_, Self>, other: vortex_array::vtable::typed::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_fsst::FSST::array_hash<H: core::hash::Hasher>(array: &vortex_array::vtable::typed::Array<Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_fsst::FSST::array_hash<H: core::hash::Hasher>(array: vortex_array::vtable::typed::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_fsst::FSST::buffer(array: &vortex_array::vtable::typed::Array<Self>, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_fsst::FSST::buffer(array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
-pub fn vortex_fsst::FSST::buffer_name(_array: &vortex_array::vtable::typed::Array<Self>, idx: usize) -> core::option::Option<alloc::string::String>
+pub fn vortex_fsst::FSST::buffer_name(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
 pub fn vortex_fsst::FSST::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fsst::FSSTData>
 
-pub fn vortex_fsst::FSST::child(array: &vortex_array::vtable::typed::Array<Self>, idx: usize) -> vortex_array::array::ArrayRef
+pub fn vortex_fsst::FSST::child(array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::array::ArrayRef
 
-pub fn vortex_fsst::FSST::child_name(_array: &vortex_array::vtable::typed::Array<Self>, idx: usize) -> alloc::string::String
+pub fn vortex_fsst::FSST::child_name(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
 pub fn vortex_fsst::FSST::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -72,19 +72,19 @@ pub fn vortex_fsst::FSST::dtype(array: &vortex_fsst::FSSTData) -> &vortex_array:
 
 pub fn vortex_fsst::FSST::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_fsst::FSST::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSST::execute_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fsst::FSST::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
 pub fn vortex_fsst::FSST::len(array: &vortex_fsst::FSSTData) -> usize
 
-pub fn vortex_fsst::FSST::metadata(array: &vortex_array::vtable::typed::Array<Self>) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_fsst::FSST::metadata(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_fsst::FSST::nbuffers(_array: &vortex_array::vtable::typed::Array<Self>) -> usize
+pub fn vortex_fsst::FSST::nbuffers(_array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> usize
 
-pub fn vortex_fsst::FSST::nchildren(array: &vortex_array::vtable::typed::Array<Self>) -> usize
+pub fn vortex_fsst::FSST::nchildren(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> usize
 
-pub fn vortex_fsst::FSST::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_fsst::FSST::reduce_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fsst::FSST::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -96,7 +96,7 @@ pub fn vortex_fsst::FSST::with_children(array: &mut Self::ArrayData, children: a
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::scalar_at(array: &vortex_array::vtable::typed::Array<vortex_fsst::FSST>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_fsst::FSST::scalar_at(array: vortex_array::vtable::typed::ArrayView<'_, vortex_fsst::FSST>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityChild<vortex_fsst::FSST> for vortex_fsst::FSST
 

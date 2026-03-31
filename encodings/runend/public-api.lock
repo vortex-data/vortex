@@ -42,23 +42,23 @@ pub fn vortex_runend::RunEnd::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> co
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::take(array: &vortex_runend::RunEndArray, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEnd::take(array: vortex_array::vtable::typed::ArrayView<'_, Self>, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::filter(array: &vortex_runend::RunEndArray, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEnd::filter(array: vortex_array::vtable::typed::ArrayView<'_, Self>, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::compare(lhs: &vortex_runend::RunEndArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEnd::compare(lhs: vortex_array::vtable::typed::ArrayView<'_, Self>, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::cast(array: &vortex_runend::RunEndArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEnd::cast(array: vortex_array::vtable::typed::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::fill_null::kernel::FillNullReduce for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::fill_null(array: &vortex_runend::RunEndArray, fill_value: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEnd::fill_null(array: vortex_array::vtable::typed::ArrayView<'_, Self>, fill_value: &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 impl vortex_array::vtable::VTable for vortex_runend::RunEnd
 
@@ -70,19 +70,19 @@ pub type vortex_runend::RunEnd::OperationsVTable = vortex_runend::RunEnd
 
 pub type vortex_runend::RunEnd::ValidityVTable = vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::array_eq(array: &vortex_array::vtable::typed::Array<Self>, other: &vortex_array::vtable::typed::Array<Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_runend::RunEnd::array_eq(array: vortex_array::vtable::typed::ArrayView<'_, Self>, other: vortex_array::vtable::typed::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_runend::RunEnd::array_hash<H: core::hash::Hasher>(array: &vortex_array::vtable::typed::Array<Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_runend::RunEnd::array_hash<H: core::hash::Hasher>(array: vortex_array::vtable::typed::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_runend::RunEnd::buffer(_array: &vortex_array::vtable::typed::Array<Self>, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_runend::RunEnd::buffer(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
-pub fn vortex_runend::RunEnd::buffer_name(_array: &vortex_array::vtable::typed::Array<Self>, idx: usize) -> core::option::Option<alloc::string::String>
+pub fn vortex_runend::RunEnd::buffer_name(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
 pub fn vortex_runend::RunEnd::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_runend::RunEndData>
 
-pub fn vortex_runend::RunEnd::child(array: &vortex_array::vtable::typed::Array<Self>, idx: usize) -> vortex_array::array::ArrayRef
+pub fn vortex_runend::RunEnd::child(array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::array::ArrayRef
 
-pub fn vortex_runend::RunEnd::child_name(_array: &vortex_array::vtable::typed::Array<Self>, idx: usize) -> alloc::string::String
+pub fn vortex_runend::RunEnd::child_name(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
 pub fn vortex_runend::RunEnd::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -90,19 +90,19 @@ pub fn vortex_runend::RunEnd::dtype(array: &vortex_runend::RunEndData) -> &vorte
 
 pub fn vortex_runend::RunEnd::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_runend::RunEnd::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEnd::execute_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_runend::RunEnd::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
 pub fn vortex_runend::RunEnd::len(array: &vortex_runend::RunEndData) -> usize
 
-pub fn vortex_runend::RunEnd::metadata(array: &vortex_array::vtable::typed::Array<Self>) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_runend::RunEnd::metadata(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_runend::RunEnd::nbuffers(_array: &vortex_array::vtable::typed::Array<Self>) -> usize
+pub fn vortex_runend::RunEnd::nbuffers(_array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> usize
 
-pub fn vortex_runend::RunEnd::nchildren(_array: &vortex_array::vtable::typed::Array<Self>) -> usize
+pub fn vortex_runend::RunEnd::nchildren(_array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> usize
 
-pub fn vortex_runend::RunEnd::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEnd::reduce_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_runend::RunEnd::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
@@ -114,11 +114,11 @@ pub fn vortex_runend::RunEnd::with_children(array: &mut Self::ArrayData, childre
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::scalar_at(array: &vortex_array::vtable::typed::Array<vortex_runend::RunEnd>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_runend::RunEnd::scalar_at(array: vortex_array::vtable::typed::ArrayView<'_, vortex_runend::RunEnd>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::vtable::validity::ValidityVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::validity(array: &vortex_array::vtable::typed::Array<vortex_runend::RunEnd>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+pub fn vortex_runend::RunEnd::validity(array: vortex_array::vtable::typed::ArrayView<'_, vortex_runend::RunEnd>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub struct vortex_runend::RunEndArrayParts
 

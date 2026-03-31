@@ -10,10 +10,10 @@ use crate::IntoArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::slice::SliceReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl SliceReduce for FixedSizeList {
-    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let new_len = range.len();
         let list_size = array.list_size() as usize;
 

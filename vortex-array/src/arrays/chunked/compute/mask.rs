@@ -12,11 +12,11 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskKernel;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl MaskKernel for Chunked {
     fn mask(
-        array: &Array<Chunked>,
+        array: ArrayView<'_, Chunked>,
         mask: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

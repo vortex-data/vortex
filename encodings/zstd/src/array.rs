@@ -34,6 +34,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValiditySliceHelper;
@@ -109,7 +110,11 @@ impl VTable for Zstd {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         match &array.dictionary {
             Some(dict) => {
                 true.hash(state);
@@ -129,7 +134,11 @@ impl VTable for Zstd {
         array.slice_stop.hash(state);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         if !match (&array.dictionary, &other.dictionary) {
             (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
             (None, None) => true,
@@ -154,11 +163,11 @@ impl VTable for Zstd {
             && array.slice_stop == other.slice_stop
     }
 
-    fn nbuffers(array: &Array<Self>) -> usize {
+    fn nbuffers(array: ArrayView<'_, Self>) -> usize {
         array.dictionary.is_some() as usize + array.frames.len()
     }
 
-    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         if let Some(dict) = &array.dictionary {
             if idx == 0 {
                 return BufferHandle::new_host(dict.clone());
@@ -169,7 +178,7 @@ impl VTable for Zstd {
         }
     }
 
-    fn buffer_name(array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         if array.dictionary.is_some() {
             if idx == 0 {
                 Some("dictionary".to_string())
@@ -181,23 +190,23 @@ impl VTable for Zstd {
         }
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         validity_nchildren(&array.unsliced_validity)
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         validity_to_child(&array.unsliced_validity, array.unsliced_n_rows)
             .unwrap_or_else(|| vortex_panic!("ZstdArray child index {idx} out of bounds"))
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "validity".to_string(),
             _ => vortex_panic!("ZstdArray child_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(array.metadata.clone()))
     }
 
@@ -285,7 +294,7 @@ impl VTable for Zstd {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -1007,7 +1016,7 @@ impl ValiditySliceHelper for ZstdData {
 
 impl OperationsVTable<Zstd> for Zstd {
     fn scalar_at(
-        array: &Array<Zstd>,
+        array: ArrayView<'_, Zstd>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

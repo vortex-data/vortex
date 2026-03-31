@@ -23,6 +23,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_array::vtable::validity_nchildren;
@@ -104,7 +105,7 @@ impl VTable for ParquetVariant {
         &array.stats_set
     }
 
-    fn array_hash<H: Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.validity.array_hash(state, precision);
         array.metadata.array_hash(state, precision);
         // Hash discriminators so that (value=Some, typed_value=None) and
@@ -119,7 +120,11 @@ impl VTable for ParquetVariant {
         }
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         if !array.validity.array_eq(&other.validity, precision)
             || !array.metadata.array_eq(&other.metadata, precision)
         {
@@ -141,25 +146,25 @@ impl VTable for ParquetVariant {
         }
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ParquetVariantArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         1 + validity_nchildren(&array.validity)
             + array.value.is_some() as usize
             + array.typed_value.is_some() as usize
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         let vc = validity_nchildren(&array.validity);
         if idx < vc {
             validity_to_child(&array.validity, array.metadata.len())
@@ -184,7 +189,7 @@ impl VTable for ParquetVariant {
         }
     }
 
-    fn child_name(array: &Array<Self>, idx: usize) -> String {
+    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         let vc = validity_nchildren(&array.validity);
         match idx {
             idx if idx < vc => "validity".to_string(),
@@ -198,7 +203,7 @@ impl VTable for ParquetVariant {
         }
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ParquetVariantMetadata {
             has_value: array.value.is_some(),
             value_nullable: array
@@ -346,7 +351,7 @@ impl VTable for ParquetVariant {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

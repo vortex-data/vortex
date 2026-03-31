@@ -17,11 +17,11 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl BetweenKernel for Decimal {
     fn between(
-        arr: &Array<Decimal>,
+        arr: ArrayView<'_, Decimal>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -45,7 +45,7 @@ impl BetweenKernel for Decimal {
 }
 
 fn between_unpack<T: NativeDecimalType>(
-    arr: &Array<Decimal>,
+    arr: ArrayView<'_, Decimal>,
     lower: Scalar,
     upper: Scalar,
     nullability: Nullability,
@@ -93,7 +93,7 @@ fn between_unpack<T: NativeDecimalType>(
 }
 
 fn between_impl<T: NativeDecimalType>(
-    arr: &Array<Decimal>,
+    arr: ArrayView<'_, Decimal>,
     lower: T,
     upper: T,
     nullability: Nullability,

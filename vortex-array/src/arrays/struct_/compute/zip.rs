@@ -15,11 +15,11 @@ use crate::arrays::StructArray;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl ZipKernel for Struct {
     fn zip(
-        if_true: &Array<Struct>,
+        if_true: ArrayView<'_, Struct>,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,

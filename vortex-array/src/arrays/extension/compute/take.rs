@@ -9,11 +9,11 @@ use crate::IntoArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::dict::TakeExecute;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl TakeExecute for Extension {
     fn take(
-        array: &Array<Extension>,
+        array: ArrayView<'_, Extension>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

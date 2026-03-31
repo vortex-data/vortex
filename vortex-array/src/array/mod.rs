@@ -648,11 +648,13 @@ impl<V: VTable> DynArray for Array<V> {
         if self.is_invalid(index)? {
             return Ok(Scalar::null(self.dtype.clone()));
         }
-        let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
-            self,
-            index,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
+        let scalar = self.with_view(|view| {
+            <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
+                view,
+                index,
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+        })?;
         vortex_ensure!(&self.dtype == scalar.dtype(), "Scalar dtype mismatch");
         Ok(scalar)
     }
@@ -723,7 +725,8 @@ impl<V: VTable> DynArray for Array<V> {
 
     fn validity(&self) -> VortexResult<Validity> {
         if self.dtype.is_nullable() {
-            let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(self)?;
+            let validity =
+                self.with_view(|view| <V::ValidityVTable as ValidityVTable<V>>::validity(view))?;
             if let Validity::Array(array) = &validity {
                 vortex_ensure!(array.len() == self.len, "Validity array length mismatch");
                 vortex_ensure!(
@@ -765,7 +768,7 @@ impl<V: VTable> DynArray for Array<V> {
         }
         let len = builder.len();
 
-        V::append_to_builder(self, builder, ctx)?;
+        self.with_view(|view| V::append_to_builder(view, builder, ctx))?;
 
         assert_eq!(
             len + self.len,
@@ -799,76 +802,88 @@ impl<V: VTable> DynArray for Array<V> {
 impl<V: VTable> ArrayHash for Array<V> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
         self.vtable().id().hash(state);
-        V::array_hash(self, state, precision);
+        self.with_view(|view| V::array_hash(view, state, precision));
     }
 }
 
 impl<V: VTable> ArrayEq for Array<V> {
     fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
-        V::array_eq(self, other, precision)
+        self.with_view(|self_view| {
+            other.with_view(|other_view| V::array_eq(self_view, other_view, precision))
+        })
     }
 }
 
 impl<V: VTable> ArrayVisitor for Array<V> {
     fn children(&self) -> Vec<ArrayRef> {
-        (0..V::nchildren(self)).map(|i| V::child(self, i)).collect()
+        self.with_view(|view| (0..V::nchildren(view)).map(|i| V::child(view, i)).collect())
     }
 
     fn nchildren(&self) -> usize {
-        V::nchildren(self)
+        self.with_view(V::nchildren)
     }
 
     fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        (idx < V::nchildren(self)).then(|| V::child(self, idx))
+        self.with_view(|view| (idx < V::nchildren(view)).then(|| V::child(view, idx)))
     }
 
     fn children_names(&self) -> Vec<String> {
-        (0..V::nchildren(self))
-            .map(|i| V::child_name(self, i))
-            .collect()
+        self.with_view(|view| {
+            (0..V::nchildren(view))
+                .map(|i| V::child_name(view, i))
+                .collect()
+        })
     }
 
     fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        (0..V::nchildren(self))
-            .map(|i| (V::child_name(self, i), V::child(self, i)))
-            .collect()
+        self.with_view(|view| {
+            (0..V::nchildren(view))
+                .map(|i| (V::child_name(view, i), V::child(view, i)))
+                .collect()
+        })
     }
 
     fn buffers(&self) -> Vec<ByteBuffer> {
-        (0..V::nbuffers(self))
-            .map(|i| V::buffer(self, i).to_host_sync())
-            .collect()
+        self.with_view(|view| {
+            (0..V::nbuffers(view))
+                .map(|i| V::buffer(view, i).to_host_sync())
+                .collect()
+        })
     }
 
     fn buffer_handles(&self) -> Vec<BufferHandle> {
-        (0..V::nbuffers(self)).map(|i| V::buffer(self, i)).collect()
+        self.with_view(|view| (0..V::nbuffers(view)).map(|i| V::buffer(view, i)).collect())
     }
 
     fn buffer_names(&self) -> Vec<String> {
-        (0..V::nbuffers(self))
-            .filter_map(|i| V::buffer_name(self, i))
-            .collect()
+        self.with_view(|view| {
+            (0..V::nbuffers(view))
+                .filter_map(|i| V::buffer_name(view, i))
+                .collect()
+        })
     }
 
     fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
-        (0..V::nbuffers(self))
-            .filter_map(|i| V::buffer_name(self, i).map(|name| (name, V::buffer(self, i))))
-            .collect()
+        self.with_view(|view| {
+            (0..V::nbuffers(view))
+                .filter_map(|i| V::buffer_name(view, i).map(|name| (name, V::buffer(view, i))))
+                .collect()
+        })
     }
 
     fn nbuffers(&self) -> usize {
-        V::nbuffers(self)
+        self.with_view(V::nbuffers)
     }
 
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
-        V::serialize(V::metadata(self)?)
+        self.with_view(|view| V::serialize(V::metadata(view)?))
     }
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match V::metadata(self) {
+        self.with_view(|view| match V::metadata(view) {
             Err(e) => write!(f, "<serde error: {e}>"),
             Ok(metadata) => Debug::fmt(&metadata, f),
-        }
+        })
     }
 
     fn is_host(&self) -> bool {

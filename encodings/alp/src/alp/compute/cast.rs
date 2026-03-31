@@ -7,13 +7,13 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::alp::ALP;
-use crate::alp::ALPArray;
 
 impl CastReduce for ALP {
-    fn cast(array: &ALPArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Check if this is just a nullability change
         if array.dtype().eq_ignore_nullability(dtype) {
             // For nullability-only changes, we can avoid decoding

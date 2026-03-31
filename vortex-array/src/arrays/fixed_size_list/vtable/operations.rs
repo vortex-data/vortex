@@ -6,12 +6,12 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::arrays::FixedSizeList;
 use crate::scalar::Scalar;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<FixedSizeList> for FixedSizeList {
     fn scalar_at(
-        array: &Array<FixedSizeList>,
+        array: ArrayView<'_, FixedSizeList>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

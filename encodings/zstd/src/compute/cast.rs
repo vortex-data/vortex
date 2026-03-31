@@ -7,14 +7,14 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_error::VortexResult;
 
 use crate::Zstd;
-use crate::ZstdArray;
 use crate::ZstdData;
 impl CastReduce for Zstd {
-    fn cast(array: &ZstdArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.eq_ignore_nullability(array.dtype()) {
             // Type changes can't be handled in ZSTD, need to decode and tweak.
             // TODO(aduffy): handle trivial conversions like Binary -> UTF8, integer widening, etc.
@@ -29,7 +29,7 @@ impl CastReduce for Zstd {
             // completeness of the match arms we also handle it here.
             (Nullability::Nullable, Nullability::Nullable)
             | (Nullability::NonNullable, Nullability::NonNullable) => {
-                Ok(Some(array.clone().into_array()))
+                Ok(Some(array.array_ref().clone()))
             }
             (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity

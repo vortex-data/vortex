@@ -10,10 +10,10 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl MaskReduce for Masked {
-    fn mask(array: &Array<Masked>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: ArrayView<'_, Masked>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // AND the existing validity mask with the new mask and push into child.
         let combined_mask = array
             .validity()

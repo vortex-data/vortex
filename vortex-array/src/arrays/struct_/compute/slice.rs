@@ -11,10 +11,10 @@ use crate::IntoArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::slice::SliceReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl SliceReduce for Struct {
-    fn slice(array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let fields: Vec<_> = array
             .unmasked_fields()
             .iter()

@@ -10,14 +10,14 @@ use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 // Push down the zip call to the chunks. Without this rule
 // the default implementation canonicalises the chunked array
 // then zips once.
 impl ZipKernel for Chunked {
     fn zip(
-        if_true: &Array<Chunked>,
+        if_true: ArrayView<'_, Chunked>,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         _ctx: &mut ExecutionCtx,

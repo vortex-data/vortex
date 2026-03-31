@@ -5,15 +5,15 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::filter::FilterKernel;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ALPRD;
-use crate::ALPRDArray;
 
 impl FilterKernel for ALPRD {
     fn filter(
-        array: &ALPRDArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

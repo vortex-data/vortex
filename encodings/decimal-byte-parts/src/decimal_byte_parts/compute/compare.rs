@@ -20,7 +20,7 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -29,7 +29,7 @@ use crate::decimal_byte_parts::compute::compare::Sign::Positive;
 
 impl CompareKernel for DecimalByteParts {
     fn compare(
-        lhs: &Array<Self>,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
@@ -62,7 +62,7 @@ impl CompareKernel for DecimalByteParts {
                 // (depending on the `sign`) than all values in MSP.
                 // If the LHS or the RHS contain nulls, then we must fallback to the canonicalized
                 // implementation which does null-checking instead.
-                if lhs.all_valid()? && rhs.all_valid()? {
+                if lhs.array_ref().all_valid()? && rhs.all_valid()? {
                     Ok(Some(
                         ConstantArray::new(
                             unconvertible_value(sign, operator, nullability),

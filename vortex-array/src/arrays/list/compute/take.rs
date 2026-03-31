@@ -18,7 +18,7 @@ use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_smallest_offset_type;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
 // the `ListView::take` compute function once `ListView` is more stable.
@@ -31,7 +31,7 @@ impl TakeExecute for List {
     /// non-contiguous indices would violate this requirement.
     #[expect(clippy::cognitive_complexity)]
     fn take(
-        array: &Array<List>,
+        array: ArrayView<'_, List>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -42,7 +42,9 @@ impl TakeExecute for List {
         match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 match_smallest_offset_type!(total_approx, |OutputOffsetType| {
-                    _take::<I, O, OutputOffsetType>(array, &indices, ctx).map(Some)
+                    indices
+                        .with_view(|idx_view| _take::<I, O, OutputOffsetType>(array, idx_view, ctx))
+                        .map(Some)
                 })
             })
         })
@@ -50,12 +52,12 @@ impl TakeExecute for List {
 }
 
 fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
-    array: &Array<List>,
-    indices_array: &Array<Primitive>,
+    array: ArrayView<'_, List>,
+    indices_array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let data_validity = array.validity_mask()?;
-    let indices_validity = indices_array.validity_mask()?;
+    let data_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
 
     if !indices_validity.all_true() || !data_validity.all_true() {
         return _take_nullable::<I, O, OutputOffsetType>(array, indices_array, ctx);
@@ -106,24 +108,21 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        array
-            .validity()
-            .clone()
-            .take(&indices_array.clone().into_array())?,
+        array.validity().clone().take(indices_array.array_ref())?,
     )?
     .into_array())
 }
 
 fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
-    array: &Array<List>,
-    indices_array: &Array<Primitive>,
+    array: ArrayView<'_, List>,
+    indices_array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let offsets_array = array.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
-    let data_validity = array.validity_mask()?;
-    let indices_validity = indices_array.validity_mask()?;
+    let data_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
 
     let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
         Nullability::NonNullable,
@@ -178,10 +177,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        array
-            .validity()
-            .clone()
-            .take(&indices_array.clone().into_array())?,
+        array.validity().clone().take(indices_array.array_ref())?,
     )?
     .into_array())
 }

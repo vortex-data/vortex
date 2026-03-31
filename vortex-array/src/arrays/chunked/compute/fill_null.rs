@@ -10,10 +10,13 @@ use crate::arrays::ChunkedArray;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl FillNullReduce for Chunked {
-    fn fill_null(array: &Array<Chunked>, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
+    fn fill_null(
+        array: ArrayView<'_, Chunked>,
+        fill_value: &Scalar,
+    ) -> VortexResult<Option<ArrayRef>> {
         let new_chunks = array
             .chunks()
             .iter()

@@ -9,9 +9,10 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
+use crate::vtable::ArrayView;
 
 impl CastReduce for Bool {
-    fn cast(array: &BoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Bool>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !matches!(dtype, DType::Bool(_)) {
             return Ok(None);
         }

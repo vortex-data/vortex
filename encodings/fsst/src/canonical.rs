@@ -17,10 +17,10 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
-use crate::FSSTArray;
+use crate::FSSTData;
 
 pub(super) fn canonicalize_fsst(
-    array: &FSSTArray,
+    array: &FSSTData,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let (buffers, views) = fsst_decode_views(array, 0, ctx)?;
@@ -38,7 +38,7 @@ pub(super) fn canonicalize_fsst(
 }
 
 pub(crate) fn fsst_decode_views(
-    fsst_array: &FSSTArray,
+    fsst_array: &FSSTData,
     start_buf_index: u32,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {

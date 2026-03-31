@@ -14,12 +14,13 @@ use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::filter::FilterReduce;
+use crate::vtable::ArrayView;
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
 const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
 impl FilterReduce for Bool {
-    fn filter(array: &BoolArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: ArrayView<'_, Bool>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().filter(mask)?;
 
         let mask_values = mask

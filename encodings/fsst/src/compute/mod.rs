@@ -14,16 +14,16 @@ use vortex_array::arrays::VarBin;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar::Scalar;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::FSST;
-use crate::FSSTArray;
 
 impl TakeExecute for FSST {
     fn take(
-        array: &FSSTArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -35,8 +35,10 @@ impl TakeExecute for FSST {
                     .union_nullability(indices.dtype().nullability()),
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),
-                VarBin::take(array.codes(), indices, _ctx)?
-                    .vortex_expect("cannot fail")
+                array
+                    .codes()
+                    .with_view(|v| <VarBin as TakeExecute>::take(v, indices, _ctx))?
+                    .vortex_expect("VarBin take kernel always returns Some")
                     .try_into::<VarBin>()
                     .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
                 array

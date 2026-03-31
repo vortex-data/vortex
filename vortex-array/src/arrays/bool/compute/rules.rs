@@ -15,6 +15,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::vtable::ArrayView;
 
 pub(crate) const RULES: ParentRuleSet<Bool> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&BoolMaskedValidityRule),
@@ -36,7 +37,7 @@ impl ArrayParentReduceRule<Bool> for BoolMaskedValidityRule {
 
     fn reduce_parent(
         &self,
-        array: &BoolArray,
+        array: ArrayView<'_, Bool>,
         parent: &MaskedArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

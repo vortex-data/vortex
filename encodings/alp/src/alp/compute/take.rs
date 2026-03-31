@@ -5,14 +5,14 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::ALP;
-use crate::ALPArray;
 
 impl TakeExecute for ALP {
     fn take(
-        array: &ALPArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

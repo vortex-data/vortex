@@ -8,10 +8,10 @@ use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::not::NotReduce;
 use vortex_array::scalar_fn::fns::not::NotReduceAdaptor;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
-use crate::SparseArray;
 use crate::SparseData;
 
 pub(crate) static RULES: ParentRuleSet<Sparse> = ParentRuleSet::new(&[
@@ -20,7 +20,7 @@ pub(crate) static RULES: ParentRuleSet<Sparse> = ParentRuleSet::new(&[
 ]);
 
 impl NotReduce for Sparse {
-    fn invert(array: &SparseArray) -> VortexResult<Option<ArrayRef>> {
+    fn invert(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         let inverted_fill = array.fill_scalar().as_bool().invert().into_scalar();
         let inverted_patches = array.patches().clone().map_values(|values| values.not())?;
         Ok(Some(

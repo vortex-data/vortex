@@ -10,7 +10,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::not::Not as NotExpr;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
 /// Invert a boolean array without reading buffers.
@@ -19,7 +19,7 @@ use crate::vtable::VTable;
 /// and structure without needing to read or execute on the underlying buffers.
 /// Implementations should return `None` if the operation requires buffer access.
 pub trait NotReduce: VTable {
-    fn invert(array: &Array<Self>) -> VortexResult<Option<ArrayRef>>;
+    fn invert(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Invert a boolean array, potentially reading buffers.
@@ -27,7 +27,8 @@ pub trait NotReduce: VTable {
 /// Unlike [`NotReduce`], this trait is for invert implementations that may need
 /// to read and execute on the underlying buffers to produce the result.
 pub trait NotKernel: VTable {
-    fn invert(array: &Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>>;
+    fn invert(array: ArrayView<'_, Self>, ctx: &mut ExecutionCtx)
+    -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Adaptor that wraps a [`NotReduce`] impl as an [`ArrayParentReduceRule`].
@@ -42,7 +43,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         _parent: ScalarFnArrayView<'_, NotExpr>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -62,7 +63,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         _parent: ScalarFnArrayView<'_, NotExpr>,
         _child_idx: usize,
         ctx: &mut ExecutionCtx,

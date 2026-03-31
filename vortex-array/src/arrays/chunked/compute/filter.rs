@@ -17,14 +17,14 @@ use crate::arrays::filter::FilterKernel;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterKernel for Chunked {
     fn filter(
-        array: &Array<Chunked>,
+        array: ArrayView<'_, Chunked>,
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -62,7 +62,7 @@ pub(crate) enum ChunkFilter {
 
 /// Filter the chunks using slice ranges.
 fn filter_slices(
-    array: &Array<Chunked>,
+    array: ArrayView<'_, Chunked>,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> VortexResult<Vec<ArrayRef>> {
     let mut result = Vec::with_capacity(array.nchunks());
@@ -87,7 +87,7 @@ fn filter_slices(
 }
 
 pub(crate) fn chunk_filters(
-    array: &Array<Chunked>,
+    array: ArrayView<'_, Chunked>,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> VortexResult<Vec<ChunkFilter>> {
     let chunk_offsets = array.chunk_offsets();
@@ -146,7 +146,7 @@ pub(crate) fn chunk_filters(
 
 /// Filter the chunks using indices.
 fn filter_indices(
-    array: &Array<Chunked>,
+    array: ArrayView<'_, Chunked>,
     indices: impl Iterator<Item = usize>,
 ) -> VortexResult<Vec<ArrayRef>> {
     let mut result = Vec::with_capacity(array.nchunks());

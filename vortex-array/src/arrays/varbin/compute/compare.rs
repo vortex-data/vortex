@@ -26,12 +26,12 @@ use crate::match_each_integer_ptype;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBin {
     fn compare(
-        lhs: &Array<VarBin>,
+        lhs: ArrayView<'_, VarBin>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
@@ -81,7 +81,7 @@ impl CompareKernel for VarBin {
                 ));
             }
 
-            let lhs = Datum::try_new(&lhs.clone().into_array())?;
+            let lhs = Datum::try_new(lhs.array_ref())?;
 
             // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
             // produced by Datum::try_new (which uses into_arrow_preferred())
@@ -118,8 +118,8 @@ impl CompareKernel for VarBin {
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
             Ok(Some(
-                lhs.clone()
-                    .into_array()
+                lhs.array_ref()
+                    .clone()
                     .execute::<VarBinViewArray>(ctx)?
                     .into_array()
                     .binary(rhs.to_array(), Operator::from(operator))?,

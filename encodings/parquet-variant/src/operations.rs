@@ -20,13 +20,13 @@ use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::vtable::ParquetVariant;
-use crate::vtable::ParquetVariantArray;
 
 impl OperationsVTable<ParquetVariant> for ParquetVariant {
     /// Resolves a single variant value according to the Parquet Variant shredding spec:
@@ -38,7 +38,7 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
     /// | NULL     | non-NULL    | Perfectly shredded: use typed_value directly           |
     /// | non-NULL | non-NULL    | Partially shredded object (typed_value takes priority) |
     fn scalar_at(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, ParquetVariant>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

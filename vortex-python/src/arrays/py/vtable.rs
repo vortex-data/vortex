@@ -20,6 +20,7 @@ use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::array::vtable::Array;
 use vortex::array::vtable::ArrayId;
+use vortex::array::vtable::ArrayView;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
@@ -68,45 +69,53 @@ impl VTable for PythonVTable {
         &array.stats
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, _precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        _precision: Precision,
+    ) {
         Arc::as_ptr(&array.object).hash(state);
         array.vtable.id.hash(state);
         array.len.hash(state);
         array.dtype.hash(state);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, _precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        _precision: Precision,
+    ) -> bool {
         Arc::ptr_eq(&array.object, &other.object)
             && array.vtable.id == other.vtable.id // TODO(ngates): in the future this check is already done
             && array.len == other.len
             && array.dtype == other.dtype
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("PythonArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Array<Self>, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Array<Self>) -> usize {
+    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn child(_array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(_array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         vortex_panic!("PythonArray child index {idx} out of bounds")
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("PythonArray child_name index {idx} out of bounds")
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Python::attach(|py| {
             let obj = array.object.bind(py);
             if !obj
@@ -169,7 +178,7 @@ impl VTable for PythonVTable {
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
     fn scalar_at(
-        _array: &Array<PythonVTable>,
+        _array: ArrayView<'_, PythonVTable>,
         _index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -178,7 +187,7 @@ impl OperationsVTable<PythonVTable> for PythonVTable {
 }
 
 impl ValidityVTable<PythonVTable> for PythonVTable {
-    fn validity(_array: &Array<PythonVTable>) -> VortexResult<Validity> {
+    fn validity(_array: ArrayView<'_, PythonVTable>) -> VortexResult<Validity> {
         todo!()
     }
 }

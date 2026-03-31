@@ -7,14 +7,14 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::scalar::Scalar;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
-use crate::ALPRDArray;
 
 impl TakeExecute for ALPRD {
     fn take(
-        array: &ALPRDArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

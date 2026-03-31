@@ -10,10 +10,10 @@ use crate::IntoArray;
 use crate::arrays::Null;
 use crate::arrays::NullArray;
 use crate::arrays::slice::SliceReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl SliceReduce for Null {
-    fn slice(_array: &Array<Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(_array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(NullArray::new(range.len()).into_array()))
     }
 }

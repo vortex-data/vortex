@@ -30,6 +30,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_error::VortexExpect as _;
@@ -85,37 +86,45 @@ impl VTable for RunEnd {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.ends.array_hash(state, precision);
         array.values.array_hash(state, precision);
         array.offset.hash(state);
         array.length.hash(state);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.ends.array_eq(&other.ends, precision)
             && array.values.array_eq(&other.values, precision)
             && array.offset == other.offset
             && array.length == other.length
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("RunEndArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("RunEndArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: &Array<Self>) -> usize {
+    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
         2
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.ends().clone(),
             1 => array.values().clone(),
@@ -123,7 +132,7 @@ impl VTable for RunEnd {
         }
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "ends".to_string(),
             1 => "values".to_string(),
@@ -131,7 +140,7 @@ impl VTable for RunEnd {
         }
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(RunEndMetadata {
             ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")
                 as i32,
@@ -191,7 +200,7 @@ impl VTable for RunEnd {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -199,7 +208,7 @@ impl VTable for RunEnd {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -524,7 +533,7 @@ impl RunEndData {
 }
 
 impl ValidityVTable<RunEnd> for RunEnd {
-    fn validity(array: &Array<RunEnd>) -> VortexResult<Validity> {
+    fn validity(array: ArrayView<'_, RunEnd>) -> VortexResult<Validity> {
         Ok(match array.values().validity()? {
             Validity::NonNullable | Validity::AllValid => Validity::AllValid,
             Validity::AllInvalid => Validity::AllInvalid,

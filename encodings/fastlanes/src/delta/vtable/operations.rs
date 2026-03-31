@@ -5,18 +5,18 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use super::Delta;
 impl OperationsVTable<Delta> for Delta {
     fn scalar_at(
-        array: &Array<Delta>,
+        array: ArrayView<'_, Delta>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let decompressed = array.to_array_ref().slice(index..index + 1)?.to_primitive();
+        let decompressed = array.array_ref().slice(index..index + 1)?.to_primitive();
         decompressed.into_array().scalar_at(0)
     }
 }

@@ -12,7 +12,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::list_contains::ListContains as ListContainsExpr;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
 /// Check list-contains without reading buffers (metadata-only).
@@ -26,7 +26,10 @@ use crate::vtable::VTable;
 ///
 /// Return `None` if the operation cannot be resolved from metadata alone.
 pub trait ListContainsElementReduce: VTable {
-    fn list_contains(list: &ArrayRef, element: &Array<Self>) -> VortexResult<Option<ArrayRef>>;
+    fn list_contains(
+        list: &ArrayRef,
+        element: ArrayView<'_, Self>,
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Check list-contains, potentially reading buffers.
@@ -37,7 +40,7 @@ pub trait ListContainsElementReduce: VTable {
 pub trait ListContainsElementKernel: VTable {
     fn list_contains(
         list: &ArrayRef,
-        element: &Array<Self>,
+        element: ArrayView<'_, Self>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
 }
@@ -54,7 +57,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, ListContainsExpr>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -82,7 +85,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &Array<V>,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, ListContainsExpr>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

@@ -8,12 +8,12 @@ use crate::arrays::Decimal;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Decimal> for Decimal {
     fn scalar_at(
-        array: &Array<Decimal>,
+        array: ArrayView<'_, Decimal>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

@@ -7,12 +7,12 @@ use crate::ExecutionCtx;
 use crate::arrays::VarBin;
 use crate::arrays::varbin::varbin_scalar;
 use crate::scalar::Scalar;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<VarBin> for VarBin {
     fn scalar_at(
-        array: &Array<VarBin>,
+        array: ArrayView<'_, VarBin>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

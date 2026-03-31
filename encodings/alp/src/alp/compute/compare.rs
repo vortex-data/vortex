@@ -13,12 +13,13 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ALP;
-use crate::ALPArray;
+use crate::ALPData;
 use crate::ALPFloat;
 use crate::match_each_alp_float_ptype;
 
@@ -26,7 +27,7 @@ use crate::match_each_alp_float_ptype;
 
 impl CompareKernel for ALP {
     fn compare(
-        lhs: &ALPArray,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
@@ -51,7 +52,7 @@ impl CompareKernel for ALP {
 
             match_each_alp_float_ptype!(pscalar.ptype(), |T| {
                 match pscalar.typed_value::<T>() {
-                    Some(value) => return alp_scalar_compare(lhs, value, operator),
+                    Some(value) => return alp_scalar_compare(&lhs, value, operator),
                     None => vortex_bail!(
                         "Failed to convert scalar {:?} to ALP type {:?}",
                         pscalar,
@@ -69,7 +70,7 @@ impl CompareKernel for ALP {
 /// the encoded value to the encoded values in the ALPArray. There are fixups when the value doesn't
 /// encode into the ALP domain.
 fn alp_scalar_compare<F: ALPFloat + Into<Scalar>>(
-    alp: &ALPArray,
+    alp: &ALPData,
     value: F,
     operator: CompareOperator,
 ) -> VortexResult<Option<ArrayRef>>
@@ -167,7 +168,7 @@ mod tests {
     use crate::alp_encode;
 
     fn test_alp_compare<F: ALPFloat + Into<Scalar>>(
-        alp: &ALPArray,
+        alp: &ALPData,
         value: F,
         operator: CompareOperator,
     ) -> Option<ArrayRef>

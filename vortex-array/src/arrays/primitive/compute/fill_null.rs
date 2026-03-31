@@ -16,11 +16,11 @@ use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl FillNullKernel for Primitive {
     fn fill_null(
-        array: &Array<Primitive>,
+        array: ArrayView<'_, Primitive>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

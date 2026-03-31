@@ -23,6 +23,7 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -370,7 +371,11 @@ impl VTable for ZstdBuffers {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.inner_encoding_id.hash(state);
         array.inner_metadata.hash(state);
         for buf in &array.compressed_buffers {
@@ -385,7 +390,11 @@ impl VTable for ZstdBuffers {
         }
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.inner_encoding_id == other.inner_encoding_id
             && array.inner_metadata == other.inner_metadata
             && array.compressed_buffers.len() == other.compressed_buffers.len()
@@ -406,31 +415,31 @@ impl VTable for ZstdBuffers {
                 .all(|(a, b)| a.array_eq(b, precision))
     }
 
-    fn nbuffers(array: &Array<Self>) -> usize {
+    fn nbuffers(array: ArrayView<'_, Self>) -> usize {
         array.compressed_buffers.len()
     }
 
-    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         array.compressed_buffers[idx].clone()
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         Some(format!("compressed_{idx}"))
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         array.children.len()
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         array.children[idx].clone()
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         format!("child_{idx}")
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(ZstdBuffersMetadata {
             inner_encoding_id: array.inner_encoding_id.to_string(),
             inner_metadata: array.inner_metadata.clone(),
@@ -498,7 +507,7 @@ impl VTable for ZstdBuffers {
 
 impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
     fn scalar_at(
-        array: &Array<ZstdBuffers>,
+        array: ArrayView<'_, ZstdBuffers>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -511,7 +520,9 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
 }
 
 impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
-    fn validity(array: &Array<ZstdBuffers>) -> VortexResult<vortex_array::validity::Validity> {
+    fn validity(
+        array: ArrayView<'_, ZstdBuffers>,
+    ) -> VortexResult<vortex_array::validity::Validity> {
         if !array.dtype.is_nullable() {
             return Ok(vortex_array::validity::Validity::NonNullable);
         }

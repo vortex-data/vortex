@@ -33,6 +33,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -281,45 +282,53 @@ impl VTable for Sequence {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, _precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        _precision: Precision,
+    ) {
         array.base.hash(state);
         array.multiplier.hash(state);
         array.dtype.hash(state);
         array.len.hash(state);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, _precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        _precision: Precision,
+    ) -> bool {
         array.base == other.base
             && array.multiplier == other.multiplier
             && array.dtype == other.dtype
             && array.len == other.len
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("SequenceArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("SequenceArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: &Array<Self>) -> usize {
+    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn child(_array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(_array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         vortex_panic!("SequenceArray child index {idx} out of bounds")
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("SequenceArray child_name index {idx} out of bounds")
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(SequenceMetadata {
             base: array.base(),
             multiplier: array.multiplier(),
@@ -405,7 +414,7 @@ impl VTable for Sequence {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -414,7 +423,7 @@ impl VTable for Sequence {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -424,7 +433,7 @@ impl VTable for Sequence {
 
 impl OperationsVTable<Sequence> for Sequence {
     fn scalar_at(
-        array: &Array<Sequence>,
+        array: ArrayView<'_, Sequence>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -436,7 +445,7 @@ impl OperationsVTable<Sequence> for Sequence {
 }
 
 impl ValidityVTable<Sequence> for Sequence {
-    fn validity(_array: &Array<Sequence>) -> VortexResult<Validity> {
+    fn validity(_array: ArrayView<'_, Sequence>) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
     }
 }

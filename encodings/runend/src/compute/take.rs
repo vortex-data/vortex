@@ -14,12 +14,13 @@ use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::ArrayView;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::RunEnd;
-use crate::RunEndArray;
+use crate::RunEndData;
 
 impl TakeExecute for RunEnd {
     #[expect(
@@ -27,7 +28,7 @@ impl TakeExecute for RunEnd {
         reason = "index cast to usize inside macro"
     )]
     fn take(
-        array: &RunEndArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -48,13 +49,13 @@ impl TakeExecute for RunEnd {
                 .collect::<VortexResult<Vec<_>>>()?
         });
 
-        take_indices_unchecked(array, &checked_indices, primitive_indices.validity()).map(Some)
+        take_indices_unchecked(&array, &checked_indices, primitive_indices.validity()).map(Some)
     }
 }
 
 /// Perform a take operation on a RunEndArray by binary searching for each of the indices.
 pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
-    array: &RunEndArray,
+    array: &RunEndData,
     indices: &[T],
     validity: &Validity,
 ) -> VortexResult<ArrayRef> {

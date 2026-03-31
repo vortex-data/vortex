@@ -15,11 +15,11 @@ use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl BetweenKernel for Primitive {
     fn between(
-        arr: &Array<Primitive>,
+        arr: ArrayView<'_, Primitive>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -48,7 +48,7 @@ impl BetweenKernel for Primitive {
 }
 
 fn between_impl<T: NativePType + Copy>(
-    arr: &Array<Primitive>,
+    arr: ArrayView<'_, Primitive>,
     lower: T,
     upper: T,
     nullability: Nullability,
@@ -92,7 +92,7 @@ fn between_impl<T: NativePType + Copy>(
 }
 
 fn between_impl_<T>(
-    arr: &Array<Primitive>,
+    arr: ArrayView<'_, Primitive>,
     lower: T,
     lower_fn: impl Fn(T, T) -> bool,
     upper: T,

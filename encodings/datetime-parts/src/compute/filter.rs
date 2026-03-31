@@ -4,14 +4,14 @@
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::filter::FilterReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::DateTimeParts;
-use crate::DateTimePartsArray;
 use crate::DateTimePartsData;
 impl FilterReduce for DateTimeParts {
-    fn filter(array: &DateTimePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             DateTimePartsData::try_new(
                 array.dtype().clone(),

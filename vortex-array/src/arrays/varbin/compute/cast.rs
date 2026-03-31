@@ -9,10 +9,10 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl CastReduce for VarBin {
-    fn cast(array: &Array<VarBin>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, VarBin>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }

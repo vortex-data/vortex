@@ -7,13 +7,13 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::BitPackedData;
 use crate::bitpacking::BitPacked;
-use crate::bitpacking::BitPackedArray;
 impl CastReduce for BitPacked {
-    fn cast(array: &BitPackedArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity = array
                 .validity()

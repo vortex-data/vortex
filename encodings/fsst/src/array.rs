@@ -35,6 +35,7 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -99,7 +100,11 @@ impl VTable for FSST {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &Array<Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.dtype.hash(state);
         array.symbols.array_hash(state, precision);
         array.symbol_lengths.array_hash(state, precision);
@@ -111,7 +116,11 @@ impl VTable for FSST {
         array.uncompressed_lengths.array_hash(state, precision);
     }
 
-    fn array_eq(array: &Array<Self>, other: &Array<Self>, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.dtype == other.dtype
             && array.symbols.array_eq(&other.symbols, precision)
             && array
@@ -127,11 +136,11 @@ impl VTable for FSST {
                 .array_eq(&other.uncompressed_lengths, precision)
     }
 
-    fn nbuffers(_array: &Array<Self>) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         3
     }
 
-    fn buffer(array: &Array<Self>, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => BufferHandle::new_host(array.symbols().clone().into_byte_buffer()),
             1 => BufferHandle::new_host(array.symbol_lengths().clone().into_byte_buffer()),
@@ -140,7 +149,7 @@ impl VTable for FSST {
         }
     }
 
-    fn buffer_name(_array: &Array<Self>, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("symbols".to_string()),
             1 => Some("symbol_lengths".to_string()),
@@ -149,11 +158,11 @@ impl VTable for FSST {
         }
     }
 
-    fn nchildren(array: &Array<Self>) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         2 + validity_nchildren(array.codes.validity())
     }
 
-    fn child(array: &Array<Self>, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.uncompressed_lengths().clone(),
             1 => array.codes.offsets().clone(),
@@ -163,7 +172,7 @@ impl VTable for FSST {
         }
     }
 
-    fn child_name(_array: &Array<Self>, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
             0 => "uncompressed_lengths".to_string(),
             1 => "codes_offsets".to_string(),
@@ -172,7 +181,7 @@ impl VTable for FSST {
         }
     }
 
-    fn metadata(array: &Array<Self>) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(FSSTMetadata {
             uncompressed_lengths_ptype: array.uncompressed_lengths().dtype().as_ptype().into(),
             codes_offsets_ptype: array.codes.offsets().dtype().as_ptype().into(),
@@ -196,15 +205,15 @@ impl VTable for FSST {
     }
 
     fn append_to_builder(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
             builder.extend_from_array(
                 &array
+                    .array_ref()
                     .clone()
-                    .into_array()
                     .execute::<Canonical>(ctx)?
                     .into_array(),
             );
@@ -213,12 +222,12 @@ impl VTable for FSST {
 
         // Decompress the whole block of data into a new buffer, and create some views
         // from it instead.
-        let (buffers, views) = fsst_decode_views(array, builder.completed_block_count(), ctx)?;
+        let (buffers, views) = fsst_decode_views(&array, builder.completed_block_count(), ctx)?;
 
         builder.push_buffer_and_adjusted_views(
             &buffers,
             &views,
-            array.to_array_ref().validity_mask()?,
+            array.array_ref().validity_mask()?,
         );
         Ok(())
     }
@@ -355,7 +364,7 @@ impl VTable for FSST {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -364,7 +373,7 @@ impl VTable for FSST {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

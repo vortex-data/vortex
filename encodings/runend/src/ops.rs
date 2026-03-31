@@ -8,7 +8,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
@@ -16,7 +16,7 @@ use crate::RunEnd;
 
 impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(
-        array: &Array<RunEnd>,
+        array: ArrayView<'_, RunEnd>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

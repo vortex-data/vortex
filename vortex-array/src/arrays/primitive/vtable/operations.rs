@@ -7,12 +7,12 @@ use crate::ExecutionCtx;
 use crate::arrays::Primitive;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Primitive> for Primitive {
     fn scalar_at(
-        array: &Array<Primitive>,
+        array: ArrayView<'_, Primitive>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

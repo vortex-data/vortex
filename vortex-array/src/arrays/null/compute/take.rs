@@ -13,11 +13,11 @@ use crate::arrays::dict::TakeReduce;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::match_each_integer_ptype;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::vtable::Array;
+use crate::vtable::ArrayView;
 
 impl TakeReduce for Null {
     #[allow(clippy::cast_possible_truncation)]
-    fn take(array: &Array<Null>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: ArrayView<'_, Null>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
 
         // Enforce all indices are valid

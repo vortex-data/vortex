@@ -6,7 +6,7 @@ use std::ops::Range;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::arrays::ChunkedArray;
+use crate::arrays::ChunkedData;
 
 pub(crate) struct AlignedPair {
     pub left: ArrayRef,
@@ -68,8 +68,8 @@ pub(crate) struct PairedChunks<'a> {
     total_len: usize,
 }
 
-impl ChunkedArray {
-    pub(crate) fn paired_chunks<'a>(&'a self, other: &'a ChunkedArray) -> PairedChunks<'a> {
+impl ChunkedData {
+    pub(crate) fn paired_chunks<'a>(&'a self, other: &'a ChunkedData) -> PairedChunks<'a> {
         assert_eq!(
             self.len(),
             other.len(),

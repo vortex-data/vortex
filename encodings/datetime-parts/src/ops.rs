@@ -5,7 +5,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::Timestamp;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -17,7 +17,7 @@ use crate::timestamp::TimestampParts;
 
 impl OperationsVTable<DateTimeParts> for DateTimeParts {
     fn scalar_at(
-        array: &Array<DateTimeParts>,
+        array: ArrayView<'_, DateTimeParts>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -32,7 +32,7 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
             vortex_panic!(Compute: "must decode TemporalMetadata from extension metadata");
         };
 
-        if !array.is_valid(index)? {
+        if !array.array_ref().is_valid(index)? {
             return Ok(Scalar::null(DType::Extension(ext)));
         }
 
