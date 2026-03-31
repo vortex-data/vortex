@@ -221,7 +221,6 @@ pub mod test_helpers {
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
     }
 
-    #[expect(dead_code, reason = "TODO(connor): Use this!")]
     /// Extracts the f64 rows from a [`Vector`] extension array.
     ///
     /// Returns a `Vec<Vec<f64>>` where each inner vec is one vector's elements.
