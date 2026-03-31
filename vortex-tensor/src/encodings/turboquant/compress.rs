@@ -96,7 +96,7 @@ fn turboquant_quantize_core(
 
     let f32_elements = extract_f32_elements(fsl)?;
 
-    let centroids = get_centroids(padded_dim as u32, bit_width)?;
+    let centroids = get_centroids(dimension as u32, bit_width)?;
     let boundaries = compute_boundaries(&centroids);
 
     let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * padded_dim);

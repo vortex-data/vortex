@@ -235,10 +235,10 @@ impl WriteStrategyBuilder {
     pub fn with_compact_encodings(mut self) -> Self {
         let mut builder = self.builder.unwrap_or_default();
         builder = builder.include([
-                string::ZstdScheme.id(),
-                integer::PcoScheme.id(),
-                float::PcoScheme.id(),
-            ]);
+            string::ZstdScheme.id(),
+            integer::PcoScheme.id(),
+            float::PcoScheme.id(),
+        ]);
         self.builder = Some(builder);
         self
     }
