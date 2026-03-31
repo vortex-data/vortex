@@ -7,7 +7,6 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
 use crate::bitpacking::BitPacked;
@@ -18,7 +17,6 @@ impl CastReduce for BitPacked {
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity = array
                 .validity()
-                .clone()
                 .cast_nullability(dtype.nullability(), array.len())?;
             return Ok(Some(
                 BitPackedArray::try_new(
