@@ -79,8 +79,6 @@ pub fn default_excluded() -> HashSet<SchemeId> {
     excluded.insert(string::ZstdScheme.id());
     #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
     excluded.insert(string::ZstdBuffersScheme.id());
-    #[cfg(feature = "unstable_encodings")]
-    excluded.insert(turboquant::scheme::TURBOQUANT_SCHEME.id());
     excluded
 }
 
@@ -109,7 +107,7 @@ pub fn default_excluded() -> HashSet<SchemeId> {
 ///     .include([IntDictScheme.id()])
 ///     .build();
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BtrBlocksCompressorBuilder {
     schemes: HashSet<&'static dyn Scheme>,
 }

@@ -55,6 +55,7 @@ use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
+#[cfg(feature = "unstable_encodings")]
 use vortex_tensor::encodings::turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_zigzag::ZigZag;
@@ -113,6 +114,7 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
     session.register(RunEnd);
     session.register(Sequence);
     session.register(Sparse);
+    #[cfg(feature = "unstable_encodings")]
     session.register(TurboQuant);
     session.register(ZigZag);
 
@@ -135,7 +137,7 @@ pub struct WriteStrategyBuilder {
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<ArrayRegistry>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
-    builder: Option<BtrBlocksCompressorBuilder>,
+    builder: BtrBlocksCompressorBuilder,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -148,7 +150,7 @@ impl Default for WriteStrategyBuilder {
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
             flat_strategy: None,
-            builder: None,
+            builder: BtrBlocksCompressorBuilder::default(),
         }
     }
 }
@@ -203,8 +205,7 @@ impl WriteStrategyBuilder {
     /// GPU decompression. Without it, strings use interleaved Zstd compression.
     #[cfg(feature = "zstd")]
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
-        let mut builder = self.builder.unwrap_or_default();
-        builder = builder.exclude([
+        self.builder = self.builder.exclude([
             integer::SparseScheme.id(),
             integer::RLE_INTEGER_SCHEME.id(),
             float::RLE_FLOAT_SCHEME.id(),
@@ -215,14 +216,13 @@ impl WriteStrategyBuilder {
 
         #[cfg(feature = "unstable_encodings")]
         {
-            builder = builder.include([string::ZstdBuffersScheme.id()]);
+            self.builder = self.builder.include([string::ZstdBuffersScheme.id()]);
         }
         #[cfg(not(feature = "unstable_encodings"))]
         {
-            builder = builder.include([string::ZstdScheme.id()]);
+            self.builder = self.builder.include([string::ZstdScheme.id()]);
         }
 
-        self.builder = Some(builder);
         self
     }
 
@@ -233,13 +233,11 @@ impl WriteStrategyBuilder {
     /// especially for floating-point heavy datasets.
     #[cfg(feature = "zstd")]
     pub fn with_compact_encodings(mut self) -> Self {
-        let mut builder = self.builder.unwrap_or_default();
-        builder = builder.include([
+        self.builder = self.builder.include([
             string::ZstdScheme.id(),
             integer::PcoScheme.id(),
             float::PcoScheme.id(),
         ]);
-        self.builder = Some(builder);
         self
     }
 
@@ -254,15 +252,17 @@ impl WriteStrategyBuilder {
     /// compressor is used with TurboQuant added.
     #[cfg(feature = "unstable_encodings")]
     pub fn with_vector_quantization(mut self) -> Self {
-        let mut builder = self.builder.unwrap_or_default();
-        builder = builder.include([turboquant::scheme::TURBOQUANT_SCHEME.id()]);
-        self.builder = Some(builder);
+        use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;
+        self.builder = self.builder.with_scheme(&TURBOQUANT_SCHEME);
         self
     }
 
     /// Builds the canonical [`LayoutStrategy`] implementation, with the configured overrides
     /// applied.
     pub fn build(self) -> Arc<dyn LayoutStrategy> {
+        use vortex_btrblocks::SchemeExt as _;
+        use vortex_btrblocks::schemes::integer::IntDictScheme;
+
         let flat: Arc<dyn LayoutStrategy> = if let Some(flat) = self.flat_strategy {
             flat
         } else if let Some(allow_encodings) = self.allow_encodings {
@@ -275,18 +275,27 @@ impl WriteStrategyBuilder {
         let chunked = ChunkedLayoutStrategy::new(flat.clone());
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
-        // 5. compress each chunk
-        if self.builder.is_some() && self.compressor.is_some() {
-            vortex_panic!("Cannot configure both a custom compressor and custom builder schemes");
-        }
 
-        let compressing = if let Some(ref compressor) = self.compressor {
-            CompressingStrategy::new_opaque(buffered, compressor.clone())
-        } else if let Some(ref builder) = self.builder {
-            CompressingStrategy::new_opaque(buffered, builder.build())
+        // 5. compress each chunk
+        // Build separate compressors for data (excludes IntDict to avoid recursive dict encoding)
+        // and stats/dict values (includes IntDict).
+        let (data_compressor, stats_compressor): (
+            Arc<dyn CompressorPlugin>,
+            Arc<dyn CompressorPlugin>,
+        ) = if let Some(compressor) = self.compressor {
+            if self.builder != BtrBlocksCompressorBuilder::default() {
+                vortex_panic!(
+                    "Cannot configure both a custom compressor and custom builder schemes"
+                );
+            }
+            (compressor.clone(), compressor)
         } else {
-            CompressingStrategy::new_btrblocks(buffered, true)
+            let stats = Arc::new(self.builder.clone().build());
+            let data = Arc::new(self.builder.exclude([IntDictScheme.id()]).build());
+            (data, stats)
         };
+
+        let compressing = CompressingStrategy::new(buffered, data_compressor);
 
         // 4. prior to compression, coalesce up to a minimum size
         let coalescing = RepartitionStrategy::new(
@@ -306,11 +315,7 @@ impl WriteStrategyBuilder {
         );
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let compress_then_flat = if let Some(ref compressor) = compressor {
-            CompressingStrategy::new_opaque(flat, compressor.clone())
-        } else {
-            CompressingStrategy::new_btrblocks(flat, false)
-        };
+        let compress_then_flat = CompressingStrategy::new(flat, stats_compressor);
 
         // 3. apply dict encoding or fallback
         let dict = DictStrategy::new(

@@ -168,9 +168,7 @@ pub struct vortex_layout::layouts::compressed::CompressingStrategy
 
 impl vortex_layout::layouts::compressed::CompressingStrategy
 
-pub fn vortex_layout::layouts::compressed::CompressingStrategy::new_btrblocks<S: vortex_layout::LayoutStrategy>(child: S, exclude_int_dict_encoding: bool) -> Self
-
-pub fn vortex_layout::layouts::compressed::CompressingStrategy::new_opaque<S: vortex_layout::LayoutStrategy, C: vortex_layout::layouts::compressed::CompressorPlugin>(child: S, compressor: C) -> Self
+pub fn vortex_layout::layouts::compressed::CompressingStrategy::new<S: vortex_layout::LayoutStrategy, C: vortex_layout::layouts::compressed::CompressorPlugin>(child: S, compressor: C) -> Self
 
 pub fn vortex_layout::layouts::compressed::CompressingStrategy::with_concurrency(self, concurrency: usize) -> Self
 

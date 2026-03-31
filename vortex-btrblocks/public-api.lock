@@ -616,6 +616,12 @@ impl core::clone::Clone for vortex_btrblocks::BtrBlocksCompressorBuilder
 
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::clone(&self) -> vortex_btrblocks::BtrBlocksCompressorBuilder
 
+impl core::cmp::Eq for vortex_btrblocks::BtrBlocksCompressorBuilder
+
+impl core::cmp::PartialEq for vortex_btrblocks::BtrBlocksCompressorBuilder
+
+pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::eq(&self, other: &vortex_btrblocks::BtrBlocksCompressorBuilder) -> bool
+
 impl core::default::Default for vortex_btrblocks::BtrBlocksCompressorBuilder
 
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::default() -> Self
@@ -623,6 +629,8 @@ pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::default() -> Self
 impl core::fmt::Debug for vortex_btrblocks::BtrBlocksCompressorBuilder
 
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_btrblocks::BtrBlocksCompressorBuilder
 
 pub const vortex_btrblocks::ALL_SCHEMES: &[&dyn vortex_compressor::scheme::Scheme]
 
