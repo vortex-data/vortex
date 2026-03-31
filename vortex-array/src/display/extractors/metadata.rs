@@ -20,7 +20,7 @@ impl TreeExtractor for MetadataExtractor {
         f: &mut IndentedFormatter<'_, '_>,
     ) -> fmt::Result {
         write!(f, "metadata: ")?;
-        array.metadata_fmt(f)?;
+        array.metadata_fmt(f.formatter())?;
         writeln!(f)
     }
 }

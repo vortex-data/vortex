@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use vortex_buffer::ByteBuffer;
@@ -48,7 +49,7 @@ pub trait ArrayVisitor {
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>>;
 
     /// Formats a human-readable metadata description.
-    fn metadata_fmt(&self, f: &mut dyn std::fmt::Write) -> std::fmt::Result;
+    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
 
     /// Checks if all buffers in the array tree are host-resident.
     ///
@@ -101,7 +102,7 @@ impl ArrayVisitor for Arc<dyn DynArray> {
         self.as_ref().metadata()
     }
 
-    fn metadata_fmt(&self, f: &mut dyn std::fmt::Write) -> std::fmt::Result {
+    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.as_ref().metadata_fmt(f)
     }
 
