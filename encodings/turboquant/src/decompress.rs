@@ -36,7 +36,7 @@ pub fn execute_decompress(
 ) -> VortexResult<ArrayRef> {
     let dim = array.dimension() as usize;
     let padded_dim = array.padded_dim() as usize;
-    let num_rows = array.norms.len();
+    let num_rows = array.norms().len();
 
     if num_rows == 0 {
         let elements = PrimitiveArray::empty::<f32>(array.dtype.nullability());
@@ -50,24 +50,24 @@ pub fn execute_decompress(
     }
 
     // Read stored centroids — no recomputation.
-    let centroids_prim = array.centroids.clone().execute::<PrimitiveArray>(ctx)?;
+    let centroids_prim = array.centroids().clone().execute::<PrimitiveArray>(ctx)?;
     let centroids = centroids_prim.as_slice::<f32>();
 
     // FastLanes SIMD-unpacks the 1-bit bitpacked rotation signs into u8 0/1 values,
     // then we expand to u32 XOR masks once (amortized over all rows). This enables
     // branchless XOR-based sign application in the per-row SRHT hot loop.
     let signs_prim = array
-        .rotation_signs
+        .rotation_signs()
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
     let rotation = RotationMatrix::from_u8_slice(signs_prim.as_slice::<u8>(), dim)?;
 
     // Unpack codes from FixedSizeListArray → flat u8 elements.
-    let codes_fsl = array.codes.clone().execute::<FixedSizeListArray>(ctx)?;
+    let codes_fsl = array.codes().clone().execute::<FixedSizeListArray>(ctx)?;
     let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
     let indices = codes_prim.as_slice::<u8>();
 
-    let norms_prim = array.norms.clone().execute::<PrimitiveArray>(ctx)?;
+    let norms_prim = array.norms().clone().execute::<PrimitiveArray>(ctx)?;
     let norms = norms_prim.as_slice::<f32>();
 
     // MSE decode: dequantize → inverse rotate → scale by norm.
@@ -93,7 +93,7 @@ pub fn execute_decompress(
     }
 
     // If no QJL correction, we're done.
-    let Some(qjl) = &array.qjl else {
+    let Some(qjl) = array.qjl() else {
         let elements = PrimitiveArray::new::<f32>(mse_output.freeze(), Validity::NonNullable);
         return Ok(FixedSizeListArray::try_new(
             elements.into_array(),

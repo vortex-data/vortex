@@ -14,12 +14,11 @@ use crate::array::TurboQuantArray;
 
 impl SliceReduce for TurboQuant {
     fn slice(array: &TurboQuantArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let sliced_codes = array.codes.slice(range.clone())?;
-        let sliced_norms = array.norms.slice(range.clone())?;
+        let sliced_codes = array.codes().slice(range.clone())?;
+        let sliced_norms = array.norms().slice(range.clone())?;
 
         let sliced_qjl = array
-            .qjl
-            .as_ref()
+            .qjl()
             .map(|qjl| -> VortexResult<QjlCorrection> {
                 Ok(QjlCorrection {
                     signs: qjl.signs.slice(range.clone())?,
@@ -33,12 +32,16 @@ impl SliceReduce for TurboQuant {
             array.dtype.clone(),
             sliced_codes,
             sliced_norms,
-            array.centroids.clone(),
-            array.rotation_signs.clone(),
+            array.centroids().clone(),
+            array.rotation_signs().clone(),
             array.dimension,
             array.bit_width,
         )?;
-        result.qjl = sliced_qjl;
+        if let Some(qjl) = sliced_qjl {
+            result.slots[crate::array::QJL_SIGNS_SLOT] = Some(qjl.signs);
+            result.slots[crate::array::QJL_RESIDUAL_NORMS_SLOT] = Some(qjl.residual_norms);
+            result.slots[crate::array::QJL_ROTATION_SIGNS_SLOT] = Some(qjl.rotation_signs);
+        }
 
         Ok(Some(result.into_array()))
     }

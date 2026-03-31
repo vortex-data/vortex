@@ -9,6 +9,7 @@ use vortex_array::dtype::DType;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -65,26 +66,42 @@ impl QjlCorrection {
     }
 }
 
+/// Slot indices for TurboQuantArray children.
+pub(crate) const CODES_SLOT: usize = 0;
+pub(crate) const NORMS_SLOT: usize = 1;
+pub(crate) const CENTROIDS_SLOT: usize = 2;
+pub(crate) const ROTATION_SIGNS_SLOT: usize = 3;
+pub(crate) const QJL_SIGNS_SLOT: usize = 4;
+pub(crate) const QJL_RESIDUAL_NORMS_SLOT: usize = 5;
+pub(crate) const QJL_ROTATION_SIGNS_SLOT: usize = 6;
+pub(crate) const NUM_SLOTS: usize = 7;
+
+pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = [
+    "codes",
+    "norms",
+    "centroids",
+    "rotation_signs",
+    "qjl_signs",
+    "qjl_residual_norms",
+    "qjl_rotation_signs",
+];
+
 /// TurboQuant array.
 ///
-/// Core children (always present):
-/// - 0: `codes` — `BitPackedArray` or `PrimitiveArray<u8>` (quantized indices)
+/// Slots (always present):
+/// - 0: `codes` — `FixedSizeListArray<u8>` (quantized indices, list_size=padded_dim)
 /// - 1: `norms` — `PrimitiveArray<f32>` (one per vector row)
 /// - 2: `centroids` — `PrimitiveArray<f32>` (codebook, length 2^bit_width)
-/// - 3: `rotation_signs` — `BoolArray` (3 * padded_dim bits, inverse application order)
+/// - 3: `rotation_signs` — `BitPackedArray` (3 * padded_dim, 1-bit u8 0/1, inverse order)
 ///
-/// Optional QJL children (when `has_qjl` is true):
-/// - 4: `qjl_signs` — `BoolArray` (num_rows * padded_dim bits)
+/// Optional QJL slots (None when MSE-only):
+/// - 4: `qjl_signs` — `FixedSizeListArray<u8>` (num_rows * padded_dim, 1-bit)
 /// - 5: `qjl_residual_norms` — `PrimitiveArray<f32>` (one per row)
-/// - 6: `qjl_rotation_signs` — `BoolArray` (3 * padded_dim bits, QJL rotation, inverse order)
+/// - 6: `qjl_rotation_signs` — `BitPackedArray` (3 * padded_dim, 1-bit, QJL rotation)
 #[derive(Clone, Debug)]
 pub struct TurboQuantArray {
     pub(crate) dtype: DType,
-    pub(crate) codes: ArrayRef,
-    pub(crate) norms: ArrayRef,
-    pub(crate) centroids: ArrayRef,
-    pub(crate) rotation_signs: ArrayRef,
-    pub(crate) qjl: Option<QjlCorrection>,
+    pub(crate) slots: Vec<Option<ArrayRef>>,
     pub(crate) dimension: u32,
     pub(crate) bit_width: u8,
     pub(crate) stats_set: ArrayStats,
@@ -106,13 +123,14 @@ impl TurboQuantArray {
             (1..=8).contains(&bit_width),
             "MSE bit_width must be 1-8, got {bit_width}"
         );
+        let mut slots = vec![None; NUM_SLOTS];
+        slots[CODES_SLOT] = Some(codes);
+        slots[NORMS_SLOT] = Some(norms);
+        slots[CENTROIDS_SLOT] = Some(centroids);
+        slots[ROTATION_SIGNS_SLOT] = Some(rotation_signs);
         Ok(Self {
             dtype,
-            codes,
-            norms,
-            centroids,
-            rotation_signs,
-            qjl: None,
+            slots,
             dimension,
             bit_width,
             stats_set: Default::default(),
@@ -135,13 +153,17 @@ impl TurboQuantArray {
             (1..=8).contains(&bit_width),
             "MSE bit_width must be 1-8, got {bit_width}"
         );
+        let mut slots = vec![None; NUM_SLOTS];
+        slots[CODES_SLOT] = Some(codes);
+        slots[NORMS_SLOT] = Some(norms);
+        slots[CENTROIDS_SLOT] = Some(centroids);
+        slots[ROTATION_SIGNS_SLOT] = Some(rotation_signs);
+        slots[QJL_SIGNS_SLOT] = Some(qjl.signs);
+        slots[QJL_RESIDUAL_NORMS_SLOT] = Some(qjl.residual_norms);
+        slots[QJL_ROTATION_SIGNS_SLOT] = Some(qjl.rotation_signs);
         Ok(Self {
             dtype,
-            codes,
-            norms,
-            centroids,
-            rotation_signs,
-            qjl: Some(qjl),
+            slots,
             dimension,
             bit_width,
             stats_set: Default::default(),
@@ -165,31 +187,41 @@ impl TurboQuantArray {
 
     /// Whether QJL correction is present.
     pub fn has_qjl(&self) -> bool {
-        self.qjl.is_some()
+        self.slots[QJL_SIGNS_SLOT].is_some()
     }
 
-    /// The quantized codes child.
+    fn slot(&self, idx: usize) -> &ArrayRef {
+        self.slots[idx]
+            .as_ref()
+            .vortex_expect("required slot is None")
+    }
+
+    /// The quantized codes child (FixedSizeListArray).
     pub fn codes(&self) -> &ArrayRef {
-        &self.codes
+        self.slot(CODES_SLOT)
     }
 
-    /// The norms child.
+    /// The norms child (PrimitiveArray<f32>).
     pub fn norms(&self) -> &ArrayRef {
-        &self.norms
+        self.slot(NORMS_SLOT)
     }
 
-    /// The centroids (codebook) child.
+    /// The centroids (codebook) child (PrimitiveArray<f32>).
     pub fn centroids(&self) -> &ArrayRef {
-        &self.centroids
+        self.slot(CENTROIDS_SLOT)
     }
 
-    /// The MSE rotation signs child (BoolArray, length 3 * padded_dim).
+    /// The MSE rotation signs child (BitPackedArray, length 3 * padded_dim).
     pub fn rotation_signs(&self) -> &ArrayRef {
-        &self.rotation_signs
+        self.slot(ROTATION_SIGNS_SLOT)
     }
 
-    /// The optional QJL correction.
-    pub fn qjl(&self) -> Option<&QjlCorrection> {
-        self.qjl.as_ref()
+    /// The optional QJL correction fields, reconstructed from slots.
+    pub fn qjl(&self) -> Option<QjlCorrection> {
+        Some(QjlCorrection {
+            signs: self.slots[QJL_SIGNS_SLOT].clone()?,
+            residual_norms: self.slots[QJL_RESIDUAL_NORMS_SLOT].clone()?,
+            rotation_signs: self.slots[QJL_ROTATION_SIGNS_SLOT].clone()?,
+        })
     }
 }

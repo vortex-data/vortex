@@ -318,11 +318,9 @@ pub fn turboquant_encode_qjl(
     )?;
     let qjl_rotation_signs = bitpack_rotation_signs(&qjl_rotation)?;
 
-    array.qjl = Some(QjlCorrection {
-        signs: qjl_signs.into_array(),
-        residual_norms: residual_norms_array.into_array(),
-        rotation_signs: qjl_rotation_signs,
-    });
+    array.slots[crate::array::QJL_SIGNS_SLOT] = Some(qjl_signs.into_array());
+    array.slots[crate::array::QJL_RESIDUAL_NORMS_SLOT] = Some(residual_norms_array.into_array());
+    array.slots[crate::array::QJL_ROTATION_SIGNS_SLOT] = Some(qjl_rotation_signs);
 
     Ok(array.into_array())
 }
