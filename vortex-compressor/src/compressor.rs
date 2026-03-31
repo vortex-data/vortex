@@ -172,7 +172,9 @@ impl CascadingCompressor {
     ) -> VortexResult<ArrayRef> {
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
-            Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
+            Canonical::Bool(bool_array) => {
+                self.choose_and_compress(Canonical::Bool(bool_array), ctx)
+            }
             Canonical::Primitive(primitive) => {
                 self.choose_and_compress(Canonical::Primitive(primitive), ctx)
             }
