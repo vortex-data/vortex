@@ -71,16 +71,60 @@ macro_rules! assert_arrays_eq {
             )
         }
 
+        let executed = {
+            use $crate::IntoArray;
+            use $crate::VortexSessionExecute;
+            let mut ctx = $crate::LEGACY_SESSION.create_execution_ctx();
+            // Allow deprecated to_array() as it's the only method that works uniformly
+            // for all input types (ArrayRef, concrete arrays, and &dyn DynArray).
+            #[allow(deprecated)]
+            let arr = left.to_array();
+            arr.execute::<$crate::RecursiveCanonical>(&mut ctx)
+                .expect("assert_arrays_eq: failed to execute left array to recursive canonical form")
+                .0
+                .into_array()
+        };
+
         let n = left.len();
-        let mismatched_indices = (0..n)
+        let left_right_mismatched: Vec<usize> = (0..n)
             .filter(|i| left.scalar_at(*i).unwrap() != right.scalar_at(*i).unwrap())
-            .collect::<Vec<_>>();
-        if mismatched_indices.len() != 0 {
+            .collect();
+        let left_executed_mismatched: Vec<usize> = (0..n)
+            .filter(|i| left.scalar_at(*i).unwrap() != executed.scalar_at(*i).unwrap())
+            .collect();
+        let right_executed_mismatched: Vec<usize> = (0..n)
+            .filter(|i| right.scalar_at(*i).unwrap() != executed.scalar_at(*i).unwrap())
+            .collect();
+
+        if !left_right_mismatched.is_empty()
+            || !left_executed_mismatched.is_empty()
+            || !right_executed_mismatched.is_empty()
+        {
+            let mut msg = String::new();
+            if !left_right_mismatched.is_empty() {
+                msg.push_str(&format!(
+                    "\n  left != right at indices: {}",
+                    $crate::arrays::format_indices(left_right_mismatched)
+                ));
+            }
+            if !left_executed_mismatched.is_empty() {
+                msg.push_str(&format!(
+                    "\n  left != executed at indices: {}",
+                    $crate::arrays::format_indices(left_executed_mismatched)
+                ));
+            }
+            if !right_executed_mismatched.is_empty() {
+                msg.push_str(&format!(
+                    "\n  right != executed at indices: {}",
+                    $crate::arrays::format_indices(right_executed_mismatched)
+                ));
+            }
             panic!(
-                "assertion left == right failed: arrays do not match at indices: {}.\n  left: {}\n right: {}",
-                $crate::arrays::format_indices(mismatched_indices),
+                "assertion failed: arrays do not match:{}\n     left: {}\n    right: {}\n executed: {}",
+                msg,
                 left.display_values(),
-                right.display_values()
+                right.display_values(),
+                executed.display_values()
             )
         }
     }};
