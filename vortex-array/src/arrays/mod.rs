@@ -7,7 +7,7 @@
 mod assertions;
 
 #[cfg(any(test, feature = "_test-harness"))]
-pub use assertions::format_indices;
+pub use assertions::assert_arrays_eq_impl;
 
 #[cfg(test)]
 mod validation_tests;
