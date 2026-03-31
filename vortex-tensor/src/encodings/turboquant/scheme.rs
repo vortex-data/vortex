@@ -6,7 +6,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::ExtensionArray;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
@@ -75,7 +74,7 @@ impl Scheme for TurboQuantScheme {
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         let array = data.array().clone();
-        let ext_array = array.to_extension();
+        let ext_array = array.to_canonical()?.into_extension();
         let storage = ext_array.storage_array();
         let fsl = storage.to_canonical()?.into_fixed_size_list();
 

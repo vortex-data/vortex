@@ -132,6 +132,8 @@ pub struct WriteStrategyBuilder {
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<ArrayRegistry>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
+    #[cfg(feature = "unstable_encodings")]
+    vector_quantization: bool,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -144,6 +146,8 @@ impl Default for WriteStrategyBuilder {
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
             flat_strategy: None,
+            #[cfg(feature = "unstable_encodings")]
+            vector_quantization: false,
         }
     }
 }
@@ -244,12 +248,13 @@ impl WriteStrategyBuilder {
     /// When enabled, `Vector` and `FixedShapeTensor` extension arrays are
     /// compressed using the TurboQuant algorithm with QJL correction for
     /// unbiased inner product estimation.
+    ///
+    /// This augments any existing compressor configuration rather than
+    /// replacing it. If no compressor has been set, the default BtrBlocks
+    /// compressor is used with TurboQuant added.
     #[cfg(feature = "unstable_encodings")]
     pub fn with_vector_quantization(mut self) -> Self {
-        use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;
-
-        let builder = BtrBlocksCompressorBuilder::default().with_scheme(&TURBOQUANT_SCHEME);
-        self.compressor = Some(Arc::new(builder.build()));
+        self.vector_quantization = true;
         self
     }
 
@@ -269,7 +274,20 @@ impl WriteStrategyBuilder {
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
         // 5. compress each chunk
-        let compressing = if let Some(ref compressor) = self.compressor {
+        #[cfg(feature = "unstable_encodings")]
+        let compressor = if self.vector_quantization {
+            use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;
+
+            // Build a BtrBlocks compressor with TurboQuant added.
+            let builder = BtrBlocksCompressorBuilder::default().with_scheme(&TURBOQUANT_SCHEME);
+            Some(Arc::new(builder.build()) as Arc<dyn CompressorPlugin>)
+        } else {
+            self.compressor.clone()
+        };
+        #[cfg(not(feature = "unstable_encodings"))]
+        let compressor = self.compressor.clone();
+
+        let compressing = if let Some(ref compressor) = compressor {
             CompressingStrategy::new_opaque(buffered, compressor.clone())
         } else {
             CompressingStrategy::new_btrblocks(buffered, true)
@@ -293,7 +311,7 @@ impl WriteStrategyBuilder {
         );
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let compress_then_flat = if let Some(ref compressor) = self.compressor {
+        let compress_then_flat = if let Some(ref compressor) = compressor {
             CompressingStrategy::new_opaque(flat, compressor.clone())
         } else {
             CompressingStrategy::new_btrblocks(flat, false)

@@ -282,10 +282,22 @@ pub fn turboquant_encode_qjl(
                 }
             }
 
-            // Compute residual: r = x - x̂.
+            // Compute residual: r = x_padded - x̂.
+            // For positions 0..dim: r[j] = x[j] - dequantized[j].
+            // For pad positions dim..padded_dim: the original was zero-padded,
+            // so r[j] = 0 - dequantized[j]. These pad artifacts are nonzero
+            // because the SRHT mixes quantization error into the padded region.
+            // Omitting them would corrupt the QJL signs for non-power-of-2 dims.
             for j in 0..dim {
                 residual[j] = x[j] - dequantized[j];
             }
+            for j in dim..padded_dim {
+                residual[j] = -dequantized[j];
+            }
+            // The residual norm for QJL scaling is over the dim-dimensional
+            // subspace only — pad artifacts don't contribute to reconstruction
+            // error in the output space. The pad positions are still included
+            // in the sign projection to avoid corrupting the SRHT mixing.
             let residual_norm = l2_norm(&residual[..dim]);
             residual_norms_buf.push(residual_norm);
 
@@ -317,12 +329,11 @@ pub fn turboquant_encode_qjl(
     )?;
     let qjl_rotation_signs = bitpack_rotation_signs(&qjl_rotation)?;
 
-    array.slots[crate::encodings::turboquant::array::Slot::QjlSigns as usize] =
-        Some(qjl_signs.into_array());
-    array.slots[crate::encodings::turboquant::array::Slot::QjlResidualNorms as usize] =
-        Some(residual_norms_array.into_array());
-    array.slots[crate::encodings::turboquant::array::Slot::QjlRotationSigns as usize] =
-        Some(qjl_rotation_signs);
+    array.set_qjl(crate::encodings::turboquant::array::QjlCorrection {
+        signs: qjl_signs.into_array(),
+        residual_norms: residual_norms_array.into_array(),
+        rotation_signs: qjl_rotation_signs,
+    });
 
     Ok(array.into_array())
 }

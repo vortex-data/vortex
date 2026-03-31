@@ -19,7 +19,6 @@ use crate::encodings::turboquant::rotation::RotationMatrix;
 ///
 /// Accounts for the SRHT normalization (`1/padded_dim^{3/2}` per transform)
 /// combined with `E[|z|] = sqrt(2/π)` for half-normal sign expectations.
-/// Verified empirically via the `qjl_inner_product_bias` test suite.
 #[inline]
 fn qjl_correction_scale(padded_dim: usize) -> f32 {
     (std::f32::consts::FRAC_PI_2).sqrt() / (padded_dim as f32)

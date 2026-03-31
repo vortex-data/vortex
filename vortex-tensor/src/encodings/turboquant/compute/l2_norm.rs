@@ -11,7 +11,6 @@ use vortex_array::ArrayRef;
 use crate::encodings::turboquant::array::TurboQuantArray;
 
 /// Return the stored norms directly — no decompression needed.
-#[allow(dead_code)] // TODO: wire into vortex-tensor L2Norm dispatch
 ///
 /// The norms are computed before quantization, so they are exact (not affected
 /// by the lossy encoding). The returned `ArrayRef` is a `PrimitiveArray<f32>`
@@ -19,6 +18,7 @@ use crate::encodings::turboquant::array::TurboQuantArray;
 ///
 /// TODO: Wire into `vortex-tensor` L2Norm scalar function dispatch so that
 /// `l2_norm(Extension(TurboQuant(...)))` short-circuits to this.
+#[allow(dead_code)] // TODO: wire into vortex-tensor L2Norm dispatch
 pub fn l2_norm_direct(array: &TurboQuantArray) -> &ArrayRef {
     array.norms()
 }

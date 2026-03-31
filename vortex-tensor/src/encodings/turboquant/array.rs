@@ -246,4 +246,11 @@ impl TurboQuantArray {
             rotation_signs: self.slots[Slot::QjlRotationSigns as usize].clone()?,
         })
     }
+
+    /// Set the QJL correction fields on this array.
+    pub(crate) fn set_qjl(&mut self, qjl: QjlCorrection) {
+        self.slots[Slot::QjlSigns as usize] = Some(qjl.signs);
+        self.slots[Slot::QjlResidualNorms as usize] = Some(qjl.residual_norms);
+        self.slots[Slot::QjlRotationSigns as usize] = Some(qjl.rotation_signs);
+    }
 }

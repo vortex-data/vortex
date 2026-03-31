@@ -43,12 +43,7 @@ impl TakeExecute for TurboQuant {
             array.bit_width,
         )?;
         if let Some(qjl) = taken_qjl {
-            result.slots[crate::encodings::turboquant::array::Slot::QjlSigns as usize] =
-                Some(qjl.signs);
-            result.slots[crate::encodings::turboquant::array::Slot::QjlResidualNorms as usize] =
-                Some(qjl.residual_norms);
-            result.slots[crate::encodings::turboquant::array::Slot::QjlRotationSigns as usize] =
-                Some(qjl.rotation_signs);
+            result.set_qjl(qjl);
         }
 
         Ok(Some(result.into_array()))

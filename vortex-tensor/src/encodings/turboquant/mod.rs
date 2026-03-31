@@ -355,24 +355,14 @@ mod tests {
         Ok(())
     }
 
-    #[rstest]
-    #[case(128, 2)]
-    #[case(128, 3)]
-    #[case(128, 4)]
-    #[case(128, 6)]
-    #[case(128, 8)]
-    #[case(128, 9)]
-    #[case(768, 3)]
-    #[case(768, 4)]
-    fn qjl_inner_product_bias(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
-        let num_rows = 100;
-        let fsl = make_fsl(num_rows, dim, 42);
-        let config = TurboQuantConfig {
-            bit_width,
-            seed: Some(789),
-        };
-        let (original, decoded) = encode_decode_qjl(&fsl, &config)?;
-
+    /// Compute the mean signed relative error of QJL inner product estimation
+    /// over random query/vector pairs.
+    fn qjl_mean_signed_relative_error(
+        original: &[f32],
+        decoded: &[f32],
+        dim: usize,
+        num_rows: usize,
+    ) -> f32 {
         let num_pairs = 500;
         let mut rng = StdRng::seed_from_u64(0);
         let mut signed_errors = Vec::with_capacity(num_pairs);
@@ -397,13 +387,42 @@ mod tests {
         }
 
         if signed_errors.is_empty() {
-            return Ok(());
+            return 0.0;
         }
 
-        let mean_rel_error: f32 = signed_errors.iter().sum::<f32>() / signed_errors.len() as f32;
+        signed_errors.iter().sum::<f32>() / signed_errors.len() as f32
+    }
+
+    #[rstest]
+    #[case(128, 2)]
+    #[case(128, 3)]
+    #[case(128, 4)]
+    #[case(128, 6)]
+    #[case(128, 8)]
+    #[case(128, 9)]
+    #[case(768, 3)]
+    #[case(768, 4)]
+    fn qjl_inner_product_bias(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
+        let num_rows = 100;
+        let fsl = make_fsl(num_rows, dim, 42);
+        let config = TurboQuantConfig {
+            bit_width,
+            seed: Some(789),
+        };
+        let (original, decoded) = encode_decode_qjl(&fsl, &config)?;
+
+        let mean_rel_error = qjl_mean_signed_relative_error(&original, &decoded, dim, num_rows);
+
+        // For power-of-2 dims, QJL bias should be small (< 0.15).
+        // For non-power-of-2 dims (e.g., 768 padded to 1024), the bias is
+        // inherently larger because the SRHT centroids are optimized for the
+        // padded dimension's coordinate distribution, which differs from the
+        // actual distribution of a zero-padded lower-dimensional vector.
+        let threshold = if dim.is_power_of_two() { 0.15 } else { 0.25 };
         assert!(
-            mean_rel_error.abs() < 0.3,
-            "QJL inner product bias too high: {mean_rel_error:.4} for dim={dim}, bits={bit_width}"
+            mean_rel_error.abs() < threshold,
+            "QJL inner product bias too high: {mean_rel_error:.4} for dim={dim}, bits={bit_width} \
+             (threshold={threshold})"
         );
         Ok(())
     }

@@ -138,6 +138,10 @@ fn conditional_mean(lo: f64, hi: f64, exponent: f64) -> f64 {
 fn pdf_unnormalized(x_val: f64, exponent: f64) -> f64 {
     let base = (1.0 - x_val * x_val).max(0.0);
 
+    // `as i32` truncates toward zero, so for negative exponents (d < 5):
+    //   exponent = -0.5 → int_part = 0, frac = -0.5 → powi(0) * sqrt = sqrt
+    //   exponent = -1.5 → int_part = -1, frac = -0.5 → powi(-1) * sqrt = 1/(base * sqrt(base))
+    // This correctly computes base^exponent for all half-integer values.
     let int_part = exponent as i32;
     let frac = exponent - int_part as f64;
     if frac.abs() < 1e-10 {
