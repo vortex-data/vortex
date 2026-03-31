@@ -975,7 +975,7 @@ mod tests {
         assert!(compressed.is::<Sparse>());
         let decoded = compressed.clone();
         let expected =
-            PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity().clone())
+            PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity())
                 .into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
         Ok(())
@@ -1000,7 +1000,7 @@ mod tests {
         let decoded = compressed.clone();
         let expected = PrimitiveArray::new(
             buffer![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46],
-            array.validity().clone(),
+            array.validity(),
         )
         .into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
