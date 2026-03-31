@@ -252,7 +252,7 @@ mod setup {
             offsets_bp.into_array(),
             codes.bytes().clone(),
             codes.dtype().clone(),
-            codes.validity().clone(),
+            codes.validity(),
         )
         .unwrap();
 
