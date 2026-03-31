@@ -11,7 +11,7 @@ use crate::ArrayRef;
 use crate::arrays::Slice;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 
 #[derive(Clone, Debug)]
 pub struct SliceData {
@@ -71,15 +71,15 @@ impl SliceData {
     }
 }
 
-impl Array<Slice> {
+impl ArrayInner<Slice> {
     /// Constructs a new `SliceArray`.
     pub fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
-        Array::try_from_data(SliceData::try_new(child, range)?)
+        ArrayInner::try_from_data(SliceData::try_new(child, range)?)
     }
 
     /// Constructs a new `SliceArray`.
     pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
-        Array::try_from_data(SliceData::new(child, range))
+        ArrayInner::try_from_data(SliceData::new(child, range))
             .vortex_expect("SliceData is always valid")
     }
 }

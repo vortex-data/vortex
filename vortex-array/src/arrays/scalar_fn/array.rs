@@ -9,7 +9,7 @@ use crate::arrays::ScalarFnVTable;
 use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnData {
@@ -72,7 +72,7 @@ impl ScalarFnData {
     }
 }
 
-impl Array<ScalarFnVTable> {
+impl ArrayInner<ScalarFnVTable> {
     /// Get the scalar function bound to this array.
     #[allow(clippy::same_name_method)]
     #[inline(always)]
@@ -92,6 +92,6 @@ impl Array<ScalarFnVTable> {
         children: Vec<ArrayRef>,
         len: usize,
     ) -> VortexResult<Self> {
-        Array::try_from_data(ScalarFnData::try_new(scalar_fn, children, len)?)
+        ArrayInner::try_from_data(ScalarFnData::try_new(scalar_fn, children, len)?)
     }
 }

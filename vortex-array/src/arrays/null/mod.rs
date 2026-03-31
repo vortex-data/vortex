@@ -23,8 +23,8 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
 use crate::vtable::ArrayId;
+use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -146,7 +146,10 @@ impl VTable for Null {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(
+        array: Arc<ArrayInner<Self>>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 }
@@ -191,9 +194,9 @@ impl Null {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.null");
 }
 
-impl Array<Null> {
+impl ArrayInner<Null> {
     pub fn new(len: usize) -> Self {
-        Array::try_from_data(NullData::new(len)).vortex_expect("NullData is always valid")
+        ArrayInner::try_from_data(NullData::new(len)).vortex_expect("NullData is always valid")
     }
 }
 

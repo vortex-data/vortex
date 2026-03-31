@@ -18,8 +18,8 @@ use vortex::array::serde::ArrayChildren;
 use vortex::array::stats::ArrayStats;
 use vortex::array::validity::Validity;
 use vortex::array::vtable;
-use vortex::array::vtable::Array;
 use vortex::array::vtable::ArrayId;
+use vortex::array::vtable::ArrayInner;
 use vortex::array::vtable::ArrayView;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
@@ -171,7 +171,10 @@ impl VTable for PythonVTable {
         Ok(())
     }
 
-    fn execute(_array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(
+        _array: Arc<ArrayInner<Self>>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
         todo!()
     }
 }

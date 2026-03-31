@@ -60,7 +60,7 @@ pub fn vortex_bytebool::ByteBool::deserialize(_bytes: &[u8], _dtype: &vortex_arr
 
 pub fn vortex_bytebool::ByteBool::dtype(array: &vortex_bytebool::ByteBoolData) -> &vortex_array::dtype::DType
 
-pub fn vortex_bytebool::ByteBool::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_bytebool::ByteBool::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::ArrayInner<Self>>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_bytebool::ByteBool::execute_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -136,4 +136,4 @@ impl vortex_array::vtable::validity::ValidityHelper for vortex_bytebool::ByteBoo
 
 pub fn vortex_bytebool::ByteBoolData::validity(&self) -> &vortex_array::validity::Validity
 
-pub type vortex_bytebool::ByteBoolArray = vortex_array::vtable::typed::Array<vortex_bytebool::ByteBool>
+pub type vortex_bytebool::ByteBoolArray = vortex_array::vtable::typed::ArrayInner<vortex_bytebool::ByteBool>

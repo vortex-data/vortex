@@ -21,7 +21,7 @@ use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -210,7 +210,10 @@ impl VTable for Primitive {
         Ok(())
     }
 
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(
+        array: Arc<ArrayInner<Self>>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 

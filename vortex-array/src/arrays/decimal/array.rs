@@ -29,7 +29,7 @@ use crate::match_each_integer_ptype;
 use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 
 /// A decimal array that stores fixed-precision decimal numbers with configurable scale.
 ///
@@ -434,14 +434,14 @@ impl DecimalData {
     }
 }
 
-impl Array<Decimal> {
+impl ArrayInner<Decimal> {
     /// Creates a new [`DecimalArray`] using a host-native buffer.
     pub fn new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(DecimalData::new(buffer, decimal_dtype, validity))
+        ArrayInner::try_from_data(DecimalData::new(buffer, decimal_dtype, validity))
             .vortex_expect("DecimalData is always valid")
     }
 
@@ -455,8 +455,10 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) })
-            .vortex_expect("DecimalData is always valid")
+        ArrayInner::try_from_data(unsafe {
+            DecimalData::new_unchecked(buffer, decimal_dtype, validity)
+        })
+        .vortex_expect("DecimalData is always valid")
     }
 
     /// Creates a new [`DecimalArray`] from a host-native buffer with validation.
@@ -465,7 +467,7 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Array::try_from_data(DecimalData::try_new(buffer, decimal_dtype, validity)?)
+        ArrayInner::try_from_data(DecimalData::try_new(buffer, decimal_dtype, validity)?)
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.
@@ -477,7 +479,7 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        Array::try_from_data(DecimalData::from_iter(iter, decimal_dtype))
+        ArrayInner::try_from_data(DecimalData::from_iter(iter, decimal_dtype))
             .vortex_expect("DecimalData is always valid")
     }
 
@@ -486,7 +488,7 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        Array::try_from_data(DecimalData::from_option_iter(iter, decimal_dtype))
+        ArrayInner::try_from_data(DecimalData::from_option_iter(iter, decimal_dtype))
             .vortex_expect("DecimalData is always valid")
     }
 
@@ -497,7 +499,7 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(DecimalData::new_handle(
+        ArrayInner::try_from_data(DecimalData::new_handle(
             values,
             values_type,
             decimal_dtype,
@@ -517,7 +519,7 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(unsafe {
+        ArrayInner::try_from_data(unsafe {
             DecimalData::new_unchecked_handle(values, values_type, decimal_dtype, validity)
         })
         .vortex_expect("DecimalData is always valid")

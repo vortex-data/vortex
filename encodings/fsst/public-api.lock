@@ -70,7 +70,7 @@ pub fn vortex_fsst::FSST::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype
 
 pub fn vortex_fsst::FSST::dtype(array: &vortex_fsst::FSSTData) -> &vortex_array::dtype::DType
 
-pub fn vortex_fsst::FSST::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_fsst::FSST::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::ArrayInner<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_fsst::FSST::execute_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -186,4 +186,4 @@ pub fn vortex_fsst::fsst_compress_iter<'a, I>(iter: I, len: usize, dtype: vortex
 
 pub fn vortex_fsst::fsst_train_compressor<A: vortex_array::accessor::ArrayAccessor<[u8]>>(array: &A) -> fsst::Compressor
 
-pub type vortex_fsst::FSSTArray = vortex_array::vtable::typed::Array<vortex_fsst::FSST>
+pub type vortex_fsst::FSSTArray = vortex_array::vtable::typed::ArrayInner<vortex_fsst::FSST>

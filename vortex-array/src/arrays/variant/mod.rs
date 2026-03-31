@@ -10,7 +10,7 @@ pub use self::vtable::VariantArray;
 use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 
 /// The canonical in-memory representation of variant (semi-structured) data.
 ///
@@ -54,9 +54,10 @@ impl VariantData {
     }
 }
 
-impl Array<Variant> {
+impl ArrayInner<Variant> {
     /// Creates a new `VariantArray`.
     pub fn new(child: ArrayRef) -> Self {
-        Array::try_from_data(VariantData::new(child)).vortex_expect("VariantData is always valid")
+        ArrayInner::try_from_data(VariantData::new(child))
+            .vortex_expect("VariantData is always valid")
     }
 }

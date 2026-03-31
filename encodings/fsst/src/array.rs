@@ -33,8 +33,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
-use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -359,7 +359,10 @@ impl VTable for FSST {
         Ok(())
     }
 
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(
+        array: Arc<ArrayInner<Self>>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
         canonicalize_fsst(&array, ctx).map(ExecutionResult::done)
     }
 
@@ -423,7 +426,7 @@ impl FSST {
         codes: VarBinArray,
         uncompressed_lengths: ArrayRef,
     ) -> VortexResult<FSSTArray> {
-        Array::try_from_data(FSSTData::try_new(
+        ArrayInner::try_from_data(FSSTData::try_new(
             dtype,
             symbols,
             symbol_lengths,

@@ -20,8 +20,8 @@ use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
-use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -162,7 +162,10 @@ impl VTable for ZigZag {
         Ok(())
     }
 
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(
+        array: Arc<ArrayInner<Self>>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             zigzag_decode(array.encoded().clone().execute(ctx)?).into_array(),
         ))
@@ -201,7 +204,7 @@ impl ZigZag {
 
     /// Construct a new [`ZigZagArray`] from an encoded unsigned integer array.
     pub fn try_new(encoded: ArrayRef) -> VortexResult<ZigZagArray> {
-        Array::try_from_data(ZigZagData::try_new(encoded)?)
+        ArrayInner::try_from_data(ZigZagData::try_new(encoded)?)
     }
 }
 

@@ -20,8 +20,8 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
-use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -182,7 +182,10 @@ impl VTable for FoR {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(
+        array: Arc<ArrayInner<Self>>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(decompress(&array, ctx)?.into_array()))
     }
 
@@ -204,7 +207,7 @@ impl FoR {
 
     /// Construct a new FoR array from an encoded array and a reference scalar.
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
-        Array::try_from_data(FoRData::try_new(encoded, reference)?)
+        ArrayInner::try_from_data(FoRData::try_new(encoded, reference)?)
     }
 
     /// Encode a primitive array using Frame of Reference encoding.

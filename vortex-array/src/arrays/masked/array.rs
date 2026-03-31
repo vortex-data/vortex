@@ -9,7 +9,7 @@ use crate::arrays::Masked;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 
 #[derive(Clone, Debug)]
 pub struct MaskedData {
@@ -78,9 +78,9 @@ impl MaskedData {
     }
 }
 
-impl Array<Masked> {
+impl ArrayInner<Masked> {
     /// Constructs a new `MaskedArray`.
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
-        Array::try_from_data(MaskedData::try_new(child, validity)?)
+        ArrayInner::try_from_data(MaskedData::try_new(child, validity)?)
     }
 }

@@ -7,7 +7,7 @@ use crate::arrays::Constant;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 
 #[derive(Clone, Debug)]
 pub struct ConstantData {
@@ -54,12 +54,12 @@ impl ConstantData {
     }
 }
 
-impl Array<Constant> {
+impl ArrayInner<Constant> {
     pub fn new<S>(scalar: S, len: usize) -> Self
     where
         S: Into<Scalar>,
     {
-        Array::try_from_data(ConstantData::new(scalar, len))
+        ArrayInner::try_from_data(ConstantData::new(scalar, len))
             .vortex_expect("ConstantData is always valid")
     }
 }

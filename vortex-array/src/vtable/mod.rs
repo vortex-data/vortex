@@ -154,7 +154,10 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()>;
 
     /// Execute this array by returning an [`ExecutionResult`].
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
+    fn execute(
+        array: Arc<ArrayInner<Self>>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.
     fn execute_parent(
@@ -279,16 +282,16 @@ macro_rules! vtable {
             }
         }
     };
-    // New form: Data is the inner struct, FooArray is a type alias for Array<VT>.
+    // New form: Data is the inner struct, FooArray is a type alias for ArrayInner<VT>.
     ($Base:ident, $VT:ident, $Data:ident) => {
         $crate::aliases::paste::paste! {
-            /// Type alias: `FooArray = Array<Foo>`.
-            pub type [<$Base Array>] = $crate::vtable::Array<$VT>;
+            /// Type alias: `FooArray = ArrayInner<Foo>`.
+            pub type [<$Base Array>] = $crate::vtable::ArrayInner<$VT>;
 
             impl $crate::IntoArray for $Data {
                 fn into_array(self) -> $crate::ArrayRef {
                     use $crate::aliases::vortex_error::VortexExpect;
-                    $crate::ArrayRef::from($crate::vtable::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
+                    $crate::vtable::ArrayInner::<$VT>::try_from_data(self).vortex_expect("data is always valid").into_array()
                 }
             }
 

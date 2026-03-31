@@ -17,7 +17,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 
 /// Inner data for a boolean array that stores true/false values in a compact bit-packed format.
 ///
@@ -146,7 +146,7 @@ impl BoolData {
 }
 
 /// Constructors and consuming methods for `BoolArray` (`Array<Bool>`).
-impl Array<Bool> {
+impl ArrayInner<Bool> {
     /// Constructs a new `BoolArray`.
     ///
     /// # Panics
@@ -172,7 +172,7 @@ impl Array<Bool> {
     ///
     /// Returns an error if the provided components do not satisfy the invariants.
     pub fn try_new(bits: BitBuffer, validity: Validity) -> VortexResult<Self> {
-        Array::try_from_data(BoolData::try_new(bits, validity)?)
+        ArrayInner::try_from_data(BoolData::try_new(bits, validity)?)
     }
 
     /// Build a new bool array from a `BufferHandle`, returning an error if the offset is
@@ -183,7 +183,7 @@ impl Array<Bool> {
         len: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Array::try_from_data(BoolData::try_new_from_handle(bits, offset, len, validity)?)
+        ArrayInner::try_from_data(BoolData::try_new_from_handle(bits, offset, len, validity)?)
     }
 
     /// Creates a new [`BoolArray`] without validation.
@@ -193,7 +193,7 @@ impl Array<Bool> {
     /// The caller must ensure that the validity length is equal to the bit buffer length.
     pub unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {
         // SAFETY: caller guarantees validity length equals bit buffer length.
-        Array::try_from_data(unsafe { BoolData::new_unchecked(bits, validity) })
+        ArrayInner::try_from_data(unsafe { BoolData::new_unchecked(bits, validity) })
             .vortex_expect("BoolData is always valid")
     }
 

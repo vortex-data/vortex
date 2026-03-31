@@ -56,7 +56,7 @@ pub fn vortex_zstd::Zstd::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype
 
 pub fn vortex_zstd::Zstd::dtype(array: &vortex_zstd::ZstdData) -> &vortex_array::dtype::DType
 
-pub fn vortex_zstd::Zstd::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_zstd::Zstd::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::ArrayInner<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_zstd::Zstd::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -230,4 +230,4 @@ pub fn vortex_zstd::ZstdMetadata::encoded_len(&self) -> usize
 
 pub fn vortex_zstd::reconstruct_views(buffer: &vortex_buffer::ByteBuffer, max_buffer_len: usize) -> (alloc::vec::Vec<vortex_buffer::ByteBuffer>, vortex_buffer::buffer::Buffer<vortex_array::arrays::varbinview::view::BinaryView>)
 
-pub type vortex_zstd::ZstdArray = vortex_array::vtable::typed::Array<vortex_zstd::Zstd>
+pub type vortex_zstd::ZstdArray = vortex_array::vtable::typed::ArrayInner<vortex_zstd::Zstd>

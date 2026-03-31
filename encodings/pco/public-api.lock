@@ -52,7 +52,7 @@ pub fn vortex_pco::Pco::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::
 
 pub fn vortex_pco::Pco::dtype(array: &vortex_pco::PcoData) -> &vortex_array::dtype::DType
 
-pub fn vortex_pco::Pco::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_pco::Pco::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::ArrayInner<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_pco::Pco::id(&self) -> vortex_array::vtable::dyn_::ArrayId
 
@@ -184,4 +184,4 @@ pub fn vortex_pco::PcoPageInfo::clear(&mut self)
 
 pub fn vortex_pco::PcoPageInfo::encoded_len(&self) -> usize
 
-pub type vortex_pco::PcoArray = vortex_array::vtable::typed::Array<vortex_pco::Pco>
+pub type vortex_pco::PcoArray = vortex_array::vtable::typed::ArrayInner<vortex_pco::Pco>

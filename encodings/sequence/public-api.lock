@@ -70,7 +70,7 @@ pub fn vortex_sequence::Sequence::deserialize(bytes: &[u8], dtype: &vortex_array
 
 pub fn vortex_sequence::Sequence::dtype(array: &vortex_sequence::SequenceData) -> &vortex_array::dtype::DType
 
-pub fn vortex_sequence::Sequence::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_sequence::Sequence::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::ArrayInner<Self>>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_sequence::Sequence::execute_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -158,4 +158,4 @@ pub fn vortex_sequence::initialize(session: &mut vortex_session::VortexSession)
 
 pub fn vortex_sequence::sequence_encode(primitive_array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub type vortex_sequence::SequenceArray = vortex_array::vtable::typed::Array<vortex_sequence::Sequence>
+pub type vortex_sequence::SequenceArray = vortex_array::vtable::typed::ArrayInner<vortex_sequence::Sequence>

@@ -15,7 +15,7 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
@@ -188,15 +188,16 @@ impl DictData {
     }
 }
 
-impl Array<Dict> {
+impl ArrayInner<Dict> {
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
-        Array::try_from_data(DictData::new(codes, values)).vortex_expect("DictData is always valid")
+        ArrayInner::try_from_data(DictData::new(codes, values))
+            .vortex_expect("DictData is always valid")
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
-        Array::try_from_data(DictData::try_new(codes, values)?)
+        ArrayInner::try_from_data(DictData::try_new(codes, values)?)
     }
 
     /// Build a new `DictArray` without validating the codes or values.
@@ -205,7 +206,7 @@ impl Array<Dict> {
     ///
     /// See [`DictData::new_unchecked`].
     pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
-        Array::try_from_data(unsafe { DictData::new_unchecked(codes, values) })
+        ArrayInner::try_from_data(unsafe { DictData::new_unchecked(codes, values) })
             .vortex_expect("DictData is always valid")
     }
 
@@ -215,7 +216,7 @@ impl Array<Dict> {
     ///
     /// See [`DictData::set_all_values_referenced`].
     pub unsafe fn set_all_values_referenced(self, all_values_referenced: bool) -> Self {
-        Array::try_from_data(unsafe {
+        ArrayInner::try_from_data(unsafe {
             self.into_data()
                 .set_all_values_referenced(all_values_referenced)
         })

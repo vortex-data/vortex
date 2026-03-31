@@ -27,7 +27,7 @@ use crate::stats::ArrayStats;
 use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
@@ -226,10 +226,10 @@ impl ChunkedData {
     }
 }
 
-impl Array<Chunked> {
+impl ArrayInner<Chunked> {
     /// Constructs a new `ChunkedArray`.
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
-        Array::try_from_data(ChunkedData::try_new(chunks, dtype)?)
+        ArrayInner::try_from_data(ChunkedData::try_new(chunks, dtype)?)
     }
 
     /// Creates a new `ChunkedArray` without validation.
@@ -238,19 +238,19 @@ impl Array<Chunked> {
     ///
     /// See [`ChunkedData::new_unchecked`].
     pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
-        Array::try_from_data(unsafe { ChunkedData::new_unchecked(chunks, dtype) })
+        ArrayInner::try_from_data(unsafe { ChunkedData::new_unchecked(chunks, dtype) })
             .vortex_expect("ChunkedData is always valid")
     }
 }
 
-impl FromIterator<ArrayRef> for Array<Chunked> {
+impl FromIterator<ArrayRef> for ArrayInner<Chunked> {
     fn from_iter<T: IntoIterator<Item = ArrayRef>>(iter: T) -> Self {
         let chunks: Vec<ArrayRef> = iter.into_iter().collect();
         let dtype = chunks
             .first()
             .map(|c| c.dtype().clone())
             .vortex_expect("Cannot infer DType from an empty iterator");
-        Array::<Chunked>::try_new(chunks, dtype)
+        ArrayInner::<Chunked>::try_new(chunks, dtype)
             .vortex_expect("Failed to create chunked array from iterator")
     }
 }

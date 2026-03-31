@@ -29,8 +29,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
-use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -268,7 +268,10 @@ impl VTable for Sparse {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(
+        array: Arc<ArrayInner<Self>>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
         execute_sparse(&array, ctx).map(ExecutionResult::done)
     }
 }
@@ -293,7 +296,7 @@ impl Sparse {
         len: usize,
         fill_value: Scalar,
     ) -> VortexResult<SparseArray> {
-        Array::try_from_data(SparseData::try_new(indices, values, len, fill_value)?)
+        ArrayInner::try_from_data(SparseData::try_new(indices, values, len, fill_value)?)
     }
 
     /// Encode the given array as a [`SparseArray`].

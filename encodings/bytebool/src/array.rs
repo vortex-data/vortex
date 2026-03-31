@@ -21,8 +21,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
-use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -194,7 +194,10 @@ impl VTable for ByteBool {
         crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(
+        array: Arc<ArrayInner<Self>>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
         Ok(ExecutionResult::done(
@@ -228,7 +231,7 @@ impl ByteBool {
 
     /// Construct a [`ByteBoolArray`] from a `Vec<bool>` and validity.
     pub fn from_vec<V: Into<Validity>>(data: Vec<bool>, validity: V) -> ByteBoolArray {
-        Array::try_from_data(ByteBoolData::from_vec(data, validity))
+        ArrayInner::try_from_data(ByteBoolData::from_vec(data, validity))
             .vortex_expect("ByteBoolData is always valid")
     }
 }

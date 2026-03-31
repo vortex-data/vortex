@@ -54,8 +54,8 @@ use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
-use crate::vtable::Array;
 use crate::vtable::ArrayId;
+use crate::vtable::ArrayInner;
 use crate::vtable::DynVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -182,18 +182,6 @@ impl ArrayRef {
     /// Returns true if the two ArrayRefs point to the same allocation.
     pub fn ptr_eq(this: &ArrayRef, other: &ArrayRef) -> bool {
         Arc::ptr_eq(&this.0, &other.0)
-    }
-}
-
-impl<V: VTable> From<Array<V>> for ArrayRef {
-    fn from(value: Array<V>) -> Self {
-        Self(Arc::new(value))
-    }
-}
-
-impl<V: VTable> From<Arc<Array<V>>> for ArrayRef {
-    fn from(value: Arc<Array<V>>) -> Self {
-        Self(value)
     }
 }
 
@@ -358,25 +346,25 @@ impl ArrayRef {
         M::try_match(&*self.0)
     }
 
-    /// Returns the array downcast to the given `Array<V>` as an owned object.
-    pub fn try_into<V: VTable>(self) -> Result<Array<V>, ArrayRef> {
+    /// Returns the array downcast to the given `ArrayInner<V>` as an owned object.
+    pub fn try_into<V: VTable>(self) -> Result<ArrayInner<V>, ArrayRef> {
         if !self.is::<V>() {
             return Err(self);
         }
         let arc = self.0.as_any_arc();
-        let typed: Arc<Array<V>> = arc
-            .downcast::<Array<V>>()
+        let typed: Arc<ArrayInner<V>> = arc
+            .downcast::<ArrayInner<V>>()
             .map_err(|_| vortex_err!("failed to downcast"))
             .vortex_expect("Failed to downcast");
         Ok(match Arc::try_unwrap(typed) {
-            Ok(array) => array,
+            Ok(inner) => inner,
             Err(arc) => arc.deref().clone(),
         })
     }
 
-    /// Returns a reference to the typed `Array<V>` if this array matches the given vtable type.
-    pub fn as_typed<V: VTable>(&self) -> Option<&Array<V>> {
-        self.0.as_any().downcast_ref::<Array<V>>()
+    /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
+    pub fn as_typed<V: VTable>(&self) -> Option<&ArrayInner<V>> {
+        self.0.as_any().downcast_ref::<ArrayInner<V>>()
     }
 
     /// Returns the constant scalar if this is a constant array.
@@ -503,6 +491,7 @@ impl ArrayRef {
 }
 
 // Internal-only methods on dyn DynArray for use within the crate.
+#[allow(dead_code)]
 impl dyn DynArray + '_ {
     /// Does the array match the given matcher.
     pub(crate) fn is<M: Matcher>(&self) -> bool {
@@ -519,9 +508,9 @@ impl dyn DynArray + '_ {
         M::try_match(self)
     }
 
-    /// Returns a reference to the typed `Array<V>` if this array matches the given vtable type.
-    pub(crate) fn as_typed<V: VTable>(&self) -> Option<&Array<V>> {
-        DynArray::as_any(self).downcast_ref::<Array<V>>()
+    /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
+    pub(crate) fn as_typed<V: VTable>(&self) -> Option<&ArrayInner<V>> {
+        DynArray::as_any(self).downcast_ref::<ArrayInner<V>>()
     }
 }
 
@@ -541,18 +530,18 @@ mod private {
 
     pub trait Sealed {}
 
-    impl<V: VTable> Sealed for Array<V> {}
+    impl<V: VTable> Sealed for ArrayInner<V> {}
 }
 
 // =============================================================================
-// New path: DynArray and supporting trait impls for Array<V>
+// New path: DynArray and supporting trait impls for ArrayInner<V>
 // =============================================================================
 
-/// DynArray implementation for [`Array<V>`].
+/// DynArray implementation for [`ArrayInner<V>`].
 ///
-/// This is self-contained: identity methods use `Array<V>`'s own fields (dtype, len, stats),
-/// while data-access methods delegate to VTable methods on the inner `V::Array`.
-impl<V: VTable> DynArray for Array<V> {
+/// This is self-contained: identity methods use `ArrayInner<V>`'s own fields (dtype, len, stats),
+/// while data-access methods delegate to VTable methods on the inner `V::ArrayData`.
+impl<V: VTable> DynArray for ArrayInner<V> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -562,7 +551,7 @@ impl<V: VTable> DynArray for Array<V> {
     }
 
     fn to_array(&self) -> ArrayRef {
-        ArrayRef::from_inner(Arc::new(self.clone()))
+        self.to_array_ref()
     }
 
     fn len(&self) -> usize {
@@ -574,11 +563,11 @@ impl<V: VTable> DynArray for Array<V> {
     }
 
     fn vtable(&self) -> &dyn DynVTable {
-        self.vtable()
+        &self.vtable
     }
 
     fn encoding_id(&self) -> ArrayId {
-        self.vtable().id()
+        self.vtable.id()
     }
 
     fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
@@ -732,7 +721,7 @@ impl<V: VTable> DynArray for Array<V> {
                 vortex_ensure!(
                     matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
                     "Validity array is not non-nullable boolean: {}",
-                    self.vtable().id(),
+                    self.vtable.id(),
                 );
             }
             Ok(validity)
@@ -774,7 +763,7 @@ impl<V: VTable> DynArray for Array<V> {
             len + self.len,
             builder.len(),
             "Builder length mismatch after writing array for encoding {}",
-            self.vtable().id(),
+            self.vtable.id(),
         );
         Ok(())
     }
@@ -788,8 +777,8 @@ impl<V: VTable> DynArray for Array<V> {
         V::with_children(&mut inner, children)?;
         // SAFETY: with_children preserves dtype and len.
         Ok(ArrayRef::from_inner(Arc::new(unsafe {
-            Array::from_data_unchecked(
-                self.vtable().clone(),
+            ArrayInner::from_data_unchecked(
+                self.vtable.clone(),
                 self.dtype.clone(),
                 self.len,
                 inner,
@@ -799,14 +788,14 @@ impl<V: VTable> DynArray for Array<V> {
     }
 }
 
-impl<V: VTable> ArrayHash for Array<V> {
+impl<V: VTable> ArrayHash for ArrayInner<V> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
-        self.vtable().id().hash(state);
+        self.vtable.id().hash(state);
         self.with_view(|view| V::array_hash(view, state, precision));
     }
 }
 
-impl<V: VTable> ArrayEq for Array<V> {
+impl<V: VTable> ArrayEq for ArrayInner<V> {
     fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
         self.with_view(|self_view| {
             other.with_view(|other_view| V::array_eq(self_view, other_view, precision))
@@ -814,7 +803,7 @@ impl<V: VTable> ArrayEq for Array<V> {
     }
 }
 
-impl<V: VTable> ArrayVisitor for Array<V> {
+impl<V: VTable> ArrayVisitor for ArrayInner<V> {
     fn children(&self) -> Vec<ArrayRef> {
         self.with_view(|view| (0..V::nchildren(view)).map(|i| V::child(view, i)).collect())
     }
@@ -897,13 +886,13 @@ impl<V: VTable> ArrayVisitor for Array<V> {
 }
 
 impl<V: VTable> Matcher for V {
-    type Match<'a> = &'a Array<V>;
+    type Match<'a> = &'a ArrayInner<V>;
 
     fn matches(array: &dyn DynArray) -> bool {
-        DynArray::as_any(array).is::<Array<V>>()
+        DynArray::as_any(array).is::<ArrayInner<V>>()
     }
 
-    fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
-        DynArray::as_any(array).downcast_ref::<Array<V>>()
+    fn try_match(array: &dyn DynArray) -> Option<&ArrayInner<V>> {
+        DynArray::as_any(array).downcast_ref::<ArrayInner<V>>()
     }
 }

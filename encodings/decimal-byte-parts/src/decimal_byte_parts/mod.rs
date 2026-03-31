@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 pub(crate) mod compute;
 mod rules;
@@ -194,7 +194,10 @@ impl VTable for DecimalByteParts {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(
+        array: Arc<ArrayInner<Self>>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
         to_canonical_decimal(&array, ctx).map(ExecutionResult::done)
     }
 
@@ -300,7 +303,7 @@ impl DecimalByteParts {
         msp: ArrayRef,
         decimal_dtype: DecimalDType,
     ) -> VortexResult<DecimalBytePartsArray> {
-        Array::try_from_data(DecimalBytePartsData::try_new(msp, decimal_dtype)?)
+        ArrayInner::try_from_data(DecimalBytePartsData::try_new(msp, decimal_dtype)?)
     }
 }
 

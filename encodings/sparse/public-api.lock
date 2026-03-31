@@ -86,7 +86,7 @@ pub fn vortex_sparse::Sparse::deserialize(bytes: &[u8], dtype: &vortex_array::dt
 
 pub fn vortex_sparse::Sparse::dtype(array: &vortex_sparse::SparseData) -> &vortex_array::dtype::DType
 
-pub fn vortex_sparse::Sparse::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_sparse::Sparse::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::ArrayInner<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_sparse::Sparse::execute_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -162,4 +162,4 @@ impl core::fmt::Debug for vortex_sparse::SparseMetadata
 
 pub fn vortex_sparse::SparseMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub type vortex_sparse::SparseArray = vortex_array::vtable::typed::Array<vortex_sparse::Sparse>
+pub type vortex_sparse::SparseArray = vortex_array::vtable::typed::ArrayInner<vortex_sparse::Sparse>

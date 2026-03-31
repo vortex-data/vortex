@@ -22,7 +22,7 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
+use crate::vtable::ArrayInner;
 
 mod accessor;
 mod cast;
@@ -181,9 +181,9 @@ impl PrimitiveData {
     }
 }
 
-impl Array<Primitive> {
+impl ArrayInner<Primitive> {
     pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
-        Array::try_from_data(PrimitiveData::empty::<T>(nullability))
+        ArrayInner::try_from_data(PrimitiveData::empty::<T>(nullability))
             .vortex_expect("PrimitiveData is always valid")
     }
 
@@ -193,13 +193,13 @@ impl Array<Primitive> {
     ///
     /// Panics if the provided components do not satisfy the invariants.
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
-        Array::try_from_data(PrimitiveData::new(buffer, validity))
+        ArrayInner::try_from_data(PrimitiveData::new(buffer, validity))
             .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Constructs a new `PrimitiveArray`.
     pub fn try_new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> VortexResult<Self> {
-        Array::try_from_data(PrimitiveData::try_new(buffer, validity)?)
+        ArrayInner::try_from_data(PrimitiveData::try_new(buffer, validity)?)
     }
 
     /// Creates a new `PrimitiveArray` without validation.
@@ -208,7 +208,7 @@ impl Array<Primitive> {
     ///
     /// See [`PrimitiveData::new_unchecked`].
     pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
-        Array::try_from_data(unsafe { PrimitiveData::new_unchecked(buffer, validity) })
+        ArrayInner::try_from_data(unsafe { PrimitiveData::new_unchecked(buffer, validity) })
             .vortex_expect("PrimitiveData is always valid")
     }
 
@@ -222,7 +222,7 @@ impl Array<Primitive> {
         ptype: PType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(unsafe {
+        ArrayInner::try_from_data(unsafe {
             PrimitiveData::new_unchecked_from_handle(handle, ptype, validity)
         })
         .vortex_expect("PrimitiveData is always valid")
@@ -230,13 +230,13 @@ impl Array<Primitive> {
 
     /// Creates a new `PrimitiveArray` from a [`BufferHandle`].
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
-        Array::try_from_data(PrimitiveData::from_buffer_handle(handle, ptype, validity))
+        ArrayInner::try_from_data(PrimitiveData::from_buffer_handle(handle, ptype, validity))
             .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Creates a new `PrimitiveArray` from a [`ByteBuffer`].
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
-        Array::try_from_data(PrimitiveData::from_byte_buffer(buffer, ptype, validity))
+        ArrayInner::try_from_data(PrimitiveData::from_byte_buffer(buffer, ptype, validity))
             .vortex_expect("PrimitiveData is always valid")
     }
 
@@ -247,7 +247,7 @@ impl Array<Primitive> {
         validity: Validity,
         n_rows: usize,
     ) -> Self {
-        Array::try_from_data(PrimitiveData::from_values_byte_buffer(
+        ArrayInner::try_from_data(PrimitiveData::from_values_byte_buffer(
             valid_elems_buffer,
             ptype,
             validity,

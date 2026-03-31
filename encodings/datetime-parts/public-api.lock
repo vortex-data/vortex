@@ -70,7 +70,7 @@ pub fn vortex_datetime_parts::DateTimeParts::deserialize(bytes: &[u8], _dtype: &
 
 pub fn vortex_datetime_parts::DateTimeParts::dtype(array: &vortex_datetime_parts::DateTimePartsData) -> &vortex_array::dtype::DType
 
-pub fn vortex_datetime_parts::DateTimeParts::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_datetime_parts::DateTimeParts::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::ArrayInner<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_datetime_parts::DateTimeParts::execute_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
@@ -222,4 +222,4 @@ pub fn vortex_datetime_parts::initialize(session: &mut vortex_session::VortexSes
 
 pub fn vortex_datetime_parts::split_temporal(array: vortex_array::arrays::datetime::TemporalArray) -> vortex_error::VortexResult<vortex_datetime_parts::TemporalParts>
 
-pub type vortex_datetime_parts::DateTimePartsArray = vortex_array::vtable::typed::Array<vortex_datetime_parts::DateTimeParts>
+pub type vortex_datetime_parts::DateTimePartsArray = vortex_array::vtable::typed::ArrayInner<vortex_datetime_parts::DateTimeParts>

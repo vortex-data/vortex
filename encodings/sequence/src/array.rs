@@ -31,8 +31,8 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
-use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -409,7 +409,10 @@ impl VTable for Sequence {
         Ok(())
     }
 
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(
+        array: Arc<ArrayInner<Self>>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
         sequence_decompress(&array).map(ExecutionResult::done)
     }
 
@@ -464,7 +467,7 @@ impl Sequence {
         nullability: Nullability,
         length: usize,
     ) -> VortexResult<SequenceArray> {
-        Array::try_from_data(SequenceData::try_new(
+        ArrayInner::try_from_data(SequenceData::try_new(
             base,
             multiplier,
             ptype,
@@ -480,7 +483,7 @@ impl Sequence {
         nullability: Nullability,
         length: usize,
     ) -> VortexResult<SequenceArray> {
-        Array::try_from_data(SequenceData::try_new_typed(
+        ArrayInner::try_from_data(SequenceData::try_new_typed(
             base,
             multiplier,
             nullability,
