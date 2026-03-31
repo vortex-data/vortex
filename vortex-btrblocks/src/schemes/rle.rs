@@ -14,6 +14,7 @@ use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::builtins::is_float_primitive;
 use vortex_compressor::builtins::is_integer_primitive;
+use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
@@ -32,7 +33,6 @@ use crate::CascadingCompressor;
 use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
-use crate::estimate_compression_ratio_with_sampling;
 use crate::schemes::integer::IntDictScheme;
 use crate::schemes::integer::SparseScheme;
 
@@ -68,7 +68,7 @@ pub trait RLEConfig: Debug + Send + Sync + 'static {
     fn matches(canonical: &Canonical) -> bool;
 
     /// Generates statistics for the given array.
-    fn generate_stats(array: &ArrayRef) -> Self::Stats;
+    fn generate_stats(array: &PrimitiveArray) -> Self::Stats;
 }
 
 impl RLEConfig for IntRLEConfig {
@@ -80,8 +80,8 @@ impl RLEConfig for IntRLEConfig {
         is_integer_primitive(canonical)
     }
 
-    fn generate_stats(array: &ArrayRef) -> IntegerStats {
-        IntegerStats::generate(&array.to_primitive())
+    fn generate_stats(array: &PrimitiveArray) -> IntegerStats {
+        IntegerStats::generate(array)
     }
 }
 
@@ -94,46 +94,27 @@ impl RLEConfig for FloatRLEConfig {
         is_float_primitive(canonical)
     }
 
-    fn generate_stats(array: &ArrayRef) -> FloatStats {
-        FloatStats::generate(&array.to_primitive())
+    fn generate_stats(array: &PrimitiveArray) -> FloatStats {
+        FloatStats::generate(array)
     }
 }
 
+// TODO(connor): This is completely unnecessary now.
 /// Trait for accessing RLE-specific statistics.
 pub trait RLEStats {
-    /// Returns the number of non-null values.
-    fn value_count(&self) -> u32;
     /// Returns the average run length.
     fn average_run_length(&self) -> u32;
-    /// Returns the underlying source array.
-    fn source(&self) -> &PrimitiveArray;
 }
 
 impl RLEStats for IntegerStats {
-    fn value_count(&self) -> u32 {
-        self.value_count()
-    }
-
     fn average_run_length(&self) -> u32 {
         self.average_run_length()
-    }
-
-    fn source(&self) -> &PrimitiveArray {
-        self.source()
     }
 }
 
 impl RLEStats for FloatStats {
-    fn value_count(&self) -> u32 {
-        FloatStats::value_count(self)
-    }
-
     fn average_run_length(&self) -> u32 {
         FloatStats::average_run_length(self)
-    }
-
-    fn source(&self) -> &PrimitiveArray {
-        FloatStats::source(self)
     }
 }
 
@@ -211,26 +192,24 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+    ) -> CompressionEstimate {
         // RLE is only useful when we cascade it with another encoding.
-        let array = data.array().clone();
-        let stats = data.get_or_insert_with::<C::Stats>(|| C::generate_stats(&array));
-
-        // Don't compress all-null or empty arrays.
-        if stats.value_count() == 0 {
-            return Ok(0.0);
+        if ctx.finished_cascading() {
+            return CompressionEstimate::Skip;
         }
+
+        // TODO(connor): We really shouldn't have to do this, we should get rid of these generics...
+        let array = data.array_as_primitive();
+        let stats = data.get_or_insert_with::<C::Stats>(|| C::generate_stats(&array));
 
         // Check whether RLE is a good fit, based on the average run length.
         if stats.average_run_length() < RUN_LENGTH_THRESHOLD {
-            return Ok(0.0);
+            return CompressionEstimate::Skip;
         }
 
-        // Run compression on a sample to see how it performs.
-        estimate_compression_ratio_with_sampling(self, compressor, data.array(), ctx)
+        CompressionEstimate::Sample
     }
 
     fn compress(
@@ -239,9 +218,8 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let array = data.array().clone();
-        let stats = data.get_or_insert_with::<C::Stats>(|| C::generate_stats(&array));
-        let rle_array = RLE::encode(RLEStats::source(stats))?;
+        let array = data.array_as_primitive();
+        let rle_array = RLE::encode(&array)?;
 
         let compressed_values = compressor.compress_child(
             &rle_array.values().to_primitive().into_array(),

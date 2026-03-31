@@ -10,6 +10,7 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
+use vortex_compressor::estimate::CompressionEstimate;
 use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_error::VortexResult;
 
@@ -42,12 +43,11 @@ impl Scheme for DecimalScheme {
 
     fn expected_compression_ratio(
         &self,
-        _compressor: &CascadingCompressor,
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+    ) -> CompressionEstimate {
         // Decimal compression is almost always beneficial (narrowing + primitive compression).
-        Ok(f64::MAX)
+        CompressionEstimate::AlwaysUse
     }
 
     fn compress(

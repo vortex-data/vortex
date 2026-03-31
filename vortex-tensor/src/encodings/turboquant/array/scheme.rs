@@ -8,6 +8,7 @@ use vortex_array::Canonical;
 use vortex_array::arrays::Extension;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
+use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::scheme::Scheme;
 use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexExpect;
@@ -51,12 +52,11 @@ impl Scheme for TurboQuantScheme {
 
     fn expected_compression_ratio(
         &self,
-        _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
-    ) -> VortexResult<f64> {
-        let dtype = data.array().dtype();
+    ) -> CompressionEstimate {
         let len = data.array().len();
+        let dtype = data.array().dtype();
 
         let vector_metadata =
             TurboQuant::validate_dtype(dtype).vortex_expect("invalid dtype for TurboQuant");
@@ -67,7 +67,7 @@ impl Scheme for TurboQuantScheme {
             .vortex_expect("invalid bit width for TurboQuant");
         let dimension = vector_metadata.dimensions();
 
-        Ok(estimate_compression_ratio(bit_width, dimension, len))
+        CompressionEstimate::Ratio(estimate_compression_ratio(bit_width, dimension, len))
     }
 
     fn compress(
@@ -102,6 +102,7 @@ fn estimate_compression_ratio(bits_per_element: u8, dimensions: u32, num_vectors
         + 3 * padded_dim; // rotation signs, 1 bit each
 
     let compressed_size_bits = compressed_bits_per_vector * num_vectors + overhead_bits;
+
     let uncompressed_size_bits = bits_per_element as usize * dimensions as usize * num_vectors;
     uncompressed_size_bits as f64 / compressed_size_bits as f64
 }

@@ -18,6 +18,7 @@
 
 pub mod builtins;
 pub mod ctx;
+pub mod estimate;
 pub mod scheme;
 pub mod stats;
 

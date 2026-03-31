@@ -14,9 +14,8 @@ use super::GenerateStatsOptions;
 /// Array of variable-length byte arrays, and relevant stats for compression.
 #[derive(Clone, Debug)]
 pub struct StringStats {
-    /// The underlying source array.
-    src: VarBinViewArray,
     /// The estimated number of distinct strings, or `None` if not computed.
+    /// This _must_ be non-zero.
     estimated_distinct_count: Option<u32>,
     /// The number of non-null values.
     value_count: u32,
@@ -60,7 +59,6 @@ impl StringStats {
             .transpose()?;
 
         Ok(Self {
-            src: input.clone(),
             value_count: u32::try_from(value_count)?,
             null_count: u32::try_from(null_count)?,
             estimated_distinct_count,
@@ -80,12 +78,9 @@ impl StringStats {
             .vortex_expect("StringStats::generate_opts should not fail")
     }
 
-    /// Returns the underlying source array.
-    pub fn source(&self) -> &VarBinViewArray {
-        &self.src
-    }
-
     /// Returns the estimated number of distinct strings, or `None` if not computed.
+    ///
+    /// This estimation is always going to be less than or equal to the actual distinct count.
     pub fn estimated_distinct_count(&self) -> Option<u32> {
         self.estimated_distinct_count
     }
