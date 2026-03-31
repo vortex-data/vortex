@@ -5,7 +5,7 @@
 //!
 //! Uses a Structured Random Hadamard Transform (SRHT) for O(d log d) rotation
 //! instead of a full d×d matrix multiply. The SRHT applies the sequence
-//! D₃ · H · D₂ · H · D₁ where H is the Walsh-Hadamard transform and Dₖ are
+//! D₃ · H · D₂ · H · D₁ where H is the Walsh-Hadamard Transform (WHT) and Dₖ are
 //! random diagonal ±1 sign matrices. Three rounds of HD provide sufficient
 //! randomness for near-uniform distribution on the sphere.
 //!
