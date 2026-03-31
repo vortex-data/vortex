@@ -3,12 +3,14 @@
 
 //! Compression statistics types and caching.
 
+mod bool;
 mod cache;
 mod float;
 mod integer;
 mod options;
 mod string;
 
+pub use bool::BoolStats;
 pub use cache::ArrayAndStats;
 pub use float::DistinctInfo as FloatDistinctInfo;
 pub use float::ErasedStats as FloatErasedStats;

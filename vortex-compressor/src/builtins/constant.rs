@@ -14,6 +14,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
+use super::is_bool;
 use super::is_float_primitive;
 use super::is_integer_primitive;
 use super::is_utf8_string;
@@ -21,6 +22,58 @@ use crate::CascadingCompressor;
 use crate::ctx::CompressorContext;
 use crate::scheme::Scheme;
 use crate::stats::ArrayAndStats;
+
+/// Constant encoding for bool arrays where all valid values are the same.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct BoolConstantScheme;
+
+impl Scheme for BoolConstantScheme {
+    fn scheme_name(&self) -> &'static str {
+        "vortex.bool.constant"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        is_bool(canonical)
+    }
+
+    fn detects_constant(&self) -> bool {
+        true
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &mut ArrayAndStats,
+        ctx: CompressorContext,
+    ) -> VortexResult<f64> {
+        if ctx.is_sample() {
+            return Ok(0.0);
+        }
+
+        let stats = data.bool_stats();
+
+        // Only compress non-nullable or all-valid nullable arrays.
+        if stats.source().dtype().is_nullable() && stats.null_count() > 0 {
+            return Ok(0.0);
+        }
+
+        if !stats.is_constant() {
+            return Ok(0.0);
+        }
+
+        Ok(stats.value_count() as f64)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &CascadingCompressor,
+        data: &mut ArrayAndStats,
+        _ctx: CompressorContext,
+    ) -> VortexResult<ArrayRef> {
+        let stats = data.bool_stats();
+        Ok(ConstantArray::new(stats.source().scalar_at(0)?, stats.source().len()).into_array())
+    }
+}
 
 /// Constant encoding for integer arrays with a single distinct value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
