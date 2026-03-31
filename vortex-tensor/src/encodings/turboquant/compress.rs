@@ -3,18 +3,18 @@
 
 //! TurboQuant encoding (quantization) logic.
 
-use vortex::array::ArrayRef;
-use vortex::array::IntoArray;
-use vortex::array::arrays::FixedSizeListArray;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::array::dtype::Nullability;
-use vortex::array::dtype::PType;
-use vortex::array::validity::Validity;
-use vortex::buffer::BufferMut;
-use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
-use vortex::error::vortex_ensure;
-use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode;
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_fastlanes::bitpack_compress::bitpack_encode;
 
 use crate::encodings::turboquant::array::QjlCorrection;
 use crate::encodings::turboquant::array::TurboQuantArray;
@@ -318,10 +318,12 @@ pub fn turboquant_encode_qjl(
     )?;
     let qjl_rotation_signs = bitpack_rotation_signs(&qjl_rotation)?;
 
-    array.slots[crate::encodings::turboquant::array::Slot::QjlSigns as usize] = Some(qjl_signs.into_array());
+    array.slots[crate::encodings::turboquant::array::Slot::QjlSigns as usize] =
+        Some(qjl_signs.into_array());
     array.slots[crate::encodings::turboquant::array::Slot::QjlResidualNorms as usize] =
         Some(residual_norms_array.into_array());
-    array.slots[crate::encodings::turboquant::array::Slot::QjlRotationSigns as usize] = Some(qjl_rotation_signs);
+    array.slots[crate::encodings::turboquant::array::Slot::QjlRotationSigns as usize] =
+        Some(qjl_rotation_signs);
 
     Ok(array.into_array())
 }

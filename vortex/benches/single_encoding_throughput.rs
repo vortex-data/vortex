@@ -35,9 +35,6 @@ use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::pco::PcoArray;
 use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::sequence::sequence_encode;
-use vortex::encodings::turboquant::TurboQuantConfig;
-use vortex::encodings::turboquant::turboquant_encode_mse;
-use vortex::encodings::turboquant::turboquant_encode_qjl;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdArray;
 use vortex_array::VortexSessionExecute;
@@ -46,6 +43,9 @@ use vortex_array::session::ArraySession;
 use vortex_buffer::BufferMut;
 use vortex_sequence::SequenceArray;
 use vortex_session::VortexSession;
+use vortex_tensor::encodings::turboquant::TurboQuantConfig;
+use vortex_tensor::encodings::turboquant::turboquant_encode_mse;
+use vortex_tensor::encodings::turboquant::turboquant_encode_qjl;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

@@ -35,10 +35,10 @@
 //! usually sufficient — the relative ordering of cosine similarities is preserved
 //! even if the absolute values have bounded error.
 
-use vortex::array::ExecutionCtx;
-use vortex::array::arrays::FixedSizeListArray;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::error::VortexResult;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::array::TurboQuantArray;
 

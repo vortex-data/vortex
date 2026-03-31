@@ -9,7 +9,6 @@ pub mod string;
 
 pub mod decimal;
 pub mod temporal;
-pub mod tensor;
 
 pub(crate) mod patches;
 pub(crate) mod rle;

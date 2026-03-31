@@ -358,7 +358,7 @@ pub fn vortex_file::WriteStrategyBuilder::with_flat_strategy(self, flat: alloc::
 
 pub fn vortex_file::WriteStrategyBuilder::with_row_block_size(self, row_block_size: usize) -> Self
 
-pub fn vortex_file::WriteStrategyBuilder::with_vector_quantization(self, config: vortex_turboquant::compress::TurboQuantConfig) -> Self
+pub fn vortex_file::WriteStrategyBuilder::with_vector_quantization(self) -> Self
 
 impl core::default::Default for vortex_file::WriteStrategyBuilder
 

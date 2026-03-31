@@ -11,9 +11,9 @@
 
 use std::sync::LazyLock;
 
-use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
-use vortex::utils::aliases::dash_map::DashMap;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_utils::aliases::dash_map::DashMap;
 
 /// Number of numerical integration points for computing conditional expectations.
 const INTEGRATION_POINTS: usize = 1000;
@@ -176,7 +176,7 @@ pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex::error::VortexResult;
+    use vortex_error::VortexResult;
 
     use super::*;
 

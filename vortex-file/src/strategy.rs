@@ -28,6 +28,7 @@ use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArrayRegistry;
 use vortex_array::session::ArraySession;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_bytebool::ByteBool;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_decimal_byte_parts::DecimalByteParts;
@@ -59,7 +60,6 @@ use vortex_zigzag::ZigZag;
 #[rustfmt::skip]
 #[cfg(feature = "zstd")]
 use vortex_btrblocks::{
-    BtrBlocksCompressorBuilder,
     SchemeExt,
     schemes::float,
     schemes::integer,
@@ -236,6 +236,19 @@ impl WriteStrategyBuilder {
             .build();
 
         self.compressor = Some(Arc::new(btrblocks));
+        self
+    }
+
+    /// Enable TurboQuant lossy vector quantization for tensor columns.
+    ///
+    /// When enabled, `Vector` and `FixedShapeTensor` extension arrays are
+    /// compressed using the TurboQuant algorithm with QJL correction for
+    /// unbiased inner product estimation.
+    pub fn with_vector_quantization(mut self) -> Self {
+        use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;
+
+        let builder = BtrBlocksCompressorBuilder::default().with_scheme(&TURBOQUANT_SCHEME);
+        self.compressor = Some(Arc::new(builder.build()));
         self
     }
 

@@ -4,14 +4,14 @@
 //! TurboQuant array definition: stores quantized coordinate codes, norms,
 //! centroids (codebook), rotation signs, and optional QJL correction fields.
 
-use vortex::array::ArrayRef;
-use vortex::array::dtype::DType;
-use vortex::array::stats::ArrayStats;
-use vortex::array::vtable;
-use vortex::array::vtable::ArrayId;
-use vortex::error::VortexExpect;
-use vortex::error::VortexResult;
-use vortex::error::vortex_ensure;
+use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
+use vortex_array::stats::ArrayStats;
+use vortex_array::vtable;
+use vortex_array::vtable::ArrayId;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 /// Encoding marker type for TurboQuant.
 #[derive(Clone, Debug)]
@@ -103,7 +103,7 @@ impl Slot {
             4 => Self::QjlSigns,
             5 => Self::QjlResidualNorms,
             6 => Self::QjlRotationSigns,
-            _ => vortex::error::vortex_panic!("invalid slot index {idx}"),
+            _ => vortex_error::vortex_panic!("invalid slot index {idx}"),
         }
     }
 }

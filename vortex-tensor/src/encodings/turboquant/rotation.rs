@@ -22,8 +22,8 @@
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex::error::VortexResult;
-use vortex::error::vortex_ensure;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 /// IEEE 754 sign bit mask for f32.
 const F32_SIGN_BIT: u32 = 0x8000_0000;
@@ -240,7 +240,7 @@ fn butterfly(lo: &mut [f32], hi: &mut [f32]) {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex::error::VortexResult;
+    use vortex_error::VortexResult;
 
     use super::*;
 

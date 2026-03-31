@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::ArrayRef;
-use vortex::array::DynArray;
-use vortex::array::ExecutionCtx;
-use vortex::array::IntoArray;
-use vortex::array::arrays::dict::TakeExecute;
-use vortex::error::VortexResult;
+use vortex_array::ArrayRef;
+use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::dict::TakeExecute;
+use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::array::QjlCorrection;
 use crate::encodings::turboquant::array::TurboQuant;
@@ -43,9 +43,12 @@ impl TakeExecute for TurboQuant {
             array.bit_width,
         )?;
         if let Some(qjl) = taken_qjl {
-            result.slots[crate::encodings::turboquant::array::Slot::QjlSigns as usize] = Some(qjl.signs);
-            result.slots[crate::encodings::turboquant::array::Slot::QjlResidualNorms as usize] = Some(qjl.residual_norms);
-            result.slots[crate::encodings::turboquant::array::Slot::QjlRotationSigns as usize] = Some(qjl.rotation_signs);
+            result.slots[crate::encodings::turboquant::array::Slot::QjlSigns as usize] =
+                Some(qjl.signs);
+            result.slots[crate::encodings::turboquant::array::Slot::QjlResidualNorms as usize] =
+                Some(qjl.residual_norms);
+            result.slots[crate::encodings::turboquant::array::Slot::QjlRotationSigns as usize] =
+                Some(qjl.rotation_signs);
         }
 
         Ok(Some(result.into_array()))

@@ -7,32 +7,32 @@ use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use vortex::array::ArrayEq;
-use vortex::array::ArrayHash;
-use vortex::array::ArrayRef;
-use vortex::array::DeserializeMetadata;
-use vortex::array::DynArray;
-use vortex::array::ExecutionCtx;
-use vortex::array::ExecutionResult;
-use vortex::array::Precision;
-use vortex::array::ProstMetadata;
-use vortex::array::SerializeMetadata;
-use vortex::array::buffer::BufferHandle;
-use vortex::array::dtype::DType;
-use vortex::array::dtype::Nullability;
-use vortex::array::dtype::PType;
-use vortex::array::serde::ArrayChildren;
-use vortex::array::stats::StatsSetRef;
-use vortex::array::vtable::Array;
-use vortex::array::vtable::ArrayId;
-use vortex::array::vtable::VTable;
-use vortex::array::vtable::ValidityChild;
-use vortex::array::vtable::ValidityVTableFromChild;
-use vortex::error::VortexExpect;
-use vortex::error::VortexResult;
-use vortex::error::vortex_ensure;
-use vortex::error::vortex_panic;
-use vortex::session::VortexSession;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
+use vortex_array::ArrayRef;
+use vortex_array::DeserializeMetadata;
+use vortex_array::DynArray;
+use vortex_array::ExecutionCtx;
+use vortex_array::ExecutionResult;
+use vortex_array::Precision;
+use vortex_array::ProstMetadata;
+use vortex_array::SerializeMetadata;
+use vortex_array::buffer::BufferHandle;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::serde::ArrayChildren;
+use vortex_array::stats::StatsSetRef;
+use vortex_array::vtable::Array;
+use vortex_array::vtable::ArrayId;
+use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityChild;
+use vortex_array::vtable::ValidityVTableFromChild;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::encodings::turboquant::array::Slot;
 use crate::encodings::turboquant::array::TurboQuant;
@@ -217,7 +217,8 @@ impl VTable for TurboQuant {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        crate::encodings::turboquant::compute::rules::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+        crate::encodings::turboquant::compute::rules::PARENT_KERNELS
+            .execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

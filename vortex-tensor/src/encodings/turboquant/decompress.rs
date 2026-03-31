@@ -3,14 +3,14 @@
 
 //! TurboQuant decoding (dequantization) logic.
 
-use vortex::array::ArrayRef;
-use vortex::array::ExecutionCtx;
-use vortex::array::IntoArray;
-use vortex::array::arrays::FixedSizeListArray;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::array::validity::Validity;
-use vortex::buffer::BufferMut;
-use vortex::error::VortexResult;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
+use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::array::TurboQuantArray;
 use crate::encodings::turboquant::rotation::RotationMatrix;

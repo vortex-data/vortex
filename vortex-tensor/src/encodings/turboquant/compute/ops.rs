@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::ExecutionCtx;
-use vortex::array::arrays::FixedSizeListArray;
-use vortex::array::arrays::slice::SliceReduce;
-use vortex::array::scalar::Scalar;
-use vortex::array::vtable::OperationsVTable;
-use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::slice::SliceReduce;
+use vortex_array::scalar::Scalar;
+use vortex_array::vtable::OperationsVTable;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::encodings::turboquant::array::TurboQuant;
 use crate::encodings::turboquant::array::TurboQuantArray;

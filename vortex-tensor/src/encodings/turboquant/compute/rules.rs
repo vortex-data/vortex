@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::arrays::dict::TakeExecuteAdaptor;
-use vortex::array::arrays::slice::SliceReduceAdaptor;
-use vortex::array::kernel::ParentKernelSet;
-use vortex::array::optimizer::rules::ParentRuleSet;
+use vortex_array::arrays::dict::TakeExecuteAdaptor;
+use vortex_array::arrays::slice::SliceReduceAdaptor;
+use vortex_array::kernel::ParentKernelSet;
+use vortex_array::optimizer::rules::ParentRuleSet;
 
 use crate::encodings::turboquant::array::TurboQuant;
 

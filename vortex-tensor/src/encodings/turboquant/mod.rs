@@ -54,12 +54,12 @@
 //! # Example
 //!
 //! ```
-//! use vortex::array::IntoArray;
-//! use vortex::array::arrays::FixedSizeListArray;
-//! use vortex::array::arrays::PrimitiveArray;
-//! use vortex::array::validity::Validity;
-//! use vortex::buffer::BufferMut;
-//! use vortex_turboquant::{TurboQuantConfig, turboquant_encode_mse};
+//! use vortex_array::IntoArray;
+//! use vortex_array::arrays::FixedSizeListArray;
+//! use vortex_array::arrays::PrimitiveArray;
+//! use vortex_array::validity::Validity;
+//! use vortex_buffer::BufferMut;
+//! use vortex_tensor::encodings::turboquant::{TurboQuantConfig, turboquant_encode_mse};
 //!
 //! // Create a FixedSizeListArray of 100 random 128-d vectors.
 //! let num_rows = 100;
@@ -94,6 +94,7 @@ mod compress;
 mod compute;
 pub(crate) mod decompress;
 pub(crate) mod rotation;
+pub mod scheme;
 mod vtable;
 
 /// Extension ID for the `Vector` type from `vortex-tensor`.
@@ -102,8 +103,8 @@ pub const VECTOR_EXT_ID: &str = "vortex.tensor.vector";
 /// Extension ID for the `FixedShapeTensor` type from `vortex-tensor`.
 pub const FIXED_SHAPE_TENSOR_EXT_ID: &str = "vortex.tensor.fixed_shape_tensor";
 
-use vortex::array::session::ArraySessionExt;
-use vortex::session::VortexSession;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
 
 /// Initialize the TurboQuant encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {
@@ -120,23 +121,23 @@ mod tests {
     use rand_distr::Distribution;
     use rand_distr::Normal;
     use rstest::rstest;
-    use vortex::array::ArrayRef;
-    use vortex::array::IntoArray;
-    use vortex::array::VortexSessionExecute;
-    use vortex::array::arrays::FixedSizeListArray;
-    use vortex::array::arrays::PrimitiveArray;
-    use vortex::array::matcher::Matcher;
-    use vortex::array::session::ArraySession;
-    use vortex::array::validity::Validity;
-    use vortex::buffer::BufferMut;
-    use vortex::error::VortexResult;
-    use vortex::session::VortexSession;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::matcher::Matcher;
+    use vortex_array::session::ArraySession;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::BufferMut;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
-    use crate::TurboQuant;
-    use crate::TurboQuantConfig;
+    use crate::encodings::turboquant::TurboQuant;
+    use crate::encodings::turboquant::TurboQuantConfig;
     use crate::encodings::turboquant::rotation::RotationMatrix;
-    use crate::turboquant_encode_mse;
-    use crate::turboquant_encode_qjl;
+    use crate::encodings::turboquant::turboquant_encode_mse;
+    use crate::encodings::turboquant::turboquant_encode_qjl;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -703,8 +704,8 @@ mod tests {
     /// Verify serde roundtrip: serialize MSE array metadata + children, then rebuild.
     #[test]
     fn mse_serde_roundtrip() -> VortexResult<()> {
-        use vortex::array::DynArray;
-        use vortex::array::vtable::VTable;
+        use vortex_array::DynArray;
+        use vortex_array::vtable::VTable;
 
         let fsl = make_fsl(10, 128, 42);
         let config = TurboQuantConfig {
@@ -773,8 +774,8 @@ mod tests {
     /// Verify serde roundtrip for QJL: serialize metadata + children, then rebuild.
     #[test]
     fn qjl_serde_roundtrip() -> VortexResult<()> {
-        use vortex::array::DynArray;
-        use vortex::array::vtable::VTable;
+        use vortex_array::DynArray;
+        use vortex_array::vtable::VTable;
 
         let fsl = make_fsl(10, 128, 42);
         let config = TurboQuantConfig {

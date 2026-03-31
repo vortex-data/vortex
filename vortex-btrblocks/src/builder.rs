@@ -15,7 +15,6 @@ use crate::schemes::float;
 use crate::schemes::integer;
 use crate::schemes::rle;
 use crate::schemes::string;
-use crate::schemes::tensor;
 use crate::schemes::temporal;
 
 /// All available compression schemes.
@@ -65,8 +64,6 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &decimal::DecimalScheme,
     // Temporal schemes.
     &temporal::TemporalScheme,
-    // Tensor schemes.
-    &tensor::TurboQuantScheme,
 ];
 
 /// Returns the set of scheme IDs excluded by default (behind feature gates or known-expensive).
@@ -139,6 +136,15 @@ impl BtrBlocksCompressorBuilder {
                 self.schemes.insert(*scheme);
             }
         }
+        self
+    }
+
+    /// Adds an external compression scheme not in [`ALL_SCHEMES`].
+    ///
+    /// This allows encoding crates outside of `vortex-btrblocks` to register
+    /// their own schemes with the compressor.
+    pub fn with_scheme(mut self, scheme: &'static dyn Scheme) -> Self {
+        self.schemes.insert(scheme);
         self
     }
 

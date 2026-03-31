@@ -6,7 +6,7 @@
 //! TurboQuant stores the exact original L2 norm of each vector in the `norms`
 //! child. This enables O(1) per-vector norm lookup without any decompression.
 
-use vortex::array::ArrayRef;
+use vortex_array::ArrayRef;
 
 use crate::encodings::turboquant::array::TurboQuantArray;
 
