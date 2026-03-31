@@ -132,7 +132,7 @@ pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::clone(&se
 
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity
 
-pub type vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::Options = vortex_array::scalar_fn::vtable::EmptyOptions
+pub type vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::Options = vortex_tensor::scalar_fns::ApproxOptions
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
 
@@ -162,7 +162,7 @@ pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::clone(&self) -> vortex_tensor
 
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_tensor::scalar_fns::l2_norm::L2Norm
 
-pub type vortex_tensor::scalar_fns::l2_norm::L2Norm::Options = vortex_array::scalar_fn::vtable::EmptyOptions
+pub type vortex_tensor::scalar_fns::l2_norm::L2Norm::Options = vortex_tensor::scalar_fns::ApproxOptions
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
 
@@ -181,6 +181,40 @@ pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::is_null_sensitive(&self, _opt
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::return_dtype(&self, _options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
+
+pub enum vortex_tensor::scalar_fns::ApproxOptions
+
+pub vortex_tensor::scalar_fns::ApproxOptions::Approximate
+
+pub vortex_tensor::scalar_fns::ApproxOptions::Exact
+
+impl core::clone::Clone for vortex_tensor::scalar_fns::ApproxOptions
+
+pub fn vortex_tensor::scalar_fns::ApproxOptions::clone(&self) -> vortex_tensor::scalar_fns::ApproxOptions
+
+impl core::cmp::Eq for vortex_tensor::scalar_fns::ApproxOptions
+
+impl core::cmp::PartialEq for vortex_tensor::scalar_fns::ApproxOptions
+
+pub fn vortex_tensor::scalar_fns::ApproxOptions::eq(&self, other: &vortex_tensor::scalar_fns::ApproxOptions) -> bool
+
+impl core::default::Default for vortex_tensor::scalar_fns::ApproxOptions
+
+pub fn vortex_tensor::scalar_fns::ApproxOptions::default() -> vortex_tensor::scalar_fns::ApproxOptions
+
+impl core::fmt::Debug for vortex_tensor::scalar_fns::ApproxOptions
+
+pub fn vortex_tensor::scalar_fns::ApproxOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_tensor::scalar_fns::ApproxOptions
+
+pub fn vortex_tensor::scalar_fns::ApproxOptions::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_tensor::scalar_fns::ApproxOptions
+
+pub fn vortex_tensor::scalar_fns::ApproxOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_tensor::scalar_fns::ApproxOptions
 
 pub mod vortex_tensor::vector
 

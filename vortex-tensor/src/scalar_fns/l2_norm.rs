@@ -22,12 +22,12 @@ use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::scalar_fn::Arity;
 use vortex::scalar_fn::ChildName;
-use vortex::scalar_fn::EmptyOptions;
 use vortex::scalar_fn::ExecutionArgs;
 use vortex::scalar_fn::ScalarFnId;
 use vortex::scalar_fn::ScalarFnVTable;
 
 use crate::matcher::AnyTensor;
+use crate::scalar_fns::ApproxOptions;
 use crate::utils::extension_element_ptype;
 use crate::utils::extension_list_size;
 use crate::utils::extension_storage;
@@ -43,7 +43,7 @@ use crate::utils::extract_flat_elements;
 pub struct L2Norm;
 
 impl ScalarFnVTable for L2Norm {
-    type Options = EmptyOptions;
+    type Options = ApproxOptions;
 
     fn id(&self) -> ScalarFnId {
         ScalarFnId::new_ref("vortex.tensor.l2_norm")
@@ -159,9 +159,9 @@ mod tests {
     use vortex::array::ToCanonical;
     use vortex::array::arrays::ScalarFnArray;
     use vortex::error::VortexResult;
-    use vortex::scalar_fn::EmptyOptions;
     use vortex::scalar_fn::ScalarFn;
 
+    use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::l2_norm::L2Norm;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::tensor_array;
@@ -169,7 +169,7 @@ mod tests {
 
     /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
     fn eval_l2_norm(input: vortex::array::ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
-        let scalar_fn = ScalarFn::new(L2Norm, EmptyOptions).erased();
+        let scalar_fn = ScalarFn::new(L2Norm, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![input], len)?;
         let prim = result.to_primitive();
         Ok(prim.as_slice::<f64>().to_vec())
