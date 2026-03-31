@@ -82,6 +82,7 @@ zstd = ["dep:vortex-zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
 unstable_encodings = [
     "vortex-zstd?/unstable_encodings",
     "vortex-btrblocks/unstable_encodings",
+    "vortex-tensor/unstable_encodings",
 ]
 
 [package.metadata.cargo-machete]

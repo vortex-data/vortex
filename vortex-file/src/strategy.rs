@@ -244,6 +244,7 @@ impl WriteStrategyBuilder {
     /// When enabled, `Vector` and `FixedShapeTensor` extension arrays are
     /// compressed using the TurboQuant algorithm with QJL correction for
     /// unbiased inner product estimation.
+    #[cfg(feature = "unstable_encodings")]
     pub fn with_vector_quantization(mut self) -> Self {
         use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;
 

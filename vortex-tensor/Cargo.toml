@@ -16,20 +16,29 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[features]
+unstable_encodings = [
+    "dep:half",
+    "dep:rand",
+    "dep:vortex-compressor",
+    "dep:vortex-fastlanes",
+    "dep:vortex-utils",
+]
+
 [dependencies]
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-compressor = { workspace = true }
+vortex-compressor = { workspace = true, optional = true }
 vortex-error = { workspace = true }
-vortex-fastlanes = { workspace = true }
+vortex-fastlanes = { workspace = true, optional = true }
 vortex-session = { workspace = true }
-vortex-utils = { workspace = true }
+vortex-utils = { workspace = true, optional = true }
 
-half = { workspace = true }
+half = { workspace = true, optional = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
 prost = { workspace = true }
-rand = { workspace = true }
+rand = { workspace = true, optional = true }
 
 [dev-dependencies]
 rand_distr = { workspace = true }
