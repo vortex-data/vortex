@@ -521,15 +521,7 @@ impl dyn DynArray + '_ {
 
     fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
         match options {
-            DisplayOptions::MetadataOnly => {
-                write!(
-                    f,
-                    "{}({}, len={})",
-                    self.encoding_id(),
-                    self.dtype(),
-                    self.len()
-                )
-            }
+            DisplayOptions::MetadataOnly => EncodingSummaryExtractor::write(self, f),
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space,
             } => {
