@@ -13,7 +13,13 @@ pub struct EncodingSummaryExtractor;
 impl EncodingSummaryExtractor {
     /// Write the encoding summary for an array directly to a formatter.
     pub fn write(array: &dyn DynArray, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}({}, len={})", array.encoding_id(), array.dtype(), array.len())
+        write!(
+            f,
+            "{}({}, len={})",
+            array.encoding_id(),
+            array.dtype(),
+            array.len()
+        )
     }
 }
 

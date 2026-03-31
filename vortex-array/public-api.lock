@@ -9956,6 +9956,10 @@ pub fn vortex_array::display::DisplayArrayAs<'_>::fmt(&self, f: &mut core::fmt::
 
 pub struct vortex_array::display::EncodingSummaryExtractor
 
+impl vortex_array::display::EncodingSummaryExtractor
+
+pub fn vortex_array::display::EncodingSummaryExtractor::write(array: &dyn vortex_array::DynArray, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_array::display::TreeExtractor for vortex_array::display::EncodingSummaryExtractor
 
 pub fn vortex_array::display::EncodingSummaryExtractor::write_details(&self, array: &dyn vortex_array::DynArray, ctx: &vortex_array::display::TreeContext, f: &mut vortex_array::display::IndentedFormatter<'_, '_>) -> core::fmt::Result
@@ -9968,9 +9972,9 @@ impl<'a, 'b> vortex_array::display::IndentedFormatter<'a, 'b>
 
 pub fn vortex_array::display::IndentedFormatter<'a, 'b>::formatter(&mut self) -> &mut core::fmt::Formatter<'b>
 
-impl core::fmt::Write for vortex_array::display::IndentedFormatter<'_, '_>
+pub fn vortex_array::display::IndentedFormatter<'a, 'b>::indent(&self) -> &str
 
-pub fn vortex_array::display::IndentedFormatter<'_, '_>::write_str(&mut self, s: &str) -> core::fmt::Result
+pub fn vortex_array::display::IndentedFormatter<'a, 'b>::parts(&mut self) -> (&str, &mut core::fmt::Formatter<'b>)
 
 pub struct vortex_array::display::MetadataExtractor
 
