@@ -166,13 +166,16 @@ impl VTable for BitPacked {
                     .patches
                     .as_ref()
                     .vortex_expect("BitPackedArray had patch slots but no patches metadata");
-                Some(Patches::new(
-                    array.len,
-                    old.offset(),
-                    indices.clone(),
-                    values.clone(),
-                    slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
-                )?)
+                Some(unsafe {
+                    Patches::new_unchecked(
+                        array.len,
+                        old.offset(),
+                        indices.clone(),
+                        values.clone(),
+                        slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                        None,
+                    )
+                })
             }
             _ => None,
         };
