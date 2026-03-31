@@ -4,6 +4,7 @@
 use std::fmt::Display;
 
 use itertools::Itertools;
+use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::DynArray;
@@ -21,12 +22,13 @@ fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display {
 fn execute_to_canonical(array: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
     array
         .execute::<RecursiveCanonical>(ctx)
-        .expect("failed to execute array to recursive canonical form")
+        .vortex_expect("failed to execute array to recursive canonical form")
         .0
         .into_array()
 }
 
 /// Finds indices where two arrays differ based on `scalar_at` comparison.
+#[expect(clippy::unwrap_used)]
 fn find_mismatched_indices(left: &ArrayRef, right: &ArrayRef) -> Vec<usize> {
     assert_eq!(left.len(), right.len());
     (0..left.len())
@@ -74,6 +76,8 @@ macro_rules! assert_nth_scalar_is_null {
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($left:expr, $right:expr) => {{
+        let left = $left.clone();
+        let right = $right.clone();
         assert_eq!(
             left.dtype(),
             right.dtype(),
@@ -95,9 +99,9 @@ macro_rules! assert_arrays_eq {
         );
 
         #[allow(deprecated)]
-        let left = $left.to_array();
+        let left = left.to_array();
         #[allow(deprecated)]
-        let right = $right.to_array();
+        let right = right.to_array();
         $crate::arrays::assert_arrays_eq_impl(&left, &right);
     }};
 }
