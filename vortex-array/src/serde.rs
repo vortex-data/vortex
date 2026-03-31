@@ -29,7 +29,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayContext;
 use crate::ArrayRef;
-use crate::ArrayVisitorExt;
 use crate::DynArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -203,7 +202,8 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 )
             })?;
 
-        let metadata = self.array.metadata()?.ok_or_else(|| {
+        let array_ref = self.array.to_array();
+        let metadata = array_ref.metadata()?.ok_or_else(|| {
             vortex_err!(
                 "Array {} does not support serialization",
                 self.array.encoding_id()
@@ -212,12 +212,11 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         let metadata = Some(fbb.create_vector(metadata.as_slice()));
 
         // Assign buffer indices for all child arrays.
-        let nbuffers = u16::try_from(self.array.nbuffers())
+        let nbuffers = u16::try_from(array_ref.nbuffers())
             .map_err(|_| vortex_err!("Array can have at most u16::MAX buffers"))?;
         let mut child_buffer_idx = self.buffer_idx + nbuffers;
 
-        let children = &self
-            .array
+        let children = &array_ref
             .children()
             .iter()
             .map(|child| {

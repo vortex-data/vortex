@@ -43,13 +43,14 @@ impl fmt::Display for StatsDisplay<'_> {
                 write!(f, "nulls={}", nc)?;
             }
         } else if self.0.dtype().is_nullable() {
-            match self.0.all_valid() {
+            let this = self.0.to_array();
+            match this.all_valid() {
                 Ok(true) => {
                     sep(f)?;
                     f.write_str("all_valid")?;
                 }
                 Ok(false) => {
-                    if self.0.all_invalid().unwrap_or(false) {
+                    if this.all_invalid().unwrap_or(false) {
                         sep(f)?;
                         f.write_str("all_invalid")?;
                     }

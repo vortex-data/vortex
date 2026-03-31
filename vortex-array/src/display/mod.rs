@@ -492,8 +492,9 @@ impl dyn DynArray + '_ {
                 let limit = self.len().min(f.precision().unwrap_or(DISPLAY_LIMIT));
                 let is_truncated = self.len() > limit;
 
+                let this = self.to_array();
                 let fmt_scalar = |i| {
-                    self.scalar_at(i)
+                    this.scalar_at(i)
                         .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
                 };
                 write!(
@@ -530,13 +531,14 @@ impl dyn DynArray + '_ {
                 use crate::canonical::ToCanonical;
                 use crate::dtype::DType;
 
+                let this = self.to_array();
                 let mut builder = tabled::builder::Builder::default();
 
                 // Special logic for struct arrays.
                 let DType::Struct(sf, _) = self.dtype() else {
                     // For non-struct arrays, simply display a single column table without header.
                     for row_idx in 0..self.len() {
-                        let value = self
+                        let value = this
                             .scalar_at(row_idx)
                             .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
                         builder.push_record([value]);
@@ -552,7 +554,7 @@ impl dyn DynArray + '_ {
                 builder.push_record(sf.names().iter().map(|name| name.to_string()));
 
                 for row_idx in 0..self.len() {
-                    if !self.is_valid(row_idx).unwrap_or(false) {
+                    if !this.is_valid(row_idx).unwrap_or(false) {
                         let null_row = vec!["null".to_string(); sf.names().len()];
                         builder.push_record(null_row);
                     } else {
@@ -576,7 +578,7 @@ impl dyn DynArray + '_ {
                 }
 
                 for row_idx in 0..self.len() {
-                    if !self.is_valid(row_idx).unwrap_or(false) {
+                    if !this.is_valid(row_idx).unwrap_or(false) {
                         table.modify(
                             (1 + row_idx, 0),
                             tabled::settings::Span::column(sf.names().len() as isize),

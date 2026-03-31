@@ -134,13 +134,15 @@ impl<V: VTable> ArrayInner<V> {
     /// Returns the canonical validity mask for the array.
     #[allow(clippy::same_name_method)]
     pub fn validity_mask(&self) -> VortexResult<vortex_mask::Mask> {
-        DynArray::validity_mask(self)
+        let this = self.to_array_ref();
+        DynArray::validity_mask(self, &this)
     }
 
     /// Fetch the scalar at the given index.
     #[allow(clippy::same_name_method)]
     pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
-        DynArray::scalar_at(self, index)
+        let this = self.to_array_ref();
+        DynArray::scalar_at(self, &this, index)
     }
 
     /// Returns the constant scalar if this is a constant array.
@@ -151,61 +153,71 @@ impl<V: VTable> ArrayInner<V> {
     /// Performs a constant-time slice of the array.
     #[allow(clippy::same_name_method)]
     pub fn slice(&self, range: std::ops::Range<usize>) -> VortexResult<ArrayRef> {
-        DynArray::slice(self, range)
+        let this = self.to_array_ref();
+        DynArray::slice(self, &this, range)
     }
 
     /// Returns the canonical representation of the array.
     #[allow(clippy::same_name_method)]
     pub fn to_canonical(&self) -> VortexResult<crate::Canonical> {
-        DynArray::to_canonical(self)
+        let this = self.to_array_ref();
+        DynArray::to_canonical(self, &this)
     }
 
     /// Wraps the array in a filter such that it is logically filtered by the given mask.
     #[allow(clippy::same_name_method)]
     pub fn filter(&self, mask: vortex_mask::Mask) -> VortexResult<ArrayRef> {
-        DynArray::filter(self, mask)
+        let this = self.to_array_ref();
+        DynArray::filter(self, &this, mask)
     }
 
     /// Wraps the array in a dict such that it is logically taken by the given indices.
     #[allow(clippy::same_name_method)]
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        DynArray::take(self, indices)
+        let this = self.to_array_ref();
+        DynArray::take(self, &this, indices)
     }
 
     /// Returns whether the item at `index` is valid.
     #[allow(clippy::same_name_method)]
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        DynArray::is_valid(self, index)
+        let this = self.to_array_ref();
+        DynArray::is_valid(self, &this, index)
     }
 
     /// Returns whether the item at `index` is invalid.
     #[allow(clippy::same_name_method)]
     pub fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        DynArray::is_invalid(self, index)
+        let this = self.to_array_ref();
+        DynArray::is_invalid(self, &this, index)
     }
 
     /// Returns whether all items in the array are valid.
     #[allow(clippy::same_name_method)]
     pub fn all_valid(&self) -> VortexResult<bool> {
-        DynArray::all_valid(self)
+        let this = self.to_array_ref();
+        DynArray::all_valid(self, &this)
     }
 
     /// Returns whether the array is all invalid.
     #[allow(clippy::same_name_method)]
     pub fn all_invalid(&self) -> VortexResult<bool> {
-        DynArray::all_invalid(self)
+        let this = self.to_array_ref();
+        DynArray::all_invalid(self, &this)
     }
 
     /// Returns the number of valid elements in the array.
     #[allow(clippy::same_name_method)]
     pub fn valid_count(&self) -> VortexResult<usize> {
-        DynArray::valid_count(self)
+        let this = self.to_array_ref();
+        DynArray::valid_count(self, &this)
     }
 
     /// Returns the number of invalid elements in the array.
     #[allow(clippy::same_name_method)]
     pub fn invalid_count(&self) -> VortexResult<usize> {
-        DynArray::invalid_count(self)
+        let this = self.to_array_ref();
+        DynArray::invalid_count(self, &this)
     }
 
     /// Writes the array into the canonical builder.
@@ -215,7 +227,8 @@ impl<V: VTable> ArrayInner<V> {
         builder: &mut dyn crate::builders::ArrayBuilder,
         ctx: &mut crate::ExecutionCtx,
     ) -> VortexResult<()> {
-        DynArray::append_to_builder(self, builder, ctx)
+        let this = self.to_array_ref();
+        DynArray::append_to_builder(self, &this, builder, ctx)
     }
 
     /// Total size of the array in bytes.
@@ -226,7 +239,8 @@ impl<V: VTable> ArrayInner<V> {
     /// Returns the number of buffers in the array.
     #[allow(clippy::same_name_method)]
     pub fn nbuffers(&self) -> usize {
-        self.with_view(V::nbuffers)
+        let this = self.to_array_ref();
+        DynArray::nbuffers(self, &this)
     }
 
     /// Returns a cloned [`ArrayRef`].
@@ -490,7 +504,7 @@ impl<V: VTable> Array<V> {
 
     #[allow(clippy::same_name_method)]
     pub fn nbuffers(&self) -> usize {
-        self.with_view(V::nbuffers)
+        self.inner.nbuffers()
     }
 
     pub fn as_constant(&self) -> Option<crate::scalar::Scalar> {

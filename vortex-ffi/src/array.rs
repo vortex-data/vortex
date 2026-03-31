@@ -77,7 +77,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     error_out: *mut *mut vx_error,
 ) -> *const vx_array {
     try_or_default(error_out, || {
-        let array = vx_array::as_ref(array);
+        let array = vx_array::as_ref(array).to_array();
         let sliced = array.slice(start as usize..stop as usize)?;
         Ok(vx_array::new(sliced.inner().clone()))
     })
@@ -89,7 +89,7 @@ pub unsafe extern "C-unwind" fn vx_array_is_null(
     index: u32,
     _error_out: *mut *mut vx_error,
 ) -> bool {
-    let array = vx_array::as_ref(array);
+    let array = vx_array::as_ref(array).to_array();
     // TODO(joe): propagate this error up instead of expecting
     array
         .is_invalid(index as usize)
@@ -102,7 +102,7 @@ pub unsafe extern "C-unwind" fn vx_array_null_count(
     array: *const vx_array,
     error_out: *mut *mut vx_error,
 ) -> u32 {
-    let array = vx_array::as_ref(array);
+    let array = vx_array::as_ref(array).to_array();
     try_or_default(error_out, || Ok(array.invalid_count()?.try_into()?))
 }
 
@@ -111,7 +111,7 @@ macro_rules! ffiarray_get_ptype {
         paste::paste! {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
-                let array = vx_array::as_ref(array);
+                let array = vx_array::as_ref(array).to_array();
                 // TODO(joe): propagate this error up instead of expecting
                 let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
@@ -122,7 +122,7 @@ macro_rules! ffiarray_get_ptype {
 
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
-                let array = vx_array::as_ref(array);
+                let array = vx_array::as_ref(array).to_array();
                 // TODO(joe): propagate this error up instead of expecting
                 let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
@@ -155,7 +155,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     array: *const vx_array,
     index: u32,
 ) -> *const vx_string {
-    let array = vx_array::as_ref(array);
+    let array = vx_array::as_ref(array).to_array();
     // TODO(joe): propagate this error up instead of expecting
     let value = array
         .scalar_at(index as usize)
@@ -175,7 +175,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     array: *const vx_array,
     index: u32,
 ) -> *const vx_binary {
-    let array = vx_array::as_ref(array);
+    let array = vx_array::as_ref(array).to_array();
     // TODO(joe): propagate this error up instead of expecting
     let value = array
         .scalar_at(index as usize)

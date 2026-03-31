@@ -248,10 +248,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_slice(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let sliced_array = array_ref
-            .inner
-            .as_ref()
-            .slice(start as usize..end as usize)?;
+        let sliced_array = array_ref.inner.slice(start as usize..end as usize)?;
         Ok(NativeArray::new(sliced_array).into_raw())
     })
 }

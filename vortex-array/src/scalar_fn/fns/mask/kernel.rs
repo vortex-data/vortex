@@ -72,7 +72,8 @@ where
         }
         // The mask child (child 1) is a non-nullable BoolArray where true=keep.
         // If it's not yet a BoolArray, we can't reduce without execution.
-        let mask_child = parent
+        let parent_ref = parent.to_array();
+        let mask_child = parent_ref
             .nth_child(1)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
         if mask_child.as_opt::<Bool>().is_none() {
@@ -103,7 +104,8 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        let mask_child = parent
+        let parent_ref = parent.to_array();
+        let mask_child = parent_ref
             .nth_child(1)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
         <V as MaskKernel>::mask(array, &mask_child, ctx)

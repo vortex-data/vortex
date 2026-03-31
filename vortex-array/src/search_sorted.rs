@@ -264,7 +264,8 @@ fn search_sorted_side_idx<F: FnMut(usize) -> VortexResult<Ordering>>(
 
 impl IndexOrd<Scalar> for dyn DynArray + '_ {
     fn index_cmp(&self, idx: usize, elem: &Scalar) -> VortexResult<Option<Ordering>> {
-        let scalar_a = self.scalar_at(idx)?;
+        let this = self.to_array();
+        let scalar_a = this.scalar_at(idx)?;
         Ok(scalar_a.partial_cmp(elem))
     }
 

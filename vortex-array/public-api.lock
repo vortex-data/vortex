@@ -23166,6 +23166,8 @@ pub fn vortex_array::ArrayRef::len(&self) -> usize
 
 pub fn vortex_array::ArrayRef::metadata(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_array::ArrayRef::metadata_fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub fn vortex_array::ArrayRef::named_buffers(&self) -> alloc::vec::Vec<(alloc::string::String, vortex_array::buffer::BufferHandle)>
 
 pub fn vortex_array::ArrayRef::named_children(&self) -> alloc::vec::Vec<(alloc::string::String, vortex_array::ArrayRef)>
@@ -23624,6 +23626,14 @@ impl vortex_array::Executable for vortex_array::CanonicalValidity
 
 pub fn vortex_array::CanonicalValidity::execute(array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
+pub struct vortex_array::DepthFirstArrayIterator
+
+impl core::iter::traits::iterator::Iterator for vortex_array::DepthFirstArrayIterator
+
+pub type vortex_array::DepthFirstArrayIterator::Item = vortex_array::ArrayRef
+
+pub fn vortex_array::DepthFirstArrayIterator::next(&mut self) -> core::option::Option<Self::Item>
+
 pub struct vortex_array::EmptyMetadata
 
 impl core::fmt::Debug for vortex_array::EmptyMetadata
@@ -23821,46 +23831,6 @@ pub fn vortex_buffer::buffer::Buffer<T>::array_hash<H: core::hash::Hasher>(&self
 impl<T: vortex_array::ArrayHash> vortex_array::ArrayHash for core::option::Option<T>
 
 pub fn core::option::Option<T>::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
-
-pub trait vortex_array::ArrayVisitor
-
-pub fn vortex_array::ArrayVisitor::buffer_handles(&self) -> alloc::vec::Vec<vortex_array::buffer::BufferHandle>
-
-pub fn vortex_array::ArrayVisitor::buffer_names(&self) -> alloc::vec::Vec<alloc::string::String>
-
-pub fn vortex_array::ArrayVisitor::buffers(&self) -> alloc::vec::Vec<vortex_buffer::ByteBuffer>
-
-pub fn vortex_array::ArrayVisitor::children(&self) -> alloc::vec::Vec<vortex_array::ArrayRef>
-
-pub fn vortex_array::ArrayVisitor::children_names(&self) -> alloc::vec::Vec<alloc::string::String>
-
-pub fn vortex_array::ArrayVisitor::is_host(&self) -> bool
-
-pub fn vortex_array::ArrayVisitor::metadata(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
-pub fn vortex_array::ArrayVisitor::metadata_fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-pub fn vortex_array::ArrayVisitor::named_buffers(&self) -> alloc::vec::Vec<(alloc::string::String, vortex_array::buffer::BufferHandle)>
-
-pub fn vortex_array::ArrayVisitor::named_children(&self) -> alloc::vec::Vec<(alloc::string::String, vortex_array::ArrayRef)>
-
-pub fn vortex_array::ArrayVisitor::nbuffers(&self) -> usize
-
-pub fn vortex_array::ArrayVisitor::nchildren(&self) -> usize
-
-pub fn vortex_array::ArrayVisitor::nth_child(&self, idx: usize) -> core::option::Option<vortex_array::ArrayRef>
-
-pub trait vortex_array::ArrayVisitorExt: DynArray
-
-pub fn vortex_array::ArrayVisitorExt::depth_first_traversal(&self) -> impl core::iter::traits::iterator::Iterator<Item = vortex_array::ArrayRef>
-
-pub fn vortex_array::ArrayVisitorExt::nbuffers_recursive(&self) -> usize
-
-impl<A: DynArray + ?core::marker::Sized> vortex_array::ArrayVisitorExt for A
-
-pub fn A::depth_first_traversal(&self) -> impl core::iter::traits::iterator::Iterator<Item = vortex_array::ArrayRef>
-
-pub fn A::nbuffers_recursive(&self) -> usize
 
 pub trait vortex_array::DeserializeMetadata where Self: core::marker::Sized
 
