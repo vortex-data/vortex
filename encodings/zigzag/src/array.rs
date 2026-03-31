@@ -292,7 +292,6 @@ mod test {
     use vortex_buffer::buffer;
 
     use super::*;
-    use crate::ZigZagArray;
     use crate::zigzag_encode;
 
     #[test]
@@ -300,7 +299,7 @@ mod test {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             .into_array()
             .to_primitive();
-        let zigzag = ZigZagArray::try_from_data(zigzag_encode(array.clone())?)?;
+        let zigzag = zigzag_encode(array.clone())?;
 
         assert_eq!(
             zigzag.statistics().compute_max::<i32>(),

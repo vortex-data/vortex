@@ -52,14 +52,12 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_error::VortexExpect;
 
     use crate::RLEData;
     use crate::rle::RLEArray;
 
     fn rle(primitive: &PrimitiveArray) -> RLEArray {
-        RLEArray::try_from_data(RLEData::encode(primitive).unwrap())
-            .vortex_expect("RLEData is always valid")
+        RLEData::encode(primitive).unwrap()
     }
 
     #[test]

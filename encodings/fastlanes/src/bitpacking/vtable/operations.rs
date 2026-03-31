@@ -48,15 +48,13 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
 
     use crate::BitPacked;
     use crate::BitPackedArray;
     use crate::BitPackedData;
 
     fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedArray {
-        BitPackedArray::try_from_data(BitPackedData::encode(array, bit_width).unwrap())
-            .vortex_expect("BitPackedData is always valid")
+        BitPackedData::encode(array, bit_width).unwrap()
     }
 
     fn slice_via_reduce(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
@@ -141,10 +139,7 @@ mod test {
     #[test]
     fn slice_empty_patches() {
         // We create an array that has 1 element that does not fit in the 6-bit range.
-        let array = BitPackedArray::try_from_data(
-            BitPackedData::encode(&buffer![0u32..=64].into_array(), 6).unwrap(),
-        )
-        .vortex_expect("BitPackedData is always valid");
+        let array = BitPackedData::encode(&buffer![0u32..=64].into_array(), 6).unwrap();
 
         assert!(array.patches().is_some());
 
@@ -216,9 +211,7 @@ mod test {
     fn scalar_at() {
         let values = (0u32..257).collect::<Buffer<_>>();
         let uncompressed = values.clone().into_array();
-        let packed =
-            BitPackedArray::try_from_data(BitPackedData::encode(&uncompressed, 8).unwrap())
-                .vortex_expect("BitPackedData is always valid");
+        let packed = BitPackedData::encode(&uncompressed, 8).unwrap();
         assert!(packed.patches().is_some());
 
         let patches = packed.patches().unwrap().indices().clone();

@@ -281,7 +281,7 @@ impl RLE {
 
     /// Encode a primitive array using FastLanes RLE.
     pub fn encode(array: &PrimitiveArray) -> VortexResult<RLEArray> {
-        Array::try_from_data(RLEData::encode(array)?)
+        RLEData::encode(array)
     }
 }
 

@@ -69,9 +69,7 @@ fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usi
     let compressor = fsst_train_compressor(&array);
     let len = array.len();
     let dtype = array.dtype().clone();
-    let encoded =
-        vortex_fsst::FSSTArray::try_from_data(fsst_compress(array, len, &dtype, &compressor))
-            .vortex_expect("data is always valid");
+    let encoded = fsst_compress(array, len, &dtype, &compressor);
 
     bencher
         .with_inputs(|| &encoded)
@@ -119,13 +117,7 @@ fn canonicalize_compare(
 ) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
-    let fsst_array = vortex_fsst::FSSTArray::try_from_data(fsst_compress(
-        &array,
-        array.len(),
-        array.dtype(),
-        &compressor,
-    ))
-    .vortex_expect("data is always valid");
+    let fsst_array = fsst_compress(&array, array.len(), array.dtype(), &compressor);
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher

@@ -57,11 +57,8 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    BitPackedArray::try_from_data(
-        BitPackedData::encode(&primitive_array.into_array(), bit_width)
-            .vortex_expect("failed to create BitPacked array"),
-    )
-    .vortex_expect("BitPackedData is always valid")
+    BitPackedData::encode(&primitive_array.into_array(), bit_width)
+        .vortex_expect("failed to create BitPacked array")
 }
 
 /// Create a bit-packed array with the given bit width and patch frequency.
@@ -100,11 +97,8 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-    BitPackedArray::try_from_data(
-        BitPackedData::encode(&primitive_array, bit_width)
-            .vortex_expect("failed to create BitPacked array with patches"),
-    )
-    .vortex_expect("BitPackedData is always valid")
+    BitPackedData::encode(&primitive_array, bit_width)
+        .vortex_expect("failed to create BitPacked array with patches")
 }
 
 /// Generic benchmark function for a specific type and bit width

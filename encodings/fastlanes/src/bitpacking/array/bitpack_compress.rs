@@ -23,10 +23,11 @@ use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use crate::BitPackedArray;
 use crate::BitPackedData;
 use crate::bitpack_decompress;
 
-pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedData> {
+pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
     let bit_width_freq = bit_width_histogram(array)?;
     let best_bit_width = find_best_bit_width(array.ptype(), &bit_width_freq)?;
     bitpack_encode(array, best_bit_width, Some(&bit_width_freq))
@@ -37,7 +38,7 @@ pub fn bitpack_encode(
     array: &PrimitiveArray,
     bit_width: u8,
     bit_width_freq: Option<&[usize]>,
-) -> VortexResult<BitPackedData> {
+) -> VortexResult<BitPackedArray> {
     let bit_width_freq = match bit_width_freq {
         Some(freq) => freq,
         None => &bit_width_histogram(array)?,
@@ -82,6 +83,8 @@ pub fn bitpack_encode(
             0,
         )
     };
+    let bitpacked =
+        BitPackedArray::try_from_data(bitpacked).vortex_expect("BitPackedData is always valid");
     {
         let bp_ref = bitpacked.clone().into_array();
         bitpacked
@@ -103,12 +106,12 @@ pub fn bitpack_encode(
 pub unsafe fn bitpack_encode_unchecked(
     array: PrimitiveArray,
     bit_width: u8,
-) -> VortexResult<BitPackedData> {
+) -> VortexResult<BitPackedArray> {
     // SAFETY: non-negativity of input checked by caller.
     let packed = unsafe { bitpack_unchecked(&array, bit_width) };
 
     // SAFETY: checked by bitpack_unchecked
-    let bitpacked = unsafe {
+    let data = unsafe {
         BitPackedData::new_unchecked(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
@@ -119,6 +122,8 @@ pub unsafe fn bitpack_encode_unchecked(
             0,
         )
     };
+    let bitpacked =
+        BitPackedArray::try_from_data(data).vortex_expect("BitPackedData is always valid");
     {
         let bp_ref = bitpacked.clone().into_array();
         let arr_ref = array.into_array();
@@ -469,6 +474,7 @@ mod test {
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
                 .validity_mask()
+                .unwrap()
                 .to_bit_buffer()
                 .set_indices()
                 .collect::<Vec<_>>()

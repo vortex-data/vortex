@@ -132,6 +132,6 @@ pub fn vortex_zigzag::ZigZagData::into_array(self) -> vortex_array::array::Array
 
 pub fn vortex_zigzag::zigzag_decode(parray: vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_array::arrays::primitive::vtable::PrimitiveArray
 
-pub fn vortex_zigzag::zigzag_encode(parray: vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_zigzag::ZigZagData>
+pub fn vortex_zigzag::zigzag_encode(parray: vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_zigzag::ZigZagArray>
 
 pub type vortex_zigzag::ZigZagArray = vortex_array::vtable::typed::Array<vortex_zigzag::ZigZag>

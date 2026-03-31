@@ -209,6 +209,6 @@ impl FoR {
 
     /// Encode a primitive array using Frame of Reference encoding.
     pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
-        Array::try_from_data(FoRData::encode(array)?)
+        FoRData::encode(array)
     }
 }

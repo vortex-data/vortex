@@ -20,7 +20,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_array::session::ArraySession;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -230,8 +229,7 @@ fn make_fsst_str(strings: &[Option<&str>]) -> FSSTArray {
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
     let dtype = varbin.dtype().clone();
-    FSSTArray::try_from_data(fsst_compress(varbin, len, &dtype, &compressor))
-        .vortex_expect("data is always valid")
+    fsst_compress(varbin, len, &dtype, &compressor)
 }
 
 fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> {

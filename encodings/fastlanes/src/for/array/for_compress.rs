@@ -13,9 +13,10 @@ use vortex_array::stats::ArrayStats;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::FoRArray;
 use crate::FoRData;
 impl FoRData {
-    pub fn encode(array: PrimitiveArray) -> VortexResult<FoRData> {
+    pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
         let array_ref = array.clone().into_array();
         let stats = ArrayStats::from(array_ref.statistics().to_owned());
         let min = array_ref
@@ -26,7 +27,8 @@ impl FoRData {
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             compress_primitive::<T>(array, T::try_from(&min)?)?.into_array()
         });
-        let for_array = FoRData::try_new(encoded, min)?;
+        let for_data = FoRData::try_new(encoded, min)?;
+        let for_array = FoRArray::try_from_data(for_data)?;
         let for_ref = for_array.clone().into_array();
         for_array
             .stats_set()
@@ -70,7 +72,6 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::*;
-    use crate::BitPackedArray;
     use crate::BitPackedData;
     use crate::FoRArray;
     use crate::r#for::array::for_decompress::decompress;
@@ -100,8 +101,7 @@ mod test {
                 .collect::<vortex_buffer::Buffer<_>>(),
             Validity::NonNullable,
         );
-        let compressed = FoRArray::try_from_data(FoRData::encode(array).unwrap())
-            .vortex_expect("FoRData is always valid");
+        let compressed = FoRData::encode(array).unwrap();
         assert_eq!(
             u32::try_from(compressed.reference_scalar()).unwrap(),
             1_000_000u32
@@ -114,8 +114,7 @@ mod test {
         assert_eq!(array.statistics().len(), 0);
 
         let dtype = array.dtype().clone();
-        let compressed = FoRArray::try_from_data(FoRData::encode(array).unwrap())
-            .vortex_expect("FoRData is always valid");
+        let compressed = FoRData::encode(array).unwrap();
         assert_eq!(compressed.reference_scalar().dtype(), &dtype);
         assert!(compressed.reference_scalar().dtype().is_signed_int());
         assert!(compressed.encoded().dtype().is_signed_int());
@@ -138,9 +137,7 @@ mod test {
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
         let bp = BitPackedData::encode(&array.into_array(), 3).unwrap();
-        let compressed =
-            FoRArray::try_from_data(FoRData::try_new(bp.into_array(), 10u32.into()).unwrap())
-                .vortex_expect("FoRData is always valid");
+        let compressed = FoRData::try_new(bp.into_array(), 10u32.into()).unwrap();
         assert_arrays_eq!(compressed, expect);
     }
 
@@ -149,8 +146,7 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-        let bp =
-            BitPackedArray::try_from_data(BitPackedData::encode(&array.into_array(), 2).unwrap())?;
+        let bp = BitPackedData::encode(&array.into_array(), 2).unwrap();
         let compressed = FoRArray::try_from_data(
             FoRData::try_new(bp.clone().into_array(), 10u32.into()).unwrap(),
         )?;
@@ -163,7 +159,7 @@ mod test {
     #[test]
     fn test_overflow() -> VortexResult<()> {
         let array = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
-        let compressed = FoRArray::try_from_data(FoRData::encode(array.clone()).unwrap())?;
+        let compressed = FoRData::encode(array.clone()).unwrap();
         assert_eq!(
             i8::MIN,
             compressed

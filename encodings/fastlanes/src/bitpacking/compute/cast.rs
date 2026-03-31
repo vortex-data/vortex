@@ -62,14 +62,12 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
-    use vortex_error::VortexExpect;
 
     use crate::BitPackedArray;
     use crate::BitPackedData;
 
     fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedArray {
-        BitPackedArray::try_from_data(BitPackedData::encode(array, bit_width).unwrap())
-            .vortex_expect("BitPackedData is always valid")
+        BitPackedData::encode(array, bit_width).unwrap()
     }
 
     #[test]

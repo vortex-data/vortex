@@ -45,15 +45,13 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_error::VortexExpect;
 
     use crate::BitPackedArray;
     use crate::bitpack_compress::bitpack_encode;
     use crate::bitpacking::compute::chunked_indices;
 
     fn bp(array: &PrimitiveArray, bit_width: u8) -> BitPackedArray {
-        BitPackedArray::try_from_data(bitpack_encode(array, bit_width, None).unwrap())
-            .vortex_expect("data is always valid")
+        bitpack_encode(array, bit_width, None).unwrap()
     }
 
     #[test]

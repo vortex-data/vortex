@@ -122,10 +122,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(ZigZagArray::try_from_data(zigzag_encode(PrimitiveArray::from_iter([-100i32, -50, -1, 0, 1, 50, 100])).unwrap()).unwrap())]
-    #[case(ZigZagArray::try_from_data(zigzag_encode(PrimitiveArray::from_iter([-1000i64, -1, 0, 1, 1000])).unwrap()).unwrap())]
-    #[case(ZigZagArray::try_from_data(zigzag_encode(PrimitiveArray::from_option_iter([Some(-5i16), None, Some(0), Some(5), None])).unwrap()).unwrap())]
-    #[case(ZigZagArray::try_from_data(zigzag_encode(PrimitiveArray::from_iter([i32::MIN, -1, 0, 1, i32::MAX])).unwrap()).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_iter([-100i32, -50, -1, 0, 1, 50, 100])).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_iter([-1000i64, -1, 0, 1, 1000])).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_option_iter([Some(-5i16), None, Some(0), Some(5), None])).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_iter([i32::MIN, -1, 0, 1, i32::MAX])).unwrap())]
     fn test_cast_zigzag_conformance(#[case] array: ZigZagArray) {
         test_cast_conformance(&array.into_array());
     }

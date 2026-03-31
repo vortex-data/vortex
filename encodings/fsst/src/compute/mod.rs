@@ -63,7 +63,6 @@ mod tests {
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
-    use vortex_error::VortexExpect;
 
     use crate::FSSTArray;
     use crate::fsst_compress;
@@ -73,8 +72,7 @@ mod tests {
     fn test_take_null() {
         let arr = VarBinArray::from_iter([Some("h")], DType::Utf8(Nullability::NonNullable));
         let compr = fsst_train_compressor(&arr);
-        let fsst = FSSTArray::try_from_data(fsst_compress(&arr, arr.len(), arr.dtype(), &compr))
-            .vortex_expect("data is always valid");
+        let fsst = fsst_compress(&arr, arr.len(), arr.dtype(), &compr);
 
         let idx1: PrimitiveArray = (0..1).collect();
 
@@ -106,13 +104,7 @@ mod tests {
     ))]
     fn test_take_fsst_conformance(#[case] varbin: VarBinArray) {
         let compressor = fsst_train_compressor(&varbin);
-        let array = FSSTArray::try_from_data(fsst_compress(
-            &varbin,
-            varbin.len(),
-            varbin.dtype(),
-            &compressor,
-        ))
-        .vortex_expect("data is always valid");
+        let array = fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor);
         test_take_conformance(&array.into_array());
     }
 
@@ -124,7 +116,7 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         );
         let compressor = fsst_train_compressor(&varbin);
-        FSSTArray::try_from_data(fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor)).vortex_expect("data is always valid")
+        fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor)
     })]
     // Nullable strings
     #[case::fsst_nullable({
@@ -135,7 +127,7 @@ mod tests {
         let compressor = fsst_train_compressor(&varbin);
         let len = varbin.len();
         let dtype = varbin.dtype().clone();
-        FSSTArray::try_from_data(fsst_compress(varbin, len, &dtype, &compressor)).vortex_expect("data is always valid")
+        fsst_compress(varbin, len, &dtype, &compressor)
     })]
     // Repetitive patterns (good for FSST compression)
     #[case::fsst_repetitive({
@@ -144,7 +136,7 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         );
         let compressor = fsst_train_compressor(&varbin);
-        FSSTArray::try_from_data(fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor)).vortex_expect("data is always valid")
+        fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor)
     })]
     // Edge cases
     #[case::fsst_single({
@@ -153,7 +145,7 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         );
         let compressor = fsst_train_compressor(&varbin);
-        FSSTArray::try_from_data(fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor)).vortex_expect("data is always valid")
+        fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor)
     })]
     #[case::fsst_empty_strings({
         let varbin = VarBinArray::from_iter(
@@ -163,7 +155,7 @@ mod tests {
         let compressor = fsst_train_compressor(&varbin);
         let len = varbin.len();
         let dtype = varbin.dtype().clone();
-        FSSTArray::try_from_data(fsst_compress(varbin, len, &dtype, &compressor)).vortex_expect("data is always valid")
+        fsst_compress(varbin, len, &dtype, &compressor)
     })]
     // Large arrays
     #[case::fsst_large({
@@ -185,7 +177,7 @@ mod tests {
         let compressor = fsst_train_compressor(&varbin);
         let len = varbin.len();
         let dtype = varbin.dtype().clone();
-        FSSTArray::try_from_data(fsst_compress(varbin, len, &dtype, &compressor)).vortex_expect("data is always valid")
+        fsst_compress(varbin, len, &dtype, &compressor)
     })]
 
     fn test_fsst_consistency(#[case] array: FSSTArray) {

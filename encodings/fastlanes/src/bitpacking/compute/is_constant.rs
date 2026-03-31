@@ -187,15 +187,11 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::BitPackedArray;
     use crate::BitPackedData;
 
     #[test]
     fn is_constant_with_patches() -> VortexResult<()> {
-        let array = BitPackedArray::try_from_data(BitPackedData::encode(
-            &buffer![4; 1025].into_array(),
-            2,
-        )?)?;
+        let array = BitPackedData::encode(&buffer![4; 1025].into_array(), 2)?;
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(is_constant(&array.into_array(), &mut ctx)?);
         Ok(())

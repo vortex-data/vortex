@@ -180,9 +180,9 @@ pub fn vortex_fsst::FSSTMetadata::clear(&mut self)
 
 pub fn vortex_fsst::FSSTMetadata::encoded_len(&self) -> usize
 
-pub fn vortex_fsst::fsst_compress<A: vortex_array::accessor::ArrayAccessor<[u8]>>(strings: A, len: usize, dtype: &vortex_array::dtype::DType, compressor: &fsst::Compressor) -> vortex_fsst::FSSTData
+pub fn vortex_fsst::fsst_compress<A: vortex_array::accessor::ArrayAccessor<[u8]>>(strings: A, len: usize, dtype: &vortex_array::dtype::DType, compressor: &fsst::Compressor) -> vortex_fsst::FSSTArray
 
-pub fn vortex_fsst::fsst_compress_iter<'a, I>(iter: I, len: usize, dtype: vortex_array::dtype::DType, compressor: &fsst::Compressor) -> vortex_fsst::FSSTData where I: core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a [u8]>>
+pub fn vortex_fsst::fsst_compress_iter<'a, I>(iter: I, len: usize, dtype: vortex_array::dtype::DType, compressor: &fsst::Compressor) -> vortex_fsst::FSSTArray where I: core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a [u8]>>
 
 pub fn vortex_fsst::fsst_train_compressor<A: vortex_array::accessor::ArrayAccessor<[u8]>>(array: &A) -> fsst::Compressor
 

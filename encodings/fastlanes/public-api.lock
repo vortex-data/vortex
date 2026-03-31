@@ -18,13 +18,13 @@ pub mod vortex_fastlanes::bitpack_compress
 
 pub fn vortex_fastlanes::bitpack_compress::bit_width_histogram(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<alloc::vec::Vec<usize>>
 
-pub fn vortex_fastlanes::bitpack_compress::bitpack_encode(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray, bit_width: u8, bit_width_freq: core::option::Option<&[usize]>) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedData>
+pub fn vortex_fastlanes::bitpack_compress::bitpack_encode(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray, bit_width: u8, bit_width_freq: core::option::Option<&[usize]>) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
-pub unsafe fn vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked(array: vortex_array::arrays::primitive::vtable::PrimitiveArray, bit_width: u8) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedData>
+pub unsafe fn vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked(array: vortex_array::arrays::primitive::vtable::PrimitiveArray, bit_width: u8) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
 pub fn vortex_fastlanes::bitpack_compress::bitpack_primitive<T: vortex_array::dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(array: &[T], bit_width: u8) -> vortex_buffer::buffer::Buffer<T>
 
-pub fn vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedData>
+pub fn vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
 pub unsafe fn vortex_fastlanes::bitpack_compress::bitpack_unchecked(parray: &vortex_array::arrays::primitive::vtable::PrimitiveArray, bit_width: u8) -> vortex_buffer::ByteBuffer
 
@@ -228,7 +228,7 @@ pub fn vortex_fastlanes::BitPackedData::bit_width(&self) -> u8
 
 pub fn vortex_fastlanes::BitPackedData::dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_fastlanes::BitPackedData::encode(array: &vortex_array::array::ArrayRef, bit_width: u8) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::BitPackedData::encode(array: &vortex_array::array::ArrayRef, bit_width: u8) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
 pub fn vortex_fastlanes::BitPackedData::into_parts(self) -> vortex_fastlanes::BitPackedArrayParts
 
@@ -514,7 +514,7 @@ pub fn vortex_fastlanes::FoRData::try_new(encoded: vortex_array::array::ArrayRef
 
 impl vortex_fastlanes::FoRData
 
-pub fn vortex_fastlanes::FoRData::encode(array: vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_fastlanes::FoRData>
+pub fn vortex_fastlanes::FoRData::encode(array: vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_fastlanes::FoRArray>
 
 impl core::clone::Clone for vortex_fastlanes::FoRData
 
@@ -642,7 +642,7 @@ pub fn vortex_fastlanes::RLEData::values_idx_offsets(&self) -> &vortex_array::ar
 
 impl vortex_fastlanes::RLEData
 
-pub fn vortex_fastlanes::RLEData::encode(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::RLEData::encode(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
 
 impl core::clone::Clone for vortex_fastlanes::RLEData
 

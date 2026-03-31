@@ -14,13 +14,14 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 
 /// Compress a string array using FSST.
+use crate::FSSTArray;
 use crate::FSSTData;
 pub fn fsst_compress<A: ArrayAccessor<[u8]>>(
     strings: A,
     len: usize,
     dtype: &DType,
     compressor: &Compressor,
-) -> FSSTData {
+) -> FSSTArray {
     strings.with_iterator(|iter| fsst_compress_iter(iter, len, dtype.clone(), compressor))
 }
 
@@ -60,7 +61,7 @@ pub fn fsst_compress_iter<'a, I>(
     len: usize,
     dtype: DType,
     compressor: &Compressor,
-) -> FSSTData
+) -> FSSTArray
 where
     I: Iterator<Item = Option<&'a [u8]>>,
 {
@@ -101,8 +102,11 @@ where
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
-    FSSTData::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
-        .vortex_expect("building FSSTArray from parts")
+    FSSTArray::try_from_data(
+        FSSTData::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
+            .vortex_expect("building FSSTArray from parts"),
+    )
+    .vortex_expect("FSSTData is always valid")
 }
 
 #[cfg(test)]
@@ -111,9 +115,7 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
-    use vortex_error::VortexExpect;
 
-    use crate::FSSTArray;
     use crate::compress::DEFAULT_BUFFER_LEN;
     use crate::fsst_compress_iter;
 
@@ -134,10 +136,7 @@ mod tests {
             &compressor,
         );
 
-        let decoded = FSSTArray::try_from_data(compressed)
-            .vortex_expect("data is always valid")
-            .scalar_at(0)
-            .unwrap();
+        let decoded = compressed.scalar_at(0).unwrap();
 
         let expected = Scalar::utf8(big_string, Nullability::NonNullable);
 
