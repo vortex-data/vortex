@@ -9,7 +9,6 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::array::QjlCorrection;
-use crate::encodings::turboquant::array::Slot;
 use crate::encodings::turboquant::array::TurboQuant;
 use crate::encodings::turboquant::array::TurboQuantArray;
 
@@ -41,8 +40,6 @@ impl SliceReduce for TurboQuant {
         if let Some(qjl) = sliced_qjl {
             result.set_qjl(qjl);
         }
-        // Permutation is shared (not per-row), clone unchanged.
-        result.slots[Slot::Permutation as usize] = array.permutation().cloned();
 
         Ok(Some(result.into_array()))
     }

@@ -10,10 +10,7 @@
 //! randomness for near-uniform distribution on the sphere.
 //!
 //! For dimensions that are not powers of 2, the input is zero-padded to the
-//! next power of 2 before the transform and truncated afterward. To avoid
-//! systematic bias from contiguous zeros aligning with the WHT butterfly
-//! structure, a random permutation can scatter the zero-padded entries
-//! uniformly before the SRHT (see [`RotationMatrix::with_permutation`]).
+//! next power of 2 before the transform and truncated afterward.
 //!
 //! # Sign representation
 //!
@@ -40,11 +37,6 @@ pub struct RotationMatrix {
     padded_dim: usize,
     /// Normalization factor: 1/(padded_dim * sqrt(padded_dim)), applied once at the end.
     norm_factor: f32,
-    /// Optional pre-SRHT permutation for non-power-of-2 dims.
-    /// Scatters zero-padded entries uniformly to avoid WHT butterfly alignment bias.
-    permutation: Option<Vec<u16>>,
-    /// Inverse of `permutation`, precomputed for the decode path.
-    inverse_permutation: Option<Vec<u16>>,
 }
 
 impl RotationMatrix {
@@ -60,60 +52,30 @@ impl RotationMatrix {
             sign_masks,
             padded_dim,
             norm_factor,
-            permutation: None,
-            inverse_permutation: None,
         })
     }
 
-    /// Attach a pre-SRHT permutation for non-power-of-2 dimensions.
-    ///
-    /// The permutation scatters zero-padded entries uniformly across the
-    /// padded space before the SRHT, avoiding systematic bias from
-    /// contiguous zeros aligning with the WHT butterfly structure.
-    pub fn with_permutation(mut self, perm: Vec<u16>) -> Self {
-        self.inverse_permutation = Some(invert_permutation(&perm));
-        self.permutation = Some(perm);
-        self
-    }
-
-    /// Apply forward rotation: `output = SRHT(P(input))`.
+    /// Apply forward rotation: `output = SRHT(input)`.
     ///
     /// Both `input` and `output` must have length `padded_dim()`. The caller
     /// is responsible for zero-padding input beyond `dim` positions.
-    /// If a permutation is present, it is applied before the SRHT.
     pub fn rotate(&self, input: &[f32], output: &mut [f32]) {
         debug_assert_eq!(input.len(), self.padded_dim);
         debug_assert_eq!(output.len(), self.padded_dim);
 
-        if let Some(perm) = &self.permutation {
-            for (i, &p) in perm.iter().enumerate() {
-                output[p as usize] = input[i];
-            }
-        } else {
-            output.copy_from_slice(input);
-        }
+        output.copy_from_slice(input);
         self.apply_srht(output);
     }
 
-    /// Apply inverse rotation: `output = P⁻¹(SRHT⁻¹(input))`.
+    /// Apply inverse rotation: `output = SRHT⁻¹(input)`.
     ///
     /// Both `input` and `output` must have length `padded_dim()`.
-    /// If a permutation is present, its inverse is applied after the inverse SRHT.
     pub fn inverse_rotate(&self, input: &[f32], output: &mut [f32]) {
         debug_assert_eq!(input.len(), self.padded_dim);
         debug_assert_eq!(output.len(), self.padded_dim);
 
-        if let Some(inv) = &self.inverse_permutation {
-            let mut temp = vec![0.0f32; self.padded_dim];
-            temp.copy_from_slice(input);
-            self.apply_inverse_srht(&mut temp);
-            for (i, &p) in inv.iter().enumerate() {
-                output[p as usize] = temp[i];
-            }
-        } else {
-            output.copy_from_slice(input);
-            self.apply_inverse_srht(output);
-        }
+        output.copy_from_slice(input);
+        self.apply_inverse_srht(output);
     }
 
     /// Returns the padded dimension (next power of 2 >= dim).
@@ -209,28 +171,8 @@ impl RotationMatrix {
             sign_masks,
             padded_dim,
             norm_factor,
-            permutation: None,
-            inverse_permutation: None,
         })
     }
-
-    /// Generate a random permutation of `0..len` using Fisher-Yates shuffle.
-    pub fn gen_permutation(seed: u64, len: usize) -> Vec<u16> {
-        use rand::seq::SliceRandom;
-        let mut rng = StdRng::seed_from_u64(seed);
-        let mut perm: Vec<u16> = (0..len as u16).collect();
-        perm.shuffle(&mut rng);
-        perm
-    }
-}
-
-/// Compute the inverse of a permutation.
-fn invert_permutation(perm: &[u16]) -> Vec<u16> {
-    let mut inv = vec![0u16; perm.len()];
-    for (i, &p) in perm.iter().enumerate() {
-        inv[p as usize] = i as u16;
-    }
-    inv
 }
 
 /// Generate a vector of random XOR sign masks.
@@ -419,69 +361,6 @@ mod tests {
         rot2.inverse_rotate(&out1, &mut out3);
         assert_eq!(out2, out3, "Inverse rotation mismatch after export/import");
 
-        Ok(())
-    }
-
-    /// Verify permuted roundtrip is exact for non-power-of-2 dims.
-    #[rstest]
-    #[case(768)]
-    #[case(384)]
-    #[case(1536)]
-    fn permuted_roundtrip_exact(#[case] dim: usize) -> VortexResult<()> {
-        let perm = RotationMatrix::gen_permutation(42, dim.next_power_of_two());
-        let rot = RotationMatrix::try_new(7, dim)?.with_permutation(perm);
-        let padded_dim = rot.padded_dim();
-
-        let mut input = vec![0.0f32; padded_dim];
-        for i in 0..dim {
-            input[i] = (i as f32 + 1.0) * 0.01;
-        }
-        let mut rotated = vec![0.0f32; padded_dim];
-        let mut recovered = vec![0.0f32; padded_dim];
-
-        rot.rotate(&input, &mut rotated);
-        rot.inverse_rotate(&rotated, &mut recovered);
-
-        let max_err: f32 = input
-            .iter()
-            .zip(recovered.iter())
-            .map(|(a, b)| (a - b).abs())
-            .fold(0.0f32, f32::max);
-        let max_val: f32 = input.iter().map(|x| x.abs()).fold(0.0f32, f32::max);
-        let rel_err = max_err / max_val;
-
-        assert!(
-            rel_err < 1e-5,
-            "permuted roundtrip relative error too large for dim={dim}: {rel_err:.2e}"
-        );
-        Ok(())
-    }
-
-    /// Verify permuted rotation preserves norms.
-    #[rstest]
-    #[case(768)]
-    #[case(384)]
-    fn permuted_preserves_norm(#[case] dim: usize) -> VortexResult<()> {
-        let perm = RotationMatrix::gen_permutation(99, dim.next_power_of_two());
-        let rot = RotationMatrix::try_new(7, dim)?.with_permutation(perm);
-        let padded_dim = rot.padded_dim();
-
-        let mut input = vec![0.0f32; padded_dim];
-        for i in 0..dim {
-            input[i] = (i as f32) * 0.01;
-        }
-        let input_norm: f32 = input.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-        let mut rotated = vec![0.0f32; padded_dim];
-        rot.rotate(&input, &mut rotated);
-        let rotated_norm: f32 = rotated.iter().map(|x| x * x).sum::<f32>().sqrt();
-
-        assert!(
-            (input_norm - rotated_norm).abs() / input_norm < 1e-5,
-            "permuted norm not preserved for dim={dim}: {} vs {}",
-            input_norm,
-            rotated_norm,
-        );
         Ok(())
     }
 

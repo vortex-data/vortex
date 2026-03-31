@@ -133,7 +133,6 @@ impl VTable for TurboQuant {
             dimension: array.dimension,
             bit_width: array.bit_width as u32,
             has_qjl: array.has_qjl(),
-            has_permutation: array.permutation().is_some(),
         }))
     }
 
@@ -192,11 +191,6 @@ impl VTable for TurboQuant {
             slots[Slot::QjlResidualNorms as usize] = Some(children.get(5, &f32_nn, len)?);
             slots[Slot::QjlRotationSigns as usize] =
                 Some(children.get(6, &signs_dtype, 3 * padded_dim)?);
-        }
-
-        if metadata.has_permutation {
-            let perm_dtype = DType::Primitive(PType::U16, Nullability::NonNullable);
-            slots[Slot::Permutation as usize] = Some(children.get(7, &perm_dtype, padded_dim)?);
         }
 
         Ok(TurboQuantArray {

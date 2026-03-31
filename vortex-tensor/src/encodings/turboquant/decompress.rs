@@ -52,15 +52,6 @@ pub fn execute_decompress(
     let centroids_prim = array.centroids().clone().execute::<PrimitiveArray>(ctx)?;
     let centroids = centroids_prim.as_slice::<f32>();
 
-    // Unpack optional permutation (for non-power-of-2 dims).
-    let perm: Option<Vec<u16>> = array
-        .permutation()
-        .map(|arr| {
-            let prim = arr.clone().execute::<PrimitiveArray>(ctx)?;
-            Ok::<_, vortex_error::VortexError>(prim.as_slice::<u16>().to_vec())
-        })
-        .transpose()?;
-
     // FastLanes SIMD-unpacks the 1-bit bitpacked rotation signs into u8 0/1 values,
     // then we expand to u32 XOR masks once (amortized over all rows). This enables
     // branchless XOR-based sign application in the per-row SRHT hot loop.
@@ -68,14 +59,7 @@ pub fn execute_decompress(
         .rotation_signs()
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
-    let rotation = {
-        let rot = RotationMatrix::from_u8_slice(signs_prim.as_slice::<u8>(), dim)?;
-        if let Some(ref p) = perm {
-            rot.with_permutation(p.clone())
-        } else {
-            rot
-        }
-    };
+    let rotation = RotationMatrix::from_u8_slice(signs_prim.as_slice::<u8>(), dim)?;
 
     // Unpack codes from FixedSizeListArray → flat u8 elements.
     let codes_fsl = array.codes().clone().execute::<FixedSizeListArray>(ctx)?;
@@ -129,14 +113,7 @@ pub fn execute_decompress(
     let residual_norms = residual_norms_prim.as_slice::<f32>();
 
     let qjl_rot_signs_prim = qjl.rotation_signs.clone().execute::<PrimitiveArray>(ctx)?;
-    let qjl_rot = {
-        let rot = RotationMatrix::from_u8_slice(qjl_rot_signs_prim.as_slice::<u8>(), dim)?;
-        if let Some(ref p) = perm {
-            rot.with_permutation(p.clone())
-        } else {
-            rot
-        }
-    };
+    let qjl_rot = RotationMatrix::from_u8_slice(qjl_rot_signs_prim.as_slice::<u8>(), dim)?;
 
     let qjl_scale = qjl_correction_scale(padded_dim);
     let mse_elements = mse_output.as_ref();
