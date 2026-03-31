@@ -66,25 +66,47 @@ impl QjlCorrection {
     }
 }
 
-/// Slot indices for TurboQuantArray children.
-pub(crate) const CODES_SLOT: usize = 0;
-pub(crate) const NORMS_SLOT: usize = 1;
-pub(crate) const CENTROIDS_SLOT: usize = 2;
-pub(crate) const ROTATION_SIGNS_SLOT: usize = 3;
-pub(crate) const QJL_SIGNS_SLOT: usize = 4;
-pub(crate) const QJL_RESIDUAL_NORMS_SLOT: usize = 5;
-pub(crate) const QJL_ROTATION_SIGNS_SLOT: usize = 6;
-pub(crate) const NUM_SLOTS: usize = 7;
+/// Slot positions for TurboQuantArray children.
+#[repr(usize)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Slot {
+    Codes = 0,
+    Norms = 1,
+    Centroids = 2,
+    RotationSigns = 3,
+    QjlSigns = 4,
+    QjlResidualNorms = 5,
+    QjlRotationSigns = 6,
+}
 
-pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = [
-    "codes",
-    "norms",
-    "centroids",
-    "rotation_signs",
-    "qjl_signs",
-    "qjl_residual_norms",
-    "qjl_rotation_signs",
-];
+impl Slot {
+    pub(crate) const COUNT: usize = 7;
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Codes => "codes",
+            Self::Norms => "norms",
+            Self::Centroids => "centroids",
+            Self::RotationSigns => "rotation_signs",
+            Self::QjlSigns => "qjl_signs",
+            Self::QjlResidualNorms => "qjl_residual_norms",
+            Self::QjlRotationSigns => "qjl_rotation_signs",
+        }
+    }
+
+    pub(crate) fn from_index(idx: usize) -> Self {
+        match idx {
+            0 => Self::Codes,
+            1 => Self::Norms,
+            2 => Self::Centroids,
+            3 => Self::RotationSigns,
+            4 => Self::QjlSigns,
+            5 => Self::QjlResidualNorms,
+            6 => Self::QjlRotationSigns,
+            _ => vortex_error::vortex_panic!("invalid slot index {idx}"),
+        }
+    }
+}
 
 /// TurboQuant array.
 ///
@@ -123,11 +145,11 @@ impl TurboQuantArray {
             (1..=8).contains(&bit_width),
             "MSE bit_width must be 1-8, got {bit_width}"
         );
-        let mut slots = vec![None; NUM_SLOTS];
-        slots[CODES_SLOT] = Some(codes);
-        slots[NORMS_SLOT] = Some(norms);
-        slots[CENTROIDS_SLOT] = Some(centroids);
-        slots[ROTATION_SIGNS_SLOT] = Some(rotation_signs);
+        let mut slots = vec![None; Slot::COUNT];
+        slots[Slot::Codes as usize] = Some(codes);
+        slots[Slot::Norms as usize] = Some(norms);
+        slots[Slot::Centroids as usize] = Some(centroids);
+        slots[Slot::RotationSigns as usize] = Some(rotation_signs);
         Ok(Self {
             dtype,
             slots,
@@ -153,14 +175,14 @@ impl TurboQuantArray {
             (1..=8).contains(&bit_width),
             "MSE bit_width must be 1-8, got {bit_width}"
         );
-        let mut slots = vec![None; NUM_SLOTS];
-        slots[CODES_SLOT] = Some(codes);
-        slots[NORMS_SLOT] = Some(norms);
-        slots[CENTROIDS_SLOT] = Some(centroids);
-        slots[ROTATION_SIGNS_SLOT] = Some(rotation_signs);
-        slots[QJL_SIGNS_SLOT] = Some(qjl.signs);
-        slots[QJL_RESIDUAL_NORMS_SLOT] = Some(qjl.residual_norms);
-        slots[QJL_ROTATION_SIGNS_SLOT] = Some(qjl.rotation_signs);
+        let mut slots = vec![None; Slot::COUNT];
+        slots[Slot::Codes as usize] = Some(codes);
+        slots[Slot::Norms as usize] = Some(norms);
+        slots[Slot::Centroids as usize] = Some(centroids);
+        slots[Slot::RotationSigns as usize] = Some(rotation_signs);
+        slots[Slot::QjlSigns as usize] = Some(qjl.signs);
+        slots[Slot::QjlResidualNorms as usize] = Some(qjl.residual_norms);
+        slots[Slot::QjlRotationSigns as usize] = Some(qjl.rotation_signs);
         Ok(Self {
             dtype,
             slots,
@@ -187,7 +209,7 @@ impl TurboQuantArray {
 
     /// Whether QJL correction is present.
     pub fn has_qjl(&self) -> bool {
-        self.slots[QJL_SIGNS_SLOT].is_some()
+        self.slots[Slot::QjlSigns as usize].is_some()
     }
 
     fn slot(&self, idx: usize) -> &ArrayRef {
@@ -198,30 +220,30 @@ impl TurboQuantArray {
 
     /// The quantized codes child (FixedSizeListArray).
     pub fn codes(&self) -> &ArrayRef {
-        self.slot(CODES_SLOT)
+        self.slot(Slot::Codes as usize)
     }
 
     /// The norms child (PrimitiveArray<f32>).
     pub fn norms(&self) -> &ArrayRef {
-        self.slot(NORMS_SLOT)
+        self.slot(Slot::Norms as usize)
     }
 
     /// The centroids (codebook) child (PrimitiveArray<f32>).
     pub fn centroids(&self) -> &ArrayRef {
-        self.slot(CENTROIDS_SLOT)
+        self.slot(Slot::Centroids as usize)
     }
 
     /// The MSE rotation signs child (BitPackedArray, length 3 * padded_dim).
     pub fn rotation_signs(&self) -> &ArrayRef {
-        self.slot(ROTATION_SIGNS_SLOT)
+        self.slot(Slot::RotationSigns as usize)
     }
 
     /// The optional QJL correction fields, reconstructed from slots.
     pub fn qjl(&self) -> Option<QjlCorrection> {
         Some(QjlCorrection {
-            signs: self.slots[QJL_SIGNS_SLOT].clone()?,
-            residual_norms: self.slots[QJL_RESIDUAL_NORMS_SLOT].clone()?,
-            rotation_signs: self.slots[QJL_ROTATION_SIGNS_SLOT].clone()?,
+            signs: self.slots[Slot::QjlSigns as usize].clone()?,
+            residual_norms: self.slots[Slot::QjlResidualNorms as usize].clone()?,
+            rotation_signs: self.slots[Slot::QjlRotationSigns as usize].clone()?,
         })
     }
 }

@@ -34,15 +34,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::array::CENTROIDS_SLOT;
-use crate::array::CODES_SLOT;
-use crate::array::NORMS_SLOT;
-use crate::array::NUM_SLOTS;
-use crate::array::QJL_RESIDUAL_NORMS_SLOT;
-use crate::array::QJL_ROTATION_SIGNS_SLOT;
-use crate::array::QJL_SIGNS_SLOT;
-use crate::array::ROTATION_SIGNS_SLOT;
-use crate::array::SLOT_NAMES;
+use crate::array::Slot;
 use crate::array::TurboQuant;
 use crate::array::TurboQuantArray;
 use crate::array::TurboQuantMetadata;
@@ -123,14 +115,14 @@ impl VTable for TurboQuant {
     }
 
     fn slot_name(_array: &TurboQuantArray, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        Slot::from_index(idx).name().to_string()
     }
 
     fn with_slots(array: &mut TurboQuantArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            slots.len() == NUM_SLOTS,
+            slots.len() == Slot::COUNT,
             "TurboQuantArray expects {} slots, got {}",
-            NUM_SLOTS,
+            Slot::COUNT,
             slots.len()
         );
         array.slots = slots;
@@ -187,18 +179,19 @@ impl VTable for TurboQuant {
         let signs_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
         let rotation_signs = children.get(3, &signs_dtype, 3 * padded_dim)?;
 
-        let mut slots = vec![None; NUM_SLOTS];
-        slots[CODES_SLOT] = Some(codes);
-        slots[NORMS_SLOT] = Some(norms);
-        slots[CENTROIDS_SLOT] = Some(centroids);
-        slots[ROTATION_SIGNS_SLOT] = Some(rotation_signs);
+        let mut slots = vec![None; Slot::COUNT];
+        slots[Slot::Codes as usize] = Some(codes);
+        slots[Slot::Norms as usize] = Some(norms);
+        slots[Slot::Centroids as usize] = Some(centroids);
+        slots[Slot::RotationSigns as usize] = Some(rotation_signs);
 
         if metadata.has_qjl {
             let qjl_signs_dtype =
                 DType::FixedSizeList(Arc::new(u8_nn), padded_dim as u32, Nullability::NonNullable);
-            slots[QJL_SIGNS_SLOT] = Some(children.get(4, &qjl_signs_dtype, len)?);
-            slots[QJL_RESIDUAL_NORMS_SLOT] = Some(children.get(5, &f32_nn, len)?);
-            slots[QJL_ROTATION_SIGNS_SLOT] = Some(children.get(6, &signs_dtype, 3 * padded_dim)?);
+            slots[Slot::QjlSigns as usize] = Some(children.get(4, &qjl_signs_dtype, len)?);
+            slots[Slot::QjlResidualNorms as usize] = Some(children.get(5, &f32_nn, len)?);
+            slots[Slot::QjlRotationSigns as usize] =
+                Some(children.get(6, &signs_dtype, 3 * padded_dim)?);
         }
 
         Ok(TurboQuantArray {
