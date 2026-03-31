@@ -64,108 +64,19 @@ impl ValidityChild<Patched> for Patched {
 
 #[derive(Clone, prost::Message)]
 pub struct PatchedMetadata {
-    /// A bitfield packed into a single u64 containing all the metadata needed to decode a
-    /// serialized `PatchedArray`.
+    /// The total number of patches, and the length of the indices and values child arrays.
+    #[prost(uint32, tag = "1")]
+    pub(crate) n_patches: u32,
+
+    /// The number of lanes used for patch indexing. Must be a power of two between 1 and 128.
+    #[prost(uint32, tag = "2")]
+    pub(crate) n_lanes: u32,
+
+    /// An offset into the first chunk's patches that should be considered in-view.
     ///
-    /// See [`PatchedMetadataFields`].
-    #[prost(uint64, tag = "1")]
-    pub(crate) packed: u64,
-}
-
-/// A bitfield implemented on top of a `u64` containing the necessary metadata for reading a
-/// serialized `PatchedArray`.
-///
-/// The bit fields are in the following order:
-///
-/// * `offset`: 10 bits (always < 1024). An offset into the first chunk's patches that should be
-///   considered in-view.
-/// * `n_lanes_exp`: 3 bits. The binary exponent of `n_lanes`, which must be a power of two.
-///   A stored value of 0b000 represents n_lanes=1, and 0b111 represents n_lanes=128.
-/// * `n_patches`: 23 bits. The number of total patches, and the length of the indices and values
-///   child arrays.
-///
-/// The remaining bits 36..64 are reserved for future use.
-pub(crate) struct PatchedMetadataFields(u64);
-
-impl std::fmt::Debug for PatchedMetadataFields {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PatchedMetadataFields")
-            .field("offset", &self.offset())
-            .field("n_lanes", &self.n_lanes())
-            .field("n_patches", &self.n_patches())
-            .finish()
-    }
-}
-
-impl PatchedMetadataFields {
-    const OFFSET_BITS: u32 = 10;
-    const N_LANES_EXP_BITS: u32 = 3;
-    const N_PATCHES_BITS: u32 = 23;
-
-    const OFFSET_MASK: u64 = (1 << Self::OFFSET_BITS) - 1;
-    const N_LANES_EXP_MASK: u64 = (1 << Self::N_LANES_EXP_BITS) - 1;
-    const N_PATCHES_MASK: u64 = (1 << Self::N_PATCHES_BITS) - 1;
-
-    const OFFSET_SHIFT: u32 = 0;
-    const N_LANES_EXP_SHIFT: u32 = Self::OFFSET_BITS;
-    const N_PATCHES_SHIFT: u32 = Self::OFFSET_BITS + Self::N_LANES_EXP_BITS;
-
-    /// Create a new `PatchedMetadataFields` from the component values.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any value exceeds its bit width:
-    /// - `offset` must be < 1024 (10 bits)
-    /// - `n_lanes` must be a power of two between 1 and 128 inclusive
-    /// - `n_patches` must be < 8388608 (23 bits)
-    pub fn new(offset: usize, n_lanes: usize, n_patches: usize) -> VortexResult<Self> {
-        vortex_ensure!(
-            offset < (1 << Self::OFFSET_BITS),
-            "offset must be < 1024, got {offset}"
-        );
-        vortex_ensure!(
-            n_lanes.is_power_of_two() && n_lanes <= 128,
-            "n_lanes must be a power of two between 1 and 128, got {n_lanes}"
-        );
-        vortex_ensure!(
-            n_patches < (1 << Self::N_PATCHES_BITS),
-            "n_patches must be < 8388608, got {n_patches}"
-        );
-
-        let n_lanes_exp = n_lanes.trailing_zeros() as u64;
-
-        let flags = (offset as u64)
-            | (n_lanes_exp << Self::N_LANES_EXP_SHIFT)
-            | ((n_patches as u64) << Self::N_PATCHES_SHIFT);
-        Ok(Self(flags))
-    }
-
-    /// Extract the offset field (bits 0..10).
-    pub fn offset(&self) -> usize {
-        ((self.0 >> Self::OFFSET_SHIFT) & Self::OFFSET_MASK) as usize
-    }
-
-    /// Extract the n_lanes field (bits 10..13), converted from the stored exponent.
-    pub fn n_lanes(&self) -> usize {
-        let exp = (self.0 >> Self::N_LANES_EXP_SHIFT) & Self::N_LANES_EXP_MASK;
-        1 << exp
-    }
-
-    /// Extract the n_patches field (bits 13..36).
-    pub fn n_patches(&self) -> usize {
-        ((self.0 >> Self::N_PATCHES_SHIFT) & Self::N_PATCHES_MASK) as usize
-    }
-
-    /// Return the underlying u64 representation.
-    pub fn into_inner(self) -> u64 {
-        self.0
-    }
-}
-
-impl From<u64> for PatchedMetadataFields {
-    fn from(value: u64) -> Self {
-        Self(value)
-    }
+    /// Always between 0 and 1023.
+    #[prost(uint32, tag = "3")]
+    pub(crate) offset: u32,
 }
 
 impl VTable for Patched {
@@ -251,10 +162,10 @@ impl VTable for Patched {
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
-        let fields = PatchedMetadataFields::new(array.offset, array.n_lanes, array.indices.len())?;
-
         Ok(ProstMetadata(PatchedMetadata {
-            packed: fields.into_inner(),
+            n_patches: u32::try_from(array.indices.len())?,
+            n_lanes: u32::try_from(array.n_lanes)?,
+            offset: u32::try_from(array.offset)?,
         }))
     }
 
@@ -334,10 +245,9 @@ impl VTable for Patched {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<PatchedArray> {
-        let fields = PatchedMetadataFields::from(metadata.packed);
-        let offset = fields.offset();
-        let n_lanes = fields.n_lanes();
-        let n_patches = fields.n_patches();
+        let n_patches = metadata.n_patches as usize;
+        let n_lanes = metadata.n_lanes as usize;
+        let offset = metadata.offset as usize;
 
         // n_chunks should correspond to the chunk in the `inner`.
         // After slicing when offset > 0, there may be additional chunks.
@@ -816,124 +726,5 @@ mod tests {
         assert_arrays_eq!(expected, executed);
 
         Ok(())
-    }
-
-    mod metadata_fields_tests {
-        use vortex_error::VortexResult;
-
-        use super::super::PatchedMetadataFields;
-
-        #[test]
-        fn test_roundtrip_min_values() -> VortexResult<()> {
-            let fields = PatchedMetadataFields::new(0, 1, 0)?;
-            assert_eq!(fields.offset(), 0);
-            assert_eq!(fields.n_lanes(), 1);
-            assert_eq!(fields.n_patches(), 0);
-            assert_eq!(fields.into_inner(), 0);
-            Ok(())
-        }
-
-        #[test]
-        fn test_roundtrip_typical_values() -> VortexResult<()> {
-            let fields = PatchedMetadataFields::new(512, 16, 1000)?;
-            assert_eq!(fields.offset(), 512);
-            assert_eq!(fields.n_lanes(), 16);
-            assert_eq!(fields.n_patches(), 1000);
-            Ok(())
-        }
-
-        #[test]
-        fn test_roundtrip_max_values() -> VortexResult<()> {
-            let max_offset = (1 << 10) - 1; // 1023
-            let max_n_lanes = 128; // 2^7
-            let max_n_patches = (1 << 23) - 1; // 8388607
-
-            let fields = PatchedMetadataFields::new(max_offset, max_n_lanes, max_n_patches)?;
-            assert_eq!(fields.offset(), max_offset);
-            assert_eq!(fields.n_lanes(), max_n_lanes);
-            assert_eq!(fields.n_patches(), max_n_patches);
-            Ok(())
-        }
-
-        #[test]
-        fn test_all_valid_n_lanes() -> VortexResult<()> {
-            for exp in 0..=7 {
-                let n_lanes = 1 << exp;
-                let fields = PatchedMetadataFields::new(0, n_lanes, 0)?;
-                assert_eq!(fields.n_lanes(), n_lanes);
-            }
-            Ok(())
-        }
-
-        #[test]
-        fn test_from_u64() {
-            // n_lanes=16 means exp=4, stored in bits 10..13
-            let n_lanes_exp = 4u64; // log2(16)
-            let raw: u64 = 512 | (n_lanes_exp << 10) | (1000 << 13);
-            let fields = PatchedMetadataFields::from(raw);
-            assert_eq!(fields.offset(), 512);
-            assert_eq!(fields.n_lanes(), 16);
-            assert_eq!(fields.n_patches(), 1000);
-        }
-
-        #[test]
-        fn test_offset_overflow() {
-            let result = PatchedMetadataFields::new(1024, 1, 0);
-            assert!(result.is_err());
-            assert!(
-                result
-                    .unwrap_err()
-                    .to_string()
-                    .contains("offset must be < 1024")
-            );
-        }
-
-        #[test]
-        fn test_n_lanes_not_power_of_two() {
-            let result = PatchedMetadataFields::new(0, 3, 0);
-            assert!(result.is_err());
-            assert!(
-                result
-                    .unwrap_err()
-                    .to_string()
-                    .contains("n_lanes must be a power of two")
-            );
-        }
-
-        #[test]
-        fn test_n_lanes_overflow() {
-            let result = PatchedMetadataFields::new(0, 256, 0);
-            assert!(result.is_err());
-            assert!(
-                result
-                    .unwrap_err()
-                    .to_string()
-                    .contains("n_lanes must be a power of two between 1 and 128")
-            );
-        }
-
-        #[test]
-        fn test_n_lanes_zero() {
-            let result = PatchedMetadataFields::new(0, 0, 0);
-            assert!(result.is_err());
-            assert!(
-                result
-                    .unwrap_err()
-                    .to_string()
-                    .contains("n_lanes must be a power of two")
-            );
-        }
-
-        #[test]
-        fn test_n_patches_overflow() {
-            let result = PatchedMetadataFields::new(0, 1, 1 << 23);
-            assert!(result.is_err());
-            assert!(
-                result
-                    .unwrap_err()
-                    .to_string()
-                    .contains("n_patches must be < 8388608")
-            );
-        }
     }
 }
