@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
-use std::fmt::Write;
 
 use crate::DynArray;
 use crate::display::extractor::IndentedFormatter;
@@ -19,8 +18,9 @@ impl TreeExtractor for MetadataExtractor {
         _ctx: &TreeContext,
         f: &mut IndentedFormatter<'_, '_>,
     ) -> fmt::Result {
-        write!(f, "metadata: ")?;
-        array.metadata_fmt(f.formatter())?;
+        let (indent, f) = f.parts();
+        write!(f, "{indent}metadata: ")?;
+        array.metadata_fmt(f)?;
         writeln!(f)
     }
 }

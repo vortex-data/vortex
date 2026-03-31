@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
-use std::fmt::Write;
 
 use humansize::DECIMAL;
 use humansize::format_size;
@@ -25,6 +24,7 @@ impl TreeExtractor for BufferExtractor {
         _ctx: &TreeContext,
         f: &mut IndentedFormatter<'_, '_>,
     ) -> fmt::Result {
+        let (indent, f) = f.parts();
         let nbytes = array.nbytes();
         for (name, buffer) in array.named_buffers() {
             let loc = if buffer.is_on_device() {
@@ -48,7 +48,7 @@ impl TreeExtractor for BufferExtractor {
                 };
                 writeln!(
                     f,
-                    "buffer: {} {loc} {} (align={}) ({:.2}%)",
+                    "{indent}buffer: {} {loc} {} (align={}) ({:.2}%)",
                     name,
                     format_size(buffer.len(), DECIMAL),
                     align,
@@ -57,7 +57,7 @@ impl TreeExtractor for BufferExtractor {
             } else {
                 writeln!(
                     f,
-                    "buffer: {} {loc} {} (align={})",
+                    "{indent}buffer: {} {loc} {} (align={})",
                     name,
                     format_size(buffer.len(), DECIMAL),
                     align,

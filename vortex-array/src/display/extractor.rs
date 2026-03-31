@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
-use std::fmt::Write;
 
 use crate::DynArray;
 
@@ -36,59 +35,30 @@ impl TreeContext {
     }
 }
 
-/// A formatter wrapper that automatically prepends indentation at the start of each line.
-///
-/// Implements [`fmt::Write`] so content written through it is automatically indented.
-/// Use [`formatter()`](Self::formatter) to access the underlying [`fmt::Formatter`] directly
-/// when you need formatting flags (width, precision, fill, etc.).
+/// Wrapper providing access to a [`fmt::Formatter`] and the current indentation string.
 pub struct IndentedFormatter<'a, 'b> {
     inner: &'a mut fmt::Formatter<'b>,
     indent: &'a str,
-    at_line_start: bool,
 }
 
 impl<'a, 'b> IndentedFormatter<'a, 'b> {
     pub(crate) fn new(f: &'a mut fmt::Formatter<'b>, indent: &'a str) -> Self {
-        Self {
-            inner: f,
-            indent,
-            at_line_start: true,
-        }
+        Self { inner: f, indent }
     }
 
-    /// Access the underlying [`fmt::Formatter`] directly.
-    ///
-    /// Writes through this bypass indentation but have access to formatting flags.
+    /// Access the indent string and underlying [`fmt::Formatter`] together.
+    pub fn parts(&mut self) -> (&str, &mut fmt::Formatter<'b>) {
+        (self.indent, self.inner)
+    }
+
+    /// The current indentation string.
+    pub fn indent(&self) -> &str {
+        self.indent
+    }
+
+    /// Access the underlying [`fmt::Formatter`].
     pub fn formatter(&mut self) -> &mut fmt::Formatter<'b> {
         self.inner
-    }
-}
-
-impl Write for IndentedFormatter<'_, '_> {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        let mut parts = s.split('\n');
-
-        if let Some(first) = parts.next()
-            && !first.is_empty()
-        {
-            if self.at_line_start {
-                self.inner.write_str(self.indent)?;
-                self.at_line_start = false;
-            }
-            self.inner.write_str(first)?;
-        }
-
-        for part in parts {
-            self.inner.write_char('\n')?;
-            self.at_line_start = true;
-            if !part.is_empty() {
-                self.inner.write_str(self.indent)?;
-                self.at_line_start = false;
-                self.inner.write_str(part)?;
-            }
-        }
-
-        Ok(())
     }
 }
 
