@@ -127,10 +127,14 @@ pub fn execute_decompress(
         let mse_row = &mse_elements[row * dim..(row + 1) * dim];
         let residual_norm = residual_norms[row];
 
-        // Convert u8 0/1 → f32 ±1.0 for this row's signs.
+        // Branchless u8 0/1 → f32 ±1.0 via XOR on the IEEE 754 sign bit.
+        // 1.0f32 = 0x3F800000; flipping the sign bit gives -1.0 = 0xBF800000.
+        // For sign=0 (negative): mask = 0x80000000, 1.0 XOR mask = -1.0.
+        // For sign=1 (positive): mask = 0x00000000, 1.0 XOR mask = 1.0.
         let row_signs = &qjl_signs_u8[row * padded_dim..(row + 1) * padded_dim];
-        for idx in 0..padded_dim {
-            qjl_signs_vec[idx] = if row_signs[idx] != 0 { 1.0 } else { -1.0 };
+        for (dst, &sign) in qjl_signs_vec.iter_mut().zip(row_signs.iter()) {
+            let mask = ((sign as u32) ^ 1) << 31;
+            *dst = f32::from_bits(0x3F80_0000 ^ mask);
         }
 
         qjl_rot.inverse_rotate(&qjl_signs_vec, &mut qjl_projected);
