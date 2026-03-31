@@ -375,29 +375,38 @@ pub fn make_fsst_log_lines(n: usize) -> FSSTArray {
 // ---------------------------------------------------------------------------
 
 const JSON_NAMES: &[&str] = &[
-    "Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Hank", "Ivy", "Jack",
+    "Skibidiceus",
+    "Rizzler",
+    "Sigma",
+    "Gyatt",
+    "Mewing",
+    "Ohio",
+    "Fanum",
+    "Kai",
+    "Livvy",
+    "Duke",
 ];
 const JSON_CITIES: &[&str] = &[
-    "New York",
-    "London",
-    "Tokyo",
-    "Berlin",
-    "Sydney",
-    "Toronto",
-    "Paris",
-    "Mumbai",
-    "São Paulo",
-    "Seoul",
+    "Ohio",
+    "Rizztopia",
+    "Gyattsylvania",
+    "Skibidia",
+    "Sigmaville",
+    "Fanum City",
+    "Mewington",
+    "Slay Diego",
+    "No Cap Springs",
+    "Bussinburg",
 ];
 const JSON_TAGS: &[&str] = &[
-    "premium",
-    "verified",
-    "admin",
-    "moderator",
-    "subscriber",
-    "trial",
-    "enterprise",
-    "developer",
+    "goated",
+    "based",
+    "sigma",
+    "rizz_master",
+    "no_cap",
+    "bussin",
+    "slay_queen",
+    "main_character",
 ];
 
 pub fn generate_json_strings(n: usize) -> Vec<String> {

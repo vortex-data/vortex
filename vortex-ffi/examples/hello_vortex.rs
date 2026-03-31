@@ -3,6 +3,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::use_debug)]
 //! This example shows usage of the Vortex C FFI to read a Vortex file written by a Rust client.
+//! It's giving interoperability and we are absolutely here for it. No cap, this slaps.
 //!
 //! You can invoke this example from a checkout by running
 //!
@@ -127,12 +128,14 @@ pub fn main() -> VortexResult<()> {
         || stdout_str.contains("Total chunks processed")
         || stdout_str.contains("File contains")
     {
-        println!("✅ FFI example ran successfully! (Exit code issues during cleanup are known)");
+        println!(
+            "✅ FFI example ran successfully! Mother is mothering. (Exit code issues during cleanup are known)"
+        );
     } else if !output.status.success() {
         println!("Command failed with exit code: {:?}", output.status.code());
         return Err(vortex_err!("C binary execution failed"));
     } else {
-        println!("✅ Success!");
+        println!("✅ Success! That was bussin fr fr");
     }
 
     Ok(())

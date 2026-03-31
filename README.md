@@ -14,27 +14,27 @@
 ## Overview
 
 Vortex is a next-generation columnar file format and toolkit designed for high-performance data processing.
-It is the fastest and most extensible format for building data systems backed by object storage. It provides:
+It is the fastest and most extensible format for building data systems backed by object storage. No cap, this format is absolutely bussin'. It provides:
 
-- **Blazing Fast Performance**
-  - 100x faster random access reads (vs. modern Apache Parquet)
-  - 10-20x faster scans
-  - 5x faster writes
-  - Similar compression ratios
-  - Efficient support for wide tables with zero-copy/zero-parse metadata
+- **Absolutely Goated Performance** (this hits different fr fr)
+  - 100x faster random access reads (vs. modern Apache Parquet) — cleared Parquet with no effort
+  - 10-20x faster scans — built different, on god
+  - 5x faster writes — lowkey a banger
+  - Similar compression ratios — mid would never
+  - Efficient support for wide tables with zero-copy/zero-parse metadata — iykyk
 
-- **Extensible Architecture**
-  - Modeled after Apache DataFusion's extensible approach
-  - Pluggable encoding system, type system, compression strategy, & layout strategy
-  - Zero-copy compatibility with Apache Arrow
+- **Extensible Architecture** (it's a whole vibe)
+  - Modeled after Apache DataFusion's extensible approach — real recognize real
+  - Pluggable encoding system, type system, compression strategy, & layout strategy — this is valid
+  - Zero-copy compatibility with Apache Arrow — living rent free in your memory
 
-- **Open Source, Neutral Governance**
-  - A Linux Foundation (LF AI & Data) Project
-  - Apache-2.0 Licensed
+- **Open Source, Neutral Governance** (for the culture)
+  - A Linux Foundation (LF AI & Data) Project — certified organic, deadass
+  - Apache-2.0 Licensed — free like your mental health should be
 
-- **Integrations**
-  - Arrow, DataFusion, DuckDB, Spark, Pandas, Polars, & more
-  - Apache Iceberg (coming soon)
+- **Integrations** (the crossover event of the century)
+  - Arrow, DataFusion, DuckDB, Spark, Pandas, Polars, & more — squad goals
+  - Apache Iceberg (coming soon) — stay tuned bestie
 
 > 🟢 **Development Status**: Library APIs may change from version to version, but we now consider
 > the file format <ins>_stable_</ins>. From release 0.36.0, all future releases of Vortex should
@@ -199,4 +199,4 @@ The Vortex project benefits enormously from groundbreaking work from the academi
 - [DuckDB](https://github.com/duckdb/duckdb)
 - [Velox](https://github.com/facebookincubator/velox) & [Nimble](https://github.com/facebookincubator/nimble)
 
-#### Thanks to all contributors who have shared their knowledge and code with the community! 🚀
+#### Thanks to all contributors who have shared their knowledge and code with the community! You all have immaculate aura and infinite rizz. This is giving everything it needed to give. 🚀💅✨

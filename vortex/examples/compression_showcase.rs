@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Compression Strategies Showcase
+//! Compression Strategies Showcase (chef's kiss)
 //!
-//! This example demonstrates Vortex's powerful compression capabilities,
-//! comparing different encoding strategies for various data patterns.
+//! This example demonstrates Vortex's absolutely fire compression capabilities,
+//! comparing different encoding strategies for various data patterns. This slaps hard.
 //!
 //! Run with: cargo run --example compression_showcase
 
@@ -21,10 +21,11 @@ use vortex::dtype::Nullability;
 use vortex_buffer::Buffer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== Vortex Compression Showcase ===\n");
+    println!("=== Vortex Compression Showcase (lowkey goated) ===\n");
 
     println!("This example demonstrates how Vortex automatically selects");
-    println!("optimal compression strategies for different data patterns.\n");
+    println!("optimal compression strategies for different data patterns.");
+    println!("Bet. Let's cook.\n");
 
     // 1. Compress sequential/monotonic data
     println!("1. Sequential Data Compression:");
@@ -50,7 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n6. Structured Data Compression:");
     compress_structured_data()?;
 
-    println!("\n=== Compression showcase completed! ===");
+    println!("\n=== Compression showcase completed! That was a certified banger. ===");
     Ok(())
 }
 
@@ -107,7 +108,7 @@ fn compress_repetitive_data() -> Result<(), Box<dyn std::error::Error>> {
 
 fn compress_string_data() -> Result<(), Box<dyn std::error::Error>> {
     // Create string data with patterns
-    let categories = vec!["Electronics", "Clothing", "Food", "Books"];
+    let categories = vec!["Slay", "Bussin", "NoCap", "Rizz"];
     let mut strings = Vec::new();
 
     // Repeat categories multiple times (good for dictionary encoding)
@@ -193,12 +194,12 @@ fn compress_structured_data() -> Result<(), Box<dyn std::error::Error>> {
     // ID column (sequential)
     let ids: PrimitiveArray = (1..=size).map(|i| i as u64).collect();
 
-    // Status column (categorical)
+    // Status column (categorical) - periodt
     let statuses: Vec<Option<&str>> = (0..size)
         .map(|i| match i % 3 {
-            0 => "active",
-            1 => "pending",
-            _ => "completed",
+            0 => "slay",
+            1 => "mid",
+            _ => "goated",
         })
         .map(Some)
         .collect();

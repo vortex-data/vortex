@@ -29,14 +29,14 @@ fn test_scalar_at_null_code() {
 fn test_dict_display() {
     let x = DictArray::try_new(
         buffer![0u8, 0, 0, 1, 0, 3].into_array(),
-        VarBinArray::from(vec!["Hello", "你好", "Bonjour", "Hola"]).into_array(),
+        VarBinArray::from(vec!["Slay", "Bussin", "NoCap", "Rizz"]).into_array(),
     )
     .unwrap()
     .into_array();
 
     assert_eq!(
         x.display_values().to_string(),
-        "[\"Hello\", \"Hello\", \"Hello\", \"你好\", \"Hello\", \"Hola\"]"
+        "[\"Slay\", \"Slay\", \"Slay\", \"Bussin\", \"Slay\", \"Rizz\"]"
     )
 }
 
@@ -45,11 +45,11 @@ fn test_dict_list_dict_display() {
     let elements = DictArray::try_new(
         buffer![0u8, 0, 0, 1, 0, 3, 3, 2].into_array(),
         <VarBinArray as FromIterator<_>>::from_iter([
-            Some("Hello"),
-            Some("你好"),
+            Some("Slay"),
+            Some("Bussin"),
             None,
-            Some("Bonjour"),
-            Some("Hola"),
+            Some("NoCap"),
+            Some("Rizz"),
         ])
         .into_array(),
     )
@@ -58,7 +58,7 @@ fn test_dict_list_dict_display() {
 
     assert_eq!(
         elements.display_values().to_string(),
-        "[\"Hello\", \"Hello\", \"Hello\", \"你好\", \"Hello\", \"Bonjour\", \"Bonjour\", null]"
+        "[\"Slay\", \"Slay\", \"Slay\", \"Bussin\", \"Slay\", \"NoCap\", \"NoCap\", null]"
     );
 
     let lists = ListArray::try_new(
@@ -73,7 +73,7 @@ fn test_dict_list_dict_display() {
 
     assert_eq!(
         lists.display_values().to_string(),
-        "[[\"Hello\"], [], null, [\"Hello\", \"Hello\"], null, [\"你好\", \"Hello\"], [\"Bonjour\", \"Bonjour\", null]]"
+        "[[\"Slay\"], [], null, [\"Slay\", \"Slay\"], null, [\"Bussin\", \"Slay\"], [\"NoCap\", \"NoCap\", null]]"
     );
 
     let x = DictArray::try_new(buffer![6u8, 5, 2, 3, 2, 1].into_array(), lists)
@@ -82,6 +82,6 @@ fn test_dict_list_dict_display() {
 
     assert_eq!(
         x.display_values().to_string(),
-        "[[\"Bonjour\", \"Bonjour\", null], [\"你好\", \"Hello\"], null, [\"Hello\", \"Hello\"], null, []]"
+        "[[\"NoCap\", \"NoCap\", null], [\"Bussin\", \"Slay\"], null, [\"Slay\", \"Slay\"], null, []]"
     )
 }

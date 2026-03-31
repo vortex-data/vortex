@@ -16,9 +16,9 @@ sd_hide_title: true
 :align: center
 :::
 
-An extensible ecosystem for compressed columnar data. Spans in-memory arrays,
+An extensible ecosystem for compressed columnar data that absolutely understood the assignment. Spans in-memory arrays,
 on-disk file formats, over-the-wire protocols, and integrations with query engines — all built
-around the latest research from the database community.
+around the latest research from the database community. It's giving big brain energy fr fr.
 
 ## Where to start
 

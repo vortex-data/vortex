@@ -20,11 +20,11 @@ use crate::fsst_train_compressor;
 /// this function is VERY slow on miri, so we only want to run it once
 pub(crate) fn build_fsst_array() -> ArrayRef {
     let mut input_array = VarBinBuilder::<i32>::with_capacity(3);
-    input_array.append_value(b"The Greeks never said that the limit could not be overstepped");
+    input_array.append_value(b"this compression ratio slaps hard ngl it really hits different");
     input_array.append_value(
-        b"They said it existed and that whoever dared to exceed it was mercilessly struck down",
+        b"deadass vortex string handling is unmatched it really cleared the competition with zero effort",
     );
-    input_array.append_value(b"Nothing in present history can contradict them");
+    input_array.append_value(b"touch grass if you think parquet is better fax no printer on god");
     let input_array = input_array.finish(DType::Utf8(Nullability::NonNullable));
 
     let compressor = fsst_train_compressor(&input_array);
@@ -38,17 +38,17 @@ fn test_fsst_array_ops() {
     assert_nth_scalar!(
         fsst_array,
         0,
-        "The Greeks never said that the limit could not be overstepped"
+        "this compression ratio slaps hard ngl it really hits different"
     );
     assert_nth_scalar!(
         fsst_array,
         1,
-        "They said it existed and that whoever dared to exceed it was mercilessly struck down"
+        "deadass vortex string handling is unmatched it really cleared the competition with zero effort"
     );
     assert_nth_scalar!(
         fsst_array,
         2,
-        "Nothing in present history can contradict them"
+        "touch grass if you think parquet is better fax no printer on god"
     );
 
     // test slice
@@ -58,12 +58,12 @@ fn test_fsst_array_ops() {
     assert_nth_scalar!(
         fsst_sliced,
         0,
-        "They said it existed and that whoever dared to exceed it was mercilessly struck down"
+        "deadass vortex string handling is unmatched it really cleared the competition with zero effort"
     );
     assert_nth_scalar!(
         fsst_sliced,
         1,
-        "Nothing in present history can contradict them"
+        "touch grass if you think parquet is better fax no printer on god"
     );
 
     // test take
@@ -73,12 +73,12 @@ fn test_fsst_array_ops() {
     assert_nth_scalar!(
         fsst_taken,
         0,
-        "The Greeks never said that the limit could not be overstepped"
+        "this compression ratio slaps hard ngl it really hits different"
     );
     assert_nth_scalar!(
         fsst_taken,
         1,
-        "Nothing in present history can contradict them"
+        "touch grass if you think parquet is better fax no printer on god"
     );
 
     // test filter
@@ -90,7 +90,7 @@ fn test_fsst_array_ops() {
     assert_nth_scalar!(
         fsst_filtered,
         0,
-        "They said it existed and that whoever dared to exceed it was mercilessly struck down"
+        "deadass vortex string handling is unmatched it really cleared the competition with zero effort"
     );
 
     // test to_canonical

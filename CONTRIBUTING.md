@@ -1,6 +1,6 @@
-# Contributing to Vortex
+# Contributing to Vortex (Join the Squad)
 
-Welcome, and thank you for your interest in contributing to Vortex! We are delighted to receive all forms of community contributions (issues, pull requests, questions).
+Welcome, and thank you for your interest in contributing to Vortex! We are delighted to receive all forms of community contributions (issues, pull requests, questions). Your contributions have immaculate aura and we appreciate you fr fr.
 
 We ask that you read the guidelines below in order to make the process as streamlined as possible.
 

@@ -1,7 +1,7 @@
-# Concepts
+# Concepts (The Lore)
 
 Vortex is a modular ecosystem for working with compressed columnar data: in-memory, on-disk,
-over-the-wire, and integrated with query engines.
+over-the-wire, and integrated with query engines. It's giving versatility and we are here for every bit of it.
 
 ```{toctree}
 ---
@@ -19,8 +19,8 @@ scanning
 
 ## Core Concepts
 
-**[DTypes](dtypes.md)** are Vortex's logical type system. Types like `UTF8` describe what data means
-without dictating physical layout, allowing the same logical data to use different encodings.
+**[DTypes](dtypes.md)** are Vortex's logical type system. Lowkey iconic. Types like `UTF8` describe what data means
+without dictating physical layout, allowing the same logical data to use different encodings. That's valid.
 
 **[Arrays](arrays.md)** are the in-memory representation. Unlike Arrow, Vortex arrays can be
 *compressed*—an integer array might be bit-packed rather than stored as a flat buffer. Arrays
