@@ -154,7 +154,6 @@ impl PatchedArray {
             lane_offsets,
             indices,
             values,
-            ..
         } = transpose_patches(patches, ctx)?;
 
         let lane_offsets = PrimitiveArray::from_buffer_handle(
