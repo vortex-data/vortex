@@ -256,13 +256,14 @@ pub fn child_to_validity(child: &Option<ArrayRef>, nullability: Nullability) -> 
             // Detect constant bool arrays created by validity_to_child.
             // Use direct ScalarValue matching to avoid expensive scalar conversion.
             if let Some(c) = arr.as_opt::<Constant>()
-                && let Some(ScalarValue::Bool(val)) = c.scalar().value() {
-                    return if *val {
-                        Validity::AllValid
-                    } else {
-                        Validity::AllInvalid
-                    };
-                }
+                && let Some(ScalarValue::Bool(val)) = c.scalar().value()
+            {
+                return if *val {
+                    Validity::AllValid
+                } else {
+                    Validity::AllInvalid
+                };
+            }
             Validity::Array(arr.clone())
         }
         None => Validity::from(nullability),
