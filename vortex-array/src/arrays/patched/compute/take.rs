@@ -31,7 +31,7 @@ impl TakeExecute for Patched {
 
         // Perform take on the inner array, including the placeholders.
         let inner = array
-            .inner
+            .base_array()
             .take(indices.clone())?
             .execute::<PrimitiveArray>(ctx)?;
 
@@ -46,9 +46,18 @@ impl TakeExecute for Patched {
         match_each_unsigned_integer_ptype!(indices_ptype, |I| {
             match_each_native_ptype!(ptype, |V| {
                 let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-                let lane_offsets = array.lane_offsets.clone().execute::<PrimitiveArray>(ctx)?;
-                let patch_indices = array.indices.clone().execute::<PrimitiveArray>(ctx)?;
-                let patch_values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
+                let lane_offsets = array
+                    .lane_offsets()
+                    .clone()
+                    .execute::<PrimitiveArray>(ctx)?;
+                let patch_indices = array
+                    .patch_indices()
+                    .clone()
+                    .execute::<PrimitiveArray>(ctx)?;
+                let patch_values = array
+                    .patch_values()
+                    .clone()
+                    .execute::<PrimitiveArray>(ctx)?;
                 let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
                 take_map(
                     output.as_mut(),

@@ -13,7 +13,6 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -31,6 +30,8 @@ use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArray;
+use crate::arrays::patched::array::NUM_SLOTS;
+use crate::arrays::patched::array::SLOT_NAMES;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
 use crate::arrays::primitive::PrimitiveArrayParts;
@@ -58,7 +59,7 @@ pub struct Patched;
 
 impl ValidityChild<Patched> for Patched {
     fn validity_child(array: &PatchedArray) -> &ArrayRef {
-        &array.inner
+        array.base_array()
     }
 }
 
@@ -98,7 +99,7 @@ impl VTable for Patched {
     }
 
     fn dtype(array: &Self::Array) -> &DType {
-        array.inner.dtype()
+        array.base_array().dtype()
     }
 
     fn stats(array: &Self::Array) -> StatsSetRef<'_> {
@@ -109,20 +110,26 @@ impl VTable for Patched {
         array.len.hash(state);
         array.offset.hash(state);
         array.n_lanes.hash(state);
-        array.inner.array_hash(state, precision);
-        array.lane_offsets.array_hash(state, precision);
-        array.indices.array_hash(state, precision);
-        array.values.array_hash(state, precision);
+        array.base_array().array_hash(state, precision);
+        array.lane_offsets().array_hash(state, precision);
+        array.patch_indices().array_hash(state, precision);
+        array.patch_values().array_hash(state, precision);
     }
 
     fn array_eq(array: &Self::Array, other: &Self::Array, precision: Precision) -> bool {
         array.len == other.len
             && array.offset == other.offset
             && array.n_lanes == other.n_lanes
-            && array.inner.array_eq(&other.inner, precision)
-            && array.lane_offsets.array_eq(&other.lane_offsets, precision)
-            && array.indices.array_eq(&other.indices, precision)
-            && array.values.array_eq(&other.values, precision)
+            && array.base_array().array_eq(other.base_array(), precision)
+            && array
+                .lane_offsets()
+                .array_eq(other.lane_offsets(), precision)
+            && array
+                .patch_indices()
+                .array_eq(other.patch_indices(), precision)
+            && array
+                .patch_values()
+                .array_eq(other.patch_values(), precision)
     }
 
     fn nbuffers(_array: &Self::Array) -> usize {
@@ -137,33 +144,19 @@ impl VTable for Patched {
         vortex_panic!("invalid buffer index for PatchedArray: {idx}");
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
-        4
-    }
-
     fn child(array: &Self::Array, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.inner.clone(),
-            1 => array.lane_offsets.clone(),
-            2 => array.indices.clone(),
-            3 => array.values.clone(),
-            _ => vortex_panic!("invalid child index for PatchedArray: {idx}"),
-        }
-    }
-
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
-        match idx {
-            0 => "inner".to_string(),
-            1 => "lane_offsets".to_string(),
-            2 => "patch_indices".to_string(),
-            3 => "patch_values".to_string(),
+            0 => array.base_array().clone(),
+            1 => array.lane_offsets().clone(),
+            2 => array.patch_indices().clone(),
+            3 => array.patch_values().clone(),
             _ => vortex_panic!("invalid child index for PatchedArray: {idx}"),
         }
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(PatchedMetadata {
-            n_patches: u32::try_from(array.indices.len())?,
+            n_patches: u32::try_from(array.patch_indices().len())?,
             n_lanes: u32::try_from(array.n_lanes)?,
             offset: u32::try_from(array.offset)?,
         }))
@@ -206,12 +199,21 @@ impl VTable for Patched {
 
         let len = array.len();
 
-        array.inner.append_to_builder(builder, ctx)?;
+        array.base_array().append_to_builder(builder, ctx)?;
 
         let offset = array.offset;
-        let lane_offsets = array.lane_offsets.clone().execute::<PrimitiveArray>(ctx)?;
-        let indices = array.indices.clone().execute::<PrimitiveArray>(ctx)?;
-        let values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
+        let lane_offsets = array
+            .lane_offsets()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let indices = array
+            .patch_indices()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let values = array
+            .patch_values()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
 
         match_each_native_ptype!(ptype, |V| {
             let typed_builder = builder
@@ -259,61 +261,36 @@ impl VTable for Patched {
         let values = children.get(3, dtype, n_patches)?;
 
         Ok(PatchedArray {
-            inner,
+            slots: vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
             n_lanes,
             offset,
             len,
-            lane_offsets,
-            indices,
-            values,
             stats_set: ArrayStats::default(),
         })
     }
 
-    fn with_children(array: &mut Self::Array, mut children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: &Self::Array) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
+
+    fn slot_name(_array: &Self::Array, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 4,
-            "PatchedArray must have exactly 4 children"
+            slots.len() == NUM_SLOTS,
+            "PatchedArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        let inner = children.remove(0);
-        let lane_offsets = children.remove(0);
-        let indices = children.remove(0);
-        let values = children.remove(0);
-
-        // We only execute these checks on debug builds, since this method is called in a tight
-        //  loop during optimization, and we want to avoid the overhead of repeatedly checking the
-        //  component types.
-        if cfg!(debug_assertions) {
-            vortex_ensure!(
-                array.dtype().eq_with_nullability_superset(inner.dtype()),
-                "inner array DType must match outer array DType"
-            );
-
-            vortex_ensure_eq!(
-                lane_offsets.dtype(),
-                &DType::from(PType::U32),
-                "lane_offsets must have u32 type"
-            );
-
-            vortex_ensure_eq!(
-                indices.dtype(),
-                &DType::from(PType::U16),
-                "indices must be u16 type"
-            );
-        }
-
-        array.inner = inner;
-        array.lane_offsets = lane_offsets;
-        array.indices = indices;
-        array.values = values;
-
+        array.slots = slots;
         Ok(())
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let inner = array
-            .inner
+            .base_array()
             .clone()
             .execute::<Canonical>(ctx)?
             .into_primitive();
@@ -324,11 +301,20 @@ impl VTable for Patched {
             validity,
         } = inner.into_parts();
 
-        let lane_offsets = array.lane_offsets.clone().execute::<PrimitiveArray>(ctx)?;
-        let indices = array.indices.clone().execute::<PrimitiveArray>(ctx)?;
+        let lane_offsets = array
+            .lane_offsets()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let indices = array
+            .patch_indices()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
 
         // TODO(aduffy): add support for non-primitive PatchedArray patches application (?)
-        let values = array.values.clone().execute::<PrimitiveArray>(ctx)?;
+        let values = array
+            .patch_values()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
 
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
             let offset = array.offset;
@@ -669,21 +655,22 @@ mod tests {
     }
 
     #[test]
-    fn test_with_children_basic() -> VortexResult<()> {
+    fn test_with_slots_basic() -> VortexResult<()> {
         let array = make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30])?;
 
-        // Get original children via direct field access
-        let inner = array.inner.clone();
-        let lane_offsets = array.lane_offsets.clone();
-        let indices = array.indices.clone();
-        let values = array.values.clone();
+        // Get original children via accessor methods
+        let inner = array.base_array().clone();
+        let lane_offsets = array.lane_offsets().clone();
+        let indices = array.patch_indices().clone();
+        let values = array.patch_values().clone();
 
-        // Create new PatchedArray with same children using with_children
-        let new_array =
-            array
-                .clone()
-                .into_array()
-                .with_children(vec![inner, lane_offsets, indices, values])?;
+        // Create new PatchedArray with same children using with_slots
+        let array_ref = array.clone().into_array();
+        let vtable = array_ref.vtable().clone_boxed();
+        let new_array = vtable.with_slots(
+            array_ref,
+            vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
+        )?;
 
         assert!(new_array.is::<Patched>());
         assert_eq!(array.len(), new_array.len());
@@ -703,19 +690,26 @@ mod tests {
     }
 
     #[test]
-    fn test_with_children_modified_inner() -> VortexResult<()> {
+    fn test_with_slots_modified_inner() -> VortexResult<()> {
         let array = make_patched_array(vec![0u16; 10], &[1, 2, 3], &[10, 20, 30])?;
 
         // Create a different inner array (all 5s instead of 0s)
         let new_inner = PrimitiveArray::from_iter(vec![5u16; 10]).into_array();
-        let lane_offsets = array.lane_offsets.clone();
-        let indices = array.indices.clone();
-        let values = array.values.clone();
+        let lane_offsets = array.lane_offsets().clone();
+        let indices = array.patch_indices().clone();
+        let values = array.patch_values().clone();
 
-        let new_array =
-            array
-                .into_array()
-                .with_children(vec![new_inner, lane_offsets, indices, values])?;
+        let array_ref = array.into_array();
+        let vtable = array_ref.vtable().clone_boxed();
+        let new_array = vtable.with_slots(
+            array_ref,
+            vec![
+                Some(new_inner),
+                Some(lane_offsets),
+                Some(indices),
+                Some(values),
+            ],
+        )?;
 
         // Execute and verify the inner values changed (except at patch positions)
         let mut ctx = ExecutionCtx::new(VortexSession::empty());

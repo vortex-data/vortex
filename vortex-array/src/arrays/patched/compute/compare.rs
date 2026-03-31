@@ -41,7 +41,7 @@ impl CompareKernel for Patched {
         // NOTE: due to offset, it's possible that the inner.len != array.len.
         //  We slice the inner before performing the comparison.
         let result = lhs
-            .inner
+            .base_array()
             .binary(
                 ConstantArray::new(constant.clone(), lhs.len()).into_array(),
                 operator.into(),
@@ -58,9 +58,9 @@ impl CompareKernel for Patched {
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 
-        let lane_offsets = lhs.lane_offsets.clone().execute::<PrimitiveArray>(ctx)?;
-        let indices = lhs.indices.clone().execute::<PrimitiveArray>(ctx)?;
-        let values = lhs.values.clone().execute::<PrimitiveArray>(ctx)?;
+        let lane_offsets = lhs.lane_offsets().clone().execute::<PrimitiveArray>(ctx)?;
+        let indices = lhs.patch_indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let values = lhs.patch_values().clone().execute::<PrimitiveArray>(ctx)?;
         let n_lanes = lhs.n_lanes;
 
         match_each_native_ptype!(values.ptype(), |V| {

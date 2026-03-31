@@ -33,7 +33,7 @@ impl OperationsVTable<Patched> for Patched {
         // Get the range of indices corresponding to the lane, potentially decoding them to avoid
         // the overhead of repeated scalar_at calls.
         let patch_indices = array
-            .indices
+            .patch_indices()
             .slice(range.clone())?
             .optimize()?
             .execute::<PrimitiveArray>(ctx)?;
@@ -42,12 +42,12 @@ impl OperationsVTable<Patched> for Patched {
         //  be slower.
         for (&patch_index, idx) in std::iter::zip(patch_indices.as_slice::<u16>(), range) {
             if patch_index == chunk_index {
-                return array.values.scalar_at(idx)?.cast(array.dtype());
+                return array.patch_values().scalar_at(idx)?.cast(array.dtype());
             }
         }
 
         // Otherwise, access the underlying value.
-        array.inner.scalar_at(index)
+        array.base_array().scalar_at(index)
     }
 }
 

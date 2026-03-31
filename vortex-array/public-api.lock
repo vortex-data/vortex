@@ -3352,7 +3352,7 @@ pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype
 
 pub fn vortex_array::arrays::patched::Patched::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::patched::Patched::child_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+pub fn vortex_array::arrays::patched::Patched::child_name(array: &Self::Array, idx: usize) -> alloc::string::String
 
 pub fn vortex_array::arrays::patched::Patched::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -3370,7 +3370,7 @@ pub fn vortex_array::arrays::patched::Patched::metadata(array: &Self::Array) -> 
 
 pub fn vortex_array::arrays::patched::Patched::nbuffers(_array: &Self::Array) -> usize
 
-pub fn vortex_array::arrays::patched::Patched::nchildren(_array: &Self::Array) -> usize
+pub fn vortex_array::arrays::patched::Patched::nchildren(array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::patched::Patched::reduce(array: &vortex_array::vtable::Array<Self>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -3378,17 +3378,31 @@ pub fn vortex_array::arrays::patched::Patched::reduce_parent(array: &vortex_arra
 
 pub fn vortex_array::arrays::patched::Patched::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_array::arrays::patched::Patched::slot_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+
+pub fn vortex_array::arrays::patched::Patched::slots(array: &Self::Array) -> &[core::option::Option<vortex_array::ArrayRef>]
+
 pub fn vortex_array::arrays::patched::Patched::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
 
 pub fn vortex_array::arrays::patched::Patched::vtable(_array: &Self::Array) -> &Self
 
-pub fn vortex_array::arrays::patched::Patched::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::patched::Patched::with_slots(array: &mut Self::Array, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::ValidityChild<vortex_array::arrays::patched::Patched> for vortex_array::arrays::patched::Patched
 
 pub fn vortex_array::arrays::patched::Patched::validity_child(array: &vortex_array::arrays::patched::PatchedArray) -> &vortex_array::ArrayRef
 
 pub struct vortex_array::arrays::patched::PatchedArray
+
+impl vortex_array::arrays::patched::PatchedArray
+
+pub fn vortex_array::arrays::patched::PatchedArray::base_array(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::patched::PatchedArray::lane_offsets(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::patched::PatchedArray::patch_indices(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::patched::PatchedArray::patch_values(&self) -> &vortex_array::ArrayRef
 
 impl vortex_array::arrays::patched::PatchedArray
 
@@ -7292,7 +7306,7 @@ pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype
 
 pub fn vortex_array::arrays::patched::Patched::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::patched::Patched::child_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+pub fn vortex_array::arrays::patched::Patched::child_name(array: &Self::Array, idx: usize) -> alloc::string::String
 
 pub fn vortex_array::arrays::patched::Patched::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -7310,7 +7324,7 @@ pub fn vortex_array::arrays::patched::Patched::metadata(array: &Self::Array) -> 
 
 pub fn vortex_array::arrays::patched::Patched::nbuffers(_array: &Self::Array) -> usize
 
-pub fn vortex_array::arrays::patched::Patched::nchildren(_array: &Self::Array) -> usize
+pub fn vortex_array::arrays::patched::Patched::nchildren(array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::patched::Patched::reduce(array: &vortex_array::vtable::Array<Self>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -7318,17 +7332,31 @@ pub fn vortex_array::arrays::patched::Patched::reduce_parent(array: &vortex_arra
 
 pub fn vortex_array::arrays::patched::Patched::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_array::arrays::patched::Patched::slot_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+
+pub fn vortex_array::arrays::patched::Patched::slots(array: &Self::Array) -> &[core::option::Option<vortex_array::ArrayRef>]
+
 pub fn vortex_array::arrays::patched::Patched::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
 
 pub fn vortex_array::arrays::patched::Patched::vtable(_array: &Self::Array) -> &Self
 
-pub fn vortex_array::arrays::patched::Patched::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::patched::Patched::with_slots(array: &mut Self::Array, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::ValidityChild<vortex_array::arrays::patched::Patched> for vortex_array::arrays::patched::Patched
 
 pub fn vortex_array::arrays::patched::Patched::validity_child(array: &vortex_array::arrays::patched::PatchedArray) -> &vortex_array::ArrayRef
 
 pub struct vortex_array::arrays::PatchedArray
+
+impl vortex_array::arrays::patched::PatchedArray
+
+pub fn vortex_array::arrays::patched::PatchedArray::base_array(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::patched::PatchedArray::lane_offsets(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::patched::PatchedArray::patch_indices(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::patched::PatchedArray::patch_values(&self) -> &vortex_array::ArrayRef
 
 impl vortex_array::arrays::patched::PatchedArray
 
@@ -22542,7 +22570,7 @@ pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype
 
 pub fn vortex_array::arrays::patched::Patched::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::patched::Patched::child_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+pub fn vortex_array::arrays::patched::Patched::child_name(array: &Self::Array, idx: usize) -> alloc::string::String
 
 pub fn vortex_array::arrays::patched::Patched::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -22560,7 +22588,7 @@ pub fn vortex_array::arrays::patched::Patched::metadata(array: &Self::Array) -> 
 
 pub fn vortex_array::arrays::patched::Patched::nbuffers(_array: &Self::Array) -> usize
 
-pub fn vortex_array::arrays::patched::Patched::nchildren(_array: &Self::Array) -> usize
+pub fn vortex_array::arrays::patched::Patched::nchildren(array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::patched::Patched::reduce(array: &vortex_array::vtable::Array<Self>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -22568,11 +22596,15 @@ pub fn vortex_array::arrays::patched::Patched::reduce_parent(array: &vortex_arra
 
 pub fn vortex_array::arrays::patched::Patched::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_array::arrays::patched::Patched::slot_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+
+pub fn vortex_array::arrays::patched::Patched::slots(array: &Self::Array) -> &[core::option::Option<vortex_array::ArrayRef>]
+
 pub fn vortex_array::arrays::patched::Patched::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
 
 pub fn vortex_array::arrays::patched::Patched::vtable(_array: &Self::Array) -> &Self
 
-pub fn vortex_array::arrays::patched::Patched::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::patched::Patched::with_slots(array: &mut Self::Array, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::VTable for vortex_array::arrays::scalar_fn::ScalarFnVTable
 
@@ -23982,7 +24014,7 @@ pub fn vortex_array::arrays::patched::Patched::build(dtype: &vortex_array::dtype
 
 pub fn vortex_array::arrays::patched::Patched::child(array: &Self::Array, idx: usize) -> vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::patched::Patched::child_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+pub fn vortex_array::arrays::patched::Patched::child_name(array: &Self::Array, idx: usize) -> alloc::string::String
 
 pub fn vortex_array::arrays::patched::Patched::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
@@ -24000,7 +24032,7 @@ pub fn vortex_array::arrays::patched::Patched::metadata(array: &Self::Array) -> 
 
 pub fn vortex_array::arrays::patched::Patched::nbuffers(_array: &Self::Array) -> usize
 
-pub fn vortex_array::arrays::patched::Patched::nchildren(_array: &Self::Array) -> usize
+pub fn vortex_array::arrays::patched::Patched::nchildren(array: &Self::Array) -> usize
 
 pub fn vortex_array::arrays::patched::Patched::reduce(array: &vortex_array::vtable::Array<Self>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -24008,11 +24040,15 @@ pub fn vortex_array::arrays::patched::Patched::reduce_parent(array: &vortex_arra
 
 pub fn vortex_array::arrays::patched::Patched::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_array::arrays::patched::Patched::slot_name(_array: &Self::Array, idx: usize) -> alloc::string::String
+
+pub fn vortex_array::arrays::patched::Patched::slots(array: &Self::Array) -> &[core::option::Option<vortex_array::ArrayRef>]
+
 pub fn vortex_array::arrays::patched::Patched::stats(array: &Self::Array) -> vortex_array::stats::StatsSetRef<'_>
 
 pub fn vortex_array::arrays::patched::Patched::vtable(_array: &Self::Array) -> &Self
 
-pub fn vortex_array::arrays::patched::Patched::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::patched::Patched::with_slots(array: &mut Self::Array, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::VTable for vortex_array::arrays::scalar_fn::ScalarFnVTable
 

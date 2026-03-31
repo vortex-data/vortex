@@ -23,23 +23,25 @@ impl SliceReduce for Patched {
         let chunk_start = (range.start + array.offset) / 1024;
         let chunk_stop = (range.end + array.offset).div_ceil(1024);
         let sliced_lane_offsets = array
-            .lane_offsets
+            .lane_offsets()
             .slice((chunk_start * array.n_lanes)..(chunk_stop * array.n_lanes) + 1)?;
 
         // Unlike the patches, we slice the inner to the exact range. This is handled
         // at execution time by making sure to skip patch indices that are < offset
         // or >= len.
-        let inner = array.inner.slice(range.start..range.end)?;
+        let inner = array.base_array().slice(range.start..range.end)?;
 
         Ok(Some(
             PatchedArray {
-                inner,
+                slots: vec![
+                    Some(inner),
+                    Some(sliced_lane_offsets),
+                    Some(array.patch_indices().clone()),
+                    Some(array.patch_values().clone()),
+                ],
                 n_lanes: array.n_lanes,
                 offset: new_offset,
                 len: new_len,
-                lane_offsets: sliced_lane_offsets,
-                indices: array.indices.clone(),
-                values: array.values.clone(),
                 stats_set: ArrayStats::default(),
             }
             .into_array(),

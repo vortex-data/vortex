@@ -5,6 +5,7 @@ use std::ops::Range;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -92,10 +93,22 @@ use crate::validity::Validity;
 ///
 /// It turns out that this layout is optimal for executing patching on GPUs, because the
 /// `lane_offsets` allows each thread in a warp to seek to its patches in constant time.
+pub(super) const INNER_SLOT: usize = 0;
+pub(super) const LANE_OFFSETS_SLOT: usize = 1;
+pub(super) const INDICES_SLOT: usize = 2;
+pub(super) const VALUES_SLOT: usize = 3;
+pub(super) const NUM_SLOTS: usize = 4;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] =
+    ["inner", "lane_offsets", "patch_indices", "patch_values"];
+
 #[derive(Debug, Clone)]
 pub struct PatchedArray {
-    /// The inner array that is being patched. This is the zeroth child.
-    pub(super) inner: ArrayRef,
+    /// Child arrays stored as slots:
+    /// 0: inner - the inner array being patched
+    /// 1: lane_offsets - u32 array for indexing into indices/values
+    /// 2: indices - u16 array of chunk indices
+    /// 3: values - array of patch values
+    pub(super) slots: Vec<Option<ArrayRef>>,
 
     /// Number of lanes the patch indices and values have been split into. Each of the `n_chunks`
     /// of 1024 values is split into `n_lanes` lanes horizontally, each lane having 1024 / n_lanes
@@ -110,13 +123,6 @@ pub struct PatchedArray {
     pub(super) offset: usize,
     /// Length of the array
     pub(super) len: usize,
-
-    /// lane offsets. The PType of these MUST be u32
-    pub(super) lane_offsets: ArrayRef,
-    /// indices within a 1024-element chunk. The PType of these MUST be u16
-    pub(super) indices: ArrayRef,
-    /// patch values corresponding to the indices. The ptype is specified by `values_ptype`.
-    pub(super) values: ArrayRef,
 
     pub(super) stats_set: ArrayStats,
 }
@@ -186,15 +192,46 @@ impl PatchedArray {
         let len = inner.len();
 
         Ok(Self {
-            inner,
+            slots: vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
             n_lanes,
             offset: 0,
             len,
-            lane_offsets,
-            indices,
-            values,
             stats_set: ArrayStats::default(),
         })
+    }
+}
+
+impl PatchedArray {
+    /// Returns a reference to the base array being patched.
+    #[inline]
+    pub fn base_array(&self) -> &ArrayRef {
+        self.slots[INNER_SLOT]
+            .as_ref()
+            .vortex_expect("PatchedArray inner slot")
+    }
+
+    /// Returns a reference to the lane offsets array (u32).
+    #[inline]
+    pub fn lane_offsets(&self) -> &ArrayRef {
+        self.slots[LANE_OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("PatchedArray lane_offsets slot")
+    }
+
+    /// Returns a reference to the indices array (u16).
+    #[inline]
+    pub fn patch_indices(&self) -> &ArrayRef {
+        self.slots[INDICES_SLOT]
+            .as_ref()
+            .vortex_expect("PatchedArray indices slot")
+    }
+
+    /// Returns a reference to the patch values array.
+    #[inline]
+    pub fn patch_values(&self) -> &ArrayRef {
+        self.slots[VALUES_SLOT]
+            .as_ref()
+            .vortex_expect("PatchedArray values slot")
     }
 }
 
@@ -209,9 +246,9 @@ impl PatchedArray {
         assert!(chunk * 1024 <= self.len + self.offset);
         assert!(lane < self.n_lanes);
 
-        let start = self.lane_offsets.scalar_at(chunk * self.n_lanes + lane)?;
+        let start = self.lane_offsets().scalar_at(chunk * self.n_lanes + lane)?;
         let stop = self
-            .lane_offsets
+            .lane_offsets()
             .scalar_at(chunk * self.n_lanes + lane + 1)?;
 
         let start = start
@@ -233,10 +270,10 @@ impl PatchedArray {
         let lane_offsets_stop = chunks.end * self.n_lanes + 1;
 
         let sliced_lane_offsets = self
-            .lane_offsets
+            .lane_offsets()
             .slice(lane_offsets_start..lane_offsets_stop)?;
-        let indices = self.indices.clone();
-        let values = self.values.clone();
+        let indices = self.patch_indices().clone();
+        let values = self.patch_values().clone();
 
         // Find the new start/end for slicing the inner array.
         // The inner array has already been sliced to start at position `offset` in absolute terms,
@@ -248,18 +285,20 @@ impl PatchedArray {
 
         let offset = if chunks.start == 0 { self.offset } else { 0 };
 
-        let inner = self.inner.slice(begin..end)?;
+        let inner = self.base_array().slice(begin..end)?;
 
         let len = end - begin;
 
         Ok(PatchedArray {
-            inner,
+            slots: vec![
+                Some(inner),
+                Some(sliced_lane_offsets),
+                Some(indices),
+                Some(values),
+            ],
             n_lanes: self.n_lanes,
             offset,
             len,
-            indices,
-            values,
-            lane_offsets: sliced_lane_offsets,
             stats_set: ArrayStats::default(),
         })
     }
