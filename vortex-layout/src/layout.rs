@@ -30,9 +30,7 @@ pub type LayoutId = ArcRef<str>;
 
 pub type LayoutRef = Arc<dyn Layout>;
 
-pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
-    fn as_any(&self) -> &dyn Any;
-
+pub trait Layout: 'static + Send + Sync + Debug + Any + private::Sealed {
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 
     fn to_layout(&self) -> LayoutRef;
@@ -151,7 +149,7 @@ impl dyn Layout + '_ {
 
     /// Downcast a layout to a specific type.
     pub fn as_opt<V: VTable>(&self) -> Option<&V::Layout> {
-        self.as_any()
+        (self as &dyn Any)
             .downcast_ref::<LayoutAdapter<V>>()
             .map(|adapter| &adapter.0)
     }
@@ -261,10 +259,6 @@ impl<V: VTable> Debug for LayoutAdapter<V> {
 }
 
 impl<V: VTable> Layout for LayoutAdapter<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
     }

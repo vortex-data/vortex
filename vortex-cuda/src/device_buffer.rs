@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::cmp::min;
 use std::fmt::Debug;
 use std::ops::Range;
@@ -114,7 +115,7 @@ impl CudaDeviceBuffer {
         // Return a new &[T]
         let new_len = self.len / size_of::<T>();
 
-        // SAFETY: All DeviecRepr types are aligned to < 256 bytes, which is what CUDA allocator
+        // SAFETY: All DeviceRepr types are aligned to < 256 bytes, which is what CUDA allocator
         //  gives us back. So we should not suffer any alignment issues at runtime.
         unsafe {
             self.allocation
@@ -152,8 +153,7 @@ impl CudaBufferExt for BufferHandle {
             .as_device_opt()
             .ok_or_else(|| vortex_err!("Buffer is not on device"))?;
 
-        let cuda_buf = device_buffer
-            .as_any()
+        let cuda_buf = (device_buffer.as_ref() as &dyn Any)
             .downcast_ref::<CudaDeviceBuffer>()
             .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
 
@@ -161,10 +161,10 @@ impl CudaBufferExt for BufferHandle {
     }
 
     fn cuda_device_ptr(&self) -> VortexResult<sys::CUdeviceptr> {
-        let ptr = self
+        let device_buf = self
             .as_device_opt()
-            .ok_or_else(|| vortex_err!("Buffer is not on device"))?
-            .as_any()
+            .ok_or_else(|| vortex_err!("Buffer is not on device"))?;
+        let ptr = (device_buf.as_ref() as &dyn Any)
             .downcast_ref::<CudaDeviceBuffer>()
             .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?
             .offset_ptr();
@@ -320,10 +320,6 @@ impl DeviceBuffer for CudaDeviceBuffer {
             device_ptr: self.device_ptr,
             alignment: self.alignment,
         })
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 
     fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {

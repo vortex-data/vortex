@@ -33,8 +33,9 @@ use crate::dtype::DType;
 ///
 /// Options are stored inside the implementing [`AggregateFnInner<V>`], not passed externally.
 /// This is the sole trait behind [`AggregateFnRef`]'s `Arc<dyn DynAggregateFn>`.
-pub(super) trait DynAggregateFn: 'static + Send + Sync + super::sealed::Sealed {
-    fn as_any(&self) -> &dyn Any;
+pub(super) trait DynAggregateFn:
+    'static + Send + Sync + Any + super::sealed::Sealed
+{
     fn id(&self) -> AggregateFnId;
     fn options_any(&self) -> &dyn Any;
 
@@ -62,11 +63,6 @@ pub(super) struct AggregateFnInner<V: AggregateFnVTable> {
 }
 
 impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
-    #[inline(always)]
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     #[inline(always)]
     fn id(&self) -> AggregateFnId {
         V::id(&self.vtable)

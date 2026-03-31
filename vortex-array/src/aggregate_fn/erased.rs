@@ -3,6 +3,7 @@
 
 //! Type-erased aggregate function ([`AggregateFnRef`]).
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -41,7 +42,7 @@ impl AggregateFnRef {
 
     /// Returns whether the aggregate function is of the given vtable type.
     pub fn is<V: AggregateFnVTable>(&self) -> bool {
-        self.0.as_any().is::<AggregateFnInner<V>>()
+        (self.0.as_ref() as &dyn Any).is::<AggregateFnInner<V>>()
     }
 
     /// Returns the typed options for this aggregate function if it matches the given vtable type.
@@ -56,7 +57,7 @@ impl AggregateFnRef {
 
     /// Downcast the inner to the concrete `AggregateFnInner<V>`.
     fn downcast_inner<V: AggregateFnVTable>(&self) -> Option<&AggregateFnInner<V>> {
-        self.0.as_any().downcast_ref::<AggregateFnInner<V>>()
+        (self.0.as_ref() as &dyn Any).downcast_ref::<AggregateFnInner<V>>()
     }
 
     /// Returns the typed options for this aggregate function if it matches the given vtable type.

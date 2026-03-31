@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::mem::MaybeUninit;
 
 use vortex_buffer::BufferMut;
@@ -131,14 +130,6 @@ impl<T: NativePType> PrimitiveBuilder<T> {
 }
 
 impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn dtype(&self) -> &DType {
         &self.dtype
     }

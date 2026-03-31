@@ -266,10 +266,7 @@ pub trait ReduceCtx {
 pub type ReduceNodeRef = Arc<dyn ReduceNode>;
 
 /// A node used for implementing abstract reduction rules.
-pub trait ReduceNode {
-    /// Downcast to Any.
-    fn as_any(&self) -> &dyn Any;
-
+pub trait ReduceNode: Any {
     /// Return the data type of this node.
     fn node_dtype(&self) -> VortexResult<DType>;
 

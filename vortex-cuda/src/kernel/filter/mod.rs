@@ -7,6 +7,7 @@ mod decimal;
 mod primitive;
 mod varbinview;
 
+use std::any::Any;
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -116,18 +117,14 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
     let stream_ptr = stream.cu_stream() as cudaStream_t;
 
     // Downcast input buffer to get device pointer.
-    let d_input_cuda = d_input
-        .as_device()
-        .as_any()
+    let d_input_cuda = (d_input.as_device().as_ref() as &dyn Any)
         .downcast_ref::<CudaDeviceBuffer>()
         .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer for input, was {d_input:?}",))?;
     let d_input_view = d_input_cuda.as_view::<T>();
     let (d_input_ptr, record_d_input) = d_input_view.device_ptr(stream);
 
     // Downcast to get device pointer.
-    let d_packed_cuda = d_flags
-        .as_device()
-        .as_any()
+    let d_packed_cuda = (d_flags.as_device().as_ref() as &dyn Any)
         .downcast_ref::<CudaDeviceBuffer>()
         .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer for packed flags"))?;
     let d_packed_view = d_packed_cuda.as_view::<u8>();

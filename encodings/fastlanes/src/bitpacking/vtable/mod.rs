@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::hash::Hash;
 use std::sync::Arc;
 
@@ -281,8 +282,7 @@ impl VTable for BitPacked {
         match_each_integer_ptype!(array.ptype(), |T| {
             unpack_into_primitive_builder::<T>(
                 array,
-                builder
-                    .as_any_mut()
+                (builder as &mut dyn Any)
                     .downcast_mut()
                     .vortex_expect("bit packed array must canonicalize into a primitive array"),
                 ctx,

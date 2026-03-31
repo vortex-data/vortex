@@ -23,9 +23,7 @@ use crate::segments::SegmentId;
 pub type LayoutEncodingId = ArcRef<str>;
 pub type LayoutEncodingRef = ArcRef<dyn LayoutEncoding>;
 
-pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
-    fn as_any(&self) -> &dyn Any;
-
+pub trait LayoutEncoding: 'static + Send + Sync + Debug + Any + private::Sealed {
     fn id(&self) -> LayoutEncodingId;
 
     fn build(
@@ -43,10 +41,6 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
 pub struct LayoutEncodingAdapter<V: VTable>(V::Encoding);
 
 impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn id(&self) -> LayoutEncodingId {
         V::id(&self.0)
     }
@@ -120,7 +114,7 @@ impl dyn LayoutEncoding + '_ {
     }
 
     pub fn as_opt<V: VTable>(&self) -> Option<&V::Encoding> {
-        self.as_any()
+        (self as &dyn Any)
             .downcast_ref::<LayoutEncodingAdapter<V>>()
             .map(|e| &e.0)
     }

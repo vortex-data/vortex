@@ -98,6 +98,7 @@ pub(crate) async fn execute_patches<
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
     use std::sync::Arc;
 
     use cudarc::driver::DeviceRepr;
@@ -173,9 +174,7 @@ mod tests {
         } = values.into_parts();
 
         let handle = ctx.ensure_on_device(cuda_buffer).await.unwrap();
-        let device_buf = handle
-            .as_device()
-            .as_any()
+        let device_buf = (handle.as_device().as_ref() as &dyn Any)
             .downcast_ref::<CudaDeviceBuffer>()
             .unwrap()
             .clone();

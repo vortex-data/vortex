@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
+
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::DataType;
@@ -449,11 +451,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8_1ptr_1len<
             throw_runtime!("getUTF8_ptr_len expected UTF8 array");
         }
 
-        if let Some(varbin) = array_ref.inner.as_any().downcast_ref::<VarBinArray>() {
+        if let Some(varbin) = (array_ref.inner.as_ref() as &dyn Any).downcast_ref::<VarBinArray>() {
             let (ptr, len) = get_ptr_len_varbin(index, varbin);
             env.set_long_array_region(&out_ptr, 0, &[ptr as jlong])?;
             env.set_int_array_region(&out_len, 0, &[len as jint])?;
-        } else if let Some(varbinview) = array_ref.inner.as_any().downcast_ref::<VarBinViewArray>()
+        } else if let Some(varbinview) =
+            (array_ref.inner.as_ref() as &dyn Any).downcast_ref::<VarBinViewArray>()
         {
             let (ptr, len) = get_ptr_len_view(index, varbinview);
             env.set_long_array_region(&out_ptr, 0, &[ptr as jlong])?;

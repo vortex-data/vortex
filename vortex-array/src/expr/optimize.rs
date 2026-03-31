@@ -79,8 +79,7 @@ impl Expression {
                 scope: scope.clone(),
             };
             if let Some(reduced) = current.scalar_fn().reduce(&reduce_node, &reduce_ctx)? {
-                let reduced_expr = reduced
-                    .as_any()
+                let reduced_expr = (reduced.as_ref() as &dyn Any)
                     .downcast_ref::<ExpressionReduceNode>()
                     .vortex_expect("ReduceNode not an ExpressionReduceNode")
                     .expression
@@ -241,10 +240,6 @@ struct ExpressionReduceNode {
 }
 
 impl ReduceNode for ExpressionReduceNode {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn node_dtype(&self) -> VortexResult<DType> {
         self.expression.return_dtype(&self.scope)
     }
@@ -279,7 +274,7 @@ impl ReduceCtx for ExpressionReduceCtx {
             children
                 .iter()
                 .map(|c| {
-                    c.as_any()
+                    (c as &dyn Any)
                         .downcast_ref::<ExpressionReduceNode>()
                         .vortex_expect("ReduceNode not an ExpressionReduceNode")
                         .expression

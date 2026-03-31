@@ -92,8 +92,7 @@ impl SessionExt for VortexSession {
         //  would immediately acquire an exclusive write lock.
         if let Some(v) = self.0.get(&TypeId::of::<V>()) {
             return Ref(v.map(|v| {
-                (**v)
-                    .as_any()
+                (&**v as &dyn Any)
                     .downcast_ref::<V>()
                     .vortex_expect("Type mismatch - this is a bug")
             }));
@@ -106,8 +105,7 @@ impl SessionExt for VortexSession {
             .or_insert_with(|| Box::new(V::default()))
             .downgrade()
             .map(|v| {
-                (**v)
-                    .as_any()
+                (&**v as &dyn Any)
                     .downcast_ref::<V>()
                     .vortex_expect("Type mismatch - this is a bug")
             }))
@@ -116,8 +114,7 @@ impl SessionExt for VortexSession {
     fn get_opt<V: SessionVar>(&self) -> Option<Ref<'_, V>> {
         self.0.get(&TypeId::of::<V>()).map(|v| {
             Ref(v.map(|v| {
-                (**v)
-                    .as_any()
+                (&**v as &dyn Any)
                     .downcast_ref::<V>()
                     .vortex_expect("Type mismatch - this is a bug")
             }))
@@ -133,8 +130,7 @@ impl SessionExt for VortexSession {
                 .entry(TypeId::of::<V>())
                 .or_insert_with(|| Box::new(V::default()))
                 .map(|v| {
-                    (**v)
-                        .as_any_mut()
+                    (&mut **v as &mut dyn Any)
                         .downcast_mut::<V>()
                         .vortex_expect("Type mismatch - this is a bug")
                 }),
@@ -144,8 +140,7 @@ impl SessionExt for VortexSession {
     fn get_mut_opt<V: SessionVar>(&self) -> Option<RefMut<'_, V>> {
         self.0.get_mut(&TypeId::of::<V>()).map(|v| {
             RefMut(v.map(|v| {
-                (**v)
-                    .as_any_mut()
+                (&mut **v as &mut dyn Any)
                     .downcast_mut::<V>()
                     .vortex_expect("Type mismatch - this is a bug")
             }))
@@ -179,20 +174,9 @@ impl Hasher for IdHasher {
 }
 
 /// This trait defines variables that can be stored against a Vortex session.
-pub trait SessionVar: Any + Send + Sync + Debug + 'static {
-    fn as_any(&self) -> &dyn Any;
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-}
+pub trait SessionVar: Any + Send + Sync + Debug + 'static {}
 
-impl<T: Send + Sync + Debug + 'static> SessionVar for T {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-}
+impl<T: Send + Sync + Debug + Any + 'static> SessionVar for T {}
 
 // NOTE(ngates): we don't want to expose that the internals of a session is a DashMap, so we have
 // our own wrapped Ref type.

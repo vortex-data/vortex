@@ -76,10 +76,8 @@ pub trait DynArray:
     + DynArrayHash
     + ArrayVisitor
     + ReduceNode
+    + Any
 {
-    /// Returns the array as a reference to a generic [`Any`] trait object.
-    fn as_any(&self) -> &dyn Any;
-
     /// Returns the array as an `Arc<dyn Any + Send + Sync>`.
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 
@@ -165,11 +163,6 @@ pub trait DynArray:
 }
 
 impl DynArray for Arc<dyn DynArray> {
-    #[inline]
-    fn as_any(&self) -> &dyn Any {
-        DynArray::as_any(self.as_ref())
-    }
-
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
     }
@@ -397,10 +390,6 @@ mod private {
 /// This is self-contained: identity methods use `Array<V>`'s own fields (dtype, len, stats),
 /// while data-access methods delegate to VTable methods on the inner `V::Array`.
 impl<V: VTable> DynArray for Array<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
     }
@@ -721,10 +710,6 @@ impl<V: VTable> ArrayVisitor for Array<V> {
 }
 
 impl<V: VTable> ReduceNode for Array<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn node_dtype(&self) -> VortexResult<DType> {
         Ok(self.dtype.clone())
     }
@@ -778,10 +763,6 @@ impl<V: VTable> Debug for ArrayAdapter<V> {
 }
 
 impl<V: VTable> ReduceNode for ArrayAdapter<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn node_dtype(&self) -> VortexResult<DType> {
         Ok(V::dtype(&self.0).clone())
     }
@@ -801,10 +782,6 @@ impl<V: VTable> ReduceNode for ArrayAdapter<V> {
 }
 
 impl<V: VTable> DynArray for ArrayAdapter<V> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
     }
@@ -1130,16 +1107,16 @@ impl<V: VTable> Matcher for V {
     type Match<'a> = &'a V::Array;
 
     fn matches(array: &dyn DynArray) -> bool {
-        DynArray::as_any(array).is::<Array<V>>() || DynArray::as_any(array).is::<ArrayAdapter<V>>()
+        (array as &dyn Any).is::<Array<V>>() || (array as &dyn Any).is::<ArrayAdapter<V>>()
     }
 
     fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
         // Try new Array<V> first.
-        if let Some(typed) = DynArray::as_any(array).downcast_ref::<Array<V>>() {
+        if let Some(typed) = (array as &dyn Any).downcast_ref::<Array<V>>() {
             return Some(typed.inner());
         }
         // Fall back to legacy ArrayAdapter<V>.
-        DynArray::as_any(array)
+        (array as &dyn Any)
             .downcast_ref::<ArrayAdapter<V>>()
             .map(|adapter| adapter.as_inner())
     }

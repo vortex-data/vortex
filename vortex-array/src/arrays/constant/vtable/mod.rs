@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -276,8 +277,7 @@ fn append_value_or_nulls<B: ArrayBuilder + 'static>(
     n: usize,
     fill: impl FnOnce(&mut B),
 ) {
-    let b = builder
-        .as_any_mut()
+    let b = (builder as &mut dyn Any)
         .downcast_mut::<B>()
         .vortex_expect("builder dtype must match array dtype");
     if is_null {

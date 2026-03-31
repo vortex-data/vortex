@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -233,14 +232,6 @@ impl VarBinViewBuilder {
 }
 
 impl ArrayBuilder for VarBinViewBuilder {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn dtype(&self) -> &DType {
         &self.dtype
     }

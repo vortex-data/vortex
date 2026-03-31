@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::ops::Deref;
 
 use pyo3::PyClass;
@@ -252,7 +253,7 @@ pub trait AsArrayRef<T> {
 
 impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::Array> for PyRef<'_, V> {
     fn as_array_ref(&self) -> &<V::VTable as VTable>::Array {
-        let any = self.as_super().inner().as_any();
+        let any = self.as_super().inner().as_ref() as &dyn Any;
         // Try new Array<V> path first, then fall back to legacy ArrayAdapter<V>.
         if let Some(typed) = any.downcast_ref::<Array<V::VTable>>() {
             return typed.inner();

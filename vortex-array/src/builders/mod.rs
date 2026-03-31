@@ -75,11 +75,7 @@ mod tests;
 /// This is equal to the default capacity for Arrow Arrays.
 pub const DEFAULT_BUILDER_CAPACITY: usize = 1024;
 
-pub trait ArrayBuilder: Send {
-    fn as_any(&self) -> &dyn Any;
-
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-
+pub trait ArrayBuilder: Send + Any {
     fn dtype(&self) -> &DType;
 
     fn len(&self) -> usize;

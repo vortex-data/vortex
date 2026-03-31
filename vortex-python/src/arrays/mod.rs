@@ -9,6 +9,8 @@ mod native;
 pub(crate) mod py;
 mod range_to_sequence;
 
+use std::any::Any;
+
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use pyo3::IntoPyObjectExt;
@@ -119,7 +121,7 @@ impl<'py> IntoPyObject<'py> for PyArrayRef {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         // If the ArrayRef is a PyArrayInstance, extract the Python object.
-        if let Some(pyarray) = DynArray::as_any(&*self.0).downcast_ref::<PythonArray>() {
+        if let Some(pyarray) = (self.0.as_ref() as &dyn Any).downcast_ref::<PythonArray>() {
             return pyarray.clone().into_pyobject(py);
         }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -223,8 +224,7 @@ impl<V: VTable> DynVTable for V {
 
 /// Borrow-downcast an `ArrayRef` to `&Array<V>`.
 fn downcast<V: VTable>(array: &ArrayRef) -> &Array<V> {
-    array
-        .as_any()
+    (array.as_ref() as &dyn Any)
         .downcast_ref::<Array<V>>()
         .vortex_expect("Failed to downcast array to expected encoding type")
 }

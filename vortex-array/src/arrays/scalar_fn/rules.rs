@@ -119,8 +119,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
             .reduce(array, &ArrayReduceCtx { len: array.len })?
         {
             return Ok(Some(
-                reduced
-                    .as_any()
+                (reduced.as_ref() as &dyn Any)
                     .downcast_ref::<ArrayRef>()
                     .vortex_expect("ReduceNode is not an ArrayRef")
                     .clone(),
@@ -131,10 +130,6 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
 }
 
 impl ReduceNode for ScalarFnArray {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn node_dtype(&self) -> VortexResult<DType> {
         Ok(self.dtype().clone())
     }
@@ -154,10 +149,6 @@ impl ReduceNode for ScalarFnArray {
 }
 
 impl ReduceNode for ArrayRef {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn node_dtype(&self) -> VortexResult<DType> {
         self.as_ref().node_dtype()
     }
@@ -191,7 +182,7 @@ impl ReduceCtx for ArrayReduceCtx {
                 children
                     .iter()
                     .map(|c| {
-                        c.as_any()
+                        (c as &dyn Any)
                             .downcast_ref::<ArrayRef>()
                             .vortex_expect("ReduceNode is not an ArrayRef")
                             .clone()

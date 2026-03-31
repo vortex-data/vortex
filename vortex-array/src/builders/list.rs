@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
@@ -165,14 +164,6 @@ impl<O: IntegerPType> ListBuilder<O> {
 }
 
 impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
     fn dtype(&self) -> &DType {
         &self.dtype
     }

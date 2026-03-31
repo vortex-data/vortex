@@ -43,10 +43,7 @@ enum Inner {
 }
 
 /// A buffer that is stored on the GPU.
-pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
-    /// Returns a reference as `Any` to enable downcasting.
-    fn as_any(&self) -> &dyn Any;
-
+pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash + Any {
     /// Returns the length of the buffer in bytes.
     fn len(&self) -> usize;
 

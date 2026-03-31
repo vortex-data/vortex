@@ -6,6 +6,7 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::cast_possible_truncation)]
 
+use std::any::Any;
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::mem::size_of;
@@ -173,9 +174,7 @@ where
                             let d_input_handle =
                                 block_on(cuda_ctx.copy_to_device(input_data.clone()).unwrap())
                                     .vortex_expect("failed to copy input to device");
-                            let d_input = d_input_handle
-                                .as_device()
-                                .as_any()
+                            let d_input = (d_input_handle.as_device().as_ref() as &dyn Any)
                                 .downcast_ref::<CudaDeviceBuffer>()
                                 .unwrap();
 
@@ -183,9 +182,7 @@ where
                             let d_bitmask_handle =
                                 block_on(cuda_ctx.copy_to_device(bitmask.clone()).unwrap())
                                     .vortex_expect("failed to copy bitmask to device");
-                            let d_bitmask = d_bitmask_handle
-                                .as_device()
-                                .as_any()
+                            let d_bitmask = (d_bitmask_handle.as_device().as_ref() as &dyn Any)
                                 .downcast_ref::<CudaDeviceBuffer>()
                                 .unwrap();
 

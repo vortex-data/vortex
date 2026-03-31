@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
@@ -174,7 +175,7 @@ impl VTable for FSST {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
+        let Some(builder) = (builder as &mut dyn Any).downcast_mut::<VarBinViewBuilder>() else {
             builder.extend_from_array(
                 &array
                     .clone()
