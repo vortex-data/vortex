@@ -12,6 +12,7 @@ use super::common::create_single_element_fsl;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
@@ -136,22 +137,23 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
 #[rstest]
 #[case::non_nullable(
     FixedSizeListArray::new(
-        buffer![0u8; 320].into_array(), 16, Validity::NonNullable, 20,
+        PrimitiveArray::from_iter(0u32..320).into_array(), 16, Validity::NonNullable, 20,
     ),
-    buffer![0u8, 16, 19].into_array(),
+    buffer![0u8, 16, 5].into_array(),
     FixedSizeListArray::new(
-        buffer![0u8; 48].into_array(), 16, Validity::NonNullable, 3,
+        PrimitiveArray::from_iter((0u32..16).chain(256..272).chain(80..96)).into_array(),
+        16, Validity::NonNullable, 3,
     ),
 )]
 #[case::nullable(
     FixedSizeListArray::new(
-        buffer![0u8; 320].into_array(), 16,
+        PrimitiveArray::from_iter(0u32..320).into_array(), 16,
         Validity::from_iter((0..20).map(|i| i != 5)), 20,
     ),
     buffer![0u8, 16, 5].into_array(),
     FixedSizeListArray::new(
-        buffer![0u8; 48].into_array(), 16,
-        Validity::from_iter([true, true, false]), 3,
+        PrimitiveArray::from_iter((0u32..16).chain(256..272).chain(80..96)).into_array(),
+        16, Validity::from_iter([true, true, false]), 3,
     ),
 )]
 fn test_element_index_overflow(
@@ -159,7 +161,7 @@ fn test_element_index_overflow(
     #[case] indices: ArrayRef,
     #[case] expected: FixedSizeListArray,
 ) {
-    let result = fsl.take(indices.to_array()).unwrap();
+    let result = fsl.take(indices).unwrap().to_fixed_size_list();
     assert_arrays_eq!(expected, result);
 }
 
