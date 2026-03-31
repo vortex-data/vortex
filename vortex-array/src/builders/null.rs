@@ -8,7 +8,6 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::NullArray;
 use crate::builders::ArrayBuilder;

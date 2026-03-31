@@ -19,7 +19,6 @@ use super::Dict;
 use super::DictArray;
 use super::TakeExecute;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::filter::FilterReduce;
@@ -59,7 +58,6 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;

@@ -32,7 +32,6 @@ mod test {
     use std::ops::Range;
 
     use vortex_array::ArrayRef;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;

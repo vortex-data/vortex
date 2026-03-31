@@ -47,7 +47,6 @@ impl SliceReduce for BitPacked {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;

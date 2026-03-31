@@ -19,8 +19,6 @@ use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_array::ArrayRef;
-use vortex_array::ArrayVisitorExt;
-use vortex_array::DynArray;
 use vortex_array::MaskFuture;
 use vortex_array::expr::root;
 use vortex_array::expr::stats::Stat;

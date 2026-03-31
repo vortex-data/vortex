@@ -62,6 +62,10 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
 /// The public API trait for all Vortex arrays.
+///
+/// This trait is sealed and cannot be implemented outside of `vortex-array`.
+/// Use [`ArrayRef`] as the primary handle for working with arrays.
+#[doc(hidden)]
 pub trait DynArray:
     'static + private::Sealed + Send + Sync + Debug + DynArrayEq + DynArrayHash + ArrayVisitor
 {
@@ -155,134 +159,193 @@ pub trait DynArray:
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 }
 
-impl DynArray for Arc<dyn DynArray> {
-    #[inline]
-    fn as_any(&self) -> &dyn Any {
-        DynArray::as_any(self.as_ref())
+/// A reference-counted pointer to a type-erased array.
+#[derive(Clone)]
+pub struct ArrayRef(Arc<dyn DynArray>);
+
+impl ArrayRef {
+    /// Create from an `Arc<dyn DynArray>`.
+    pub fn from_inner(inner: Arc<dyn DynArray>) -> Self {
+        Self(inner)
     }
 
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
-        self
+    /// Returns a reference to the inner Arc.
+    pub fn inner(&self) -> &Arc<dyn DynArray> {
+        &self.0
     }
 
-    #[inline]
-    fn to_array(&self) -> ArrayRef {
-        self.clone()
+    /// Returns a reference to the inner dyn DynArray.
+    pub fn as_dyn(&self) -> &dyn DynArray {
+        self.0.as_ref()
     }
 
-    #[inline]
-    fn len(&self) -> usize {
-        self.as_ref().len()
+    /// Returns true if the two ArrayRefs point to the same allocation.
+    pub fn ptr_eq(this: &ArrayRef, other: &ArrayRef) -> bool {
+        Arc::ptr_eq(&this.0, &other.0)
+    }
+}
+
+impl<V: VTable> From<Array<V>> for ArrayRef {
+    fn from(value: Array<V>) -> Self {
+        Self(Arc::new(value))
+    }
+}
+
+impl<V: VTable> From<Arc<Array<V>>> for ArrayRef {
+    fn from(value: Arc<Array<V>>) -> Self {
+        Self(value)
+    }
+}
+
+impl Deref for ArrayRef {
+    type Target = dyn DynArray;
+    fn deref(&self) -> &dyn DynArray {
+        self.0.as_ref()
+    }
+}
+
+impl AsRef<dyn DynArray> for ArrayRef {
+    fn as_ref(&self) -> &dyn DynArray {
+        self.0.as_ref()
+    }
+}
+
+impl Debug for ArrayRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&*self.0, f)
+    }
+}
+
+impl std::fmt::Display for ArrayRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&*self.0, f)
+    }
+}
+
+#[allow(clippy::same_name_method)]
+impl ArrayRef {
+    /// Returns the array as a reference to a generic [`Any`] trait object.
+    pub fn as_any(&self) -> &dyn Any {
+        self.0.as_any()
     }
 
-    #[inline]
-    fn dtype(&self) -> &DType {
-        self.as_ref().dtype()
+    /// Returns the array as an `Arc<dyn Any + Send + Sync>`.
+    pub fn as_any_arc(self) -> Arc<dyn Any + Send + Sync> {
+        self.0.as_any_arc()
     }
 
-    fn vtable(&self) -> &dyn DynVTable {
-        self.as_ref().vtable()
+    /// Returns the length of the array.
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 
-    #[inline]
-    fn encoding_id(&self) -> ArrayId {
-        self.as_ref().encoding_id()
+    /// Returns whether the array is empty (has zero rows).
+    pub fn is_empty(&self) -> bool {
+        self.0.len() == 0
     }
 
-    #[inline]
-    fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
-        self.as_ref().slice(range)
+    /// Returns the logical Vortex [`DType`] of the array.
+    pub fn dtype(&self) -> &DType {
+        self.0.dtype()
     }
 
-    fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        self.as_ref().filter(mask)
+    /// Returns the vtable of the array.
+    pub fn vtable(&self) -> &dyn DynVTable {
+        self.0.vtable()
     }
 
-    fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        self.as_ref().take(indices)
+    /// Returns the encoding ID of the array.
+    pub fn encoding_id(&self) -> ArrayId {
+        self.0.encoding_id()
     }
 
-    #[inline]
-    fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        self.as_ref().scalar_at(index)
+    /// Performs a constant-time slice of the array.
+    pub fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
+        self.0.slice(range)
     }
 
-    #[inline]
-    fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.as_ref().is_valid(index)
+    /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
+    pub fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        self.0.filter(mask)
     }
 
-    #[inline]
-    fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        self.as_ref().is_invalid(index)
+    /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
+    pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
+        self.0.take(indices)
     }
 
-    #[inline]
-    fn all_valid(&self) -> VortexResult<bool> {
-        self.as_ref().all_valid()
+    /// Fetch the scalar at the given index.
+    pub fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
+        self.0.scalar_at(index)
     }
 
-    #[inline]
-    fn all_invalid(&self) -> VortexResult<bool> {
-        self.as_ref().all_invalid()
+    /// Returns whether the item at `index` is valid.
+    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        self.0.is_valid(index)
     }
 
-    #[inline]
-    fn valid_count(&self) -> VortexResult<usize> {
-        self.as_ref().valid_count()
+    /// Returns whether the item at `index` is invalid.
+    pub fn is_invalid(&self, index: usize) -> VortexResult<bool> {
+        self.0.is_invalid(index)
     }
 
-    #[inline]
-    fn invalid_count(&self) -> VortexResult<usize> {
-        self.as_ref().invalid_count()
+    /// Returns whether all items in the array are valid.
+    pub fn all_valid(&self) -> VortexResult<bool> {
+        self.0.all_valid()
     }
 
-    #[inline]
-    fn validity(&self) -> VortexResult<Validity> {
-        self.as_ref().validity()
+    /// Returns whether the array is all invalid.
+    pub fn all_invalid(&self) -> VortexResult<bool> {
+        self.0.all_invalid()
     }
 
-    #[inline]
-    fn validity_mask(&self) -> VortexResult<Mask> {
-        self.as_ref().validity_mask()
+    /// Returns the number of valid elements in the array.
+    pub fn valid_count(&self) -> VortexResult<usize> {
+        self.0.valid_count()
     }
 
-    fn to_canonical(&self) -> VortexResult<Canonical> {
-        self.as_ref().to_canonical()
+    /// Returns the number of invalid elements in the array.
+    pub fn invalid_count(&self) -> VortexResult<usize> {
+        self.0.invalid_count()
     }
 
-    fn append_to_builder(
+    /// Returns the [`Validity`] of the array.
+    pub fn validity(&self) -> VortexResult<Validity> {
+        self.0.validity()
+    }
+
+    /// Returns the canonical validity mask for the array.
+    pub fn validity_mask(&self) -> VortexResult<Mask> {
+        self.0.validity_mask()
+    }
+
+    /// Returns the canonical representation of the array.
+    pub fn to_canonical(&self) -> VortexResult<Canonical> {
+        self.0.to_canonical()
+    }
+
+    /// Writes the array into the canonical builder.
+    pub fn append_to_builder(
         &self,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        self.as_ref().append_to_builder(builder, ctx)
+        self.0.append_to_builder(builder, ctx)
     }
 
-    fn statistics(&self) -> StatsSetRef<'_> {
-        self.as_ref().statistics()
+    /// Returns the statistics of the array.
+    pub fn statistics(&self) -> StatsSetRef<'_> {
+        self.0.statistics()
     }
 
-    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        self.as_ref().with_children(children)
+    /// Replaces the children of the array with the given array references.
+    pub fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+        self.0.with_children(children)
     }
-}
 
-/// A reference counted pointer to a dynamic [`DynArray`] trait object.
-pub type ArrayRef = Arc<dyn DynArray>;
-
-impl ToOwned for dyn DynArray {
-    type Owned = ArrayRef;
-
-    fn to_owned(&self) -> Self::Owned {
-        self.to_array()
-    }
-}
-
-impl dyn DynArray + '_ {
     /// Does the array match the given matcher.
     pub fn is<M: Matcher>(&self) -> bool {
-        M::matches(self)
+        M::matches(&*self.0)
     }
 
     /// Returns the array downcast by the given matcher.
@@ -292,16 +355,16 @@ impl dyn DynArray + '_ {
 
     /// Returns the array downcast by the given matcher.
     pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
-        M::try_match(self)
+        M::try_match(&*self.0)
     }
 
     /// Returns the array downcast to the given `Array<V>` as an owned object.
-    pub fn try_into<V: VTable>(self: Arc<Self>) -> Result<Array<V>, Arc<Self>> {
+    pub fn try_into<V: VTable>(self) -> Result<Array<V>, ArrayRef> {
         if !self.is::<V>() {
             return Err(self);
         }
-        let any_arc = self.as_any_arc();
-        let typed: Arc<Array<V>> = any_arc
+        let arc = self.0.as_any_arc();
+        let typed: Arc<Array<V>> = arc
             .downcast::<Array<V>>()
             .map_err(|_| vortex_err!("failed to downcast"))
             .vortex_expect("Failed to downcast");
@@ -313,9 +376,10 @@ impl dyn DynArray + '_ {
 
     /// Returns a reference to the typed `Array<V>` if this array matches the given vtable type.
     pub fn as_typed<V: VTable>(&self) -> Option<&Array<V>> {
-        DynArray::as_any(self).downcast_ref::<Array<V>>()
+        self.0.as_any().downcast_ref::<Array<V>>()
     }
 
+    /// Returns the constant scalar if this is a constant array.
     pub fn as_constant(&self) -> Option<Scalar> {
         self.as_opt::<Constant>().map(|a| a.scalar().clone())
     }
@@ -323,7 +387,7 @@ impl dyn DynArray + '_ {
     /// Total size of the array in bytes, including all children and buffers.
     pub fn nbytes(&self) -> u64 {
         let mut nbytes = 0;
-        for array in self.depth_first_traversal() {
+        for array in self.0.depth_first_traversal() {
             for buffer in array.buffers() {
                 nbytes += buffer.len() as u64;
             }
@@ -357,6 +421,108 @@ impl dyn DynArray + '_ {
         children[child_idx] = replacement;
         self.with_children(children)
     }
+
+    // ArrayVisitor delegation methods
+
+    /// Returns the children of the array.
+    pub fn children(&self) -> Vec<ArrayRef> {
+        self.0.children()
+    }
+
+    /// Returns the number of children of the array.
+    pub fn nchildren(&self) -> usize {
+        self.0.nchildren()
+    }
+
+    /// Returns the nth child of the array without allocating a Vec.
+    pub fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
+        self.0.nth_child(idx)
+    }
+
+    /// Returns the names of the children of the array.
+    pub fn children_names(&self) -> Vec<String> {
+        self.0.children_names()
+    }
+
+    /// Returns the array's children with their names.
+    pub fn named_children(&self) -> Vec<(String, ArrayRef)> {
+        self.0.named_children()
+    }
+
+    /// Returns the data buffers of the array.
+    pub fn buffers(&self) -> Vec<ByteBuffer> {
+        self.0.buffers()
+    }
+
+    /// Returns the buffer handles of the array.
+    pub fn buffer_handles(&self) -> Vec<BufferHandle> {
+        self.0.buffer_handles()
+    }
+
+    /// Returns the names of the buffers of the array.
+    pub fn buffer_names(&self) -> Vec<String> {
+        self.0.buffer_names()
+    }
+
+    /// Returns the array's buffers with their names.
+    pub fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
+        self.0.named_buffers()
+    }
+
+    /// Returns the number of data buffers of the array.
+    pub fn nbuffers(&self) -> usize {
+        self.0.nbuffers()
+    }
+
+    /// Returns the serialized metadata of the array.
+    pub fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
+        self.0.metadata()
+    }
+
+    /// Returns whether all buffers are host-resident.
+    pub fn is_host(&self) -> bool {
+        self.0.is_host()
+    }
+
+    // ArrayVisitorExt delegation methods
+
+    /// Count the number of buffers encoded by self and all child arrays.
+    pub fn nbuffers_recursive(&self) -> usize {
+        self.0.nbuffers_recursive()
+    }
+
+    /// Depth-first traversal of the array and its children.
+    pub fn depth_first_traversal(&self) -> impl Iterator<Item = ArrayRef> {
+        self.0.depth_first_traversal()
+    }
+
+    /// Returns a clone of this ArrayRef as an ArrayRef (for compatibility).
+    pub fn to_array(&self) -> ArrayRef {
+        self.clone()
+    }
+}
+
+// Internal-only methods on dyn DynArray for use within the crate.
+impl dyn DynArray + '_ {
+    /// Does the array match the given matcher.
+    pub(crate) fn is<M: Matcher>(&self) -> bool {
+        M::matches(self)
+    }
+
+    /// Returns the array downcast by the given matcher.
+    pub(crate) fn as_<M: Matcher>(&self) -> M::Match<'_> {
+        self.as_opt::<M>().vortex_expect("Failed to downcast")
+    }
+
+    /// Returns the array downcast by the given matcher.
+    pub(crate) fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
+        M::try_match(self)
+    }
+
+    /// Returns a reference to the typed `Array<V>` if this array matches the given vtable type.
+    pub(crate) fn as_typed<V: VTable>(&self) -> Option<&Array<V>> {
+        DynArray::as_any(self).downcast_ref::<Array<V>>()
+    }
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -376,7 +542,6 @@ mod private {
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for Array<V> {}
-    impl Sealed for Arc<dyn DynArray> {}
 }
 
 // =============================================================================
@@ -397,7 +562,7 @@ impl<V: VTable> DynArray for Array<V> {
     }
 
     fn to_array(&self) -> ArrayRef {
-        Arc::new(self.clone())
+        ArrayRef::from_inner(Arc::new(self.clone()))
     }
 
     fn len(&self) -> usize {
@@ -619,7 +784,7 @@ impl<V: VTable> DynArray for Array<V> {
         let mut inner = self.data.clone();
         V::with_children(&mut inner, children)?;
         // SAFETY: with_children preserves dtype and len.
-        Ok(unsafe {
+        Ok(ArrayRef::from_inner(Arc::new(unsafe {
             Array::from_data_unchecked(
                 self.vtable().clone(),
                 self.dtype.clone(),
@@ -627,8 +792,7 @@ impl<V: VTable> DynArray for Array<V> {
                 inner,
                 self.stats.clone(),
             )
-        }
-        .into_array())
+        })))
     }
 }
 

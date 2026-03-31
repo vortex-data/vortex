@@ -825,7 +825,6 @@ impl RewritingViewAdjustment {
 mod tests {
     use vortex_error::VortexResult;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;

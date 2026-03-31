@@ -9,7 +9,6 @@ use humansize::format_size;
 use vortex_error::VortexExpect as _;
 
 use crate::ArrayRef;
-use crate::ArrayVisitor;
 use crate::DynArray;
 use crate::arrays::Chunked;
 use crate::display::DisplayOptions;

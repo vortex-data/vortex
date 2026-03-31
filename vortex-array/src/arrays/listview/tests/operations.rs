@@ -10,7 +10,6 @@ use vortex_mask::Mask;
 use super::common::create_basic_listview;
 use super::common::create_large_listview;
 use super::common::create_nullable_listview;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::ToCanonical;
@@ -459,13 +458,8 @@ fn test_constant_with_nulls() {
     // Case 2: All nulls - should be constant.
     let validity_all_null = Validity::AllInvalid;
     let listview_all_null = unsafe {
-        ListViewArray::new_unchecked(
-            elements.clone(),
-            offsets.clone(),
-            sizes.clone(),
-            validity_all_null,
-        )
-        .with_zero_copy_to_list(true)
+        ListViewArray::new_unchecked(elements, offsets, sizes, validity_all_null)
+            .with_zero_copy_to_list(true)
     }
     .into_array();
     let mut ctx2 = LEGACY_SESSION.create_execution_ctx();
@@ -516,7 +510,7 @@ fn test_mask_preserves_structure() {
 
     // Mask sets elements to null where true.
     let selection = Mask::from_iter([true, false, true, true]);
-    let result = listview.clone().mask((!&selection).into_array()).unwrap();
+    let result = listview.mask((!&selection).into_array()).unwrap();
 
     assert_eq!(result.len(), 4); // Length is preserved.
     let result_list = result.to_listview();
@@ -555,7 +549,7 @@ fn test_mask_with_existing_nulls() {
 
     // Mask additional elements.
     let selection = Mask::from_iter([false, true, true]);
-    let result = listview.clone().mask((!&selection).into_array()).unwrap();
+    let result = listview.mask((!&selection).into_array()).unwrap();
     let result_list = result.to_listview();
 
     // Check combined validity:
@@ -575,7 +569,7 @@ fn test_mask_with_gaps() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
 
     let selection = Mask::from_iter([true, false, false]);
-    let result = listview.clone().mask((!&selection).into_array()).unwrap();
+    let result = listview.mask((!&selection).into_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);
@@ -607,7 +601,7 @@ fn test_mask_constant_arrays() {
     .into_array();
 
     let selection = Mask::from_iter([false, true, false]);
-    let result = const_list.clone().mask((!&selection).into_array()).unwrap();
+    let result = const_list.mask((!&selection).into_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);

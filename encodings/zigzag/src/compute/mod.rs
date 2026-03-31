@@ -5,7 +5,6 @@ use crate::ZigZagData;
 mod cast;
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
@@ -73,7 +72,6 @@ impl ZigZagEncoded for u64 {
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;

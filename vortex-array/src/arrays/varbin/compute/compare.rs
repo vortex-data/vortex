@@ -11,7 +11,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -118,13 +117,13 @@ impl CompareKernel for VarBin {
             // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
-            return Ok(Some(
+            Ok(Some(
                 lhs.clone()
                     .into_array()
                     .execute::<VarBinViewArray>(ctx)?
                     .into_array()
                     .binary(rhs.to_array(), Operator::from(operator))?,
-            ));
+            ))
         } else {
             Ok(None)
         }
@@ -215,7 +214,6 @@ mod test {
 
 #[cfg(test)]
 mod tests {
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;

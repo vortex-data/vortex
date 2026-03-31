@@ -4,7 +4,6 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::validity::Validity;
 use crate::vtable::Array;
 use crate::vtable::VTable;

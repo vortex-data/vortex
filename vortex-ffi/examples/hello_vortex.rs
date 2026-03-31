@@ -19,7 +19,6 @@ use std::sync::LazyLock;
 
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::StructArray;

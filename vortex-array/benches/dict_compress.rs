@@ -6,7 +6,6 @@
 use divan::Bencher;
 use rand::distr::Distribution;
 use rand::distr::StandardUniform;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;

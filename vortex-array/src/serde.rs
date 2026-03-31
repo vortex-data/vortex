@@ -29,7 +29,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayContext;
 use crate::ArrayRef;
-use crate::ArrayVisitor;
 use crate::ArrayVisitorExt;
 use crate::DynArray;
 use crate::buffer::BufferHandle;
@@ -48,7 +47,7 @@ pub struct SerializeOptions {
     pub include_padding: bool,
 }
 
-impl dyn DynArray + '_ {
+impl ArrayRef {
     /// Serialize the array into a sequence of byte buffers that should be written contiguously.
     /// This function returns a vec to avoid copying data buffers.
     ///
@@ -120,7 +119,7 @@ impl dyn DynArray + '_ {
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
 
-        let root = ArrayNodeFlatBuffer::try_new(ctx, self)?;
+        let root = ArrayNodeFlatBuffer::try_new(ctx, &**self)?;
         let fb_root = root.try_write_flatbuffer(&mut fbb)?;
 
         let fb_buffers = fbb.create_vector(&fb_buffers);
@@ -225,7 +224,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 // Update the number of buffers required.
                 let msg = ArrayNodeFlatBuffer {
                     ctx: self.ctx,
-                    array: child,
+                    array: &**child,
                     buffer_idx: child_buffer_idx,
                 }
                 .try_write_flatbuffer(fbb)?;

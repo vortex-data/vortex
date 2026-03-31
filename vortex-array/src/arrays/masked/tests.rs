@@ -5,7 +5,6 @@ use rstest::rstest;
 use vortex_error::VortexResult;
 
 use super::*;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::ToCanonical as _;
@@ -73,7 +72,7 @@ fn test_masked_child_with_validity() {
 fn test_masked_child_all_valid() {
     // When validity is AllValid, masked_child should invert to AllInvalid.
     let child = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
-    let array = MaskedArray::try_new(child.clone(), Validity::AllValid).unwrap();
+    let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
 
     assert_eq!(array.len(), 3);
     assert_eq!(array.valid_count().unwrap(), 3);

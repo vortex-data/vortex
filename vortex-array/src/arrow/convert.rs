@@ -1008,14 +1008,13 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be TemporalArray with Second time unit
-        let temporal_array = TemporalArray::try_from(vortex_array.clone()).unwrap();
+        let temporal_array = TemporalArray::try_from(vortex_array).unwrap();
         assert_eq!(
             temporal_array.temporal_metadata().time_unit(),
             TimeUnit::Seconds
         );
 
-        let temporal_array_non_null =
-            TemporalArray::try_from(vortex_array_non_null.clone()).unwrap();
+        let temporal_array_non_null = TemporalArray::try_from(vortex_array_non_null).unwrap();
         assert_eq!(
             temporal_array_non_null.temporal_metadata().time_unit(),
             TimeUnit::Seconds
@@ -1112,14 +1111,13 @@ mod tests {
         assert_eq!(vortex_array_non_null.len(), 4);
 
         // Verify metadata - should be TemporalArray with Second time unit
-        let temporal_array = TemporalArray::try_from(vortex_array.clone()).unwrap();
+        let temporal_array = TemporalArray::try_from(vortex_array).unwrap();
         assert_eq!(
             temporal_array.temporal_metadata().time_unit(),
             TimeUnit::Seconds
         );
 
-        let temporal_array_non_null =
-            TemporalArray::try_from(vortex_array_non_null.clone()).unwrap();
+        let temporal_array_non_null = TemporalArray::try_from(vortex_array_non_null).unwrap();
         assert_eq!(
             temporal_array_non_null.temporal_metadata().time_unit(),
             TimeUnit::Seconds

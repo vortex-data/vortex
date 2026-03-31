@@ -6,7 +6,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;

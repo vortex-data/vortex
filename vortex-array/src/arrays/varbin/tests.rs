@@ -7,7 +7,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;

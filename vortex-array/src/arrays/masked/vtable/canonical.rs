@@ -6,7 +6,6 @@ mod tests {
     use rstest::rstest;
     use vortex_error::VortexResult;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;

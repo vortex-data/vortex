@@ -21,7 +21,6 @@ use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;

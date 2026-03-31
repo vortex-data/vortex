@@ -9,7 +9,6 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;

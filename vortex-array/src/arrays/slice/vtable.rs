@@ -20,7 +20,6 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::slice::array::SliceData;
@@ -217,7 +216,6 @@ impl Debug for SliceMetadata {
 mod tests {
     use vortex_error::VortexResult;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::SliceArray;

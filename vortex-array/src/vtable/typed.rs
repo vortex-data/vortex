@@ -117,7 +117,7 @@ impl<V: VTable> Array<V> {
 
     /// Returns a cloned [`ArrayRef`] for this array.
     pub fn to_array_ref(&self) -> ArrayRef {
-        Arc::new(self.clone())
+        ArrayRef::from(self.clone())
     }
 }
 
@@ -132,12 +132,6 @@ where
     #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> &crate::validity::Validity {
         crate::vtable::ValidityHelper::validity(&self.data)
-    }
-
-    /// Returns the validity mask for this array.
-    #[allow(clippy::same_name_method)]
-    pub fn validity_mask(&self) -> VortexResult<vortex_mask::Mask> {
-        Ok(self.validity().to_mask(self.len))
     }
 }
 
@@ -214,6 +208,41 @@ impl<V: VTable> Array<V> {
     pub fn as_constant(&self) -> Option<crate::scalar::Scalar> {
         self.to_array_ref().as_constant()
     }
+
+    /// Returns the number of valid elements.
+    #[allow(clippy::same_name_method)]
+    pub fn valid_count(&self) -> VortexResult<usize> {
+        <Self as crate::DynArray>::valid_count(self)
+    }
+
+    /// Returns the number of invalid elements.
+    #[allow(clippy::same_name_method)]
+    pub fn invalid_count(&self) -> VortexResult<usize> {
+        <Self as crate::DynArray>::invalid_count(self)
+    }
+
+    /// Writes the array into a canonical builder.
+    #[allow(clippy::same_name_method)]
+    pub fn append_to_builder(
+        &self,
+        builder: &mut dyn crate::builders::ArrayBuilder,
+        ctx: &mut crate::ExecutionCtx,
+    ) -> VortexResult<()> {
+        <Self as crate::DynArray>::append_to_builder(self, builder, ctx)
+    }
+
+    /// Returns the array as an [`ArrayRef`].
+    #[allow(clippy::same_name_method)]
+    #[deprecated(note = "use `.to_array_ref()` or `.into_array()` instead")]
+    pub fn to_array(&self) -> ArrayRef {
+        self.to_array_ref()
+    }
+
+    /// Returns the validity mask.
+    #[allow(clippy::same_name_method)]
+    pub fn validity_mask(&self) -> VortexResult<vortex_mask::Mask> {
+        <Self as crate::DynArray>::validity_mask(self)
+    }
 }
 
 impl<V: VTable> Deref for Array<V> {
@@ -255,18 +284,12 @@ impl<V: VTable> Debug for Array<V> {
 
 impl<V: VTable> IntoArray for Array<V> {
     fn into_array(self) -> ArrayRef {
-        Arc::new(self)
+        ArrayRef::from(self)
     }
 }
 
 impl<V: VTable> IntoArray for Arc<Array<V>> {
     fn into_array(self) -> ArrayRef {
-        self
-    }
-}
-
-impl<V: VTable> From<Array<V>> for ArrayRef {
-    fn from(value: Array<V>) -> ArrayRef {
-        value.into_array()
+        ArrayRef::from(self)
     }
 }

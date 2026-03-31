@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::arrays::ScalarFnVTable;
 use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;

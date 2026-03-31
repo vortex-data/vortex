@@ -18,7 +18,6 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::Canonical;
-    use crate::DynArray;
     use crate::IntoArray as _;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;

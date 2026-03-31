@@ -31,7 +31,6 @@ impl OperationsVTable<Decimal> for Decimal {
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;

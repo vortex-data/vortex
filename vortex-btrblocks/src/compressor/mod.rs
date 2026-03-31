@@ -16,7 +16,6 @@
 //!   result. If compression did not shrink the array, the original is returned.
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;

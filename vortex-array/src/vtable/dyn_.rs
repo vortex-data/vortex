@@ -18,7 +18,6 @@ use crate::IntoArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
-use crate::scalar_fn::ReduceNode;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable::Array;

@@ -14,7 +14,6 @@ use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -230,7 +229,6 @@ mod tests {
 
     use super::zip_impl;
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -378,7 +376,6 @@ mod tests {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mask_array
-            .clone()
             .zip(const1.clone(), const2.clone())?
             .execute::<Columnar>(&mut ctx)?
             .into_array();

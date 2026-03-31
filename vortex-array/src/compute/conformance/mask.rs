@@ -238,7 +238,6 @@ fn test_double_mask(array: &ArrayRef) {
         .mask((!&mask1).into_array())
         .vortex_expect("mask should succeed in conformance test");
     let double_masked = first_masked
-        .clone()
         .mask((!&mask2).into_array())
         .vortex_expect("mask should succeed in conformance test");
 

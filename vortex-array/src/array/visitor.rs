@@ -116,7 +116,7 @@ pub trait ArrayVisitorExt: DynArray {
     fn nbuffers_recursive(&self) -> usize {
         self.children()
             .iter()
-            .map(ArrayVisitorExt::nbuffers_recursive)
+            .map(|c| c.nbuffers_recursive())
             .sum::<usize>()
             + self.nbuffers()
     }

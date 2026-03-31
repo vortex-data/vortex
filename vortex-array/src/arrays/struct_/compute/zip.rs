@@ -97,10 +97,7 @@ mod tests {
 
         let mask = Mask::from_iter([false, false, true, false]);
 
-        let result = mask
-            .into_array()
-            .zip(if_true.clone(), if_false.clone())
-            .unwrap();
+        let result = mask.into_array().zip(if_true, if_false).unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
         ┌───────┐
@@ -137,10 +134,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, false, false]);
 
-        let result = mask
-            .into_array()
-            .zip(if_true.clone(), if_false.clone())
-            .unwrap();
+        let result = mask.into_array().zip(if_true, if_false).unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
         ┌───────┐

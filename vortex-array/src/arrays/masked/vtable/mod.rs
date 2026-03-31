@@ -230,7 +230,6 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::Canonical;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;

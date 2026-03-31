@@ -4,7 +4,6 @@
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -92,7 +91,6 @@ mod test {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;

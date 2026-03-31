@@ -108,7 +108,6 @@ pub fn decode_to_temporal(
 #[cfg(test)]
 mod test {
     use rstest::rstest;
-    use vortex_array::DynArray;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -152,7 +151,12 @@ mod test {
 
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        assert!(DynArray::validity(&date_times)?.mask_eq(&validity, &mut ctx)?);
+        assert!(
+            date_times
+                .to_array_ref()
+                .validity()?
+                .mask_eq(&validity, &mut ctx)?
+        );
 
         let primitive_values = decode_to_temporal(&date_times, &mut ctx)?
             .temporal_values()

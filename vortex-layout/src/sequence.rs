@@ -17,7 +17,6 @@ use futures::StreamExt;
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::dtype::DType;
 use vortex_array::stream::ArrayStream;
 use vortex_error::VortexExpect;

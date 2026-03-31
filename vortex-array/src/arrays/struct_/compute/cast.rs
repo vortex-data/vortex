@@ -94,7 +94,6 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;

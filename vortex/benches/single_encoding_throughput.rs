@@ -35,7 +35,6 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::sequence_encode;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdData;
-use vortex_array::DynArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;

@@ -3,7 +3,6 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
@@ -260,7 +259,6 @@ fn fill_varbinview_array(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;

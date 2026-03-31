@@ -17,7 +17,6 @@ use vortex_session::VortexSession;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::filter::array::FilterData;

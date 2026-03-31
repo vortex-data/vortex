@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -60,7 +59,7 @@ pub(crate) fn new_exporter(
         return Ok(all_invalid::new_exporter(array_len, &ltype));
     }
 
-    let values_key = Arc::as_ptr(&elements).addr();
+    let values_key = Arc::as_ptr(elements.inner()).addr();
     // Check if we have a cached vector and extract it if we do.
     let cached_elements = cache
         .values_cache

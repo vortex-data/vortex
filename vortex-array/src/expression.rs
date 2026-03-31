@@ -5,7 +5,6 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
@@ -14,12 +13,12 @@ use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
 
-impl dyn DynArray + '_ {
+impl ArrayRef {
     /// Apply the expression to this array, producing a new array in constant time.
     pub fn apply(&self, expr: &Expression) -> VortexResult<ArrayRef> {
         // If the expression is a root, return self.
         if expr.is::<Root>() {
-            return Ok(self.to_array());
+            return Ok(self.clone());
         }
 
         // Manually convert literals to ConstantArray.

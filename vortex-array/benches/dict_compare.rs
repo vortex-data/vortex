@@ -6,7 +6,6 @@
 use std::str::from_utf8;
 
 use vortex_array::Canonical;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;

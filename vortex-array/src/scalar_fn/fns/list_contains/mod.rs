@@ -18,7 +18,6 @@ use vortex_session::VortexSession;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -454,7 +453,6 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::List;
     use crate::arrays::ListArray;

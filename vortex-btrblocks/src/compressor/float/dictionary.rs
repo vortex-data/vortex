@@ -97,7 +97,6 @@ impl_encode!(f64, u64);
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;

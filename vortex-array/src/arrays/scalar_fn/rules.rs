@@ -9,9 +9,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::ArrayVisitor;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;

@@ -55,7 +55,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;
@@ -219,7 +218,7 @@ mod tests {
         let const_array = ConstantArray::new(const_scalar, 3).into_array();
 
         let scalar_fn_array = Binary
-            .try_new_array(3, Operator::Lt, [ext_array.clone(), const_array])
+            .try_new_array(3, Operator::Lt, [ext_array, const_array])
             .unwrap();
 
         let optimized = scalar_fn_array.optimize().unwrap();
@@ -244,7 +243,7 @@ mod tests {
 
         // Both children are extension arrays (not constants)
         let scalar_fn_array = Binary
-            .try_new_array(3, Operator::Lt, [ext_array1.clone(), ext_array2])
+            .try_new_array(3, Operator::Lt, [ext_array1, ext_array2])
             .unwrap();
 
         let optimized = scalar_fn_array.optimize().unwrap();
@@ -267,7 +266,7 @@ mod tests {
         let const_array = ConstantArray::new(Scalar::from(25i64), 3).into_array();
 
         let scalar_fn_array = Binary
-            .try_new_array(3, Operator::Lt, [ext_array.clone(), const_array])
+            .try_new_array(3, Operator::Lt, [ext_array, const_array])
             .unwrap();
 
         let optimized = scalar_fn_array.optimize().unwrap();

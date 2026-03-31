@@ -344,7 +344,6 @@ mod tests {
         let indices = buffer![0u32, 2u32].into_array();
         let taken = original.take(indices.to_array()).unwrap();
         let taken = taken
-            .clone()
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
 

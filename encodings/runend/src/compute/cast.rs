@@ -34,7 +34,6 @@ impl CastReduce for RunEnd {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;

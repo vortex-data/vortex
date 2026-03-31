@@ -12,7 +12,6 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Struct;
 use crate::dtype::DType;

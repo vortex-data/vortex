@@ -6,7 +6,6 @@ use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray as _;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::Nullability;

@@ -7,7 +7,6 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
@@ -119,7 +118,6 @@ mod test {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::array::DynArray;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;

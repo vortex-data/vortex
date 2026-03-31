@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 
 use crate::ArrayEq;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::Constant;

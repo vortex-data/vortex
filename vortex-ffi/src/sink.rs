@@ -91,7 +91,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
     let sink = unsafe { sink.as_mut().vortex_expect("null array stream") };
     try_or_default(error_out, || {
         RUNTIME
-            .block_on(sink.sink.send(Ok(array.clone())))
+            .block_on(sink.sink.send(Ok(ArrayRef::from_inner(array.clone()))))
             .map_err(|e| vortex_err!("send error {}", e.to_string()))
     })
 }
@@ -157,7 +157,7 @@ mod tests {
 
             // Create and push an array
             let array = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-            let vx_array_ptr = vx_array::new(array.into_array());
+            let vx_array_ptr = vx_array::new(array.into_array().inner().clone());
 
             vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
             assert!(error.is_null());
@@ -197,7 +197,7 @@ mod tests {
                     buffer![start as u64, (start + 1) as u64, (start + 2) as u64],
                     Validity::NonNullable,
                 );
-                let vx_array_ptr = vx_array::new(array.into_array());
+                let vx_array_ptr = vx_array::new(array.into_array().inner().clone());
 
                 vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
                 assert!(error.is_null());
@@ -236,7 +236,7 @@ mod tests {
             if !sink.is_null() {
                 // Push an array
                 let array = PrimitiveArray::new(buffer![1i32], Validity::NonNullable);
-                let vx_array_ptr = vx_array::new(array.into_array());
+                let vx_array_ptr = vx_array::new(array.into_array().inner().clone());
                 vx_array_sink_push(sink, vx_array_ptr, &raw mut error);
                 vx_array_free(vx_array_ptr);
 

@@ -33,7 +33,6 @@ mod tests {
     use vortex_buffer::BitBuffer;
 
     use crate::IntoArray;
-    use crate::array::DynArray;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::builtins::ArrayBuiltins;

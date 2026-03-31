@@ -7,7 +7,6 @@ use std::hash::Hasher;
 use enum_iterator::Sequence;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;

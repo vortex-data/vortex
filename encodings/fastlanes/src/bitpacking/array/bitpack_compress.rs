@@ -494,12 +494,10 @@ mod test {
             .collect::<Vec<_>>();
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
-        let into_ca = chunked.clone().to_primitive();
+        let into_ca = chunked.to_primitive();
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        chunked
-            .clone()
-            .append_to_builder(&mut primitive_builder, &mut SESSION.create_execution_ctx())?;
+        chunked.append_to_builder(&mut primitive_builder, &mut SESSION.create_execution_ctx())?;
         let ca_into = primitive_builder.finish();
 
         assert_arrays_eq!(into_ca, ca_into);

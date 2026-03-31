@@ -22,8 +22,6 @@ use vortex_mask::MaskMut;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
-use crate::ArrayVisitor;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -810,7 +808,7 @@ impl Patches {
         Ok(Some(Self {
             array_len: new_array_len,
             offset: 0,
-            indices: new_indices.clone(),
+            indices: new_indices,
             values: self
                 .values()
                 .take(PrimitiveArray::new(values_indices, values_validity).into_array())?,

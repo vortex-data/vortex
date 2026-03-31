@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![allow(clippy::cast_possible_truncation)]
 
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
@@ -140,7 +139,7 @@ fn test_validity_vtable() {
     );
     let compressed = Zstd::from_primitive(&array, 3, 0).unwrap();
     assert_eq!(
-        DynArray::validity_mask(&compressed).unwrap(),
+        compressed.to_array_ref().validity_mask().unwrap(),
         Mask::from_iter(mask_bools)
     );
     assert_eq!(

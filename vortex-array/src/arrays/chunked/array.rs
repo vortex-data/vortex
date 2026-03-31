@@ -15,7 +15,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Chunked;
 use crate::arrays::PrimitiveData;
@@ -262,7 +261,6 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;

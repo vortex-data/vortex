@@ -89,7 +89,6 @@ mod tests {
 
     use crate::IntoArray;
     use crate::accessor::ArrayAccessor;
-    use crate::array::DynArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::varbinview::compute::take::PrimitiveArray;
     use crate::canonical::ToCanonical;

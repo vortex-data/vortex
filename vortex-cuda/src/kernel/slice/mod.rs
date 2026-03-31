@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Slice;
 use vortex::array::arrays::slice::SliceArrayParts;

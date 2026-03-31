@@ -18,7 +18,6 @@ use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -55,7 +54,7 @@ impl Debug for Validity {
             Self::NonNullable => write!(f, "NonNullable"),
             Self::AllValid => write!(f, "AllValid"),
             Self::AllInvalid => write!(f, "AllInvalid"),
-            Self::Array(arr) => write!(f, "SomeValid({})", arr.as_ref().display_values()),
+            Self::Array(arr) => write!(f, "SomeValid({})", arr.display_values()),
         }
     }
 }
@@ -307,7 +306,7 @@ impl Validity {
             Validity::NonNullable => BoolArray::from(BitBuffer::new_set(len)),
             Validity::AllValid => BoolArray::from(BitBuffer::new_set(len)),
             Validity::AllInvalid => BoolArray::from(BitBuffer::new_unset(len)),
-            Validity::Array(a) => a.clone().execute::<BoolArray>(ctx)?,
+            Validity::Array(a) => a.execute::<BoolArray>(ctx)?,
         };
 
         let patch_values = match patches {

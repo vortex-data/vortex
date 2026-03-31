@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::Struct;
 use crate::scalar::Scalar;

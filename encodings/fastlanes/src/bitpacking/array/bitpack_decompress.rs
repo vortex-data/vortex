@@ -290,7 +290,6 @@ mod tests {
         let actual = {
             let mut ctx = SESSION.create_execution_ctx();
             slice_ref
-                .clone()
                 .execute::<Canonical>(&mut ctx)
                 .unwrap()
                 .into_primitive()
@@ -311,7 +310,6 @@ mod tests {
         let actual = {
             let mut ctx = SESSION.create_execution_ctx();
             slice_ref
-                .clone()
                 .execute::<Canonical>(&mut ctx)
                 .unwrap()
                 .into_primitive()
@@ -564,7 +562,7 @@ mod tests {
         let unpacked_array = sliced;
         let executed = {
             let mut ctx = SESSION.create_execution_ctx();
-            slice_ref.clone().execute::<Canonical>(&mut ctx).unwrap()
+            slice_ref.execute::<Canonical>(&mut ctx).unwrap()
         };
 
         assert_eq!(

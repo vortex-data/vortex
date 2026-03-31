@@ -9,7 +9,6 @@
 use itertools::zip_eq;
 use tracing::trace;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Slice;

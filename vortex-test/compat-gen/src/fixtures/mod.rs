@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use vortex::file::WriteStrategyBuilder;
 use vortex_array::ArrayRef;
-use vortex_array::ArrayVisitorExt;
 use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;

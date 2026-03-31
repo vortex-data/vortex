@@ -65,7 +65,7 @@ pub(crate) fn new_exporter_with_flatten(
         }
     }
 
-    let values_key = Arc::as_ptr(values).addr();
+    let values_key = Arc::as_ptr(values.inner()).addr();
     let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
     let reusable_dict = if flatten {

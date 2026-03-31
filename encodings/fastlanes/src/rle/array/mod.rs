@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::stats::ArrayStats;
@@ -215,7 +214,6 @@ impl RLEData {
 #[cfg(test)]
 mod tests {
     use vortex_array::ArrayContext;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::ToCanonical;
@@ -279,14 +277,7 @@ mod tests {
         .into_array();
 
         let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(
-                values.clone(),
-                indices_with_validity,
-                values_idx_offsets,
-                0,
-                3,
-            )
-            .unwrap(),
+            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 3).unwrap(),
         )
         .vortex_expect("RLEData is always valid");
 
@@ -318,14 +309,7 @@ mod tests {
         .into_array();
 
         let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(
-                values.clone(),
-                indices_with_validity,
-                values_idx_offsets,
-                0,
-                5,
-            )
-            .unwrap(),
+            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 5).unwrap(),
         )
         .vortex_expect("RLEData is always valid");
 
@@ -358,14 +342,7 @@ mod tests {
         .into_array();
 
         let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(
-                values.clone(),
-                indices_with_validity,
-                values_idx_offsets,
-                0,
-                5,
-            )
-            .unwrap(),
+            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 5).unwrap(),
         )
         .vortex_expect("RLEData is always valid");
 
@@ -403,14 +380,7 @@ mod tests {
         .into_array();
 
         let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(
-                values.clone(),
-                indices_with_validity,
-                values_idx_offsets,
-                0,
-                4,
-            )
-            .unwrap(),
+            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 4).unwrap(),
         )
         .vortex_expect("RLEData is always valid");
 

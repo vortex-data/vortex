@@ -5,7 +5,6 @@ use num_traits::Zero;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;

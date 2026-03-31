@@ -7,8 +7,6 @@ use vortex_error::vortex_bail;
 use vortex_session::registry::Id;
 
 use crate::ArrayRef;
-use crate::ArrayVisitor;
-use crate::DynArray;
 use crate::session::ArrayRegistry;
 
 /// Options for normalizing an array.
@@ -26,25 +24,24 @@ pub enum Operation {
     // TODO(joe): add into canonical variant
 }
 
-impl dyn DynArray + '_ {
+impl ArrayRef {
     /// Normalize the array according to given options.
     ///
     /// This operation performs a recursive traversal of the array. Any non-allowed encoding is
     /// normalized per the configured operation.
-    pub fn normalize(self: ArrayRef, options: &mut NormalizeOptions) -> VortexResult<ArrayRef> {
+    pub fn normalize(self, options: &mut NormalizeOptions) -> VortexResult<ArrayRef> {
         let array_ids = options.allowed.ids().collect_vec();
         self.normalize_with_error(&array_ids)?;
         // Note this takes ownership so we can at a later date remove non-allowed encodings.
         Ok(self)
     }
 
-    fn normalize_with_error(self: &ArrayRef, allowed: &[Id]) -> VortexResult<()> {
+    fn normalize_with_error(&self, allowed: &[Id]) -> VortexResult<()> {
         if !allowed.contains(&self.encoding_id()) {
             vortex_bail!(AssertionFailed: "normalize forbids encoding ({})", self.encoding_id())
         }
 
-        for child in ArrayVisitor::children(self) {
-            let child: ArrayRef = child;
+        for child in self.children() {
             child.normalize_with_error(allowed)?
         }
         Ok(())

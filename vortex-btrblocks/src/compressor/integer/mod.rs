@@ -11,7 +11,6 @@ use enum_iterator::Sequence;
 pub use stats::IntegerStats;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
@@ -886,7 +885,6 @@ mod tests {
     use rand::Rng;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::Dict;
@@ -971,7 +969,7 @@ mod tests {
             &[],
         )?;
         assert!(compressed.is::<Sparse>());
-        let decoded = compressed.clone();
+        let decoded = compressed;
         let expected =
             PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity().clone())
                 .into_array();
@@ -995,7 +993,7 @@ mod tests {
             &[],
         )?;
         assert!(compressed.is::<Sparse>());
-        let decoded = compressed.clone();
+        let decoded = compressed;
         let expected = PrimitiveArray::new(
             buffer![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46],
             array.validity().clone(),

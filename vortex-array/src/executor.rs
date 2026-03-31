@@ -20,7 +20,6 @@
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
-use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 
@@ -62,17 +61,18 @@ pub trait Executable: Sized {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
 }
 
-impl dyn DynArray + '_ {
+#[allow(clippy::same_name_method)]
+impl ArrayRef {
     /// Execute this array to produce an instance of `E`.
     ///
     /// See the [`Executable`] implementation for details on how this execution is performed.
-    pub fn execute<E: Executable>(self: Arc<Self>, ctx: &mut ExecutionCtx) -> VortexResult<E> {
+    pub fn execute<E: Executable>(self, ctx: &mut ExecutionCtx) -> VortexResult<E> {
         E::execute(self, ctx)
     }
 
     /// Execute this array, labeling the execution step with a name for tracing.
     pub fn execute_as<E: Executable>(
-        self: Arc<Self>,
+        self,
         _name: &'static str,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<E> {
@@ -93,10 +93,7 @@ impl dyn DynArray + '_ {
     ///
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
-    pub fn execute_until<M: Matcher>(
-        self: Arc<Self>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         static MAX_ITERATIONS: LazyLock<usize> =
             LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
                 Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {

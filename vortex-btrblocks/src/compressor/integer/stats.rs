@@ -5,7 +5,6 @@ use std::hash::Hash;
 
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::Primitive;

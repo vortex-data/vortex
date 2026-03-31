@@ -23,7 +23,6 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
@@ -42,11 +41,11 @@ use crate::validity::Validity;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// From this [`VTable`] trait, we derive implementations for the sealed [`DynArray`] and [`DynVTable`]
+/// From this [`VTable`] trait, we derive implementations for the sealed `DynArray` and [`DynVTable`]
 /// traits.
 ///
 /// The functions defined in these vtable traits will typically document their pre- and
-/// post-conditions. The pre-conditions are validated inside the [`DynArray`] and [`DynVTable`]
+/// post-conditions. The pre-conditions are validated inside the `DynArray` and [`DynVTable`]
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
@@ -252,7 +251,7 @@ macro_rules! vtable {
             impl $crate::IntoArray for [<$Base Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
                     use $crate::aliases::vortex_error::VortexExpect;
-                    std::sync::Arc::new($crate::vtable::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
+                    $crate::ArrayRef::from($crate::vtable::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
                 }
             }
 
@@ -281,7 +280,7 @@ macro_rules! vtable {
             impl $crate::IntoArray for $Data {
                 fn into_array(self) -> $crate::ArrayRef {
                     use $crate::aliases::vortex_error::VortexExpect;
-                    std::sync::Arc::new($crate::vtable::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
+                    $crate::ArrayRef::from($crate::vtable::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
                 }
             }
 

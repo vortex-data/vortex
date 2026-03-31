@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use vortex_array::Canonical;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::varbin::varbin_scalar;
 use vortex_array::dtype::DType;

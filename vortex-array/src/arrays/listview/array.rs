@@ -11,7 +11,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ToCanonical;
 use crate::arrays::ListView;
 use crate::arrays::Primitive;

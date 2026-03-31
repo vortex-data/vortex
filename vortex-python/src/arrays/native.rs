@@ -6,7 +6,6 @@ use std::ops::Deref;
 use pyo3::PyClass;
 use pyo3::prelude::*;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::arrays::Bool;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::Constant;

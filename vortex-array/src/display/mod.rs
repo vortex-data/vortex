@@ -8,6 +8,7 @@ use std::fmt::Display;
 use itertools::Itertools as _;
 use tree::TreeDisplayWrapper;
 
+use crate::ArrayRef;
 use crate::DynArray;
 
 /// Describe how to convert an array to a string.
@@ -331,7 +332,7 @@ impl Display for dyn DynArray + '_ {
 }
 
 const DISPLAY_LIMIT: usize = 16;
-impl dyn DynArray + '_ {
+impl ArrayRef {
     /// Display logical values of the array
     ///
     /// For example, an `i16` typed array containing the first five non-negative integers is displayed
@@ -354,7 +355,7 @@ impl dyn DynArray + '_ {
     /// [DisplayArrayAs], and [DisplayOptions].
     pub fn display_values(&self) -> impl Display {
         DisplayArrayAs(
-            self,
+            &**self,
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space: false,
             },
@@ -365,7 +366,7 @@ impl dyn DynArray + '_ {
     ///
     /// See [DisplayOptions] for examples.
     pub fn display_as(&self, options: DisplayOptions) -> impl Display {
-        DisplayArrayAs(self, options)
+        DisplayArrayAs(&**self, options)
     }
 
     /// Display the tree of array encodings and lengths without metadata, buffers, or stats.
@@ -392,7 +393,7 @@ impl dyn DynArray + '_ {
     /// ```
     pub fn display_tree_encodings_only(&self) -> impl Display {
         DisplayArrayAs(
-            self,
+            &**self,
             DisplayOptions::TreeDisplay {
                 buffers: false,
                 metadata: false,
@@ -422,7 +423,7 @@ impl dyn DynArray + '_ {
     /// ```
     pub fn display_tree(&self) -> impl Display {
         DisplayArrayAs(
-            self,
+            &**self,
             DisplayOptions::TreeDisplay {
                 buffers: true,
                 metadata: true,
@@ -460,10 +461,16 @@ impl dyn DynArray + '_ {
     /// ```
     #[cfg(feature = "table-display")]
     pub fn display_table(&self) -> impl Display {
-        DisplayArrayAs(self, DisplayOptions::TableDisplay)
+        DisplayArrayAs(&**self, DisplayOptions::TableDisplay)
     }
+}
 
-    fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
+impl dyn DynArray + '_ {
+    pub(crate) fn fmt_as(
+        &self,
+        f: &mut std::fmt::Formatter,
+        options: &DisplayOptions,
+    ) -> std::fmt::Result {
         match options {
             DisplayOptions::MetadataOnly => {
                 write!(

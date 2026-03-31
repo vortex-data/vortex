@@ -10,7 +10,6 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ToCanonical;
 use crate::arrays::VarBin;
 use crate::arrays::varbin::builder::VarBinBuilder;

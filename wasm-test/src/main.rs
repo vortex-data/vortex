@@ -3,7 +3,6 @@
 
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity;
-use vortex::array::DynArray;
 use vortex::buffer::buffer;
 use vortex::compressor::BtrBlocksCompressor;
 

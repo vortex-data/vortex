@@ -166,7 +166,6 @@ mod tests {
     use super::Pack;
     use super::PackOptions;
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
@@ -212,7 +211,7 @@ mod tests {
         );
 
         let test_array = test_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap();
+        let actual_array = test_array.apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.to_struct().struct_fields().nfields(), 0);
     }

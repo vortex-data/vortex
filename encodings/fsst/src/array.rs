@@ -15,7 +15,6 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -216,7 +215,11 @@ impl VTable for FSST {
         // from it instead.
         let (buffers, views) = fsst_decode_views(array, builder.completed_block_count(), ctx)?;
 
-        builder.push_buffer_and_adjusted_views(&buffers, &views, array.validity_mask()?);
+        builder.push_buffer_and_adjusted_views(
+            &buffers,
+            &views,
+            array.to_array_ref().validity_mask()?,
+        );
         Ok(())
     }
 
@@ -566,7 +569,6 @@ impl ValidityChild<FSST> for FSST {
 mod test {
     use fsst::Compressor;
     use fsst::Symbol;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::ProstMetadata;

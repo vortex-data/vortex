@@ -14,7 +14,6 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::NullArray;
@@ -31,7 +30,7 @@ mod test {
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(
-            DynArray::validity_mask(&sliced).unwrap(),
+            sliced.to_array_ref().validity_mask().unwrap(),
             Mask::AllFalse(4)
         ));
     }
@@ -46,7 +45,7 @@ mod test {
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(
-            DynArray::validity_mask(&taken).unwrap(),
+            taken.to_array_ref().validity_mask().unwrap(),
             Mask::AllFalse(5)
         ));
     }

@@ -47,7 +47,6 @@ pub(crate) fn find_slice_end_index(array: &ArrayRef, index: usize) -> VortexResu
 #[cfg(test)]
 mod tests {
 
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;

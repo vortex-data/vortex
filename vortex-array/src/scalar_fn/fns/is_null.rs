@@ -163,7 +163,7 @@ mod tests {
                 .into_array();
         let expected = [false, true, false, true, false];
 
-        let result = test_array.clone().apply(&is_null(root())).unwrap();
+        let result = test_array.apply(&is_null(root())).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));
@@ -180,7 +180,7 @@ mod tests {
     fn evaluate_all_false() {
         let test_array = buffer![1, 2, 3, 4, 5].into_array();
 
-        let result = test_array.clone().apply(&is_null(root())).unwrap();
+        let result = test_array.apply(&is_null(root())).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         // All values should be false (non-nullable input)
@@ -198,7 +198,7 @@ mod tests {
             PrimitiveArray::from_option_iter(vec![None::<i32>, None, None, None, None])
                 .into_array();
 
-        let result = test_array.clone().apply(&is_null(root())).unwrap();
+        let result = test_array.apply(&is_null(root())).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         // All values should be true (all nulls)
@@ -221,10 +221,7 @@ mod tests {
         .into_array();
         let expected = [false, true, false, true, false];
 
-        let result = test_array
-            .clone()
-            .apply(&is_null(get_item("a", root())))
-            .unwrap();
+        let result = test_array.apply(&is_null(get_item("a", root()))).unwrap();
 
         assert_eq!(result.len(), test_array.len());
         assert_eq!(result.dtype(), &DType::Bool(Nullability::NonNullable));

@@ -10,7 +10,6 @@ use prost::Message as _;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -529,7 +528,6 @@ impl ValidityVTable<Sparse> for Sparse {
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;

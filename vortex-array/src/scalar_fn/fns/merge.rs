@@ -289,7 +289,6 @@ mod tests {
     use vortex_error::vortex_bail;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
@@ -447,7 +446,7 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap();
+        let actual_array = test_array.apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.as_struct_typed().nfields(), 0);
     }
@@ -490,7 +489,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
+        let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
         assert_eq!(
             actual_array
@@ -531,7 +530,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
+        let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }

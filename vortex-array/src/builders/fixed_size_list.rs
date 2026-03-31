@@ -12,7 +12,6 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::builders::ArrayBuilder;
@@ -277,7 +276,6 @@ mod tests {
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
     use crate::ToCanonical;
-    use crate::array::DynArray;
     use crate::arrays::PrimitiveArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::fixed_size_list::FixedSizeListArray;

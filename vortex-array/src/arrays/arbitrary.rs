@@ -12,7 +12,6 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;

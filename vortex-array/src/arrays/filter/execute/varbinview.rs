@@ -9,7 +9,6 @@ use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;

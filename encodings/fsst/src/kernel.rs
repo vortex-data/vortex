@@ -22,7 +22,6 @@ mod tests {
 
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FilterArray;
@@ -140,7 +139,7 @@ mod tests {
         mask.push(true);
         let mask = Mask::from_iter(mask);
 
-        let filter_array = FilterArray::new(fsst_array.clone(), mask.clone()).into_array();
+        let filter_array = FilterArray::new(fsst_array, mask.clone()).into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
@@ -166,7 +165,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, true]);
 
-        let filter_array = FilterArray::new(fsst_array.clone(), mask.clone()).into_array();
+        let filter_array = FilterArray::new(fsst_array, mask.clone()).into_array();
         let mut ctx = SESSION.create_execution_ctx();
         let result = filter_array.execute::<Canonical>(&mut ctx)?;
 

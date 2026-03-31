@@ -25,7 +25,6 @@ use jni::sys::jobject;
 use jni::sys::jshort;
 use jni::sys::jstring;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;

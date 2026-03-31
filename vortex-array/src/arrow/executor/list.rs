@@ -15,7 +15,6 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::Chunked;
 use crate::arrays::List;

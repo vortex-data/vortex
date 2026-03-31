@@ -8,7 +8,6 @@ use vortex_error::vortex_err;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Columnar;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;

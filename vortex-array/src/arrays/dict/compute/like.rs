@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 use super::Dict;
 use super::DictArray;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;

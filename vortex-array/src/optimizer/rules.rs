@@ -99,7 +99,7 @@ impl<V: VTable, K: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
     for ParentReduceRuleAdapter<V, K>
 {
     fn matches(&self, parent: &ArrayRef) -> bool {
-        K::Parent::matches(parent)
+        K::Parent::matches(&**parent)
     }
 
     fn reduce_parent(
@@ -108,7 +108,7 @@ impl<V: VTable, K: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(parent_view) = K::Parent::try_match(parent) else {
+        let Some(parent_view) = K::Parent::try_match(&**parent) else {
             return Ok(None);
         };
         self.rule.reduce_parent(child, parent_view, child_idx)

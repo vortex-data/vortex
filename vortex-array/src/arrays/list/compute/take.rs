@@ -5,7 +5,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::List;
 use crate::arrays::ListArray;
@@ -194,7 +193,6 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray as _;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;

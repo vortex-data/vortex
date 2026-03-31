@@ -8,7 +8,6 @@ use vortex_error::VortexResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
-use crate::array::DynArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TemporalData;
 use crate::assert_arrays_eq;

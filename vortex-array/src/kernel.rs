@@ -134,7 +134,7 @@ impl<V: VTable, K: ExecuteParentKernel<V>> Debug for ParentKernelAdapter<V, K> {
 
 impl<V: VTable, K: ExecuteParentKernel<V>> DynParentKernel<V> for ParentKernelAdapter<V, K> {
     fn matches(&self, parent: &ArrayRef) -> bool {
-        K::Parent::matches(parent)
+        K::Parent::matches(&**parent)
     }
 
     fn execute_parent(
@@ -144,7 +144,7 @@ impl<V: VTable, K: ExecuteParentKernel<V>> DynParentKernel<V> for ParentKernelAd
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(parent_view) = K::Parent::try_match(parent) else {
+        let Some(parent_view) = K::Parent::try_match(&**parent) else {
             return Ok(None);
         };
         self.kernel

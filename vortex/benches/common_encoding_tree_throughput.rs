@@ -14,7 +14,6 @@ use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::DictArray;

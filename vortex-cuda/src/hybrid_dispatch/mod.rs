@@ -44,7 +44,6 @@
 use tracing::trace;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -112,7 +111,6 @@ pub async fn try_gpu_dispatch(
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::DynArray;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;

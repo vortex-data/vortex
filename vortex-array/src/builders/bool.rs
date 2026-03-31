@@ -149,7 +149,6 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;

@@ -25,7 +25,6 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -132,7 +131,6 @@ fn test_double_mask_consistency(array: &ArrayRef) {
         .mask((!&mask1).into_array())
         .vortex_expect("mask should succeed in conformance test");
     let double_masked = first_masked
-        .clone()
         .mask((!&mask2).into_array())
         .vortex_expect("mask should succeed in conformance test");
 
@@ -942,7 +940,7 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
             .not()
             .vortex_expect("not should succeed in conformance test");
         let not_a_or_not_b = not_a
-            .binary(not_b.clone(), Operator::Or)
+            .binary(not_b, Operator::Or)
             .vortex_expect("or should succeed in conformance test");
 
         assert_eq!(
@@ -976,7 +974,7 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
             .not()
             .vortex_expect("not should succeed in conformance test");
         let not_a_and_not_b = not_a
-            .binary(not_b.clone(), Operator::And)
+            .binary(not_b, Operator::And)
             .vortex_expect("and should succeed in conformance test");
 
         for i in 0..not_a_or_b.len() {

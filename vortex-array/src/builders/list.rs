@@ -13,7 +13,6 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ListArray;
 use crate::builders::ArrayBuilder;
@@ -316,7 +315,6 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::ToCanonical;
-    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
