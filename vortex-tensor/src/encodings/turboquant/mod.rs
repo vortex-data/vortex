@@ -415,9 +415,10 @@ mod tests {
 
         // For power-of-2 dims, QJL bias should be small (< 0.15).
         // For non-power-of-2 dims (e.g., 768 padded to 1024), the bias is
-        // inherently larger because the SRHT centroids are optimized for the
-        // padded dimension's coordinate distribution, which differs from the
-        // actual distribution of a zero-padded lower-dimensional vector.
+        // larger due to distributional mismatch: the zero-padded vector has
+        // fewer effective nonzero terms per SRHT coordinate, changing the
+        // kurtosis. The pre-SRHT permutation helps with butterfly alignment
+        // but does not fully resolve this; dimension-aware centroids would.
         let threshold = if dim.is_power_of_two() { 0.15 } else { 0.25 };
         assert!(
             mean_rel_error.abs() < threshold,

@@ -80,6 +80,8 @@ struct MseQuantizationResult {
     all_indices: BufferMut<u8>,
     norms: BufferMut<f32>,
     padded_dim: usize,
+    /// Random permutation for non-power-of-2 dims (shared by MSE and QJL).
+    perm: Option<Vec<u16>>,
 }
 
 /// Core quantization: extract f32 elements, build rotation, normalize/rotate/quantize all rows.
@@ -91,8 +93,16 @@ fn turboquant_quantize_core(
     let dimension = fsl.list_size() as usize;
     let num_rows = fsl.len();
 
-    let rotation = RotationMatrix::try_new(seed, dimension)?;
+    let mut rotation = RotationMatrix::try_new(seed, dimension)?;
     let padded_dim = rotation.padded_dim();
+
+    // For non-power-of-2 dims, generate a random permutation to scatter
+    // zero-padded entries uniformly before the SRHT.
+    let perm = (dimension < padded_dim)
+        .then(|| RotationMatrix::gen_permutation(seed.wrapping_add(42), padded_dim));
+    if let Some(ref p) = perm {
+        rotation = rotation.with_permutation(p.clone());
+    }
 
     let f32_elements = extract_f32_elements(fsl)?;
 
@@ -132,6 +142,7 @@ fn turboquant_quantize_core(
         all_indices,
         norms,
         padded_dim,
+        perm,
     })
 }
 
@@ -166,7 +177,7 @@ fn build_turboquant_mse(
 
     let rotation_signs = bitpack_rotation_signs(&core.rotation)?;
 
-    TurboQuantArray::try_new_mse(
+    let mut array = TurboQuantArray::try_new_mse(
         fsl.dtype().clone(),
         codes,
         norms_array,
@@ -174,7 +185,15 @@ fn build_turboquant_mse(
         rotation_signs,
         dimension,
         bit_width,
-    )
+    )?;
+
+    // Store permutation for non-power-of-2 dims.
+    if let Some(ref perm) = core.perm {
+        array.slots[crate::encodings::turboquant::array::Slot::Permutation as usize] =
+            Some(bitpack_permutation(perm)?);
+    }
+
+    Ok(array)
 }
 
 /// Encode a FixedSizeListArray into a MSE-only `TurboQuantArray`.
@@ -247,7 +266,16 @@ pub fn turboquant_encode_qjl(
 
     // QJL uses a different rotation than the MSE stage to ensure statistical
     // independence between the quantization noise and the sign projection.
-    let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(25), dim)?;
+    // The same permutation is shared: it's a property of the padded embedding
+    // space, not of the rotation itself.
+    let qjl_rotation = {
+        let rot = RotationMatrix::try_new(seed.wrapping_add(25), dim)?;
+        if let Some(ref p) = core.perm {
+            rot.with_permutation(p.clone())
+        } else {
+            rot
+        }
+    };
 
     let num_rows = fsl.len();
     let mut residual_norms_buf = BufferMut::<f32>::with_capacity(num_rows);
@@ -349,4 +377,13 @@ fn bitpack_rotation_signs(rotation: &RotationMatrix) -> VortexResult<ArrayRef> {
     buf.extend_from_slice(&signs_u8);
     let prim = PrimitiveArray::new::<u8>(buf.freeze(), Validity::NonNullable);
     Ok(bitpack_encode(&prim, 1, None)?.into_array())
+}
+
+/// Bitpack a permutation of u16 indices for efficient storage.
+fn bitpack_permutation(perm: &[u16]) -> VortexResult<ArrayRef> {
+    let mut buf = BufferMut::<u16>::with_capacity(perm.len());
+    buf.extend_from_slice(perm);
+    let prim = PrimitiveArray::new::<u16>(buf.freeze(), Validity::NonNullable);
+    let bit_width = (perm.len() as f64).log2().ceil() as u8;
+    Ok(bitpack_encode(&prim, bit_width, None)?.into_array())
 }

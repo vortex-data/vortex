@@ -35,6 +35,9 @@ pub struct TurboQuantMetadata {
     /// Whether QJL correction children are present.
     #[prost(bool, tag = "3")]
     pub has_qjl: bool,
+    /// Whether a pre-SRHT permutation is stored (for non-power-of-2 dims).
+    #[prost(bool, tag = "4")]
+    pub has_permutation: bool,
 }
 
 /// Optional QJL (Quantized Johnson-Lindenstrauss) correction for unbiased
@@ -77,10 +80,11 @@ pub(crate) enum Slot {
     QjlSigns = 4,
     QjlResidualNorms = 5,
     QjlRotationSigns = 6,
+    Permutation = 7,
 }
 
 impl Slot {
-    pub(crate) const COUNT: usize = 7;
+    pub(crate) const COUNT: usize = 8;
 
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -91,6 +95,7 @@ impl Slot {
             Self::QjlSigns => "qjl_signs",
             Self::QjlResidualNorms => "qjl_residual_norms",
             Self::QjlRotationSigns => "qjl_rotation_signs",
+            Self::Permutation => "permutation",
         }
     }
 
@@ -103,6 +108,7 @@ impl Slot {
             4 => Self::QjlSigns,
             5 => Self::QjlResidualNorms,
             6 => Self::QjlRotationSigns,
+            7 => Self::Permutation,
             _ => vortex_error::vortex_panic!("invalid slot index {idx}"),
         }
     }
@@ -120,6 +126,9 @@ impl Slot {
 /// - 4: `qjl_signs` — `FixedSizeListArray<u8>` (num_rows * padded_dim, 1-bit)
 /// - 5: `qjl_residual_norms` — `PrimitiveArray<f32>` (one per row)
 /// - 6: `qjl_rotation_signs` — `BitPackedArray` (3 * padded_dim, 1-bit, QJL rotation)
+///
+/// Optional permutation slot (None for power-of-2 dims):
+/// - 7: `permutation` — `BitPackedArray<u16>` (padded_dim, ceil(log2(padded_dim))-bit)
 #[derive(Clone, Debug)]
 pub struct TurboQuantArray {
     pub(crate) dtype: DType,
@@ -245,6 +254,11 @@ impl TurboQuantArray {
             residual_norms: self.slots[Slot::QjlResidualNorms as usize].clone()?,
             rotation_signs: self.slots[Slot::QjlRotationSigns as usize].clone()?,
         })
+    }
+
+    /// The optional pre-SRHT permutation (for non-power-of-2 dims).
+    pub fn permutation(&self) -> Option<&ArrayRef> {
+        self.slots[Slot::Permutation as usize].as_ref()
     }
 
     /// Set the QJL correction fields on this array.
