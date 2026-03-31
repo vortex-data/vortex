@@ -19,7 +19,6 @@ use vortex_array::expr::Expression;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
-use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
@@ -28,6 +27,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::matcher::AnyTensor;
+use crate::scalar_fns::ApproxOptions;
 use crate::utils::extension_element_ptype;
 use crate::utils::extension_list_size;
 use crate::utils::extension_storage;
@@ -48,7 +48,7 @@ use crate::utils::extract_flat_elements;
 pub struct CosineSimilarity;
 
 impl ScalarFnVTable for CosineSimilarity {
-    type Options = EmptyOptions;
+    type Options = ApproxOptions;
 
     fn id(&self) -> ScalarFnId {
         ScalarFnId::new_ref("vortex.tensor.cosine_similarity")
@@ -191,10 +191,10 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::ScalarFnArray;
-    use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFn;
     use vortex_error::VortexResult;
 
+    use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
@@ -204,7 +204,7 @@ mod tests {
 
     /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
-        let scalar_fn = ScalarFn::new(CosineSimilarity, EmptyOptions).erased();
+        let scalar_fn = ScalarFn::new(CosineSimilarity, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], len)?;
         let prim = result.to_primitive();
         Ok(prim.as_slice::<f64>().to_vec())

@@ -16,7 +16,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 
-use crate::encodings::turboquant::array::QjlCorrection;
 use crate::encodings::turboquant::array::TurboQuantArray;
 use crate::encodings::turboquant::centroids::compute_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;

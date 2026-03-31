@@ -19,7 +19,6 @@ use vortex_array::expr::Expression;
 use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
-use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
@@ -28,6 +27,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::matcher::AnyTensor;
+use crate::scalar_fns::ApproxOptions;
 use crate::utils::extension_element_ptype;
 use crate::utils::extension_list_size;
 use crate::utils::extension_storage;
@@ -43,7 +43,7 @@ use crate::utils::extract_flat_elements;
 pub struct L2Norm;
 
 impl ScalarFnVTable for L2Norm {
-    type Options = EmptyOptions;
+    type Options = ApproxOptions;
 
     fn id(&self) -> ScalarFnId {
         ScalarFnId::new_ref("vortex.tensor.l2_norm")
@@ -156,20 +156,21 @@ fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::ScalarFnArray;
-    use vortex_array::scalar_fn::EmptyOptions;
     use vortex_array::scalar_fn::ScalarFn;
     use vortex_error::VortexResult;
 
+    use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::l2_norm::L2Norm;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
     /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
-    fn eval_l2_norm(input: vortex_array::ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
-        let scalar_fn = ScalarFn::new(L2Norm, EmptyOptions).erased();
+    fn eval_l2_norm(input: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
+        let scalar_fn = ScalarFn::new(L2Norm, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![input], len)?;
         let prim = result.to_primitive();
         Ok(prim.as_slice::<f64>().to_vec())
