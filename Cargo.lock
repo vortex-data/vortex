@@ -10540,6 +10540,8 @@ dependencies = [
 name = "vortex-ffi"
 version = "0.1.0"
 dependencies = [
+ "arrow-array 58.0.0",
+ "arrow-schema 58.0.0",
  "async-fs",
  "cbindgen",
  "futures",
@@ -10548,6 +10550,7 @@ dependencies = [
  "object_store 0.13.2",
  "paste",
  "prost 0.14.3",
+ "rand 0.8.5",
  "tempfile",
  "tracing",
  "tracing-subscriber",

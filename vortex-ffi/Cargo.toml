@@ -20,6 +20,8 @@ categories = { workspace = true }
 all-features = true
 
 [dependencies]
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-schema = { workspace = true }
 async-fs = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
@@ -33,6 +35,7 @@ url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store"] }
 
 [dev-dependencies]
+rand = "0.8"
 tempfile = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 

@@ -66,6 +66,8 @@ pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
 /// expression. Child expression must have a DTYPE_STRUCT dtype. Errors in
 /// vx_array_apply if the child expression doesn't have a specified field.
 ///
+/// Returns a DTYPE_STRUCT array with selected fields.
+///
 /// Example:
 ///
 /// vx_expression* root = vx_expression_root();
@@ -242,7 +244,9 @@ pub unsafe extern "C" fn vx_expression_is_null(child: *const vx_expression) -> *
 /// Errors in vx_array_apply if the root array doesn't have a specified field.
 ///
 /// Accesses the specified field from the result of the child expression.
-/// Equivalent to select(&item, 1, child).
+///
+/// Example: if child is Struct { name=u8, age=u16 } and we do
+/// vx_expression_get_item("name", child), output type will be DTYPE_U8
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_get_item(
     item: *const c_char,

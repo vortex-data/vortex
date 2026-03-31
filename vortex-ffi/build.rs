@@ -8,12 +8,30 @@ use std::process::Command;
 use std::process::exit;
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(vortex_asan)");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=cbindgen.toml");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=build.rs");
-    for env in ["MIRI", "MIRIFLAGS", "RUSTFLAGS"] {
+    for env in ["MIRI", "MIRIFLAGS", "CARGO_ENCODED_RUSTFLAGS"] {
         println!("cargo:rerun-if-env-changed={env}");
+    }
+
+    let is_asan = env::var("CARGO_ENCODED_RUSTFLAGS")
+        .unwrap_or_default()
+        .contains("address");
+    if is_asan {
+        println!("cargo:info=building with asan");
+        println!("cargo:rustc-cfg=vortex_asan");
+        println!("cargo:info=Skipping header generation due to sanitizers");
+        return;
+    }
+
+    if env::var("CARGO_ENCODED_RUSTFLAGS")
+        .unwrap_or_default()
+        .contains("sanitizer")
+    {
+        println!("cargo:info=Skipping header generation due to sanitizers");
     }
 
     if env::var("MIRI").is_ok() || env::var("MIRIFLAGS").is_ok() {
@@ -21,18 +39,10 @@ fn main() {
         return;
     }
 
-    if env::var("RUSTFLAGS")
-        .unwrap_or_default()
-        .contains("sanitizer")
-    {
-        println!("cargo:info=Skipping header generation due to sanitizers");
-        return;
-    }
-
     // cbindgen macro expansion is only available on nightly
-    let is_nightly = Command::new("rustc")
-        .arg("-V")
-        .output()
+    let rustc = Command::new("rustc").arg("-V").output();
+    let is_nightly = rustc
+        .as_ref()
         .map(|output| String::from_utf8_lossy(&output.stdout).contains("nightly"))
         .unwrap_or(false);
     if !is_nightly {
