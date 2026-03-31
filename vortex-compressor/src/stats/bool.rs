@@ -4,11 +4,8 @@
 //! Bool compression statistics.
 
 use vortex_array::arrays::BoolArray;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
-
-use super::GenerateStatsOptions;
 
 /// Array of booleans and relevant stats for compression.
 #[derive(Clone, Debug)]
@@ -24,24 +21,12 @@ pub struct BoolStats {
 }
 
 impl BoolStats {
-    /// Generates stats with default options.
-    pub fn generate(input: &BoolArray) -> Self {
-        Self::generate_opts(input, GenerateStatsOptions::default())
-    }
-
-    /// Generates stats with provided options.
-    ///
-    /// For booleans, all stats are cheap to compute so the options are currently ignored.
-    pub fn generate_opts(input: &BoolArray, opts: GenerateStatsOptions) -> Self {
-        Self::generate_opts_fallible(input, opts)
-            .vortex_expect("BoolStats::generate_opts should not fail")
-    }
-
     /// Generates stats, returning an error on failure.
-    fn generate_opts_fallible(
-        input: &BoolArray,
-        _opts: GenerateStatsOptions,
-    ) -> VortexResult<Self> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if getting validity mask fails or values exceed `u32` bounds.
+    pub fn generate(input: &BoolArray) -> VortexResult<Self> {
         if input.is_empty() {
             return Ok(Self {
                 src: input.clone(),
@@ -125,7 +110,7 @@ mod tests {
             BitBuffer::from(vec![true, true, true]),
             Validity::NonNullable,
         );
-        let stats = BoolStats::generate(&array);
+        let stats = BoolStats::generate(&array)?;
         assert_eq!(stats.value_count, 3);
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.true_count, 3);
@@ -139,7 +124,7 @@ mod tests {
             BitBuffer::from(vec![false, false, false]),
             Validity::NonNullable,
         );
-        let stats = BoolStats::generate(&array);
+        let stats = BoolStats::generate(&array)?;
         assert_eq!(stats.value_count, 3);
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.true_count, 0);
@@ -153,7 +138,7 @@ mod tests {
             BitBuffer::from(vec![true, false, true]),
             Validity::NonNullable,
         );
-        let stats = BoolStats::generate(&array);
+        let stats = BoolStats::generate(&array)?;
         assert_eq!(stats.value_count, 3);
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.true_count, 2);
@@ -167,7 +152,7 @@ mod tests {
             BitBuffer::from(vec![true, false, true]),
             Validity::from_iter([true, false, true]),
         );
-        let stats = BoolStats::generate(&array);
+        let stats = BoolStats::generate(&array)?;
         assert_eq!(stats.value_count, 2);
         assert_eq!(stats.null_count, 1);
         assert_eq!(stats.true_count, 2);

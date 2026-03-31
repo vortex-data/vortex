@@ -100,10 +100,10 @@ impl ArrayAndStats {
     /// Returns bool stats, generating them lazily on first access.
     pub fn bool_stats(&mut self) -> &BoolStats {
         let array = self.array.clone();
-        let opts = self.opts;
 
-        self.cache
-            .get_or_insert_with::<BoolStats>(|| BoolStats::generate_opts(&array.to_bool(), opts))
+        self.cache.get_or_insert_with::<BoolStats>(|| {
+            BoolStats::generate(&array.to_bool()).vortex_expect("BoolStats shouldn't fail")
+        })
     }
 
     /// Returns integer stats, generating them lazily on first access.
