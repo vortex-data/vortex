@@ -704,9 +704,7 @@ pub struct vortex_compressor::stats::BoolStats
 
 impl vortex_compressor::stats::BoolStats
 
-pub fn vortex_compressor::stats::BoolStats::generate(input: &vortex_array::arrays::bool::array::BoolArray) -> Self
-
-pub fn vortex_compressor::stats::BoolStats::generate_opts(input: &vortex_array::arrays::bool::array::BoolArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
+pub fn vortex_compressor::stats::BoolStats::generate(input: &vortex_array::arrays::bool::array::BoolArray) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_compressor::stats::BoolStats::is_constant(&self) -> bool
 
