@@ -253,15 +253,14 @@ pub fn child_to_validity(child: &Option<ArrayRef>, nullability: Nullability) -> 
     match child {
         Some(arr) => {
             // Detect constant bool arrays created by validity_to_child
-            if let Some(c) = arr.as_opt::<Constant>() {
-                if let Ok(val) = bool::try_from(c.scalar()) {
+            if let Some(c) = arr.as_opt::<Constant>()
+                && let Ok(val) = bool::try_from(c.scalar()) {
                     return if val {
                         Validity::AllValid
                     } else {
                         Validity::AllInvalid
                     };
                 }
-            }
             Validity::Array(arr.clone())
         }
         None => Validity::from(nullability),

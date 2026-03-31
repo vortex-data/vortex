@@ -18,7 +18,7 @@ impl MaskReduce for Struct {
             array.len(),
             array
                 .validity()
-                .clone()
+                
                 .and(Validity::Array(mask.clone()))?,
         )
         .map(|a| Some(a.into_array()))

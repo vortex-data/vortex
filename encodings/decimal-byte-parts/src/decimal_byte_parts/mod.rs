@@ -301,7 +301,7 @@ fn to_canonical_decimal(
             DecimalArray::new_unchecked(
                 prim.to_buffer::<P>(),
                 *array.decimal_dtype(),
-                prim.validity().clone(),
+                prim.validity(),
             )
         }
         .into_array()

@@ -165,7 +165,7 @@ fn filter_select_var_bin_by_index(
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_indices,
-            values.validity().clone(),
+            values.validity(),
             selection_count,
         )
     })

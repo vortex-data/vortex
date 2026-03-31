@@ -376,7 +376,7 @@ impl Scheme for FSSTScheme {
             compressed_codes_offsets,
             fsst.codes().bytes().clone(),
             fsst.codes().dtype().clone(),
-            fsst.codes().validity().clone(),
+            fsst.codes().validity(),
         )?;
 
         let fsst = FSSTArray::try_new(
@@ -440,7 +440,7 @@ impl Scheme for ConstantScheme {
                 let scalar = stats.source().scalar_at(idx)?;
                 let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
                 if !stats.source().all_valid()? {
-                    Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
+                    Ok(MaskedArray::try_new(const_arr, stats.src.validity())?.into_array())
                 } else {
                     Ok(const_arr)
                 }

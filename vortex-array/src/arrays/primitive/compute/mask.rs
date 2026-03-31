@@ -19,7 +19,7 @@ impl MaskReduce for Primitive {
                 array.ptype(),
                 array
                     .validity()
-                    .clone()
+                    
                     .and(Validity::Array(mask.clone()))?,
             )
             .into_array()

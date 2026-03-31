@@ -19,7 +19,7 @@ impl CastReduce for Bool {
         let new_nullability = dtype.nullability();
         let new_validity = array
             .validity()
-            .clone()
+            
             .cast_nullability(new_nullability, array.len())?;
         Ok(Some(
             BoolArray::new(array.to_bit_buffer(), new_validity).into_array(),

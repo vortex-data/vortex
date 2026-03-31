@@ -25,7 +25,7 @@ impl CastReduce for FixedSizeList {
         let elements = array.elements().cast((**target_element_type).clone())?;
         let validity = array
             .validity()
-            .clone()
+            
             .cast_nullability(dtype.nullability(), array.len())?;
 
         Ok(Some(

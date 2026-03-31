@@ -108,7 +108,7 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
         new_offsets,
         array
             .validity()
-            .clone()
+            
             .take(&indices_array.clone().into_array())?,
     )?
     .into_array())
@@ -180,7 +180,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
         new_offsets,
         array
             .validity()
-            .clone()
+            
             .take(&indices_array.clone().into_array())?,
     )?
     .into_array())

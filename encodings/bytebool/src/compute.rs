@@ -28,7 +28,7 @@ impl CastReduce for ByteBool {
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity = array
                 .validity()
-                .clone()
+                
                 .cast_nullability(dtype.nullability(), array.len())?;
 
             return Ok(Some(
@@ -48,7 +48,7 @@ impl MaskReduce for ByteBool {
                 array.buffer().clone(),
                 array
                     .validity()
-                    .clone()
+                    
                     .and(Validity::Array(mask.clone()))?,
             )
             .into_array(),

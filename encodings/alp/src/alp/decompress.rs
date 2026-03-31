@@ -100,7 +100,7 @@ fn decompress_chunked_core(
     patches: &Patches,
     dtype: DType,
 ) -> PrimitiveArray {
-    let validity = encoded.validity().clone();
+    let validity = encoded.validity();
     let ptype = dtype.as_ptype();
     let array_len = encoded.len();
     let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
@@ -150,7 +150,7 @@ fn decompress_unchunked_core(
     dtype: DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let validity = encoded.validity().clone();
+    let validity = encoded.validity();
     let ptype = dtype.as_ptype();
 
     let decoded = match_each_alp_float_ptype!(ptype, |T| {

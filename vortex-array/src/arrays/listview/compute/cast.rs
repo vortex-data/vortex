@@ -23,7 +23,7 @@ impl CastReduce for ListView {
         let new_elements = array.elements().cast((**target_element_type).clone())?;
         let validity = array
             .validity()
-            .clone()
+            
             .cast_nullability(dtype.nullability(), array.len())?;
 
         // SAFETY: Since `cast` is length-preserving, all of the invariants remain the same.

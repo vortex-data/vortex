@@ -75,7 +75,7 @@ impl CompareKernel for VarBin {
                     BoolArray::new(
                         buffer,
                         lhs.validity()
-                            .clone()
+                            
                             .union_nullability(rhs.dtype().nullability()),
                     )
                     .into_array(),

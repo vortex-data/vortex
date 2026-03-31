@@ -36,7 +36,7 @@ impl CastKernel for Primitive {
         // First, check that the cast is compatible with the source array's validity
         let new_validity = array
             .validity()
-            .clone()
+            
             .cast_nullability(new_nullability, array.len())?;
 
         // Same ptype: zero-copy, just update validity.

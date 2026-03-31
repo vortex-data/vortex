@@ -427,7 +427,7 @@ impl PcoArray {
             parray.dtype().clone(),
             metadata,
             parray.len(),
-            parray.validity().clone(),
+            parray.validity(),
         ))
     }
 

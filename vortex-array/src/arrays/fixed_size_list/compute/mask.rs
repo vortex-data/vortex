@@ -21,7 +21,7 @@ impl MaskReduce for FixedSizeList {
                     array.list_size(),
                     array
                         .validity()
-                        .clone()
+                        
                         .and(Validity::Array(mask.clone()))?,
                     array.len(),
                 )

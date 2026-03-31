@@ -77,11 +77,11 @@ impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
         }
 
         let validity = if parent.options.is_nullable() {
-            array.validity().clone().into_nullable()
+            array.validity().into_nullable()
         } else {
             array
                 .validity()
-                .clone()
+                
                 .into_non_nullable(array.len)
                 .ok_or_else(|| vortex_err!("Failed to cast nullable struct to non-nullable"))?
         };

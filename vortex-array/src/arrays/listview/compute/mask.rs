@@ -22,7 +22,7 @@ impl MaskReduce for ListView {
                     array.sizes().clone(),
                     array
                         .validity()
-                        .clone()
+                        
                         .and(Validity::Array(mask.clone()))?,
                 )
                 .with_zero_copy_to_list(array.is_zero_copy_to_list())

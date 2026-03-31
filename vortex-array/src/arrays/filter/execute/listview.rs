@@ -41,7 +41,7 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
     let offsets = array.offsets();
     let sizes = array.sizes();
 
-    let new_validity = filter_validity(array.validity().clone(), selection_mask);
+    let new_validity = filter_validity(array.validity(), selection_mask);
     debug_assert!(
         new_validity
             .maybe_len()

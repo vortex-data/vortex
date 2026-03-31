@@ -351,7 +351,7 @@ impl ListViewArray {
                 sliced_elements,
                 adjusted_offsets,
                 self.sizes().clone(),
-                self.validity().clone(),
+                self.validity(),
             )
             .with_zero_copy_to_list(self.is_zero_copy_to_list())
         })

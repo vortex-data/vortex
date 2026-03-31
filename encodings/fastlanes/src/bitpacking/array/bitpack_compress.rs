@@ -75,7 +75,7 @@ pub fn bitpack_encode(
         BitPackedArray::new_unchecked(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
-            array.validity().clone(),
+            array.validity(),
             patches,
             bit_width,
             array.len(),
@@ -109,7 +109,7 @@ pub unsafe fn bitpack_encode_unchecked(
         BitPackedArray::new_unchecked(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
-            array.validity().clone(),
+            array.validity(),
             None,
             bit_width,
             array.len(),
