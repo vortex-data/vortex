@@ -8,7 +8,6 @@ use rstest::rstest;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use super::pvalue::CoercePValue;
 use super::*;
 use crate::dtype::DType;
 use crate::dtype::FromPrimitiveOrF16;
@@ -650,80 +649,6 @@ fn test_f16_special_values() {
     assert_eq!(
         PValue::F16(nan).partial_cmp(&PValue::F16(nan)),
         Some(Ordering::Equal)
-    );
-}
-
-#[test]
-fn test_coerce_pvalue() {
-    // Test integer coercion
-    assert_eq!(u32::coerce(PValue::U16(42)).unwrap(), 42u32);
-    assert_eq!(i64::coerce(PValue::I32(-42)).unwrap(), -42i64);
-
-    // Test float coercion from bits
-    assert_eq!(f32::coerce(PValue::U32(0x3f800000)).unwrap(), 1.0f32);
-    assert_eq!(
-        f64::coerce(PValue::U64(0x3ff0000000000000)).unwrap(),
-        1.0f64
-    );
-}
-
-#[test]
-fn test_coerce_f16_beyond_u16_max() {
-    // Test U32 to f16 coercion within valid range
-    assert!(f16::coerce(PValue::U32(u16::MAX as u32)).is_ok());
-    assert_eq!(
-        f16::coerce(PValue::U32(0x3C00)).unwrap(),
-        f16::from_bits(0x3C00) // 1.0 in f16
-    );
-
-    // Test U32 to f16 coercion beyond u16::MAX - should fail
-    assert!(f16::coerce(PValue::U32((u16::MAX as u32) + 1)).is_err());
-    assert!(f16::coerce(PValue::U32(u32::MAX)).is_err());
-
-    // Test U64 to f16 coercion within valid range
-    assert!(f16::coerce(PValue::U64(u16::MAX as u64)).is_ok());
-    assert_eq!(
-        f16::coerce(PValue::U64(0x3C00)).unwrap(),
-        f16::from_bits(0x3C00) // 1.0 in f16
-    );
-
-    // Test U64 to f16 coercion beyond u16::MAX - should fail
-    assert!(f16::coerce(PValue::U64((u16::MAX as u64) + 1)).is_err());
-    assert!(f16::coerce(PValue::U64(u32::MAX as u64)).is_err());
-    assert!(f16::coerce(PValue::U64(u64::MAX)).is_err());
-}
-
-#[test]
-fn test_coerce_f32_beyond_u32_max() {
-    // Test U64 to f32 coercion within valid range
-    assert!(f32::coerce(PValue::U64(u32::MAX as u64)).is_ok());
-    assert_eq!(
-        f32::coerce(PValue::U64(0x3f800000)).unwrap(),
-        1.0f32 // 0x3f800000 is 1.0 in f32
-    );
-
-    // Test U64 to f32 coercion beyond u32::MAX - should fail
-    assert!(f32::coerce(PValue::U64((u32::MAX as u64) + 1)).is_err());
-    assert!(f32::coerce(PValue::U64(u64::MAX)).is_err());
-
-    // Test smaller types still work
-    assert!(f32::coerce(PValue::U8(255)).is_ok());
-    assert!(f32::coerce(PValue::U16(u16::MAX)).is_ok());
-    assert!(f32::coerce(PValue::U32(u32::MAX)).is_ok());
-}
-
-#[test]
-fn test_coerce_f64_all_unsigned() {
-    // Test f64 can accept all unsigned integer values as bit patterns
-    assert!(f64::coerce(PValue::U8(u8::MAX)).is_ok());
-    assert!(f64::coerce(PValue::U16(u16::MAX)).is_ok());
-    assert!(f64::coerce(PValue::U32(u32::MAX)).is_ok());
-    assert!(f64::coerce(PValue::U64(u64::MAX)).is_ok());
-
-    // Verify specific bit patterns
-    assert_eq!(
-        f64::coerce(PValue::U64(0x3ff0000000000000)).unwrap(),
-        1.0f64 // 0x3ff0000000000000 is 1.0 in f64
     );
 }
 

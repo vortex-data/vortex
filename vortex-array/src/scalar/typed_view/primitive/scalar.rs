@@ -21,7 +21,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
-use super::pvalue::CoercePValue;
 use crate::dtype::DType;
 use crate::dtype::FromPrimitiveOrF16;
 use crate::dtype::NativePType;
