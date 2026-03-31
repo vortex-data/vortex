@@ -126,7 +126,10 @@ impl PatchedArray {
     ///
     /// # Errors
     ///
-    /// The `inner` array must be primitive type, and it must have the same DType as the patches.
+    /// The `inner` array must be primitive type, and it must have the same `DType` as the patches.
+    ///
+    /// The patches cannot contain nulls themselves. Any nulls must be stored in the `inner` array's
+    /// validity.
     pub fn from_array_and_patches(
         inner: ArrayRef,
         patches: &Patches,
@@ -145,6 +148,11 @@ impl PatchedArray {
         vortex_ensure!(
             patches.num_patches() <= u32::MAX as usize,
             "PatchedArray does not support > u32::MAX patch values"
+        );
+
+        vortex_ensure!(
+            patches.values().all_valid()?,
+            "PatchedArray cannot be built from Patches with nulls"
         );
 
         let values_ptype = patches.dtype().as_ptype();
