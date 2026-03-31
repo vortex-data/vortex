@@ -10,6 +10,7 @@
 //! [`DictArray`]: vortex_array::arrays::DictArray
 //! [`MaskedArray`]: vortex_array::arrays::MaskedArray
 
+pub use constant::BoolConstantScheme;
 pub use constant::FloatConstantScheme;
 pub use constant::IntConstantScheme;
 pub use constant::StringConstantScheme;
@@ -25,6 +26,11 @@ mod dict;
 use vortex_array::Canonical;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+
+/// Returns `true` if the canonical array is a bool type.
+pub fn is_bool(canonical: &Canonical) -> bool {
+    matches!(canonical, Canonical::Bool(_))
+}
 
 /// Returns `true` if the canonical array is a primitive with an integer ptype.
 pub fn is_integer_primitive(canonical: &Canonical) -> bool {

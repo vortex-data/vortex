@@ -2,6 +2,46 @@ pub mod vortex_compressor
 
 pub mod vortex_compressor::builtins
 
+pub struct vortex_compressor::builtins::BoolConstantScheme
+
+impl core::clone::Clone for vortex_compressor::builtins::BoolConstantScheme
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::clone(&self) -> vortex_compressor::builtins::BoolConstantScheme
+
+impl core::cmp::Eq for vortex_compressor::builtins::BoolConstantScheme
+
+impl core::cmp::PartialEq for vortex_compressor::builtins::BoolConstantScheme
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::eq(&self, other: &vortex_compressor::builtins::BoolConstantScheme) -> bool
+
+impl core::fmt::Debug for vortex_compressor::builtins::BoolConstantScheme
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_compressor::builtins::BoolConstantScheme
+
+impl core::marker::StructuralPartialEq for vortex_compressor::builtins::BoolConstantScheme
+
+impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::BoolConstantScheme
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::detects_constant(&self) -> bool
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::expected_compression_ratio(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<f64>
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::num_children(&self) -> usize
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::scheme_name(&self) -> &'static str
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::stats_options(&self) -> vortex_compressor::stats::GenerateStatsOptions
+
 pub struct vortex_compressor::builtins::FloatConstantScheme
 
 impl core::clone::Clone for vortex_compressor::builtins::FloatConstantScheme
@@ -246,6 +286,8 @@ pub fn vortex_compressor::builtins::float_dictionary_encode(stats: &vortex_compr
 
 pub fn vortex_compressor::builtins::integer_dictionary_encode(stats: &vortex_compressor::stats::IntegerStats) -> vortex_array::arrays::dict::array::DictArray
 
+pub fn vortex_compressor::builtins::is_bool(canonical: &vortex_array::canonical::Canonical) -> bool
+
 pub fn vortex_compressor::builtins::is_float_primitive(canonical: &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_compressor::builtins::is_integer_primitive(canonical: &vortex_array::canonical::Canonical) -> bool
@@ -385,6 +427,26 @@ pub fn vortex_compressor::scheme::Scheme::num_children(&self) -> usize
 pub fn vortex_compressor::scheme::Scheme::scheme_name(&self) -> &'static str
 
 pub fn vortex_compressor::scheme::Scheme::stats_options(&self) -> vortex_compressor::stats::GenerateStatsOptions
+
+impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::BoolConstantScheme
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::detects_constant(&self) -> bool
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::expected_compression_ratio(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<f64>
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::num_children(&self) -> usize
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::scheme_name(&self) -> &'static str
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::stats_options(&self) -> vortex_compressor::stats::GenerateStatsOptions
 
 impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::FloatConstantScheme
 
@@ -624,6 +686,8 @@ impl vortex_compressor::stats::ArrayAndStats
 
 pub fn vortex_compressor::stats::ArrayAndStats::array(&self) -> &vortex_array::array::ArrayRef
 
+pub fn vortex_compressor::stats::ArrayAndStats::bool_stats(&mut self) -> &vortex_compressor::stats::BoolStats
+
 pub fn vortex_compressor::stats::ArrayAndStats::float_stats(&mut self) -> &vortex_compressor::stats::FloatStats
 
 pub fn vortex_compressor::stats::ArrayAndStats::get_or_insert_with<T: 'static>(&mut self, f: impl core::ops::function::FnOnce() -> T) -> &T
@@ -635,6 +699,32 @@ pub fn vortex_compressor::stats::ArrayAndStats::into_array(self) -> vortex_array
 pub fn vortex_compressor::stats::ArrayAndStats::new(array: vortex_array::array::ArrayRef, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
 
 pub fn vortex_compressor::stats::ArrayAndStats::string_stats(&mut self) -> &vortex_compressor::stats::StringStats
+
+pub struct vortex_compressor::stats::BoolStats
+
+impl vortex_compressor::stats::BoolStats
+
+pub fn vortex_compressor::stats::BoolStats::generate(input: &vortex_array::arrays::bool::array::BoolArray) -> Self
+
+pub fn vortex_compressor::stats::BoolStats::generate_opts(input: &vortex_array::arrays::bool::array::BoolArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
+
+pub fn vortex_compressor::stats::BoolStats::is_constant(&self) -> bool
+
+pub fn vortex_compressor::stats::BoolStats::null_count(&self) -> u32
+
+pub fn vortex_compressor::stats::BoolStats::source(&self) -> &vortex_array::arrays::bool::array::BoolArray
+
+pub fn vortex_compressor::stats::BoolStats::true_count(&self) -> u32
+
+pub fn vortex_compressor::stats::BoolStats::value_count(&self) -> u32
+
+impl core::clone::Clone for vortex_compressor::stats::BoolStats
+
+pub fn vortex_compressor::stats::BoolStats::clone(&self) -> vortex_compressor::stats::BoolStats
+
+impl core::fmt::Debug for vortex_compressor::stats::BoolStats
+
+pub fn vortex_compressor::stats::BoolStats::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_compressor::stats::FloatDistinctInfo<T>
 

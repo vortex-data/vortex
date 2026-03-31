@@ -2,6 +2,8 @@ pub mod vortex_btrblocks
 
 pub use vortex_btrblocks::ArrayAndStats
 
+pub use vortex_btrblocks::BoolStats
+
 pub use vortex_btrblocks::CascadingCompressor
 
 pub use vortex_btrblocks::CompressorContext
@@ -27,6 +29,12 @@ pub use vortex_btrblocks::estimate_compression_ratio_with_sampling
 pub use vortex_btrblocks::integer_dictionary_encode
 
 pub mod vortex_btrblocks::schemes
+
+pub mod vortex_btrblocks::schemes::bool
+
+pub use vortex_btrblocks::schemes::bool::BoolConstantScheme
+
+pub use vortex_btrblocks::schemes::bool::BoolStats
 
 pub mod vortex_btrblocks::schemes::decimal
 

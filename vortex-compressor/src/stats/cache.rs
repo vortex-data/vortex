@@ -10,6 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ToCanonical;
 use vortex_error::VortexExpect;
 
+use super::BoolStats;
 use super::FloatStats;
 use super::GenerateStatsOptions;
 use super::IntegerStats;
@@ -94,6 +95,15 @@ impl ArrayAndStats {
     /// Consumes the bundle and returns the array.
     pub fn into_array(self) -> ArrayRef {
         self.array
+    }
+
+    /// Returns bool stats, generating them lazily on first access.
+    pub fn bool_stats(&mut self) -> &BoolStats {
+        let array = self.array.clone();
+        let opts = self.opts;
+
+        self.cache
+            .get_or_insert_with::<BoolStats>(|| BoolStats::generate_opts(&array.to_bool(), opts))
     }
 
     /// Returns integer stats, generating them lazily on first access.

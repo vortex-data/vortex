@@ -76,6 +76,7 @@ pub use vortex_compressor::scheme::SchemeExt;
 pub use vortex_compressor::scheme::SchemeId;
 pub use vortex_compressor::scheme::estimate_compression_ratio_with_sampling;
 pub use vortex_compressor::stats::ArrayAndStats;
+pub use vortex_compressor::stats::BoolStats;
 pub use vortex_compressor::stats::FloatStats;
 pub use vortex_compressor::stats::GenerateStatsOptions;
 pub use vortex_compressor::stats::IntegerStats;
