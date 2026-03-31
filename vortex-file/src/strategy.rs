@@ -32,6 +32,7 @@ use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_bytebool::ByteBool;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_decimal_byte_parts::DecimalByteParts;
+use vortex_error::vortex_panic;
 use vortex_fastlanes::BitPacked;
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::FoR;
@@ -54,6 +55,7 @@ use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
+use vortex_tensor::encodings::turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_zigzag::ZigZag;
 
@@ -111,6 +113,7 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
     session.register(RunEnd);
     session.register(Sequence);
     session.register(Sparse);
+    session.register(TurboQuant);
     session.register(ZigZag);
 
     #[cfg(feature = "zstd")]
@@ -132,8 +135,7 @@ pub struct WriteStrategyBuilder {
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<ArrayRegistry>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
-    #[cfg(feature = "unstable_encodings")]
-    vector_quantization: bool,
+    builder: Option<BtrBlocksCompressorBuilder>,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -146,8 +148,7 @@ impl Default for WriteStrategyBuilder {
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
             flat_strategy: None,
-            #[cfg(feature = "unstable_encodings")]
-            vector_quantization: false,
+            builder: None,
         }
     }
 }
@@ -202,7 +203,8 @@ impl WriteStrategyBuilder {
     /// GPU decompression. Without it, strings use interleaved Zstd compression.
     #[cfg(feature = "zstd")]
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
-        let mut builder = BtrBlocksCompressorBuilder::default().exclude([
+        let mut builder = self.builder.unwrap_or_default();
+        builder = builder.exclude([
             integer::SparseScheme.id(),
             integer::RLE_INTEGER_SCHEME.id(),
             float::RLE_FLOAT_SCHEME.id(),
@@ -220,7 +222,7 @@ impl WriteStrategyBuilder {
             builder = builder.include([string::ZstdScheme.id()]);
         }
 
-        self.compressor = Some(Arc::new(builder.build()));
+        self.builder = Some(builder);
         self
     }
 
@@ -231,15 +233,13 @@ impl WriteStrategyBuilder {
     /// especially for floating-point heavy datasets.
     #[cfg(feature = "zstd")]
     pub fn with_compact_encodings(mut self) -> Self {
-        let btrblocks = BtrBlocksCompressorBuilder::default()
-            .include([
+        let mut builder = self.builder.unwrap_or_default();
+        builder = builder.include([
                 string::ZstdScheme.id(),
                 integer::PcoScheme.id(),
                 float::PcoScheme.id(),
-            ])
-            .build();
-
-        self.compressor = Some(Arc::new(btrblocks));
+            ]);
+        self.builder = Some(builder);
         self
     }
 
@@ -254,7 +254,9 @@ impl WriteStrategyBuilder {
     /// compressor is used with TurboQuant added.
     #[cfg(feature = "unstable_encodings")]
     pub fn with_vector_quantization(mut self) -> Self {
-        self.vector_quantization = true;
+        let mut builder = self.builder.unwrap_or_default();
+        builder = builder.include([turboquant::scheme::TURBOQUANT_SCHEME.id()]);
+        self.builder = Some(builder);
         self
     }
 
@@ -274,21 +276,14 @@ impl WriteStrategyBuilder {
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
         // 5. compress each chunk
-        #[cfg(feature = "unstable_encodings")]
-        let compressor = if self.vector_quantization {
-            use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;
+        if self.builder.is_some() && self.compressor.is_some() {
+            vortex_panic!("Cannot configure both a custom compressor and custom builder schemes");
+        }
 
-            // Build a BtrBlocks compressor with TurboQuant added.
-            let builder = BtrBlocksCompressorBuilder::default().with_scheme(&TURBOQUANT_SCHEME);
-            Some(Arc::new(builder.build()) as Arc<dyn CompressorPlugin>)
-        } else {
-            self.compressor.clone()
-        };
-        #[cfg(not(feature = "unstable_encodings"))]
-        let compressor = self.compressor.clone();
-
-        let compressing = if let Some(ref compressor) = compressor {
+        let compressing = if let Some(ref compressor) = self.compressor {
             CompressingStrategy::new_opaque(buffered, compressor.clone())
+        } else if let Some(ref builder) = self.builder {
+            CompressingStrategy::new_opaque(buffered, builder.build())
         } else {
             CompressingStrategy::new_btrblocks(buffered, true)
         };
