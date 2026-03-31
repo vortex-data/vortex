@@ -3,6 +3,7 @@
 
 package dev.vortex.jni;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,8 +12,6 @@ import dev.vortex.api.DType;
 import dev.vortex.api.ScanOptions;
 import dev.vortex.api.VortexWriter;
 import dev.vortex.arrow.ArrowAllocation;
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -81,9 +80,7 @@ public final class JNIWriterTest {
         String writePath = outputPath.toAbsolutePath().toUri().toString();
 
         var writeSchema = DType.newStruct(
-                new String[] {"name", "age"},
-                new DType[] {DType.newUtf8(false), DType.newInt(false)},
-                false);
+                new String[] {"name", "age"}, new DType[] {DType.newUtf8(false), DType.newInt(false)}, false);
 
         BufferAllocator allocator = ArrowAllocation.rootAllocator();
 

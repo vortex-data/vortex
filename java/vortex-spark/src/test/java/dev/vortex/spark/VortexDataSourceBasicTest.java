@@ -100,8 +100,8 @@ public final class VortexDataSourceBasicTest {
 
         var message = new dev.vortex.spark.write.VortexWriterCommitMessage(testPath, recordCount, bytesWritten);
 
-        assertEquals(testPath, message.getFilePath());
-        assertEquals(recordCount, message.getRecordCount());
-        assertEquals(bytesWritten, message.getBytesWritten());
+        assertEquals(testPath, message.filePath());
+        assertEquals(recordCount, message.recordCount());
+        assertEquals(bytesWritten, message.bytesWritten());
     }
 }

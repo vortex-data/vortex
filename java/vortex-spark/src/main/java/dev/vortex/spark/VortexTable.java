@@ -11,6 +11,7 @@ import dev.vortex.spark.write.VortexWriteBuilder;
 import java.util.Map;
 import java.util.Set;
 import org.apache.spark.sql.connector.catalog.*;
+import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.connector.read.ScanBuilder;
 import org.apache.spark.sql.connector.write.LogicalWriteInfo;
 import org.apache.spark.sql.connector.write.WriteBuilder;
@@ -26,14 +27,20 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
     private final ImmutableList<String> paths;
     private final StructType schema;
     private final Map<String, String> formatOptions;
+    private final Transform[] partitionTransforms;
 
     /**
      * Creates a new VortexTable with read/write support.
      */
-    public VortexTable(ImmutableList<String> paths, StructType schema, Map<String, String> formatOptions) {
+    public VortexTable(
+            ImmutableList<String> paths,
+            StructType schema,
+            Map<String, String> formatOptions,
+            Transform[] partitionTransforms) {
         this.paths = paths;
         this.schema = schema;
         this.formatOptions = formatOptions;
+        this.partitionTransforms = partitionTransforms;
     }
 
     /**
@@ -93,7 +100,17 @@ public final class VortexTable implements Table, SupportsRead, SupportsWrite {
     public WriteBuilder newWriteBuilder(LogicalWriteInfo info) {
         // Make sure only one write path was provided.
         String writePath = Iterables.getOnlyElement(paths);
-        return new VortexWriteBuilder(writePath, info, formatOptions);
+        return new VortexWriteBuilder(writePath, info, formatOptions, partitionTransforms);
+    }
+
+    /**
+     * Returns the partitioning transforms for this table.
+     *
+     * @return an array of partition transforms
+     */
+    @Override
+    public Transform[] partitioning() {
+        return partitionTransforms;
     }
 
     /**

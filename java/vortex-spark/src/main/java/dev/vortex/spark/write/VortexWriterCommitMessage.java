@@ -8,35 +8,29 @@ import org.apache.spark.sql.connector.write.WriterCommitMessage;
 
 /**
  * Commit message containing information about a successfully written Vortex file.
- *
+ * <p>
  * This message is passed from executors back to the driver to coordinate
  * the commit phase of the write operation.
  */
-public final class VortexWriterCommitMessage implements WriterCommitMessage, Serializable {
-
-    private final String filePath;
-    private final long recordCount;
-    private final long bytesWritten;
+public record VortexWriterCommitMessage(String filePath, long recordCount, long bytesWritten)
+        implements WriterCommitMessage, Serializable {
 
     /**
      * Creates a new commit message for a written Vortex file.
      *
-     * @param filePath the path to the written file
-     * @param recordCount the number of records written
+     * @param filePath     the path to the written file
+     * @param recordCount  the number of records written
      * @param bytesWritten the number of bytes written
      */
-    public VortexWriterCommitMessage(String filePath, long recordCount, long bytesWritten) {
-        this.filePath = filePath;
-        this.recordCount = recordCount;
-        this.bytesWritten = bytesWritten;
-    }
+    public VortexWriterCommitMessage {}
 
     /**
      * Gets the path to the written Vortex file.
      *
      * @return the file path
      */
-    public String getFilePath() {
+    @Override
+    public String filePath() {
         return filePath;
     }
 
@@ -45,7 +39,8 @@ public final class VortexWriterCommitMessage implements WriterCommitMessage, Ser
      *
      * @return the record count
      */
-    public long getRecordCount() {
+    @Override
+    public long recordCount() {
         return recordCount;
     }
 
@@ -54,7 +49,8 @@ public final class VortexWriterCommitMessage implements WriterCommitMessage, Ser
      *
      * @return the byte count
      */
-    public long getBytesWritten() {
+    @Override
+    public long bytesWritten() {
         return bytesWritten;
     }
 }

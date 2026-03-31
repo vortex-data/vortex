@@ -102,16 +102,16 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * Vortex files. The partitioning parameter is currently ignored.
      *
      * @param schema        the table schema
-     * @param _partitioning table partitioning transforms (currently ignored)
+     * @param partitioning table partitioning transforms
      * @param properties    the table properties containing file paths and other options
      * @return a VortexTable instance for reading and writing data
      * @throws RuntimeException if required path properties are missing
      */
     @Override
-    public Table getTable(StructType schema, Transform[] _partitioning, Map<String, String> properties) {
+    public Table getTable(StructType schema, Transform[] partitioning, Map<String, String> properties) {
         var uncased = new CaseInsensitiveStringMap(properties);
         ImmutableList<String> paths = getPaths(uncased);
-        return new VortexTable(paths, schema, buildDataSourceOptions(properties));
+        return new VortexTable(paths, schema, buildDataSourceOptions(properties), partitioning);
     }
 
     /**

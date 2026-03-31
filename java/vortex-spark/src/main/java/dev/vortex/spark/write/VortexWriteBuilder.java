@@ -4,6 +4,7 @@
 package dev.vortex.spark.write;
 
 import java.util.Map;
+import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.connector.write.LogicalWriteInfo;
 import org.apache.spark.sql.connector.write.SupportsTruncate;
 import org.apache.spark.sql.connector.write.Write;
@@ -20,19 +21,23 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
     private final String paths;
     private final LogicalWriteInfo writeInfo;
     private final Map<String, String> options;
+    private final Transform[] partitionTransforms;
     private boolean truncate = false;
 
     /**
      * Creates a new VortexWriteBuilder.
      *
-     * @param paths     root path for write
-     * @param writeInfo logical information about the write operation
-     * @param options   additional write options
+     * @param paths               root path for write
+     * @param writeInfo           logical information about the write operation
+     * @param options             additional write options
+     * @param partitionTransforms partition transforms (may be empty)
      */
-    public VortexWriteBuilder(String paths, LogicalWriteInfo writeInfo, Map<String, String> options) {
+    public VortexWriteBuilder(
+            String paths, LogicalWriteInfo writeInfo, Map<String, String> options, Transform[] partitionTransforms) {
         this.paths = paths;
         this.writeInfo = writeInfo;
         this.options = options;
+        this.partitionTransforms = partitionTransforms;
     }
 
     /**
@@ -42,7 +47,7 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
      */
     @Override
     public Write build() {
-        return new VortexBatchWrite(paths, writeInfo.schema(), options, truncate);
+        return new VortexBatchWrite(paths, writeInfo.schema(), options, truncate, partitionTransforms);
     }
 
     /**

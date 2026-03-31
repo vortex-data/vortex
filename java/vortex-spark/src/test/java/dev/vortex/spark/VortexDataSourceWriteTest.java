@@ -178,6 +178,103 @@ public final class VortexDataSourceWriteTest {
     }
 
     @Test
+    @DisplayName("Write and read partitioned Vortex files")
+    public void testPartitionedWrite() throws IOException {
+        // Given: a DataFrame with a partition column
+        List<Row> rows = Arrays.asList(
+                RowFactory.create(1, "alpha", "A"),
+                RowFactory.create(2, "beta", "B"),
+                RowFactory.create(3, "gamma", "A"),
+                RowFactory.create(4, "delta", "B"),
+                RowFactory.create(5, "epsilon", "A"));
+
+        Dataset<Row> df = spark.createDataFrame(
+                rows,
+                DataTypes.createStructType(Arrays.asList(
+                        DataTypes.createStructField("id", DataTypes.IntegerType, false),
+                        DataTypes.createStructField("name", DataTypes.StringType, true),
+                        DataTypes.createStructField("group", DataTypes.StringType, true))));
+
+        Path outputPath = tempDir.resolve("partitioned_output");
+
+        // When: write with partitionBy
+        df.write()
+                .format("vortex")
+                .partitionBy("group")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        // Then: verify partition directories exist
+        assertTrue(Files.exists(outputPath.resolve("group=A")), "Partition directory group=A should exist");
+        assertTrue(Files.exists(outputPath.resolve("group=B")), "Partition directory group=B should exist");
+
+        // Verify vortex files inside partition directories
+        List<Path> filesA = findVortexFiles(outputPath.resolve("group=A"));
+        List<Path> filesB = findVortexFiles(outputPath.resolve("group=B"));
+        assertTrue(!filesA.isEmpty(), "Partition A should have vortex files");
+        assertTrue(!filesB.isEmpty(), "Partition B should have vortex files");
+
+        // When: read back
+        Dataset<Row> readDf = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load();
+
+        // Then: verify all rows are present
+        assertEquals(5, readDf.count(), "Should read all 5 rows back");
+
+        // Verify partition values are correct
+        Dataset<Row> groupA = readDf.filter(readDf.col("group").equalTo("A")).orderBy("id");
+        assertEquals(3, groupA.count(), "Group A should have 3 rows");
+        assertEquals(1, (int) groupA.collectAsList().get(0).getAs("id"));
+        assertEquals(3, (int) groupA.collectAsList().get(1).getAs("id"));
+        assertEquals(5, (int) groupA.collectAsList().get(2).getAs("id"));
+    }
+
+    @Test
+    @DisplayName("Write and read with multiple partition columns")
+    public void testMultiColumnPartitionedWrite() throws IOException {
+        List<Row> rows = Arrays.asList(
+                RowFactory.create(1, "X", 10),
+                RowFactory.create(2, "Y", 20),
+                RowFactory.create(3, "X", 20),
+                RowFactory.create(4, "Y", 10));
+
+        Dataset<Row> df = spark.createDataFrame(
+                rows,
+                DataTypes.createStructType(Arrays.asList(
+                        DataTypes.createStructField("id", DataTypes.IntegerType, false),
+                        DataTypes.createStructField("category", DataTypes.StringType, true),
+                        DataTypes.createStructField("bucket", DataTypes.IntegerType, false))));
+
+        Path outputPath = tempDir.resolve("multi_partition_output");
+
+        df.write()
+                .format("vortex")
+                .partitionBy("category", "bucket")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        // Verify nested partition directories
+        assertTrue(
+                Files.exists(outputPath.resolve("category=X/bucket=10")),
+                "Partition directory category=X/bucket=10 should exist");
+        assertTrue(
+                Files.exists(outputPath.resolve("category=Y/bucket=20")),
+                "Partition directory category=Y/bucket=20 should exist");
+
+        // Read back and verify
+        Dataset<Row> readDf = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load();
+
+        assertEquals(4, readDf.count(), "Should read all 4 rows back");
+    }
+
+    @Test
     @DisplayName("Handle special characters and nulls")
     public void testSpecialCharactersAndNulls() throws IOException {
         // Create DataFrame with nulls and special characters
