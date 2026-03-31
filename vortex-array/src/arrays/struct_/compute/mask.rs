@@ -16,9 +16,7 @@ impl MaskReduce for Struct {
             array.unmasked_fields().iter().cloned().collect::<Vec<_>>(),
             array.struct_fields().clone(),
             array.len(),
-            array
-                .validity()
-                .and(Validity::Array(mask.clone()))?,
+            array.validity().and(Validity::Array(mask.clone()))?,
         )
         .map(|a| Some(a.into_array()))
     }

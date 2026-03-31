@@ -17,9 +17,7 @@ impl MaskReduce for VarBin {
                 array.offsets().clone(),
                 array.bytes().clone(),
                 array.dtype().as_nullable(),
-                array
-                    .validity()
-                    .and(Validity::Array(mask.clone()))?,
+                array.validity().and(Validity::Array(mask.clone()))?,
             )?
             .into_array(),
         ))

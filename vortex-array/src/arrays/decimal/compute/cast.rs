@@ -61,7 +61,6 @@ impl CastKernel for Decimal {
         // Cast the validity to the new nullability
         let new_validity = array
             .validity()
-            
             .cast_nullability(*to_nullability, array.len())?;
 
         // If the target needs a wider physical type, upcast the values

@@ -81,7 +81,6 @@ impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
         } else {
             array
                 .validity()
-                
                 .into_non_nullable(array.len)
                 .ok_or_else(|| vortex_err!("Failed to cast nullable struct to non-nullable"))?
         };

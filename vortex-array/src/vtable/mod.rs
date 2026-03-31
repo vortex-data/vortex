@@ -36,6 +36,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::patches::Patches;
+use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
@@ -252,15 +253,17 @@ pub fn validity_to_child(validity: &Validity, len: usize) -> Option<ArrayRef> {
 pub fn child_to_validity(child: &Option<ArrayRef>, nullability: Nullability) -> Validity {
     match child {
         Some(arr) => {
-            // Detect constant bool arrays created by validity_to_child
-            if let Some(c) = arr.as_opt::<Constant>()
-                && let Ok(val) = bool::try_from(c.scalar()) {
-                    return if val {
+            // Detect constant bool arrays created by validity_to_child.
+            // Use direct ScalarValue matching to avoid expensive scalar conversion.
+            if let Some(c) = arr.as_opt::<Constant>() {
+                if let Some(ScalarValue::Bool(val)) = c.scalar().value() {
+                    return if *val {
                         Validity::AllValid
                     } else {
                         Validity::AllInvalid
                     };
                 }
+            }
             Validity::Array(arr.clone())
         }
         None => Validity::from(nullability),
