@@ -8,18 +8,19 @@ use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinArray;
+use crate::arrays::VarBin;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use crate::arrays::varbinview::build_views::build_views;
 use crate::arrays::varbinview::build_views::offsets_to_lengths;
 use crate::match_each_integer_ptype;
+use crate::vtable::ArrayInner;
 
 /// Converts a VarBinArray to its canonical form (VarBinViewArray).
 ///
 /// This is a shared helper used by both `canonicalize` and `execute`.
 pub(crate) fn varbin_to_canonical(
-    array: &VarBinArray,
+    array: &ArrayInner<VarBin>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinViewArray> {
     let (dtype, bytes, offsets, validity) = array.clone().into_data().into_parts();

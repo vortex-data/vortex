@@ -51,6 +51,7 @@ use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
@@ -423,20 +424,9 @@ impl ArrayRef {
         M::try_match(&*self.0)
     }
 
-    /// Returns the array downcast to the given `ArrayInner<V>` as an owned object.
-    pub fn try_into<V: VTable>(self) -> Result<ArrayInner<V>, ArrayRef> {
-        if !self.is::<V>() {
-            return Err(self);
-        }
-        let arc = self.0.as_any_arc();
-        let typed: Arc<ArrayInner<V>> = arc
-            .downcast::<ArrayInner<V>>()
-            .map_err(|_| vortex_err!("failed to downcast"))
-            .vortex_expect("Failed to downcast");
-        Ok(match Arc::try_unwrap(typed) {
-            Ok(inner) => inner,
-            Err(arc) => arc.deref().clone(),
-        })
+    /// Returns the array downcast to the given `Array<V>` as an owned typed handle.
+    pub fn try_into<V: VTable>(self) -> Result<Array<V>, ArrayRef> {
+        Array::<V>::try_from_array_ref(self)
     }
 
     /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
@@ -956,15 +946,16 @@ impl<V: VTable> DynArray for ArrayInner<V> {
 impl<V: VTable> ArrayHash for ArrayInner<V> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
         self.vtable.id().hash(state);
-        self.with_view(|view| V::array_hash(view, state, precision));
+        let this = self.as_view();
+        V::array_hash(this.as_view(), state, precision);
     }
 }
 
 impl<V: VTable> ArrayEq for ArrayInner<V> {
     fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
-        self.with_view(|self_view| {
-            other.with_view(|other_view| V::array_eq(self_view, other_view, precision))
-        })
+        let this = self.as_view();
+        let other = other.as_view();
+        V::array_eq(this.as_view(), other.as_view(), precision)
     }
 }
 

@@ -70,7 +70,7 @@ impl CastKernel for Decimal {
         let array = if target_values_type > array.values_type() {
             upcast_decimal_values(array, target_values_type)?
         } else {
-            array.array_ref().as_::<Decimal>().clone()
+            array.array_ref().as_::<Decimal>().as_view()
         };
 
         // SAFETY: new_validity same length as previous validity, just cast
@@ -107,7 +107,7 @@ pub fn upcast_decimal_values(
 
     // If already the target type, just clone
     if from_values_type == to_values_type {
-        return Ok(array.array_ref().as_::<Decimal>().clone());
+        return Ok(array.array_ref().as_::<Decimal>().as_view());
     }
 
     // Only allow upcasting (widening)
@@ -325,9 +325,8 @@ mod tests {
 
         assert_eq!(array.values_type(), DecimalType::I32);
 
-        let casted = array
-            .with_view(|v| upcast_decimal_values(v, DecimalType::I64))
-            .unwrap();
+        let array = array.as_view();
+        let casted = upcast_decimal_values(array.as_view(), DecimalType::I64).unwrap();
 
         assert_eq!(casted.values_type(), DecimalType::I64);
         assert_eq!(casted.decimal_dtype(), decimal_dtype);
@@ -347,9 +346,8 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let casted = array
-            .with_view(|v| upcast_decimal_values(v, DecimalType::I128))
-            .unwrap();
+        let array = array.as_view();
+        let casted = upcast_decimal_values(array.as_view(), DecimalType::I128).unwrap();
 
         assert_eq!(casted.values_type(), DecimalType::I128);
         assert_eq!(casted.decimal_dtype(), decimal_dtype);
@@ -367,9 +365,8 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let casted = array
-            .with_view(|v| upcast_decimal_values(v, DecimalType::I32))
-            .unwrap();
+        let array = array.as_view();
+        let casted = upcast_decimal_values(array.as_view(), DecimalType::I32).unwrap();
 
         assert_eq!(casted.values_type(), DecimalType::I32);
         assert_eq!(casted.decimal_dtype(), decimal_dtype);
@@ -380,9 +377,8 @@ mod tests {
         let decimal_dtype = DecimalDType::new(10, 2);
         let array = DecimalArray::from_option_iter([Some(100i32), None, Some(300)], decimal_dtype);
 
-        let casted = array
-            .with_view(|v| upcast_decimal_values(v, DecimalType::I64))
-            .unwrap();
+        let array = array.as_view();
+        let casted = upcast_decimal_values(array.as_view(), DecimalType::I64).unwrap();
 
         assert_eq!(casted.values_type(), DecimalType::I64);
         assert_eq!(casted.len(), 3);
@@ -409,7 +405,8 @@ mod tests {
         );
 
         // Attempt to downcast from i64 to i32 should fail
-        let result = array.with_view(|v| upcast_decimal_values(v, DecimalType::I32));
+        let array = array.as_view();
+        let result = upcast_decimal_values(array.as_view(), DecimalType::I32);
         assert!(result.is_err());
         assert!(
             result

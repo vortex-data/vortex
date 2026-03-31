@@ -4,7 +4,6 @@
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -38,8 +37,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -277,10 +276,7 @@ impl VTable for Pco {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array.decompress(ctx)?.into_array()))
     }
 
@@ -335,7 +331,7 @@ impl Pco {
         level: usize,
         values_per_page: usize,
     ) -> VortexResult<PcoArray> {
-        ArrayInner::try_from_data(PcoData::from_primitive(parray, level, values_per_page)?)
+        Array::try_from_data(PcoData::from_primitive(parray, level, values_per_page)?)
     }
 }
 
@@ -456,11 +452,13 @@ impl PcoData {
     }
 
     pub fn from_array(array: ArrayRef, level: usize, nums_per_page: usize) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<Primitive>() {
-            Self::from_primitive(parray, level, nums_per_page)
-        } else {
-            Err(vortex_err!("Pco can only encode primitive arrays"))
-        }
+        let parray = array.try_into::<Primitive>().map_err(|a| {
+            vortex_err!(
+                "Pco can only encode primitive arrays, got {}",
+                a.encoding_id()
+            )
+        })?;
+        Self::from_primitive(&parray, level, nums_per_page)
     }
 
     pub fn decompress(&self, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {

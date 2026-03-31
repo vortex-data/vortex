@@ -19,6 +19,7 @@ use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::stats::StatsSet;
+use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
@@ -88,7 +89,7 @@ where
     fn reduce_parent(
         &self,
         array: ArrayView<'_, V>,
-        parent: &DictArray,
+        parent: &ArrayInner<Dict>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle the values child (index 1), not the codes child (index 0).

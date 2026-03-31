@@ -16,7 +16,7 @@ use crate::IntoArray;
 use crate::arrays::Shared;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
-use crate::vtable::ArrayInner;
+use crate::vtable::Array;
 
 /// A lazily-executing array wrapper with a one-way transition from source to cached form.
 ///
@@ -110,11 +110,10 @@ impl SharedData {
     }
 }
 
-impl ArrayInner<Shared> {
+impl Array<Shared> {
     /// Creates a new `SharedArray`.
     pub fn new(source: ArrayRef) -> Self {
-        ArrayInner::try_from_data(SharedData::new(source))
-            .vortex_expect("SharedData is always valid")
+        Array::try_from_data(SharedData::new(source)).vortex_expect("SharedData is always valid")
     }
 }
 

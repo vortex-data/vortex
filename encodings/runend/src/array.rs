@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -28,8 +27,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -216,10 +215,7 @@ impl VTable for RunEnd {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         run_end_canonicalize(&array, ctx).map(ExecutionResult::done)
     }
 }
@@ -254,15 +250,13 @@ impl RunEnd {
         offset: usize,
         length: usize,
     ) -> RunEndArray {
-        ArrayInner::try_from_data(unsafe {
-            RunEndData::new_unchecked(ends, values, offset, length)
-        })
-        .vortex_expect("RunEndData is always valid")
+        Array::try_from_data(unsafe { RunEndData::new_unchecked(ends, values, offset, length) })
+            .vortex_expect("RunEndData is always valid")
     }
 
     /// Build a new [`RunEndArray`] from ends and values.
     pub fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<RunEndArray> {
-        ArrayInner::try_from_data(RunEndData::try_new(ends, values)?)
+        Array::try_from_data(RunEndData::try_new(ends, values)?)
     }
 
     /// Build a new [`RunEndArray`] from ends, values, offset, and length.
@@ -272,20 +266,20 @@ impl RunEnd {
         offset: usize,
         length: usize,
     ) -> VortexResult<RunEndArray> {
-        ArrayInner::try_from_data(RunEndData::try_new_offset_length(
+        Array::try_from_data(RunEndData::try_new_offset_length(
             ends, values, offset, length,
         )?)
     }
 
     /// Build a new [`RunEndArray`] from ends and values (panics on invalid input).
     pub fn new(ends: ArrayRef, values: ArrayRef) -> RunEndArray {
-        ArrayInner::try_from_data(RunEndData::new(ends, values))
+        Array::try_from_data(RunEndData::new(ends, values))
             .vortex_expect("RunEndData is always valid")
     }
 
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<RunEndArray> {
-        ArrayInner::try_from_data(RunEndData::encode(array)?)
+        Array::try_from_data(RunEndData::encode(array)?)
     }
 }
 

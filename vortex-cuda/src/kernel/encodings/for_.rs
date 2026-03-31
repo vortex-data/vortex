@@ -54,7 +54,7 @@ impl CudaExecute for FoRExecutor {
         if let Some(bitpacked) = array.encoded().as_opt::<BitPacked>() {
             match_each_integer_ptype!(bitpacked.ptype(), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
-                return decode_bitpacked(bitpacked.clone(), reference, ctx).await;
+                return decode_bitpacked(bitpacked.clone().into(), reference, ctx).await;
             })
         }
 
@@ -65,7 +65,7 @@ impl CudaExecute for FoRExecutor {
             let slice_range = slice_array.slice_range().clone();
             let unpacked = match_each_integer_ptype!(bitpacked.ptype(), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
-                decode_bitpacked(bitpacked.clone(), reference, ctx).await?
+                decode_bitpacked(bitpacked.clone().into(), reference, ctx).await?
             });
 
             return unpacked

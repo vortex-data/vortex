@@ -19,10 +19,11 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
-use crate::arrays::FilterArray;
+use crate::arrays::Filter;
 use crate::arrays::NullArray;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+use crate::vtable::ArrayInner;
 
 mod bitbuffer;
 mod bool;
@@ -49,7 +50,7 @@ fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
 
 /// Check for some fast-path execution conditions before calling [`execute_filter`].
 pub(super) fn execute_filter_fast_paths(
-    array: &FilterArray,
+    array: &ArrayInner<Filter>,
     _ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let true_count = array.mask.true_count();

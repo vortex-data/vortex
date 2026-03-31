@@ -33,8 +33,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -248,7 +248,7 @@ impl VTable for FSST {
                 vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
             }
             let codes = children.get(0, &DType::Binary(dtype.nullability()), len)?;
-            let codes = codes
+            let codes: VarBinArray = codes
                 .as_opt::<VarBin>()
                 .ok_or_else(|| {
                     vortex_err!(
@@ -256,7 +256,8 @@ impl VTable for FSST {
                         codes.encoding_id()
                     )
                 })?
-                .clone();
+                .clone()
+                .into();
             let uncompressed_lengths = children.get(
                 1,
                 &DType::Primitive(
@@ -340,7 +341,7 @@ impl VTable for FSST {
             .next()
             .ok_or_else(|| vortex_err!("FSSTArray with_children missing codes"))?;
 
-        let codes = codes
+        let codes: VarBinArray = codes
             .as_opt::<VarBin>()
             .ok_or_else(|| {
                 vortex_err!(
@@ -348,7 +349,8 @@ impl VTable for FSST {
                     codes.encoding_id()
                 )
             })?
-            .clone();
+            .clone()
+            .into();
         let uncompressed_lengths = children_iter
             .next()
             .ok_or_else(|| vortex_err!("FSSTArray with_children missing uncompressed_lengths"))?;
@@ -359,10 +361,7 @@ impl VTable for FSST {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         canonicalize_fsst(&array, ctx).map(ExecutionResult::done)
     }
 
@@ -426,7 +425,7 @@ impl FSST {
         codes: VarBinArray,
         uncompressed_lengths: ArrayRef,
     ) -> VortexResult<FSSTArray> {
-        ArrayInner::try_from_data(FSSTData::try_new(
+        Array::try_from_data(FSSTData::try_new(
             dtype,
             symbols,
             symbol_lengths,

@@ -8,6 +8,7 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveData;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::NativePType;
@@ -30,7 +31,7 @@ use vortex_mask::Mask;
 use crate::iter::trimmed_ends_iter;
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.
-pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
+pub fn runend_encode(array: &PrimitiveData) -> (PrimitiveArray, ArrayRef) {
     let validity = match array.validity() {
         Validity::NonNullable => None,
         Validity::AllValid => None,

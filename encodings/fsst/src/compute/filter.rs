@@ -22,8 +22,8 @@ impl FilterKernel for FSST {
     ) -> VortexResult<Option<ArrayRef>> {
         // Directly invoke VarBin's FilterKernel on the codes child.
         let codes = array.codes().clone();
-        let filtered_codes_ref = codes
-            .with_view(|v| <VarBin as FilterKernel>::filter(v, mask, ctx))?
+        let codes = codes.as_view();
+        let filtered_codes_ref = <VarBin as FilterKernel>::filter(codes, mask, ctx)?
             .vortex_expect("VarBin filter kernel always returns Some");
         let filtered_codes = filtered_codes_ref
             .try_into::<VarBin>()

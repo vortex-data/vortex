@@ -103,9 +103,12 @@ impl TakeExecute for Primitive {
             .validity()
             .take(&unsigned_indices.clone().into_array())?;
         // Delegate to the best kernel based on the target CPU
-        unsigned_indices
-            .with_view(|idx_view| PRIMITIVE_TAKE_KERNEL.take(array, idx_view, validity))
-            .map(Some)
+        {
+            let unsigned_indices = unsigned_indices.as_view();
+            PRIMITIVE_TAKE_KERNEL
+                .take(array, unsigned_indices, validity)
+                .map(Some)
+        }
     }
 }
 

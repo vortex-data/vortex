@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
@@ -41,8 +40,8 @@ use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 mod kernel;
@@ -210,10 +209,7 @@ impl VTable for Dict {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if array.is_empty() {
             let result_dtype = array
                 .dtype()
@@ -235,8 +231,7 @@ impl VTable for Dict {
 
         let array = require_child!(array, array.values(), 1 => AnyCanonical);
 
-        let DictArrayParts { codes, values, .. } =
-            Arc::unwrap_or_clone(array).into_data().into_parts();
+        let DictArrayParts { codes, values, .. } = array.into_data().into_parts();
 
         let codes = codes
             .try_into::<Primitive>()

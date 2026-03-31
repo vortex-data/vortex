@@ -74,9 +74,11 @@ fn take_with_indices<I: IntegerPType>(
     } else {
         // The result's nullability is the union of the input nullabilities.
         if array.dtype().is_nullable() || indices_array.dtype().is_nullable() {
-            indices_array.with_view(|idx_view| take_nullable_fsl::<I>(array, idx_view))
+            let indices_array = indices_array.as_view();
+            take_nullable_fsl::<I>(array, indices_array)
         } else {
-            indices_array.with_view(|idx_view| take_non_nullable_fsl::<I>(array, idx_view))
+            let indices_array = indices_array.as_view();
+            take_non_nullable_fsl::<I>(array, indices_array)
         }
     }
 }

@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::vtable::ArrayInner;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayView;
 pub(crate) mod compute;
 mod rules;
 mod slice;
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use prost::Message as _;
 use vortex_array::ArrayEq;
@@ -194,10 +193,7 @@ impl VTable for DecimalByteParts {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         to_canonical_decimal(&array, ctx).map(ExecutionResult::done)
     }
 
@@ -303,7 +299,7 @@ impl DecimalByteParts {
         msp: ArrayRef,
         decimal_dtype: DecimalDType,
     ) -> VortexResult<DecimalBytePartsArray> {
-        ArrayInner::try_from_data(DecimalBytePartsData::try_new(msp, decimal_dtype)?)
+        Array::try_from_data(DecimalBytePartsData::try_new(msp, decimal_dtype)?)
     }
 }
 

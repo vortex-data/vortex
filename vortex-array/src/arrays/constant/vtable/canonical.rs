@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
@@ -32,9 +33,10 @@ use crate::match_each_native_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
+use crate::vtable::ArrayInner;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
-pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
+pub(crate) fn constant_canonicalize(array: &ArrayInner<Constant>) -> VortexResult<Canonical> {
     let scalar = array.scalar();
 
     let validity = match array.dtype().nullability() {

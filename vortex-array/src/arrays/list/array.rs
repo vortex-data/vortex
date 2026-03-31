@@ -26,7 +26,7 @@ use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ArrayInner;
+use crate::vtable::Array;
 
 /// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
 ///
@@ -341,10 +341,10 @@ impl ListData {
     // the offset type and manual subtraction and fast path where `offsets[0] == 0`.
 }
 
-impl ArrayInner<List> {
+impl Array<List> {
     /// Creates a new `ListArray`.
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
-        ArrayInner::try_from_data(ListData::new(elements, offsets, validity))
+        Array::try_from_data(ListData::new(elements, offsets, validity))
             .vortex_expect("ListData is always valid")
     }
 
@@ -354,7 +354,7 @@ impl ArrayInner<List> {
         offsets: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        ArrayInner::try_from_data(ListData::try_new(elements, offsets, validity)?)
+        Array::try_from_data(ListData::try_new(elements, offsets, validity)?)
     }
 
     /// Creates a new `ListArray` without validation.
@@ -363,7 +363,7 @@ impl ArrayInner<List> {
     ///
     /// See [`ListData::new_unchecked`].
     pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
-        ArrayInner::try_from_data(unsafe { ListData::new_unchecked(elements, offsets, validity) })
+        Array::try_from_data(unsafe { ListData::new_unchecked(elements, offsets, validity) })
             .vortex_expect("ListData is always valid")
     }
 }

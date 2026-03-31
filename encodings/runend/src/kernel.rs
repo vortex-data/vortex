@@ -8,12 +8,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Slice;
-use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
@@ -42,7 +42,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
     fn execute_parent(
         &self,
         array: ArrayView<'_, RunEnd>,
-        parent: &SliceArray,
+        parent: &ArrayInner<Slice>,
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

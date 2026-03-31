@@ -519,12 +519,13 @@ impl Scheme for BitPackingScheme {
         if bw as usize == stats.src.ptype().bit_width() {
             return Ok(stats.src.clone().into_array());
         }
-        let mut packed = bitpack_encode(&stats.src, bw, Some(&histogram))?;
+        let packed = bitpack_encode(&stats.src, bw, Some(&histogram))?;
+        let mut packed_data = packed.into_data();
 
-        let patches = packed.patches().map(compress_patches).transpose()?;
-        packed.replace_patches(patches);
+        let patches = packed_data.patches().map(compress_patches).transpose()?;
+        packed_data.replace_patches(patches);
 
-        Ok(packed.into_array())
+        Ok(packed_data.into_array())
     }
 }
 

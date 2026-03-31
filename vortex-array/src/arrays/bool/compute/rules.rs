@@ -8,13 +8,13 @@ use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(crate) const RULES: ParentRuleSet<Bool> = ParentRuleSet::new(&[
@@ -38,7 +38,7 @@ impl ArrayParentReduceRule<Bool> for BoolMaskedValidityRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Bool>,
-        parent: &MaskedArray,
+        parent: &ArrayInner<Masked>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         if child_idx > 0 {

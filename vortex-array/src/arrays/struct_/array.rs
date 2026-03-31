@@ -20,7 +20,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ArrayInner;
+use crate::vtable::Array;
 
 /// A struct array that stores multiple named fields as columns, similar to a database row.
 ///
@@ -484,7 +484,7 @@ impl StructData {
     }
 }
 
-impl ArrayInner<Struct> {
+impl Array<Struct> {
     /// Creates a new `StructArray`.
     pub fn new(
         names: FieldNames,
@@ -492,7 +492,7 @@ impl ArrayInner<Struct> {
         length: usize,
         validity: Validity,
     ) -> Self {
-        ArrayInner::try_from_data(StructData::new(names, fields, length, validity))
+        Array::try_from_data(StructData::new(names, fields, length, validity))
             .vortex_expect("StructData is always valid")
     }
 
@@ -503,7 +503,7 @@ impl ArrayInner<Struct> {
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        ArrayInner::try_from_data(StructData::try_new(names, fields, length, validity)?)
+        Array::try_from_data(StructData::try_new(names, fields, length, validity)?)
     }
 
     /// Creates a new `StructArray` without validation.
@@ -517,10 +517,8 @@ impl ArrayInner<Struct> {
         length: usize,
         validity: Validity,
     ) -> Self {
-        ArrayInner::try_from_data(unsafe {
-            StructData::new_unchecked(fields, dtype, length, validity)
-        })
-        .vortex_expect("StructData is always valid")
+        Array::try_from_data(unsafe { StructData::new_unchecked(fields, dtype, length, validity) })
+            .vortex_expect("StructData is always valid")
     }
 
     /// Constructs a new `StructArray` with an explicit dtype.
@@ -530,14 +528,14 @@ impl ArrayInner<Struct> {
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        ArrayInner::try_from_data(StructData::try_new_with_dtype(
+        Array::try_from_data(StructData::try_new_with_dtype(
             fields, dtype, length, validity,
         )?)
     }
 
     /// Construct a `StructArray` from named fields.
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
-        ArrayInner::try_from_data(StructData::from_fields(items)?)
+        Array::try_from_data(StructData::from_fields(items)?)
     }
 
     /// Decompose this struct array into its constituent parts.
@@ -554,19 +552,19 @@ impl ArrayInner<Struct> {
         iter: T,
         validity: Validity,
     ) -> VortexResult<Self> {
-        ArrayInner::try_from_data(StructData::try_from_iter_with_validity(iter, validity)?)
+        Array::try_from_data(StructData::try_from_iter_with_validity(iter, validity)?)
     }
 
     /// Create a `StructArray` from an iterator of (name, array) pairs.
     pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
         iter: T,
     ) -> VortexResult<Self> {
-        ArrayInner::try_from_data(StructData::try_from_iter(iter)?)
+        Array::try_from_data(StructData::try_from_iter(iter)?)
     }
 
     /// Create a fieldless `StructArray` with the given length.
     pub fn new_fieldless_with_len(len: usize) -> Self {
-        ArrayInner::try_from_data(StructData::new_fieldless_with_len(len))
+        Array::try_from_data(StructData::new_fieldless_with_len(len))
             .vortex_expect("StructData is always valid")
     }
 }

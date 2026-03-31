@@ -12,7 +12,7 @@ use crate::arrays::FixedSizeList;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ArrayInner;
+use crate::vtable::Array;
 
 /// The canonical encoding for fixed-size list arrays.
 ///
@@ -247,10 +247,10 @@ impl FixedSizeListData {
     }
 }
 
-impl ArrayInner<FixedSizeList> {
+impl Array<FixedSizeList> {
     /// Creates a new `FixedSizeListArray`.
     pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
-        ArrayInner::try_from_data(FixedSizeListData::new(elements, list_size, validity, len))
+        Array::try_from_data(FixedSizeListData::new(elements, list_size, validity, len))
             .vortex_expect("FixedSizeListData is always valid")
     }
 
@@ -261,7 +261,7 @@ impl ArrayInner<FixedSizeList> {
         validity: Validity,
         len: usize,
     ) -> VortexResult<Self> {
-        ArrayInner::try_from_data(FixedSizeListData::try_new(
+        Array::try_from_data(FixedSizeListData::try_new(
             elements, list_size, validity, len,
         )?)
     }
@@ -277,7 +277,7 @@ impl ArrayInner<FixedSizeList> {
         validity: Validity,
         len: usize,
     ) -> Self {
-        ArrayInner::try_from_data(unsafe {
+        Array::try_from_data(unsafe {
             FixedSizeListData::new_unchecked(elements, list_size, validity, len)
         })
         .vortex_expect("FixedSizeListData is always valid")

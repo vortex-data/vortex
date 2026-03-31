@@ -42,9 +42,10 @@ impl TakeExecute for List {
         match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
             match_each_integer_ptype!(indices.ptype(), |I| {
                 match_smallest_offset_type!(total_approx, |OutputOffsetType| {
-                    indices
-                        .with_view(|idx_view| _take::<I, O, OutputOffsetType>(array, idx_view, ctx))
-                        .map(Some)
+                    {
+                        let indices = indices.as_view();
+                        _take::<I, O, OutputOffsetType>(array, indices, ctx).map(Some)
+                    }
                 })
             })
         })

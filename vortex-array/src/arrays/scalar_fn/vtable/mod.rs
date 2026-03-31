@@ -8,7 +8,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
@@ -44,6 +43,7 @@ use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
@@ -210,10 +210,7 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn()));
         let args = VecExecutionArgs::new(array.children.clone(), array.len);
         array
@@ -270,7 +267,7 @@ impl<V: scalar_fn::ScalarFnVTable> ScalarFnArrayExt for V {}
 #[derive(Debug)]
 pub struct AnyScalarFn;
 impl Matcher for AnyScalarFn {
-    type Match<'a> = &'a ScalarFnArray;
+    type Match<'a> = &'a ArrayInner<ScalarFnVTable>;
 
     fn try_match(array: &dyn DynArray) -> Option<Self::Match<'_>> {
         array.as_opt::<ScalarFnVTable>()

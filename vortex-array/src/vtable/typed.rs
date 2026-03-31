@@ -32,6 +32,7 @@ use crate::vtable::VTable;
 /// and converting between typed and untyped representations.
 /// This type is returned by reference from [`Matcher`] downcasts.
 #[doc(hidden)]
+#[doc(hidden)]
 pub struct ArrayInner<V: VTable> {
     pub(crate) vtable: V,
     pub(crate) dtype: DType,
@@ -73,16 +74,12 @@ impl<V: VTable> ArrayInner<V> {
 }
 
 impl<V: VTable> ArrayInner<V> {
-    /// Calls `f` with an [`ArrayView`] backed by a temporary [`ArrayRef`].
+    /// Returns a typed [`Array<V>`] handle by cloning `self` into an `Arc`.
     ///
-    /// This creates a clone of `self` wrapped in an `ArrayRef` so that the `ArrayView`
-    /// has a valid `&ArrayRef` to reference.
+    /// Use this to obtain an [`ArrayView`] via `array.as_view().as_view()`.
     #[doc(hidden)]
-    pub fn with_view<R>(&self, f: impl FnOnce(ArrayView<'_, V>) -> R) -> R {
-        let array_ref = self.to_array_ref();
-        // SAFETY: `self.data` is equivalent to the data inside `array_ref` (it's a clone).
-        let view = unsafe { ArrayView::new(&array_ref, &self.data) };
-        f(view)
+    pub fn as_view(&self) -> Array<V> {
+        Array::from_inner(self.clone())
     }
 
     /// Creates an [`ArrayRef`] by cloning self into an Arc.
@@ -309,6 +306,12 @@ impl<V: VTable> From<ArrayInner<V>> for ArrayRef {
     }
 }
 
+impl<V: VTable> From<ArrayInner<V>> for Array<V> {
+    fn from(value: ArrayInner<V>) -> Array<V> {
+        Array::from_inner(value)
+    }
+}
+
 impl<V: VTable> IntoArray for Arc<ArrayInner<V>> {
     fn into_array(self) -> ArrayRef {
         ArrayRef::from_inner(self)
@@ -407,7 +410,8 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns a reference to the inner `ArrayInner<V>`.
-    fn inner_ref(&self) -> &ArrayInner<V> {
+    #[doc(hidden)]
+    pub fn inner_ref(&self) -> &ArrayInner<V> {
         // SAFETY: We only construct Array<V> when the ArrayRef contains ArrayInner<V>.
         unsafe {
             self.inner
@@ -432,11 +436,10 @@ impl<V: VTable> Array<V> {
         self.inner.clone()
     }
 
-    /// Calls `f` with an [`ArrayView`] backed by this array's [`ArrayRef`].
-    pub fn with_view<R>(&self, f: impl FnOnce(ArrayView<'_, V>) -> R) -> R {
+    /// Returns an [`ArrayView`] borrowing this array's data.
+    pub fn as_view(&self) -> ArrayView<'_, V> {
         // SAFETY: `self.inner_ref().data` is the data inside `self.inner`.
-        let view = unsafe { ArrayView::new(&self.inner, &self.inner_ref().data) };
-        f(view)
+        unsafe { ArrayView::new(&self.inner, &self.inner_ref().data) }
     }
 }
 

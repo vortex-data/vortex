@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::Filter;
-use crate::arrays::FilterArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::dict::TakeReduceAdaptor;
@@ -15,6 +14,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<ListView> = ParentRuleSet::new(&[
@@ -34,7 +34,7 @@ impl ArrayParentReduceRule<ListView> for ListViewFilterPushDown {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, ListView>,
-        parent: &FilterArray,
+        parent: &ArrayInner<Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // NOTE(ngates): if the filter is super selective, we maybe ought to consider masking

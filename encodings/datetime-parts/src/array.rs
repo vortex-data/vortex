@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -23,8 +22,8 @@ use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -228,10 +227,7 @@ impl VTable for DateTimeParts {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             decode_to_temporal(&array, ctx)?.into_array(),
         ))
@@ -285,14 +281,14 @@ impl DateTimeParts {
         seconds: ArrayRef,
         subseconds: ArrayRef,
     ) -> VortexResult<DateTimePartsArray> {
-        ArrayInner::try_from_data(DateTimePartsData::try_new(
+        Array::try_from_data(DateTimePartsData::try_new(
             dtype, days, seconds, subseconds,
         )?)
     }
 
     /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`].
     pub fn try_from_temporal(temporal: TemporalArray) -> VortexResult<DateTimePartsArray> {
-        ArrayInner::try_from_data(DateTimePartsData::try_from(temporal)?)
+        Array::try_from_data(DateTimePartsData::try_from(temporal)?)
     }
 }
 

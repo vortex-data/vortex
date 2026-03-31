@@ -3,7 +3,6 @@
 
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::sync::Arc;
 
 use prost::Message;
 use vortex_array::ArrayEq;
@@ -21,8 +20,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
@@ -344,10 +343,7 @@ impl VTable for ParquetVariant {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             VariantArray::new(array.as_ref().clone().into_array()).into_array(),
         ))

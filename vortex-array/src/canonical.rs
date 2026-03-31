@@ -52,6 +52,7 @@ use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::matcher::Matcher;
 use crate::validity::Validity;
+use crate::vtable::ArrayInner;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
@@ -948,33 +949,36 @@ impl Executable for StructArray {
 }
 
 /// A view into a canonical array type.
+///
+/// Uses `ArrayInner<V>` rather than `Array<V>` because these are obtained by
+/// downcasting through the `Matcher` trait which returns `&ArrayInner<V>`.
 #[derive(Debug, Clone)]
 pub enum CanonicalView<'a> {
-    Null(&'a NullArray),
-    Bool(&'a BoolArray),
-    Primitive(&'a PrimitiveArray),
-    Decimal(&'a DecimalArray),
-    VarBinView(&'a VarBinViewArray),
-    List(&'a ListViewArray),
-    FixedSizeList(&'a FixedSizeListArray),
-    Struct(&'a StructArray),
-    Extension(&'a ExtensionArray),
-    Variant(&'a VariantArray),
+    Null(&'a ArrayInner<Null>),
+    Bool(&'a ArrayInner<Bool>),
+    Primitive(&'a ArrayInner<Primitive>),
+    Decimal(&'a ArrayInner<Decimal>),
+    VarBinView(&'a ArrayInner<VarBinView>),
+    List(&'a ArrayInner<ListView>),
+    FixedSizeList(&'a ArrayInner<FixedSizeList>),
+    Struct(&'a ArrayInner<Struct>),
+    Extension(&'a ArrayInner<Extension>),
+    Variant(&'a ArrayInner<Variant>),
 }
 
 impl From<CanonicalView<'_>> for Canonical {
     fn from(value: CanonicalView<'_>) -> Self {
         match value {
-            CanonicalView::Null(a) => Canonical::Null(a.clone()),
-            CanonicalView::Bool(a) => Canonical::Bool(a.clone()),
-            CanonicalView::Primitive(a) => Canonical::Primitive(a.clone()),
-            CanonicalView::Decimal(a) => Canonical::Decimal(a.clone()),
-            CanonicalView::VarBinView(a) => Canonical::VarBinView(a.clone()),
-            CanonicalView::List(a) => Canonical::List(a.clone()),
-            CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.clone()),
-            CanonicalView::Struct(a) => Canonical::Struct(a.clone()),
-            CanonicalView::Extension(a) => Canonical::Extension(a.clone()),
-            CanonicalView::Variant(a) => Canonical::Variant(a.clone()),
+            CanonicalView::Null(a) => Canonical::Null(a.as_view()),
+            CanonicalView::Bool(a) => Canonical::Bool(a.as_view()),
+            CanonicalView::Primitive(a) => Canonical::Primitive(a.as_view()),
+            CanonicalView::Decimal(a) => Canonical::Decimal(a.as_view()),
+            CanonicalView::VarBinView(a) => Canonical::VarBinView(a.as_view()),
+            CanonicalView::List(a) => Canonical::List(a.as_view()),
+            CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.as_view()),
+            CanonicalView::Struct(a) => Canonical::Struct(a.as_view()),
+            CanonicalView::Extension(a) => Canonical::Extension(a.as_view()),
+            CanonicalView::Variant(a) => Canonical::Variant(a.as_view()),
         }
     }
 }
@@ -983,16 +987,16 @@ impl CanonicalView<'_> {
     /// Convert to a type-erased [`ArrayRef`].
     pub fn to_array_ref(&self) -> ArrayRef {
         match self {
-            CanonicalView::Null(a) => (*a).clone().into_array(),
-            CanonicalView::Bool(a) => (*a).clone().into_array(),
-            CanonicalView::Primitive(a) => (*a).clone().into_array(),
-            CanonicalView::Decimal(a) => (*a).clone().into_array(),
-            CanonicalView::VarBinView(a) => (*a).clone().into_array(),
-            CanonicalView::List(a) => (*a).clone().into_array(),
-            CanonicalView::FixedSizeList(a) => (*a).clone().into_array(),
-            CanonicalView::Struct(a) => (*a).clone().into_array(),
-            CanonicalView::Extension(a) => (*a).clone().into_array(),
-            CanonicalView::Variant(a) => (*a).clone().into_array(),
+            CanonicalView::Null(a) => a.to_array_ref(),
+            CanonicalView::Bool(a) => a.to_array_ref(),
+            CanonicalView::Primitive(a) => a.to_array_ref(),
+            CanonicalView::Decimal(a) => a.to_array_ref(),
+            CanonicalView::VarBinView(a) => a.to_array_ref(),
+            CanonicalView::List(a) => a.to_array_ref(),
+            CanonicalView::FixedSizeList(a) => a.to_array_ref(),
+            CanonicalView::Struct(a) => a.to_array_ref(),
+            CanonicalView::Extension(a) => a.to_array_ref(),
+            CanonicalView::Variant(a) => a.to_array_ref(),
         }
     }
 }

@@ -21,7 +21,7 @@ pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> Var
     arrow_filter_fn(&array.clone().into_array(), &values_to_mask(mask))
         .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
         .as_::<VarBinView>()
-        .clone()
+        .as_view()
 }
 
 fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<ArrayRef> {

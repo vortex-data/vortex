@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use prost::Message;
 use vortex_array::ArrayEq;
@@ -21,8 +20,8 @@ use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
@@ -248,10 +247,7 @@ impl VTable for RLE {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             rle_decompress(&array, ctx)?.into_array(),
         ))
@@ -276,7 +272,7 @@ impl RLE {
         offset: usize,
         length: usize,
     ) -> RLEArray {
-        ArrayInner::try_from_data(unsafe {
+        Array::try_from_data(unsafe {
             RLEData::new_unchecked(values, indices, values_idx_offsets, dtype, offset, length)
         })
         .vortex_expect("RLEData is always valid")

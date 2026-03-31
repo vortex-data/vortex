@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use fastlanes::FastLanes;
 use prost::Message;
@@ -22,8 +21,8 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
@@ -205,10 +204,7 @@ impl VTable for Delta {
         DeltaData::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             delta_decompress(&array, ctx)?.into_array(),
         ))
@@ -226,7 +222,7 @@ impl Delta {
         array: &PrimitiveArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<DeltaArray> {
-        ArrayInner::try_from_data(DeltaData::try_from_primitive_array(array, ctx)?)
+        Array::try_from_data(DeltaData::try_from_primitive_array(array, ctx)?)
     }
 }
 

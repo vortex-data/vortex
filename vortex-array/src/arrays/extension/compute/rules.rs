@@ -8,13 +8,13 @@ use crate::IntoArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
-use crate::arrays::FilterArray;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Extension> = ParentRuleSet::new(&[
@@ -35,7 +35,7 @@ impl ArrayParentReduceRule<Extension> for ExtensionFilterPushDownRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, Extension>,
-        parent: &FilterArray,
+        parent: &ArrayInner<Filter>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         debug_assert_eq!(child_idx, 0);
@@ -60,7 +60,6 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;
     use crate::arrays::ExtensionArray;
-    use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::dtype::DType;
@@ -76,6 +75,7 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::operators::Operator;
+    use crate::vtable::ArrayInner;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;

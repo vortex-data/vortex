@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
@@ -36,8 +35,8 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 mod canonical;
@@ -260,12 +259,9 @@ impl VTable for Chunked {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            _canonicalize(&array, ctx)?.into_array(),
+            _canonicalize(array.inner_ref(), ctx)?.into_array(),
         ))
     }
 

@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayEq;
@@ -29,8 +28,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -311,10 +310,7 @@ impl VTable for ALPRD {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.left_parts(), 0 => Primitive);
         let array = require_child!(array, array.right_parts(), 1 => Primitive);
 
@@ -326,7 +322,7 @@ impl VTable for ALPRD {
             left_parts_patches,
             dtype,
             ..
-        } = Arc::unwrap_or_clone(array).into_data().into_parts();
+        } = array.into_data().into_parts();
         let ptype = dtype.as_ptype();
 
         let left_parts = left_parts
@@ -424,7 +420,7 @@ impl ALPRD {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> VortexResult<ALPRDArray> {
-        ArrayInner::try_from_data(ALPRDData::try_new(
+        Array::try_from_data(ALPRDData::try_new(
             dtype,
             left_parts,
             left_parts_dictionary,
@@ -444,7 +440,7 @@ impl ALPRD {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> ALPRDArray {
-        ArrayInner::try_from_data(unsafe {
+        Array::try_from_data(unsafe {
             ALPRDData::new_unchecked(
                 dtype,
                 left_parts,

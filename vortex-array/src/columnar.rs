@@ -17,6 +17,7 @@ use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
+use crate::vtable::ArrayInner;
 
 /// Represents a columnnar array of data, either in canonical form or as a constant array.
 ///
@@ -72,7 +73,7 @@ impl Executable for Columnar {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let result = array.execute_until::<AnyColumnar>(ctx)?;
         if let Some(constant) = result.as_opt::<Constant>() {
-            Ok(Columnar::Constant(constant.clone()))
+            Ok(Columnar::Constant(constant.as_view()))
         } else {
             Ok(Columnar::Canonical(
                 result
@@ -86,7 +87,7 @@ impl Executable for Columnar {
 
 pub enum ColumnarView<'a> {
     Canonical(CanonicalView<'a>),
-    Constant(&'a ConstantArray),
+    Constant(&'a ArrayInner<Constant>),
 }
 
 impl ColumnarView<'_> {
@@ -94,7 +95,7 @@ impl ColumnarView<'_> {
     pub fn to_array_ref(&self) -> ArrayRef {
         match self {
             ColumnarView::Canonical(canonical) => canonical.to_array_ref(),
-            ColumnarView::Constant(constant) => (*constant).clone().into_array(),
+            ColumnarView::Constant(constant) => constant.to_array_ref(),
         }
     }
 }

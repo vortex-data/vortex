@@ -6,10 +6,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Filter;
-use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFnVTable;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -21,6 +21,7 @@ use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
+use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -48,7 +49,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, DateTimeParts>,
-        parent: &FilterArray,
+        parent: &ArrayInner<Filter>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         debug_assert_eq!(child_idx, 0);
@@ -94,7 +95,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, DateTimeParts>,
-        parent: &ScalarFnArray,
+        parent: &ArrayInner<ScalarFnVTable>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle comparison operations (Binary comparisons or Between)

@@ -10,13 +10,13 @@ use crate::IntoArray;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
@@ -38,7 +38,7 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Decimal>,
-        parent: &MaskedArray,
+        parent: &ArrayInner<Masked>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Merge the parent's validity mask into the child's validity

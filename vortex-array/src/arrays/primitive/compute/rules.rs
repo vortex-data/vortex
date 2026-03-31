@@ -6,13 +6,13 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
+use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(crate) const RULES: ParentRuleSet<Primitive> = ParentRuleSet::new(&[
@@ -34,7 +34,7 @@ impl ArrayParentReduceRule<Primitive> for PrimitiveMaskedValidityRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Primitive>,
-        parent: &MaskedArray,
+        parent: &ArrayInner<Masked>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(joe): make this lazy

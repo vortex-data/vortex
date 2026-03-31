@@ -35,12 +35,14 @@ impl TakeExecute for FSST {
                     .union_nullability(indices.dtype().nullability()),
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),
-                array
-                    .codes()
-                    .with_view(|v| <VarBin as TakeExecute>::take(v, indices, _ctx))?
-                    .vortex_expect("VarBin take kernel always returns Some")
-                    .try_into::<VarBin>()
-                    .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
+                {
+                    let codes = array.codes();
+                    let codes = codes.as_view();
+                    <VarBin as TakeExecute>::take(codes, indices, _ctx)?
+                        .vortex_expect("VarBin take kernel always returns Some")
+                }
+                .try_into::<VarBin>()
+                .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
                 array
                     .uncompressed_lengths()
                     .take(indices.to_array())?

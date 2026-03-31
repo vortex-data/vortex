@@ -8,6 +8,7 @@ use arcref::ArcRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -20,6 +21,7 @@ use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
+use crate::vtable::Array;
 use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
@@ -114,17 +116,20 @@ impl<V: VTable> DynVTable for V {
     }
 
     fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        let mut data = array.as_::<V>().data.clone();
+        let typed = array
+            .as_any()
+            .downcast_ref::<ArrayInner<V>>()
+            .vortex_expect("Failed to downcast array");
+        let mut data = typed.data.clone();
         V::with_children(&mut data, children)?;
-        let inner = array.as_::<V>();
         // SAFETY: with_children preserves dtype and len.
         Ok(unsafe {
             ArrayInner::from_data_unchecked(
-                inner.vtable.clone(),
-                inner.dtype.clone(),
-                inner.len,
+                typed.vtable.clone(),
+                typed.dtype.clone(),
+                typed.len,
                 data,
-                inner.stats.clone(),
+                typed.stats.clone(),
             )
         }
         .into_array())
@@ -181,8 +186,10 @@ impl<V: VTable> DynVTable for V {
         let dtype = array.dtype().clone();
         let stats = array.statistics().to_owned();
 
-        let owned = downcast_owned::<V>(array);
-        let result = V::execute(owned, ctx)?;
+        let typed = Array::<V>::try_from_array_ref(array)
+            .map_err(|_| vortex_err!("Failed to downcast array for execute"))
+            .vortex_expect("Failed to downcast array for execute");
+        let result = V::execute(typed, ctx)?;
 
         if matches!(result.step(), ExecutionStep::Done) {
             if cfg!(debug_assertions) {

@@ -69,11 +69,11 @@ fn take_bool(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BoolArray> {
     let codes_ref = codes.clone().into_array();
-    Ok(array
-        .with_view(|view| <Bool as TakeExecute>::take(view, &codes_ref, ctx))?
+    let array = array.as_view();
+    Ok(<Bool as TakeExecute>::take(array, &codes_ref, ctx)?
         .vortex_expect("take bool should not return None")
         .as_::<Bool>()
-        .clone())
+        .as_view())
 }
 
 fn take_primitive(
@@ -82,12 +82,12 @@ fn take_primitive(
     ctx: &mut ExecutionCtx,
 ) -> PrimitiveArray {
     let codes_ref = codes.clone().into_array();
-    array
-        .with_view(|view| <Primitive as TakeExecute>::take(view, &codes_ref, ctx))
+    let array = array.as_view();
+    <Primitive as TakeExecute>::take(array, &codes_ref, ctx)
         .vortex_expect("take primitive array")
         .vortex_expect("take primitive should not return None")
         .as_::<Primitive>()
-        .clone()
+        .as_view()
 }
 
 fn take_decimal(
@@ -96,12 +96,12 @@ fn take_decimal(
     ctx: &mut ExecutionCtx,
 ) -> DecimalArray {
     let codes_ref = codes.clone().into_array();
-    array
-        .with_view(|view| <Decimal as TakeExecute>::take(view, &codes_ref, ctx))
+    let array = array.as_view();
+    <Decimal as TakeExecute>::take(array, &codes_ref, ctx)
         .vortex_expect("take decimal array")
         .vortex_expect("take decimal should not return None")
         .as_::<Decimal>()
-        .clone()
+        .as_view()
 }
 
 fn take_varbinview(
@@ -110,22 +110,22 @@ fn take_varbinview(
     ctx: &mut ExecutionCtx,
 ) -> VarBinViewArray {
     let codes_ref = codes.clone().into_array();
-    array
-        .with_view(|view| <VarBinView as TakeExecute>::take(view, &codes_ref, ctx))
+    let array = array.as_view();
+    <VarBinView as TakeExecute>::take(array, &codes_ref, ctx)
         .vortex_expect("take varbinview array")
         .vortex_expect("take varbinview should not return None")
         .as_::<VarBinView>()
-        .clone()
+        .as_view()
 }
 
 fn take_listview(array: &ListViewArray, codes: &PrimitiveArray) -> ListViewArray {
     let codes_ref = codes.clone().into_array();
-    array
-        .with_view(|view| <ListView as TakeReduce>::take(view, &codes_ref))
+    let array = array.as_view();
+    <ListView as TakeReduce>::take(array, &codes_ref)
         .vortex_expect("take listview array")
         .vortex_expect("take listview should not return None")
         .as_::<ListView>()
-        .clone()
+        .as_view()
 }
 
 fn take_fixed_size_list(
@@ -134,22 +134,22 @@ fn take_fixed_size_list(
     ctx: &mut ExecutionCtx,
 ) -> FixedSizeListArray {
     let codes_ref = codes.clone().into_array();
-    array
-        .with_view(|view| <FixedSizeList as TakeExecute>::take(view, &codes_ref, ctx))
+    let array = array.as_view();
+    <FixedSizeList as TakeExecute>::take(array, &codes_ref, ctx)
         .vortex_expect("take fixed size list array")
         .vortex_expect("take fixed size list should not return None")
         .as_::<FixedSizeList>()
-        .clone()
+        .as_view()
 }
 
 fn take_struct(array: &StructArray, codes: &PrimitiveArray) -> StructArray {
     let codes_ref = codes.clone().into_array();
-    array
-        .with_view(|view| <Struct as TakeReduce>::take(view, &codes_ref))
+    let array = array.as_view();
+    <Struct as TakeReduce>::take(array, &codes_ref)
         .vortex_expect("take struct array")
         .vortex_expect("take struct should not return None")
         .as_::<Struct>()
-        .clone()
+        .as_view()
 }
 
 fn take_extension(
@@ -158,10 +158,10 @@ fn take_extension(
     ctx: &mut ExecutionCtx,
 ) -> ExtensionArray {
     let codes_ref = codes.clone().into_array();
-    array
-        .with_view(|view| <Extension as TakeExecute>::take(view, &codes_ref, ctx))
+    let array = array.as_view();
+    <Extension as TakeExecute>::take(array, &codes_ref, ctx)
         .vortex_expect("take extension storage")
         .vortex_expect("take extension should not return None")
         .as_::<Extension>()
-        .clone()
+        .as_view()
 }

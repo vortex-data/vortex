@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -33,8 +32,8 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -225,12 +224,9 @@ impl VTable for List {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            list_view_from_list((*array).clone(), ctx)?.into_array(),
+            list_view_from_list(array, ctx)?.into_array(),
         ))
     }
 

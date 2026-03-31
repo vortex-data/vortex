@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -23,8 +22,8 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -248,12 +247,9 @@ impl VTable for ALP {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            execute_decompress(Arc::unwrap_or_clone(array), ctx)?.into_array(),
+            execute_decompress(array, ctx)?.into_array(),
         ))
     }
 
@@ -478,7 +474,7 @@ impl ALPData {
 /// Constructors for [`ALPArray`].
 impl ALP {
     pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> ALPArray {
-        ArrayInner::try_from_data(ALPData::new(encoded, exponents, patches))
+        Array::try_from_data(ALPData::new(encoded, exponents, patches))
             .vortex_expect("ALPData is always valid")
     }
 
@@ -487,7 +483,7 @@ impl ALP {
         exponents: Exponents,
         patches: Option<Patches>,
     ) -> VortexResult<ALPArray> {
-        ArrayInner::try_from_data(ALPData::try_new(encoded, exponents, patches)?)
+        Array::try_from_data(ALPData::try_new(encoded, exponents, patches)?)
     }
 
     /// # Safety
@@ -498,10 +494,8 @@ impl ALP {
         patches: Option<Patches>,
         dtype: DType,
     ) -> ALPArray {
-        ArrayInner::try_from_data(unsafe {
-            ALPData::new_unchecked(encoded, exponents, patches, dtype)
-        })
-        .vortex_expect("ALPData is always valid")
+        Array::try_from_data(unsafe { ALPData::new_unchecked(encoded, exponents, patches, dtype) })
+            .vortex_expect("ALPData is always valid")
     }
 }
 

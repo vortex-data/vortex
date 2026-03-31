@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -23,8 +22,8 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -146,10 +145,7 @@ impl VTable for Null {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 }
@@ -194,9 +190,9 @@ impl Null {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.null");
 }
 
-impl ArrayInner<Null> {
+impl Array<Null> {
     pub fn new(len: usize) -> Self {
-        ArrayInner::try_from_data(NullData::new(len)).vortex_expect("NullData is always valid")
+        Array::try_from_data(NullData::new(len)).vortex_expect("NullData is always valid")
     }
 }
 

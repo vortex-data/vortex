@@ -9,10 +9,11 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::Chunked;
+use crate::arrays::ChunkedArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
-use crate::arrays::chunked::vtable::ChunkedArray;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
@@ -21,9 +22,10 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::validity::Validity;
+use crate::vtable::ArrayInner;
 
 pub(super) fn _canonicalize(
-    array: &ChunkedArray,
+    array: &ArrayInner<Chunked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
     if array.nchunks() == 0 {

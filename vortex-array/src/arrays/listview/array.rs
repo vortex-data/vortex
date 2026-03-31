@@ -21,7 +21,7 @@ use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ArrayInner;
+use crate::vtable::Array;
 
 /// The canonical encoding for variable-length list arrays.
 ///
@@ -468,10 +468,10 @@ impl ListViewData {
     }
 }
 
-impl ArrayInner<ListView> {
+impl Array<ListView> {
     /// Creates a new `ListViewArray`.
     pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
-        ArrayInner::try_from_data(ListViewData::new(elements, offsets, sizes, validity))
+        Array::try_from_data(ListViewData::new(elements, offsets, sizes, validity))
             .vortex_expect("ListViewData is always valid")
     }
 
@@ -482,7 +482,7 @@ impl ArrayInner<ListView> {
         sizes: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        ArrayInner::try_from_data(ListViewData::try_new(elements, offsets, sizes, validity)?)
+        Array::try_from_data(ListViewData::try_new(elements, offsets, sizes, validity)?)
     }
 
     /// Creates a new `ListViewArray` without validation.
@@ -496,7 +496,7 @@ impl ArrayInner<ListView> {
         sizes: ArrayRef,
         validity: Validity,
     ) -> Self {
-        ArrayInner::try_from_data(unsafe {
+        Array::try_from_data(unsafe {
             ListViewData::new_unchecked(elements, offsets, sizes, validity)
         })
         .vortex_expect("ListViewData is always valid")
@@ -508,7 +508,7 @@ impl ArrayInner<ListView> {
     ///
     /// See [`ListViewData::with_zero_copy_to_list`].
     pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
-        ArrayInner::try_from_data(unsafe { self.into_data().with_zero_copy_to_list(is_zctl) })
+        Array::try_from_data(unsafe { self.into_data().with_zero_copy_to_list(is_zctl) })
             .vortex_expect("data is always valid")
     }
 }

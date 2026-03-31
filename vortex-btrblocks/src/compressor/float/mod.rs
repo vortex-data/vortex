@@ -379,15 +379,16 @@ impl Scheme for ALPRDScheme {
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        let mut alp_rd = encoder.encode(&stats.src);
+        let alp_rd = encoder.encode(&stats.src);
+        let mut alp_rd_data = alp_rd.into_data();
 
-        let patches = alp_rd
+        let patches = alp_rd_data
             .left_parts_patches()
             .map(compress_patches)
             .transpose()?;
-        alp_rd.replace_left_parts_patches(patches);
+        alp_rd_data.replace_left_parts_patches(patches);
 
-        Ok(alp_rd.into_array())
+        Ok(alp_rd_data.into_array())
     }
 }
 

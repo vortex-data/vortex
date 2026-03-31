@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
-use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -33,8 +32,8 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -165,11 +164,8 @@ impl VTable for Filter {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
-        if let Some(canonical) = execute_filter_fast_paths(&array, ctx)? {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        if let Some(canonical) = execute_filter_fast_paths(array.inner_ref(), ctx)? {
             return Ok(ExecutionResult::done(canonical));
         }
         let Mask::Values(mask_values) = &array.mask else {

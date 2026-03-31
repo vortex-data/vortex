@@ -21,6 +21,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
@@ -496,10 +497,7 @@ impl VTable for ZstdBuffers {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let session = ctx.session();
         let inner_array = array.decompress_and_build_inner(session)?;
         inner_array

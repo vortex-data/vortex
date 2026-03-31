@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -37,8 +36,8 @@ use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 pub(crate) mod canonical;
@@ -189,12 +188,9 @@ impl VTable for Constant {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            constant_canonicalize(&array)?.into_array(),
+            constant_canonicalize(array.inner_ref())?.into_array(),
         ))
     }
 

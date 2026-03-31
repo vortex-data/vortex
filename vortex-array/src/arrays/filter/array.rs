@@ -10,7 +10,7 @@ use crate::ArrayRef;
 use crate::arrays::Filter;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
-use crate::vtable::ArrayInner;
+use crate::vtable::Array;
 
 /// Decomposed parts of the filter array.
 pub struct FilterArrayParts {
@@ -84,16 +84,16 @@ impl FilterData {
     }
 }
 
-impl ArrayInner<Filter> {
+impl Array<Filter> {
     /// Creates a new `FilterArray`.
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
-        ArrayInner::try_from_data(FilterData::new(array, mask))
+        Array::try_from_data(FilterData::new(array, mask))
             .vortex_expect("FilterData is always valid")
     }
 
     /// Constructs a new `FilterArray`.
     pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
-        ArrayInner::try_from_data(FilterData::try_new(array, mask)?)
+        Array::try_from_data(FilterData::try_new(array, mask)?)
     }
 }
 

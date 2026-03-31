@@ -9,7 +9,7 @@ use crate::arrays::Extension;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::stats::ArrayStats;
-use crate::vtable::ArrayInner;
+use crate::vtable::Array;
 
 /// An extension array that wraps another array with additional type information.
 ///
@@ -144,19 +144,19 @@ impl ExtensionData {
     }
 }
 
-impl ArrayInner<Extension> {
+impl Array<Extension> {
     /// Constructs a new `ExtensionArray`.
     ///
     /// # Panics
     ///
     /// Panics if the storage array is not compatible with the extension dtype.
     pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
-        ArrayInner::try_from_data(ExtensionData::new(ext_dtype, storage_array))
+        Array::try_from_data(ExtensionData::new(ext_dtype, storage_array))
             .vortex_expect("ExtensionData is always valid")
     }
 
     /// Tries to construct a new `ExtensionArray`.
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
-        ArrayInner::try_from_data(ExtensionData::try_new(ext_dtype, storage_array)?)
+        Array::try_from_data(ExtensionData::try_new(ext_dtype, storage_array)?)
     }
 }

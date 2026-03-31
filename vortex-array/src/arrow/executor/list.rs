@@ -38,7 +38,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
 ) -> VortexResult<ArrowArrayRef> {
     // If the Vortex array is already in List format, we can directly convert it.
     if let Some(array) = array.as_opt::<List>() {
-        return list_to_list::<O>(array, elements_field, ctx);
+        return list_to_list::<O>(&array.as_view(), elements_field, ctx);
     }
 
     // Converting each chunk individually, then using the fast concat logic from arrow

@@ -4,6 +4,7 @@
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::Primitive;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -12,8 +13,8 @@ use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 pub mod bitpack_compress;
 pub mod bitpack_decompress;
@@ -298,13 +299,12 @@ impl BitPackedData {
     ///
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
-    // FIXME(ngates): take a PrimitiveArray
     pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<BitPackedArray> {
-        if let Some(parray) = array.as_opt::<Primitive>() {
-            bitpack_encode(parray, bit_width, None)
-        } else {
-            vortex_bail!(InvalidArgument: "Bitpacking can only encode primitive arrays");
-        }
+        let parray: PrimitiveArray = array
+            .clone()
+            .try_into::<Primitive>()
+            .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
+        bitpack_encode(&parray, bit_width, None)
     }
 
     /// Calculate the maximum value that **can** be contained by this array, given its bit-width.

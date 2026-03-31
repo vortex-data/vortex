@@ -32,8 +32,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -286,10 +286,7 @@ impl VTable for Zstd {
         Ok(())
     }
 
-    fn execute(
-        array: Arc<ArrayInner<Self>>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         array
             .decompress(ctx)?
             .execute::<ArrayRef>(ctx)
@@ -317,7 +314,7 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
-        ArrayInner::try_from_data(ZstdData::from_var_bin_view_without_dict(
+        Array::try_from_data(ZstdData::from_var_bin_view_without_dict(
             vbv,
             level,
             values_per_frame,
@@ -330,7 +327,7 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
-        ArrayInner::try_from_data(ZstdData::from_primitive(parray, level, values_per_frame)?)
+        Array::try_from_data(ZstdData::from_primitive(parray, level, values_per_frame)?)
     }
 
     /// Compress a [`VarBinViewArray`] using Zstd.
@@ -339,7 +336,7 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
-        ArrayInner::try_from_data(ZstdData::from_var_bin_view(vbv, level, values_per_frame)?)
+        Array::try_from_data(ZstdData::from_var_bin_view(vbv, level, values_per_frame)?)
     }
 }
 
@@ -957,7 +954,7 @@ impl ZstdData {
             self.slice_stop
         );
 
-        ArrayInner::try_from_data(ZstdData {
+        Array::try_from_data(ZstdData {
             slice_start: self.slice_start + start,
             slice_stop: self.slice_start + stop,
             stats_set: Default::default(),
