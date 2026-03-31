@@ -34,8 +34,8 @@
 //! [`ALL_SCHEMES`].
 //!
 //! Schemes can produce arrays that are themselves further compressed (e.g. FoR then BitPacking),
-//! up to [`MAX_CASCADE`] (3) layers deep. An excludes slice of [`SchemeId`] prevents the same
-//! scheme from being applied twice in a chain.
+//! up to [`MAX_CASCADE`] (3) layers deep. Descendant exclusion rules for of [`SchemeId`] prevents
+//! the same scheme from being applied twice in a chain.
 //!
 //! # Example
 //!

@@ -24,6 +24,8 @@ use crate::stats::GenerateStatsOptions;
 ///
 /// The only way to obtain a [`SchemeId`] is through [`SchemeExt::id()`], which is
 /// auto-implemented for all [`Scheme`] types. There is no public constructor.
+///
+/// The only exception to this is for `ROOT_SCHEME_ID` in `compressor.rs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SchemeId {
     /// Only constructable within `vortex-compressor`.

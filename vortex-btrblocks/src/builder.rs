@@ -126,13 +126,6 @@ impl Default for BtrBlocksCompressorBuilder {
 }
 
 impl BtrBlocksCompressorBuilder {
-    /// Excludes the specified compression schemes by their [`SchemeId`].
-    pub fn exclude(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
-        let ids: HashSet<_> = ids.into_iter().collect();
-        self.schemes.retain(|s| !ids.contains(&s.id()));
-        self
-    }
-
     /// Includes the specified compression schemes by their [`SchemeId`].
     ///
     /// Only schemes present in [`ALL_SCHEMES`] can be included.
@@ -146,9 +139,10 @@ impl BtrBlocksCompressorBuilder {
         self
     }
 
-    /// Adds a single scheme to the builder.
-    pub fn with_scheme(mut self, scheme: &'static dyn Scheme) -> Self {
-        self.schemes.insert(scheme);
+    /// Excludes the specified compression schemes by their [`SchemeId`].
+    pub fn exclude(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
+        let ids: HashSet<_> = ids.into_iter().collect();
+        self.schemes.retain(|s| !ids.contains(&s.id()));
         self
     }
 

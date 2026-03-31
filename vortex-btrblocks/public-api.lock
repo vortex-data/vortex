@@ -610,8 +610,6 @@ pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::exclude(self, ids: impl cor
 
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::include(self, ids: impl core::iter::traits::collect::IntoIterator<Item = vortex_compressor::scheme::SchemeId>) -> Self
 
-pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::with_scheme(self, scheme: &'static dyn vortex_compressor::scheme::Scheme) -> Self
-
 impl core::clone::Clone for vortex_btrblocks::BtrBlocksCompressorBuilder
 
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::clone(&self) -> vortex_btrblocks::BtrBlocksCompressorBuilder

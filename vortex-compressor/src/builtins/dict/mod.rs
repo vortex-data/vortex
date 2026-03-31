@@ -201,7 +201,6 @@ impl Scheme for FloatDictScheme {
 
         let dict = float::dictionary_encode(stats);
         let has_all_values_referenced = dict.has_all_values_referenced();
-        // let DictArrayParts { codes, values, .. } = dict.into_parts();
 
         // Values = child 0.
         let compressed_values = compressor.compress_child(dict.values(), &ctx, self.id(), 0)?;

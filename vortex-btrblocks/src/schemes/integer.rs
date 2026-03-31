@@ -646,6 +646,7 @@ impl Scheme for SequenceScheme {
             return Ok(0.0);
         }
 
+        // TODO(connor): Why divide by 2???
         // Since two values are required to store base and multiplier the compression ratio is
         // divided by 2.
         Ok(sequence_encode(stats.source())?
