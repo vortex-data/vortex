@@ -17,6 +17,7 @@ use crate::arrays::dict::TakeExecute;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
+use crate::match_smallest_offset_type;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -26,20 +27,24 @@ use crate::vtable::ValidityHelper;
 /// that elements start at offset 0 and be perfectly packed without gaps. We expand list indices
 /// into element indices and push them down to the child elements array.
 impl TakeExecute for FixedSizeList {
+    #[expect(clippy::cognitive_complexity)]
     fn take(
         array: &FixedSizeListArray,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        let max_element_idx = array.elements().len();
         match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
-            take_with_indices::<I>(array, indices, ctx)
+            match_smallest_offset_type!(max_element_idx, |E| {
+                take_with_indices::<I, E>(array, indices, ctx)
+            })
         })
         .map(Some)
     }
 }
 
 /// Dispatches to the appropriate take implementation based on list size and nullability.
-fn take_with_indices<I: IntegerPType>(
+fn take_with_indices<I: IntegerPType, E: IntegerPType>(
     array: &FixedSizeListArray,
     indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -74,15 +79,15 @@ fn take_with_indices<I: IntegerPType>(
     } else {
         // The result's nullability is the union of the input nullabilities.
         if array.dtype().is_nullable() || indices_array.dtype().is_nullable() {
-            take_nullable_fsl::<I>(array, &indices_array)
+            take_nullable_fsl::<I, E>(array, &indices_array)
         } else {
-            take_non_nullable_fsl::<I>(array, &indices_array)
+            take_non_nullable_fsl::<I, E>(array, &indices_array)
         }
     }
 }
 
 /// Takes from an array when both the array and indices are non-nullable.
-fn take_non_nullable_fsl<I: IntegerPType>(
+fn take_non_nullable_fsl<I: IntegerPType, E: IntegerPType>(
     array: &FixedSizeListArray,
     indices_array: &PrimitiveArray,
 ) -> VortexResult<ArrayRef> {
@@ -91,7 +96,7 @@ fn take_non_nullable_fsl<I: IntegerPType>(
     let new_len = indices.len();
 
     // Build the element indices directly without validity tracking.
-    let mut elements_indices = BufferMut::<I>::with_capacity(new_len * list_size);
+    let mut elements_indices = BufferMut::<E>::with_capacity(new_len * list_size);
 
     // Build the element indices for each list.
     for data_idx in indices {
@@ -106,7 +111,7 @@ fn take_non_nullable_fsl<I: IntegerPType>(
         for i in list_start..list_end {
             // SAFETY: We've allocated enough space for enough indices for all `new_len` lists (that each consist of `list_size = list_end - list_start` elements), so we know we have enough capacity.
             unsafe {
-                elements_indices.push_unchecked(I::from_usize(i).vortex_expect("i < list_end"))
+                elements_indices.push_unchecked(E::from_usize(i).vortex_expect("i < list_end"))
             };
         }
     }
@@ -131,7 +136,7 @@ fn take_non_nullable_fsl<I: IntegerPType>(
 }
 
 /// Takes from an array when either the array or indices are nullable.
-fn take_nullable_fsl<I: IntegerPType>(
+fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
     array: &FixedSizeListArray,
     indices_array: &PrimitiveArray,
 ) -> VortexResult<ArrayRef> {
@@ -144,7 +149,7 @@ fn take_nullable_fsl<I: IntegerPType>(
 
     // We must use placeholder zeros for null lists to maintain the array length without
     // propagating nullability to the element array's take operation.
-    let mut elements_indices = BufferMut::<I>::with_capacity(new_len * list_size);
+    let mut elements_indices = BufferMut::<E>::with_capacity(new_len * list_size);
     let mut new_validity_builder = BitBufferMut::with_capacity(new_len);
 
     // Build the element indices while tracking which lists are null.
@@ -159,7 +164,7 @@ fn take_nullable_fsl<I: IntegerPType>(
         if !is_index_valid || !array_validity.value(data_idx) {
             // Append placeholder zeros for null lists. These will be masked by the validity array.
             // We cannot use append_nulls here as explained above.
-            unsafe { elements_indices.push_n_unchecked(I::zero(), list_size) };
+            unsafe { elements_indices.push_n_unchecked(E::zero(), list_size) };
             new_validity_builder.append(false);
         } else {
             // Append the actual element indices for this list.
@@ -170,7 +175,7 @@ fn take_nullable_fsl<I: IntegerPType>(
             for i in list_start..list_end {
                 // SAFETY: We've allocated enough space for enough indices for all `new_len` lists (that each consist of `list_size = list_end - list_start` elements), so we know we have enough capacity.
                 unsafe {
-                    elements_indices.push_unchecked(I::from_usize(i).vortex_expect("i < list_end"))
+                    elements_indices.push_unchecked(E::from_usize(i).vortex_expect("i < list_end"))
                 };
             }
 
