@@ -8,7 +8,6 @@ use std::cmp::Ordering;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use num_traits::NumCast;
 use num_traits::ToPrimitive;
 use num_traits::Zero;
 use paste::paste;
@@ -16,7 +15,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::dtype::NativePType;
@@ -482,137 +480,6 @@ impl Display for PValue {
             Self::F16(v) => write!(f, "{v}f16"),
             Self::F32(v) => write!(f, "{v}f32"),
             Self::F64(v) => write!(f, "{v}f64"),
-        }
-    }
-}
-
-/// Coercion trait for widening or reinterpreting a [`PValue`] into a concrete type.
-pub(super) trait CoercePValue: Sized {
-    /// Coerce value from a compatible bit representation using into given type.
-    ///
-    /// Integers can be widened from narrower type
-    /// Floats stored as integers will be reinterpreted as bit representation of the float
-    fn coerce(value: PValue) -> VortexResult<Self>;
-}
-
-/// Implements [`CoercePValue`] for an integer type.
-macro_rules! int_coerce {
-    ($T:ty) => {
-        impl CoercePValue for $T {
-            #[inline]
-            fn coerce(value: PValue) -> VortexResult<Self> {
-                Self::try_from(value)
-            }
-        }
-    };
-}
-
-int_coerce!(u8);
-int_coerce!(u16);
-int_coerce!(u32);
-int_coerce!(u64);
-int_coerce!(i8);
-int_coerce!(i16);
-int_coerce!(i32);
-int_coerce!(i64);
-
-impl CoercePValue for f16 {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "truncation is intentional and checked where needed"
-    )]
-    fn coerce(value: PValue) -> VortexResult<Self> {
-        // F16 coercion behavior:
-        // - U8/U16/U32/U64: Interpreted as the bit representation of an f16 value.
-        //   Only the lower 16 bits are used, allowing compact storage of f16 values
-        //   as integers when the full type information is preserved externally.
-        // - F16: Passthrough
-        // - F32/F64: Numeric conversion with potential precision loss
-        // - Other types: Not supported
-        //
-        // Note: This bit-pattern interpretation means that integer value 0x3C00u16
-        // would be interpreted as f16(1.0), not as f16(15360.0).
-        match value {
-            PValue::U8(u) => Ok(Self::from_bits(u as u16)),
-            PValue::U16(u) => Ok(Self::from_bits(u)),
-            PValue::U32(u) => {
-                vortex_ensure!(
-                    u <= u16::MAX as u32,
-                    "Cannot coerce U32 value to f16: value out of range"
-                );
-                Ok(Self::from_bits(u as u16))
-            }
-            PValue::U64(u) => {
-                vortex_ensure!(
-                    u <= u16::MAX as u64,
-                    "Cannot coerce U64 value to f16: value out of range"
-                );
-                Ok(Self::from_bits(u as u16))
-            }
-            PValue::F16(u) => Ok(u),
-            PValue::F32(f) => {
-                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f32 to f16"))
-            }
-            PValue::F64(f) => {
-                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f64 to f16"))
-            }
-            PValue::I8(_) | PValue::I16(_) | PValue::I32(_) | PValue::I64(_) => {
-                vortex_bail!("Cannot coerce {value:?} to f16: type not supported for coercion")
-            }
-        }
-    }
-}
-
-impl CoercePValue for f32 {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "truncation is intentional and checked where needed"
-    )]
-    fn coerce(value: PValue) -> VortexResult<Self> {
-        // F32 coercion: U32 values are interpreted as bit patterns, not numeric conversions
-        match value {
-            PValue::U8(u) => Ok(Self::from_bits(u as u32)),
-            PValue::U16(u) => Ok(Self::from_bits(u as u32)),
-            PValue::U32(u) => Ok(Self::from_bits(u)),
-            PValue::U64(u) => {
-                vortex_ensure!(
-                    u <= u32::MAX as u64,
-                    "Cannot coerce U64 value to f32: value out of range"
-                );
-                Ok(Self::from_bits(u as u32))
-            }
-            PValue::F16(f) => {
-                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f16 to f32"))
-            }
-            PValue::F32(f) => Ok(f),
-            PValue::F64(f) => {
-                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f64 to f32"))
-            }
-            PValue::I8(_) | PValue::I16(_) | PValue::I32(_) | PValue::I64(_) => {
-                vortex_bail!("Unsupported PValue {value:?} type for f32")
-            }
-        }
-    }
-}
-
-impl CoercePValue for f64 {
-    fn coerce(value: PValue) -> VortexResult<Self> {
-        // F64 coercion: U64 values are interpreted as bit patterns, not numeric conversions
-        match value {
-            PValue::U8(u) => Ok(Self::from_bits(u as u64)),
-            PValue::U16(u) => Ok(Self::from_bits(u as u64)),
-            PValue::U32(u) => Ok(Self::from_bits(u as u64)),
-            PValue::U64(u) => Ok(Self::from_bits(u)),
-            PValue::F16(f) => {
-                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f16 to f64"))
-            }
-            PValue::F32(f) => {
-                <Self as NumCast>::from(f).ok_or_else(|| vortex_err!("Cannot convert f32 to f64"))
-            }
-            PValue::F64(f) => Ok(f),
-            PValue::I8(_) | PValue::I16(_) | PValue::I32(_) | PValue::I64(_) => {
-                vortex_bail!("Unsupported PValue {value:?} type for f64")
-            }
         }
     }
 }

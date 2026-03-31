@@ -83,15 +83,7 @@ impl<'a> PrimitiveScalar<'a> {
     pub fn try_new(dtype: &'a DType, value: Option<&ScalarValue>) -> VortexResult<Self> {
         let ptype = PType::try_from(dtype)?;
 
-        // Read the serialized value into the correct PValue.
-        // The serialized form may come back over the wire as e.g. any integer type.
-        let pvalue = match value {
-            None => None,
-            Some(v) => {
-                let pv = v.as_primitive();
-                match_each_native_ptype!(ptype, |T| { Some(PValue::from(<T>::coerce(*pv)?)) })
-            }
-        };
+        let pvalue = value.map(|v| v.as_primitive()).cloned();
 
         Ok(Self {
             dtype,
