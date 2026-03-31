@@ -17,7 +17,6 @@ impl MaskReduce for Bool {
                 array.to_bit_buffer(),
                 array
                     .validity()
-                    
                     .and(Validity::Array(mask.clone()))?,
             )
             .into_array(),

@@ -38,7 +38,6 @@ use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 vtable!(Masked);
 
 #[derive(Clone, Debug)]
@@ -53,7 +52,7 @@ impl VTable for Masked {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {
         &Masked

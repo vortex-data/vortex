@@ -24,7 +24,6 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod kernel;
 mod operations;
 mod validity;
@@ -49,7 +48,7 @@ impl VTable for Primitive {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {
         &Primitive

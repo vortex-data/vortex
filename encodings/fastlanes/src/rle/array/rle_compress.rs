@@ -257,7 +257,7 @@ mod tests {
         let primitive = values.clone().into_array().to_primitive();
         let result = RLEArray::encode(&primitive).unwrap();
         let decoded = result.to_primitive();
-        let expected = PrimitiveArray::new(values, primitive.validity().clone());
+        let expected = PrimitiveArray::new(values, primitive.validity());
         assert_arrays_eq!(decoded, expected);
     }
 

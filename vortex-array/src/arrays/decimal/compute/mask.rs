@@ -23,7 +23,6 @@ impl MaskReduce for Decimal {
                         array.decimal_dtype(),
                         array
                             .validity()
-                            
                             .and(Validity::Array(mask.clone()))?,
                     )
                 }

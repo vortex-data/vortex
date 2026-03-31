@@ -29,7 +29,6 @@ use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod canonical;
 mod kernel;
 mod operations;
@@ -59,7 +58,7 @@ impl VTable for VarBin {
 
     type Metadata = ProstMetadata<VarBinMetadata>;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
     fn vtable(_array: &Self::Array) -> &Self {
         &VarBin
     }
