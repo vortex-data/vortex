@@ -11003,8 +11003,14 @@ dependencies = [
 name = "vortex-web-wasm"
 version = "0.1.0"
 dependencies = [
+ "arrow-array 58.0.0",
+ "arrow-ipc 58.0.0",
+ "arrow-schema 58.0.0",
  "console_error_panic_hook",
+ "futures",
  "js-sys",
+ "serde",
+ "serde_json",
  "vortex",
  "wasm-bindgen",
  "wasm-bindgen-futures",

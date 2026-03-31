@@ -1,62 +1,91 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* SPDX-FileCopyrightText: Copyright the Vortex contributors */
 
-@import "tailwindcss";
+@import 'tailwindcss';
 
-:root {
-  --background: #101010;
-}
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --color-background: var(--background);
+  --color-grey: #d4d4d8;
 
-  --color-grey: #D9D9D9;
-  --color-vortex-black: rgba(16, 16, 16, 1);
-  --color-vortex-white: rgba(255, 255, 255, 1);
-  --color-vortex-grey: rgba(236, 236, 236, 1);
-  --color-vortex-grey-dark: rgba(143, 143, 143, 1);
-  --color-vortex-grey-light: rgba(207, 207, 207, 1);
-  --color-vortex-grey-lightest: rgba(241, 241, 241, 1);
-  --color-vortex-green: rgba(206, 229, 98, 1);
-  --color-vortex-washed-green: rgba(241, 248, 208, 1);
-  --color-vortex-light-blue: rgba(44, 185, 209, 1);
-  --color-vortex-washed-light-blue: rgba(213, 241, 246, 1);
-  --color-vortex-washed-lighter-blue: rgba(234, 248, 250, 1);
-  --color-vortex-blue: rgba(89, 113, 253, 1);
-  --color-vortex-pink: rgba(238, 179, 225, 1);
-  --color-vortex-orange: rgba(251, 134, 61, 1);
-  --color-vortex-red: rgba(204, 51, 51, 1);
+  /* Surface palette */
+  --color-vortex-black: #1a1a1e;
+  --color-vortex-white: #fafafa;
+  --color-vortex-grey: #e4e4e7;
+  --color-vortex-grey-dark: #71717a;
+  --color-vortex-grey-light: #d4d4d8;
+  --color-vortex-grey-lightest: #f4f4f5;
 
-  --font-sans: "Geist", sans-serif;
-  --font-mono: "Geist Mono", monospace;
-  --font-funnel: "Funnel Display", sans-serif;
+  /* Foreground — separate from surfaces so text contrast is tunable */
+  --color-vortex-fg: #e4e4e8;
+  --color-vortex-fg-light: #18181b;
+
+  /* Accent colors */
+  --color-vortex-green: #cee562;
+  --color-vortex-washed-green: #f1f8d0;
+  --color-vortex-light-blue: #2cb9d1;
+  --color-vortex-washed-light-blue: #d5f1f6;
+  --color-vortex-washed-lighter-blue: #eaf8fa;
+  --color-vortex-blue: #5971fd;
+  --color-vortex-pink: #eeb3e1;
+  --color-vortex-orange: #fb863d;
+  --color-vortex-red: #dc2626;
+
+  --font-sans: 'Geist', sans-serif;
+  --font-mono: 'Geist Mono', monospace;
+  --font-funnel: 'Funnel Display', sans-serif;
 }
 
 html {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-vortex-black) var(--color-vortex-grey);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.light,
+.light * {
+  scrollbar-color: var(--color-vortex-grey-light) var(--color-vortex-grey-lightest);
+}
+
+.dark,
+.dark * {
+  scrollbar-color: #333338 var(--color-vortex-black);
 }
 
 body {
-  background: var(--background);
-  font-family: theme("fontFamily.sans");
+  font-family: theme('fontFamily.sans');
   text-rendering: optimizeLegibility;
+}
+
+/* Default app is dark themed */
+:root:not(.light) {
+  --array-node-bg: rgba(255, 255, 255, 0.03);
+}
+:root:not(.light) body {
+  background: var(--color-vortex-black);
+}
+
+.light {
+  --array-node-bg: rgba(0, 0, 0, 0.025);
+}
+.light body {
+  background: var(--color-vortex-white);
 }
 
 @layer utilities {
   .dashed-bottom {
-    @apply relative after:absolute after:left-0 after:right-0 after:bottom-0 after:h-px after:bg-[length:16px_1px] after:bg-repeat-x after:bg-[linear-gradient(to_right,white_12px,transparent_4px)];
+    @apply relative after:absolute after:left-0 after:right-0 after:bottom-0 after:h-px after:bg-[length:16px_1px] after:bg-repeat-x after:bg-[linear-gradient(to_right,currentColor_12px,transparent_4px)] after:opacity-20;
   }
 
   .dashed-top {
-    @apply relative before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:bg-[length:16px_1px] before:bg-repeat-x before:bg-[linear-gradient(to_right,white_12px,transparent_4px)];
+    @apply relative before:absolute before:left-0 before:right-0 before:top-0 before:h-px before:bg-[length:16px_1px] before:bg-repeat-x before:bg-[linear-gradient(to_right,currentColor_12px,transparent_4px)] before:opacity-20;
   }
 
   .dashed-right {
-    @apply relative after:absolute after:top-0 after:bottom-0 after:right-0 after:w-px after:bg-[length:1px_16px] after:bg-repeat-y after:bg-[linear-gradient(to_bottom,white_12px,transparent_4px)];
+    @apply relative after:absolute after:top-0 after:bottom-0 after:right-0 after:w-px after:bg-[length:1px_16px] after:bg-repeat-y after:bg-[linear-gradient(to_bottom,currentColor_12px,transparent_4px)] after:opacity-20;
   }
 
   .dashed-left {
-    @apply relative before:absolute before:top-0 before:bottom-0 before:left-0 before:w-px before:bg-[length:1px_16px] before:bg-repeat-y before:bg-[linear-gradient(to_bottom,white_12px,transparent_4px)];
+    @apply relative before:absolute before:top-0 before:bottom-0 before:left-0 before:w-px before:bg-[length:1px_16px] before:bg-repeat-y before:bg-[linear-gradient(to_bottom,currentColor_12px,transparent_4px)] before:opacity-20;
   }
 }

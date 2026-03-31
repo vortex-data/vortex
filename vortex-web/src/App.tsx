@@ -1,142 +1,193 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
-import type { InitOutput } from "./wasm/pkg/vortex_web_wasm.d.ts";
-
-interface FileInfo {
-  name: string;
-  rowCount: bigint;
-  dtype: string;
-}
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import type { VortexFileState, VortexFileContextValue } from './contexts/VortexFileContext';
+import { VortexFileProvider } from './contexts/VortexFileContext';
+import { SelectionProvider } from './contexts/SelectionContext';
+import type { LayoutTreeNode } from './components/swimlane/types';
+import { arrayTreeToLayoutChildren, findNodeById } from './components/swimlane/utils';
+import { FileDropScreen } from './components/explorer/FileDropScreen';
+import { FileHeader } from './components/explorer/FileHeader';
+import { MainArea } from './components/explorer/MainArea';
+import { StatusBar } from './components/explorer/StatusBar';
+import { VortexWorker } from './workers/VortexWorker';
 
 function App() {
-  const [isDragging, setIsDragging] = useState(false);
-  const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
+  const [fileState, setFileState] = useState<VortexFileState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const wasmRef = useRef<InitOutput | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
+  const workerRef = useRef<VortexWorker | null>(null);
 
   useEffect(() => {
-    import("./wasm/pkg/vortex_web_wasm.js").then(async (wasm) => {
-      wasmRef.current = await wasm.default();
-    });
+    workerRef.current = new VortexWorker();
+    return () => workerRef.current?.terminate();
   }, []);
 
-  const openFile = useCallback(
-    async (file: File) => {
-      setError(null);
-      setLoading(true);
-      try {
-        const wasm = await import("./wasm/pkg/vortex_web_wasm.js");
-        if (!wasmRef.current) {
-          wasmRef.current = await wasm.default();
-        }
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const handle = wasm.open_vortex_file(bytes);
-        setFileInfo({
-          name: file.name,
-          rowCount: handle.row_count,
-          dtype: handle.dtype,
-        });
-        handle.free();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-        setFileInfo(null);
-      } finally {
-        setLoading(false);
-      }
+  const openFile = useCallback(async (file: File) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await workerRef.current!.openFile(file);
+      setFileState({
+        fileName: file.name,
+        fileSize: file.size,
+        rowCount: result.rowCount,
+        version: result.fileStructure.version,
+        dtype: result.dtype,
+        layoutTree: result.layoutTree,
+        segments: result.segments,
+        fileStructure: result.fileStructure,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setFileState(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchEncodingTree = useCallback(
+    (nodeId: string) => workerRef.current!.fetchEncodingTree(nodeId),
+    [],
+  );
+
+  const previewData = useCallback(
+    (nodeId: string, rowLimit: number) => workerRef.current!.previewData(nodeId, rowLimit),
+    [],
+  );
+
+  /** Clone a tree, replacing the node at targetId with a modified version. */
+  const cloneTreeWithUpdate = useCallback(
+    (
+      root: LayoutTreeNode,
+      targetId: string,
+      update: (node: LayoutTreeNode) => LayoutTreeNode,
+    ): LayoutTreeNode => {
+      if (root.id === targetId) return update(root);
+      const newChildren = root.children.map((child) =>
+        cloneTreeWithUpdate(child, targetId, update),
+      );
+      if (newChildren === root.children) return root;
+      return { ...root, children: newChildren };
     },
     [],
   );
 
+  const expandArrayTree = useCallback(
+    async (nodeId: string) => {
+      // Fetch the encoding tree (may be async).
+      const arrayTree = await workerRef.current!.fetchEncodingTree(nodeId);
+      if (!arrayTree) return;
+
+      setFileState((prev) => {
+        if (!prev) return prev;
+        const node = findNodeById(prev.layoutTree, nodeId);
+        if (!node || node.encoding !== 'vortex.flat') return prev;
+        if (node.children.some((c) => c.isArrayNode)) return prev;
+
+        const arrayChildren = arrayTreeToLayoutChildren(arrayTree, node);
+        const newTree = cloneTreeWithUpdate(prev.layoutTree, nodeId, (n) => ({
+          ...n,
+          arrayEncodingTree: arrayTree,
+          children: [...n.children, ...arrayChildren],
+        }));
+        return { ...prev, layoutTree: newTree };
+      });
+    },
+    [cloneTreeWithUpdate],
+  );
+
+  const fetchArrayBuffer = useCallback(
+    (layoutNodeId: string, arrayPath: string[], bufferIndex: number) =>
+      workerRef.current!.fetchArrayBuffer(layoutNodeId, arrayPath, bufferIndex),
+    [],
+  );
+
+  const previewArrayData = useCallback(
+    (layoutNodeId: string, arrayPath: string[], rowLimit: number) =>
+      workerRef.current!.previewArrayData(layoutNodeId, arrayPath, rowLimit),
+    [],
+  );
+
+  const fileContextValue = useMemo<VortexFileContextValue | null>(
+    () =>
+      fileState
+        ? {
+            ...fileState,
+            fetchEncodingTree,
+            previewData,
+            expandArrayTree,
+            fetchArrayBuffer,
+            previewArrayData,
+          }
+        : null,
+    [
+      fileState,
+      fetchEncodingTree,
+      previewData,
+      expandArrayTree,
+      fetchArrayBuffer,
+      previewArrayData,
+    ],
+  );
+
+  const closeFile = useCallback(() => setFileState(null), []);
+
+  const handleDragEnter = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    dragCounter.current++;
+    if (dragCounter.current === 1) setIsDragging(true);
+  }, []);
+
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    setIsDragging(true);
   }, []);
 
   const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    setIsDragging(false);
+    dragCounter.current--;
+    if (dragCounter.current === 0) setIsDragging(false);
   }, []);
 
   const handleDrop = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
       e.preventDefault();
+      dragCounter.current = 0;
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file) {
-        openFile(file);
-      }
+      if (file) openFile(file);
     },
     [openFile],
   );
 
-  const handleClick = useCallback(() => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".vortex,.vtx";
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (file) {
-        openFile(file);
-      }
-    };
-    input.click();
-  }, [openFile]);
+  if (!fileContextValue) {
+    return <FileDropScreen onFileLoaded={openFile} loading={loading} error={error} />;
+  }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center text-white">
-      <h1 className="mb-8 font-funnel text-4xl font-light tracking-tight md:text-6xl">
-        Vortex Explorer
-      </h1>
-
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={handleClick}
-        className={`dashed-top dashed-bottom flex h-64 w-full max-w-lg cursor-pointer flex-col items-center justify-center transition-colors ${
-          isDragging ? "bg-vortex-light-blue/10" : "hover:bg-white/5"
-        }`}
-      >
-        {loading ? (
-          <p className="font-mono text-lg text-grey">Loading...</p>
-        ) : fileInfo ? (
-          <div className="text-center">
-            <p className="font-mono text-lg text-white">{fileInfo.name}</p>
-            <p className="mt-4 font-mono text-sm text-grey">
-              <span className="text-vortex-light-blue">
-                {fileInfo.rowCount.toLocaleString()}
-              </span>{" "}
-              rows
-            </p>
-            <pre className="mt-4 max-w-md overflow-x-auto rounded bg-white/5 px-4 py-2 text-left font-mono text-xs text-vortex-grey-light">
-              {fileInfo.dtype}
-            </pre>
-          </div>
-        ) : (
-          <div className="text-center">
-            <p className="font-mono text-lg text-grey">
-              Drop a{" "}
-              <code className="rounded bg-white/10 px-1.5 py-0.5 text-vortex-light-blue">
-                .vortex
-              </code>{" "}
-              file here
-            </p>
-            <p className="mt-2 font-mono text-sm text-vortex-grey-dark">
-              or click to browse
-            </p>
-          </div>
-        )}
-      </div>
-
-      {error && (
-        <p className="mt-4 max-w-lg font-mono text-sm text-vortex-red">
-          {error}
-        </p>
-      )}
-    </div>
+    <VortexFileProvider value={fileContextValue!}>
+      <SelectionProvider tree={fileContextValue!.layoutTree}>
+        <div
+          className="flex flex-col h-screen bg-vortex-white dark:bg-vortex-black relative"
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <FileHeader onClose={closeFile} />
+          <MainArea />
+          <StatusBar />
+          {isDragging && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-vortex-black/50 dark:bg-black/50 backdrop-blur-sm pointer-events-none">
+              <p className="font-mono text-sm text-white/80">Drop to open file</p>
+            </div>
+          )}
+        </div>
+      </SelectionProvider>
+    </VortexFileProvider>
   );
 }
 
