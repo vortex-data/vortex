@@ -50,7 +50,7 @@ vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
-vortex-tensor = { workspace = true }
+vortex-tensor = { workspace = true, features = ["unstable_encodings"] }
 arrow-array = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
