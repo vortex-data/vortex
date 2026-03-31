@@ -7,7 +7,7 @@ use vortex_array::vtable::ValidityHelper;
 use crate::array::ParquetVariantArray;
 
 impl ValidityHelper for ParquetVariantArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+    fn validity(&self) -> Validity {
+        self.validity.clone()
     }
 }

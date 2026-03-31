@@ -28,7 +28,6 @@ use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 // Kernel selection happens on the first call to `take` and uses a combination of compile-time
 // and runtime feature detection to infer the best kernel for the platform.

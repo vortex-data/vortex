@@ -20,7 +20,6 @@ use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::array::NUM_SLOTS;
 use crate::arrays::decimal::array::SLOT_NAMES;
-use crate::arrays::decimal::array::VALIDITY_SLOT;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -92,14 +91,14 @@ impl VTable for Decimal {
         array.dtype.hash(state);
         array.values.array_hash(state, precision);
         std::mem::discriminant(&array.values_type).hash(state);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &DecimalArray, other: &DecimalArray, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: &DecimalArray) -> usize {
@@ -192,10 +191,6 @@ impl VTable for Decimal {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

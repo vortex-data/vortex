@@ -6,7 +6,7 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl ValidityHelper for VarBinViewArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+    fn validity(&self) -> Validity {
+        self.validity()
     }
 }

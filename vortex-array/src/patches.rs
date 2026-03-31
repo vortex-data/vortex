@@ -45,7 +45,6 @@ use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 /// One patch index offset is stored for each chunk.
 /// This allows for constant time patch index lookups.
@@ -913,7 +912,7 @@ impl Patches {
                     patch_indices_slice,
                     self.offset,
                     patch_values_slice,
-                    patches_validity,
+                    &patches_validity,
                     ctx,
                 );
             }

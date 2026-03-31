@@ -19,7 +19,6 @@ use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
-use crate::vtable::ValidityHelper;
 
 impl TakeExecute for VarBinView {
     /// Take involves creating a new array that references the old array, just with the given set of views.

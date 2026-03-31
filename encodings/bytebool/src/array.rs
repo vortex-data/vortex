@@ -258,8 +258,8 @@ impl ByteBoolArray {
 }
 
 impl ValidityHelper for ByteBoolArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+    fn validity(&self) -> Validity {
+        self.validity.clone()
     }
 }
 

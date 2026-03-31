@@ -19,7 +19,6 @@ use crate::SerializeMetadata;
 use crate::arrays::VarBinArray;
 use crate::arrays::varbin::array::NUM_SLOTS;
 use crate::arrays::varbin::array::SLOT_NAMES;
-use crate::arrays::varbin::array::VALIDITY_SLOT;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -85,14 +84,14 @@ impl VTable for VarBin {
         array.dtype.hash(state);
         array.bytes().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &VarBinArray, other: &VarBinArray, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.bytes().array_eq(other.bytes(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: &VarBinArray) -> usize {
@@ -181,10 +180,6 @@ impl VTable for VarBin {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

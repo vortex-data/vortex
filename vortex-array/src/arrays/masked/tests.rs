@@ -104,7 +104,6 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
     assert!(
         array
             .validity()
-            .unwrap()
             .mask_eq(&validity, &mut ctx)
             .unwrap(),
     );

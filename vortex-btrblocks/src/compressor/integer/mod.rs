@@ -20,7 +20,6 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -523,7 +522,7 @@ impl Scheme for BitPackingScheme {
         }
         let mut packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
 
-        let patches = packed.patches().map(compress_patches).transpose()?;
+        let patches = packed.patches().map(|p| compress_patches(&p)).transpose()?;
         packed.replace_patches(patches);
 
         Ok(packed.into_array())
@@ -896,7 +895,6 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
     use vortex_buffer::buffer;

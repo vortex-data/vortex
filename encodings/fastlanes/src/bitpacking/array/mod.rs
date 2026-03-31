@@ -11,6 +11,7 @@ use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -286,7 +287,10 @@ impl BitPackedArray {
     /// If present, patches MUST be a `SparseArray` with equal-length to this array, and whose
     /// indices indicate the locations of patches. The indices must have non-zero length.
     pub fn patches(&self) -> Option<Patches> {
-        match (&self.slots[PATCH_INDICES_SLOT], &self.slots[PATCH_VALUES_SLOT]) {
+        match (
+            &self.slots[PATCH_INDICES_SLOT],
+            &self.slots[PATCH_VALUES_SLOT],
+        ) {
             (Some(indices), Some(values)) => {
                 let patch_offset = self
                     .patch_offset
@@ -308,10 +312,7 @@ impl BitPackedArray {
 
     /// Returns the validity, reconstructed from the stored slot.
     pub fn validity(&self) -> Validity {
-        match &self.slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(self.dtype.nullability()),
-        }
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     pub fn replace_patches(&mut self, patches: Option<Patches>) {
@@ -364,13 +365,15 @@ impl BitPackedArray {
     }
 
     pub fn into_parts(self) -> BitPackedArrayParts {
+        let patches = self.patches();
+        let validity = self.validity();
         BitPackedArrayParts {
             offset: self.offset,
             bit_width: self.bit_width,
             len: self.len,
             packed: self.packed,
-            patches: self.patches(),
-            validity: self.validity(),
+            patches,
+            validity,
         }
     }
 }

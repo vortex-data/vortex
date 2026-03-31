@@ -9,7 +9,6 @@ use crate::IntoArray;
 use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
 use crate::arrays::filter::FilterReduce;
-use crate::vtable::ValidityHelper;
 
 impl FilterReduce for Masked {
     fn filter(array: &MaskedArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {

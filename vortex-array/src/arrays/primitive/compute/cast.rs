@@ -21,7 +21,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ValidityHelper;
 
 impl CastKernel for Primitive {
     fn cast(
@@ -144,7 +143,6 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[allow(clippy::cognitive_complexity)]
     #[test]

@@ -9,7 +9,6 @@ use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl MaskReduce for VarBinView {
     fn mask(array: &VarBinViewArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

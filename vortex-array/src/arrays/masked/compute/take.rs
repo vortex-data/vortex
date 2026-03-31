@@ -11,7 +11,6 @@ use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
-use crate::vtable::ValidityHelper;
 
 impl TakeReduce for Masked {
     fn take(array: &MaskedArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

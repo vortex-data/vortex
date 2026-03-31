@@ -27,7 +27,7 @@ use crate::match_each_integer_ptype;
 use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 pub(super) const VALIDITY_SLOT: usize = 0;
@@ -97,7 +97,6 @@ pub struct DecimalArray {
     pub(super) dtype: DType,
     pub(super) values: BufferHandle,
     pub(super) values_type: DecimalType,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -239,7 +238,6 @@ impl DecimalArray {
             values,
             values_type,
             dtype: DType::Decimal(decimal_dtype, validity.nullability()),
-            validity,
             stats_set: Default::default(),
         }
     }
@@ -291,14 +289,20 @@ impl DecimalArray {
         }
     }
 
+    /// Reconstructs the validity from the slot state.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
     pub fn into_parts(self) -> DecimalArrayParts {
+        let validity = self.validity();
         let decimal_dtype = self.dtype.into_decimal_opt().vortex_expect("cannot fail");
 
         DecimalArrayParts {
             decimal_dtype,
             values: self.values,
             values_type: self.values_type,
-            validity: self.validity,
+            validity,
         }
     }
 
@@ -389,11 +393,11 @@ impl DecimalArray {
         let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
 
-        let patched_validity = self.validity().clone().patch(
+        let patched_validity = self.validity().patch(
             self.len(),
             offset,
             &patch_indices.clone().into_array(),
-            patch_values.validity(),
+            &patch_values.validity(),
             ctx,
         )?;
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());

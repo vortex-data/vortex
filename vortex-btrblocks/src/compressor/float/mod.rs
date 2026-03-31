@@ -24,7 +24,6 @@ use vortex_array::arrays::dict::DictArrayParts;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_sparse::Sparse;

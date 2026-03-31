@@ -23,7 +23,6 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl FilterKernel for VarBin {
     fn filter(

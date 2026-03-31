@@ -16,7 +16,6 @@ use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
-use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for Primitive {
     fn between(
@@ -110,7 +109,7 @@ where
             let i = unsafe { *slice.get_unchecked(idx) };
             lower_fn(lower, i) & upper_fn(i, upper)
         }),
-        arr.validity().clone().union_nullability(nullability),
+        arr.validity().union_nullability(nullability),
     )
     .into_array()
 }

@@ -15,6 +15,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 pub(super) const VALIDITY_SLOT: usize = 0;
@@ -60,7 +61,6 @@ pub struct BoolArray {
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
     pub(super) len: usize,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -115,7 +115,6 @@ impl BoolArray {
             bits: BufferHandle::new_host(buffer),
             offset,
             len,
-            validity,
             stats_set: ArrayStats::default(),
         })
     }
@@ -153,7 +152,6 @@ impl BoolArray {
             bits,
             offset,
             len,
-            validity,
             stats_set: ArrayStats::default(),
         })
     }
@@ -175,7 +173,6 @@ impl BoolArray {
                 bits: BufferHandle::new_host(buffer),
                 offset,
                 len,
-                validity,
                 stats_set: ArrayStats::default(),
             }
         }
@@ -203,14 +200,20 @@ impl BoolArray {
         Ok(())
     }
 
+    /// Reconstructs the validity from the slot state.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
     /// Splits into owned parts
     #[inline]
     pub fn into_parts(self) -> BoolArrayParts {
+        let validity = self.validity();
         BoolArrayParts {
             bits: self.bits,
             offset: self.offset,
             len: self.len,
-            validity: self.validity,
+            validity,
         }
     }
 
@@ -330,7 +333,6 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn bool_array() {

@@ -9,7 +9,6 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl MaskReduce for Primitive {
     fn mask(array: &PrimitiveArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

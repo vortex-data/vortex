@@ -16,18 +16,17 @@ use crate::match_each_native_ptype;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::Patches;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
 
-        let patched_validity = self.validity().clone().patch(
+        let patched_validity = self.validity().patch(
             self.len(),
             patches.offset(),
             &patch_indices.clone().into_array(),
-            patch_values.validity(),
+            &patch_values.validity(),
             ctx,
         )?;
         Ok(match_each_integer_ptype!(patch_indices.ptype(), |I| {

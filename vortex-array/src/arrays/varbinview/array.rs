@@ -22,6 +22,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 pub(super) const VALIDITY_SLOT: usize = 0;
@@ -93,7 +94,6 @@ pub struct VarBinViewArray {
     pub(super) dtype: DType,
     pub(super) buffers: Arc<[BufferHandle]>,
     pub(super) views: BufferHandle,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -261,7 +261,6 @@ impl VarBinViewArray {
             views,
             buffers,
             dtype,
-            validity,
             stats_set: Default::default(),
         }
     }
@@ -355,13 +354,19 @@ impl VarBinViewArray {
         Ok(())
     }
 
+    /// Reconstructs the validity from the slots.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
     /// Splits the array into owned parts
     pub fn into_parts(self) -> VarBinViewArrayParts {
+        let validity = self.validity();
         VarBinViewArrayParts {
             dtype: self.dtype,
             buffers: self.buffers,
             views: self.views,
-            validity: self.validity,
+            validity,
         }
     }
 

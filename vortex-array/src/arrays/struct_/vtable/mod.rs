@@ -72,7 +72,7 @@ impl VTable for Struct {
         for field in array.iter_unmasked_fields() {
             field.array_hash(state, precision);
         }
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &StructArray, other: &StructArray, precision: Precision) -> bool {
@@ -83,7 +83,7 @@ impl VTable for Struct {
                 .iter_unmasked_fields()
                 .zip(other.iter_unmasked_fields())
                 .all(|(a, b)| a.array_eq(b, precision))
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: &StructArray) -> usize {
@@ -166,10 +166,6 @@ impl VTable for Struct {
     }
 
     fn with_slots(array: &mut StructArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

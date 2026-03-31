@@ -197,7 +197,6 @@ mod test {
     use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
@@ -340,7 +339,7 @@ mod test {
         assert!(
             recovered_primitive
                 .validity()
-                .mask_eq(array.validity(), &mut ctx)?
+                .mask_eq(&array.validity(), &mut ctx)?
         );
         assert_eq!(
             recovered_primitive.to_buffer::<u64>(),

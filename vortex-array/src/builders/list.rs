@@ -471,7 +471,7 @@ mod tests {
         assert!(
             actual
                 .validity()
-                .mask_eq(expected.validity(), &mut ctx)
+                .mask_eq(&expected.validity(), &mut ctx)
                 .unwrap(),
         );
     }

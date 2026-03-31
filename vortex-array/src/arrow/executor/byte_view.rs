@@ -18,7 +18,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::arrow::FromArrowType;
-use crate::vtable::ValidityHelper;
 
 /// Convert a canonical VarBinViewArray directly to Arrow.
 pub fn canonical_varbinview_to_arrow<T: ByteViewType>(

@@ -15,7 +15,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ValidityHelper;
 
 impl CastKernel for Struct {
     fn cast(

@@ -24,7 +24,6 @@ use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&StructCastPushDownRule),

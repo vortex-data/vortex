@@ -163,7 +163,6 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
-    use crate::vtable::ValidityHelper;
 
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(0);
@@ -200,7 +199,7 @@ mod tests {
         assert!(
             canon_into
                 .validity()
-                .mask_eq(into_canon.validity(), &mut ctx)?
+                .mask_eq(&into_canon.validity(), &mut ctx)?
         );
         assert_eq!(canon_into.to_bit_buffer(), into_canon.to_bit_buffer());
         Ok(())

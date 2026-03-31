@@ -9,6 +9,7 @@ use crate::ArrayRef;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 pub(super) const CHILD_SLOT: usize = 0;
@@ -19,7 +20,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child", "validity"];
 #[derive(Clone, Debug)]
 pub struct MaskedArray {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
 }
@@ -48,10 +48,14 @@ impl MaskedArray {
 
         Ok(Self {
             slots: vec![Some(child), validity_slot],
-            validity,
             dtype,
             stats: ArrayStats::default(),
         })
+    }
+
+    /// Reconstructs the validity from the slots.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     pub fn child(&self) -> &ArrayRef {
