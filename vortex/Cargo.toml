@@ -55,8 +55,8 @@ arrow-array = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
 mimalloc = { workspace = true }
-paste = { workspace = true }
 parquet = { workspace = true }
+paste = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
 serde_json = { workspace = true }
