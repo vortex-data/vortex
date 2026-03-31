@@ -4,6 +4,9 @@
 use std::io::Cursor;
 
 use arrow_array::RecordBatch;
+use arrow_array::StructArray;
+use arrow_array::ffi::FFI_ArrowArray;
+use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_ipc::reader::StreamReader;
 use futures::SinkExt;
 use futures::channel::mpsc;
@@ -221,6 +224,40 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_writeBatch<'local
                 .map_err(|e| JNIError::Vortex(vortex_err!("Failed to read RecordBatch: {e}")))?;
             writer.write_record_batch(batch)?;
         }
+
+        Ok(JNI_TRUE)
+    })
+}
+
+/// Writes a batch to the Vortex file directly from Arrow C Data Interface pointers.
+///
+/// This avoids the IPC serialization/deserialization overhead of `writeBatch` by accepting
+/// raw Arrow FFI pointers directly.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeWriterMethods_writeBatchFfi<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    writer_ptr: jlong,
+    arrow_array_addr: jlong,
+    arrow_schema_addr: jlong,
+) -> jboolean {
+    if writer_ptr <= 0 {
+        return JNI_FALSE;
+    }
+
+    try_or_throw(&mut env, |_env| {
+        let writer = unsafe { NativeWriter::from_ptr(writer_ptr) };
+
+        // Reconstruct FFI structs from the raw pointers provided by Java.
+        let ffi_array =
+            unsafe { FFI_ArrowArray::from_raw(arrow_array_addr as *mut FFI_ArrowArray) };
+        let ffi_schema = unsafe { &*(arrow_schema_addr as *const FFI_ArrowSchema) };
+
+        let array_data = unsafe { arrow_array::ffi::from_ffi(ffi_array, ffi_schema) }
+            .map_err(|e| JNIError::Vortex(vortex_err!("Failed to import Arrow FFI data: {}", e)))?;
+
+        let batch = RecordBatch::from(StructArray::from(array_data));
+        writer.write_record_batch(batch)?;
 
         Ok(JNI_TRUE)
     })
