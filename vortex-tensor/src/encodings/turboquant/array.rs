@@ -223,12 +223,12 @@ impl TurboQuantArray {
         self.slot(Slot::Codes as usize)
     }
 
-    /// The norms child (PrimitiveArray<f32>).
+    /// The norms child (`PrimitiveArray<f32>`).
     pub fn norms(&self) -> &ArrayRef {
         self.slot(Slot::Norms as usize)
     }
 
-    /// The centroids (codebook) child (PrimitiveArray<f32>).
+    /// The centroids (codebook) child (`PrimitiveArray<f32>`).
     pub fn centroids(&self) -> &ArrayRef {
         self.slot(Slot::Centroids as usize)
     }
