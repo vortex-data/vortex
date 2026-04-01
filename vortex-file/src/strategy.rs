@@ -132,12 +132,13 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
 /// repartitioning and compressing them to strike a balance between size on-disk,
 /// bulk decoding performance, and IOPS required to perform an indexed read.
 pub struct WriteStrategyBuilder {
-    compressor: Option<Arc<dyn CompressorPlugin>>,
     row_block_size: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<ArrayRegistry>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
-    builder: BtrBlocksCompressorBuilder,
+    // builder and compressor are mutually exclusive
+    builder: Option<BtrBlocksCompressorBuilder>,
+    compressor: Option<Arc<dyn CompressorPlugin>>,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -145,12 +146,12 @@ impl Default for WriteStrategyBuilder {
     /// and then finally built yielding the [`LayoutStrategy`].
     fn default() -> Self {
         Self {
-            compressor: None,
             row_block_size: 8192,
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
             flat_strategy: None,
-            builder: BtrBlocksCompressorBuilder::default(),
+            builder: None,
+            compressor: None,
         }
     }
 }
@@ -161,6 +162,9 @@ impl WriteStrategyBuilder {
     /// If not provided, this will use a BtrBlocks-style cascading compressor that tries to balance
     /// total size with decoding performance.
     pub fn with_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
+        if self.builder.is_some() {
+            vortex_panic!("Cannot configure both a custom compressor and custom builder schemes");
+        }
         self.compressor = Some(Arc::new(compressor));
         self
     }
@@ -205,7 +209,10 @@ impl WriteStrategyBuilder {
     /// GPU decompression. Without it, strings use interleaved Zstd compression.
     #[cfg(feature = "zstd")]
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
-        self.builder = self.builder.exclude([
+        if self.compressor.is_some() {
+            vortex_panic!("Cannot configure both a custom compressor and CUDA compatible encodings");
+        }
+        let b = self.builder.take().unwrap_or_default().exclude([
             integer::SparseScheme.id(),
             integer::RLE_INTEGER_SCHEME.id(),
             float::RLE_FLOAT_SCHEME.id(),
@@ -216,11 +223,11 @@ impl WriteStrategyBuilder {
 
         #[cfg(feature = "unstable_encodings")]
         {
-            self.builder = self.builder.include([string::ZstdBuffersScheme.id()]);
+            self.builder = Some(b.include([string::ZstdBuffersScheme.id()]));
         }
         #[cfg(not(feature = "unstable_encodings"))]
         {
-            self.builder = self.builder.include([string::ZstdScheme.id()]);
+            self.builder = Some(b.include([string::ZstdScheme.id()]));
         }
 
         self
@@ -233,11 +240,14 @@ impl WriteStrategyBuilder {
     /// especially for floating-point heavy datasets.
     #[cfg(feature = "zstd")]
     pub fn with_compact_encodings(mut self) -> Self {
-        self.builder = self.builder.include([
+        if self.compressor.is_some() {
+            vortex_panic!("Cannot configure both a custom compressor and compact encodings");
+        }
+        self.builder = Some(self.builder.take().unwrap_or_default().include([
             string::ZstdScheme.id(),
             integer::PcoScheme.id(),
             float::PcoScheme.id(),
-        ]);
+        ]));
         self
     }
 
@@ -252,8 +262,16 @@ impl WriteStrategyBuilder {
     /// compressor is used with TurboQuant added.
     #[cfg(feature = "unstable_encodings")]
     pub fn with_vector_quantization(mut self) -> Self {
+        if self.compressor.is_some() {
+            vortex_panic!("Cannot configure both a custom compressor and vector quantization");
+        }
         use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;
-        self.builder = self.builder.with_scheme(&TURBOQUANT_SCHEME);
+        self.builder = Some(
+            self.builder
+                .take()
+                .unwrap_or_default()
+                .with_scheme(&TURBOQUANT_SCHEME),
+        );
         self
     }
 
@@ -277,24 +295,17 @@ impl WriteStrategyBuilder {
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
         // 5. compress each chunk
-        // Build separate compressors for data (excludes IntDict to avoid recursive dict encoding)
-        // and stats/dict values (includes IntDict).
-        let (data_compressor, stats_compressor): (
-            Arc<dyn CompressorPlugin>,
-            Arc<dyn CompressorPlugin>,
-        ) = if let Some(compressor) = self.compressor {
-            if self.builder != BtrBlocksCompressorBuilder::default() {
-                vortex_panic!(
-                    "Cannot configure both a custom compressor and custom builder schemes"
-                );
-            }
-            (compressor.clone(), compressor)
+        let data_compressor = if let Some(compressor) = self.compressor {
+            assert!(self.builder.is_none(), "Cannot configure both a custom compressor and custom builder schemes");
+            compressor.clone()
         } else {
-            let stats = Arc::new(self.builder.clone().build());
-            let data = Arc::new(self.builder.exclude([IntDictScheme.id()]).build());
-            (data, stats)
+            Arc::new(
+                self.builder
+                    .unwrap_or_default()
+                    .exclude([IntDictScheme.id()])
+                    .build(),
+            )
         };
-
         let compressing = CompressingStrategy::new(buffered, data_compressor);
 
         // 4. prior to compression, coalesce up to a minimum size
@@ -315,6 +326,7 @@ impl WriteStrategyBuilder {
         );
 
         // 2.1. | 3.1. compress stats tables and dict values.
+        let stats_compressor = BtrBlocksCompressorBuilder::default().build();
         let compress_then_flat = CompressingStrategy::new(flat, stats_compressor);
 
         // 3. apply dict encoding or fallback
