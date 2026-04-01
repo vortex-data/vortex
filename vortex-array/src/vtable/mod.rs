@@ -182,7 +182,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// The backing storage is a `Vec` (rather than a fixed-size array) so that it can be
     /// moved out of an `ArrayData` into the concrete `Array` type during deserialization
     /// without copying.
-    ///
     fn slots(array: &Self::Array) -> &[Option<ArrayRef>];
 
     /// Returns the name of the slot at the given index.
