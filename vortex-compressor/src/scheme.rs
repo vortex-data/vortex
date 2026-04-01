@@ -273,7 +273,7 @@ pub fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
         sample(array, SAMPLE_SIZE, sample_count)
     };
 
-    let mut sample_data = ArrayAndStats::new(sample_array, ctx.stats_options());
+    let mut sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
     let sample_ctx = ctx.as_sample();
 
     let after = scheme
@@ -285,4 +285,48 @@ pub fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
     tracing::debug!("estimate_compression_ratio_with_sampling(compressor={scheme:#?}) = {ratio}",);
 
     Ok(ratio)
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use super::estimate_compression_ratio_with_sampling;
+    use crate::CascadingCompressor;
+    use crate::builtins::FloatDictScheme;
+    use crate::ctx::CompressorContext;
+
+    /// Regression test for <https://github.com/spiraldb/vortex/issues/7227>.
+    ///
+    /// `estimate_compression_ratio_with_sampling` must use the *scheme's* stats options
+    /// (which request distinct-value counting) rather than the context's stats options
+    /// (which may not). With the old code this panicked inside `dictionary_encode` because
+    /// distinct values were never computed for the sample.
+    #[test]
+    fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
+        // Low-cardinality float array so FloatDictScheme considers it compressible.
+        let array = PrimitiveArray::new(
+            buffer![1.0f32, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        let compressor = CascadingCompressor::new(vec![&FloatDictScheme]);
+
+        // A context with default stats_options (count_distinct_values = false) and
+        // marked as a sample so the function skips the sampling step and compresses
+        // the array directly.
+        let ctx = CompressorContext::default().as_sample();
+
+        // Before the fix this panicked with:
+        //   "this must be present since `DictScheme` declared that we need distinct values"
+        let ratio =
+            estimate_compression_ratio_with_sampling(&FloatDictScheme, &compressor, &array, ctx)?;
+        assert!(ratio.is_finite());
+        Ok(())
+    }
 }
