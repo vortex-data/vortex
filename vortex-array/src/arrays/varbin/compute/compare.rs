@@ -122,7 +122,7 @@ impl CompareKernel for VarBin {
                     .clone()
                     .execute::<VarBinViewArray>(ctx)?
                     .into_array()
-                    .binary(rhs.to_array(), Operator::from(operator))?,
+                    .binary(rhs.clone(), Operator::from(operator))?,
             ))
         } else {
             Ok(None)

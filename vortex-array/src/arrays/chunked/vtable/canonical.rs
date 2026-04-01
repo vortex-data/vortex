@@ -143,14 +143,14 @@ fn swizzle_list_chunks(
         // Cast offsets and sizes to `u64`.
         let offsets_arr = chunk_array
             .offsets()
-            .to_array()
+            .clone()
             .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
             .vortex_expect("Must be able to fit array offsets in u64")
             .execute::<PrimitiveArray>(ctx)?;
 
         let sizes_arr = chunk_array
             .sizes()
-            .to_array()
+            .clone()
             .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
             .vortex_expect("Must be able to fit array offsets in u64")
             .execute::<PrimitiveArray>(ctx)?;

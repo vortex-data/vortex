@@ -17,10 +17,10 @@ impl TakeReduce for Masked {
         let taken_child = if !indices.all_valid()? {
             // This is safe because we'll mask out these positions in the validity.
             let fill_scalar = Scalar::zero_value(indices.dtype());
-            let filled_take_indices = indices.to_array().fill_null(fill_scalar)?;
+            let filled_take_indices = indices.clone().fill_null(fill_scalar)?;
             array.child().take(filled_take_indices)?
         } else {
-            array.child().take(indices.to_array())?
+            array.child().take(indices.clone())?
         };
 
         // Compute the new validity by taking from array's validity and merging with indices validity

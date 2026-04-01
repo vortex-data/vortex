@@ -224,11 +224,11 @@ impl<V: VTable> DynVTable for V {
 
         if cfg!(debug_assertions) {
             vortex_ensure!(
-                result.as_ref().len() == parent.len(),
+                result.len() == parent.len(),
                 "Executed parent canonical length mismatch"
             );
             vortex_ensure!(
-                result.as_ref().dtype() == parent.dtype(),
+                result.dtype() == parent.dtype(),
                 "Executed parent canonical dtype mismatch"
             );
         }

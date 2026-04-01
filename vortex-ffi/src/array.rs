@@ -5,6 +5,7 @@
 use std::ptr;
 use std::sync::Arc;
 
+use vortex::array::ArrayRef;
 use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::dtype::half::f16;
@@ -13,14 +14,16 @@ use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
 use crate::arc_dyn_wrapper;
+use crate::arc_wrapper;
 use crate::binary::vx_binary;
+use crate::box_wrapper;
 use crate::dtype::vx_dtype;
 use crate::error::try_or_default;
 use crate::error::vx_error;
 use crate::expression::vx_expression;
 use crate::string::vx_string;
 
-arc_dyn_wrapper!(
+arc_wrapper!(
     /// Base type for all Vortex arrays.
     ///
     /// All built-in Vortex array types can be safely cast to this type to pass into functions that
@@ -30,7 +33,7 @@ arc_dyn_wrapper!(
     /// auto primitive_array = vx_array_primitive_new(...);
     /// vx_array_len((*vx_array) primitive_array));
     /// ```
-    dyn DynArray,
+    ArrayRef,
     vx_array
 );
 

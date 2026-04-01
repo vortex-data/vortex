@@ -152,7 +152,7 @@ fn test_timestamp() {
         TimeUnit::Nanoseconds,
     ] {
         for tz in [Some("UTC".into()), None] {
-            let temporal_array = TemporalData::new_timestamp(ts_array.to_array(), unit, tz.clone());
+            let temporal_array = TemporalData::new_timestamp(ts_array.clone(), unit, tz.clone());
 
             assert_arrays_eq!(
                 temporal_array.temporal_values(),

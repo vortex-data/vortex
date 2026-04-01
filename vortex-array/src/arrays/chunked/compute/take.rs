@@ -27,7 +27,6 @@ fn take_chunked(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let indices = indices
-        .to_array()
         .cast(DType::Primitive(PType::U64, indices.dtype().nullability()))?
         .execute::<PrimitiveArray>(ctx)?;
 
@@ -137,7 +136,7 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = arr.take(indices.to_array()).unwrap();
+        let result = arr.take(indices).unwrap();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 1, 1, 2]));
     }
 
@@ -234,7 +233,7 @@ mod test {
 
         // Fully shuffled indices that cross every chunk boundary.
         let indices = buffer![8u64, 0, 5, 3, 2, 7, 1, 6, 4].into_array();
-        let result = arr.take(indices.to_array())?;
+        let result = arr.take(indices)?;
 
         assert_arrays_eq!(
             result,

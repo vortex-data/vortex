@@ -106,9 +106,9 @@ macro_rules! assert_arrays_eq {
         );
 
         #[allow(deprecated)]
-        let left = left.to_array();
+        let left = left.clone();
         #[allow(deprecated)]
-        let right = right.to_array();
+        let right = right.clone();
         $crate::arrays::assert_arrays_eq_impl(&left, &right);
     }};
 }

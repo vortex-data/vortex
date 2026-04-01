@@ -90,11 +90,11 @@ impl TakeExecute for Primitive {
         };
 
         let unsigned_indices = if ptype.is_unsigned_int() {
-            indices.to_array().execute::<PrimitiveArray>(ctx)?
+            indices.clone().execute::<PrimitiveArray>(ctx)?
         } else {
             // This will fail if all values cannot be converted to unsigned
             indices
-                .to_array()
+                .clone()
                 .cast(DType::Primitive(ptype.to_unsigned(), *null))?
                 .execute::<PrimitiveArray>(ctx)?
         };

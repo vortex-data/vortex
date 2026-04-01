@@ -52,8 +52,8 @@ impl TakeReduce for ListView {
         // Take the offsets and sizes arrays at the requested indices.
         // Take can reorder offsets, create gaps, and may introduce overlaps if the `indices`
         // contain duplicates.
-        let nullable_new_offsets = offsets.take(indices.to_array())?;
-        let nullable_new_sizes = sizes.take(indices.to_array())?;
+        let nullable_new_offsets = offsets.take(indices.clone())?;
+        let nullable_new_sizes = sizes.take(indices.clone())?;
 
         // Since `take` returns nullable arrays, we simply cast it back to non-nullable (filled with
         // zeros to represent null lists).

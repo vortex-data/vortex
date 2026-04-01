@@ -330,7 +330,7 @@ impl Executable for ArrayRef {
         let (array, step) = result.into_parts();
         match step {
             ExecutionStep::Done => {
-                ctx.log(format_args!("-> {}", array.as_ref()));
+                ctx.log(format_args!("-> {}", array));
                 Ok(array)
             }
             ExecutionStep::ExecuteSlot(i, _) => {

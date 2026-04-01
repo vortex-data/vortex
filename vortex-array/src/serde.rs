@@ -29,7 +29,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayContext;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
@@ -118,7 +117,7 @@ impl ArrayRef {
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
 
-        let root = ArrayNodeFlatBuffer::try_new(ctx, &**self)?;
+        let root = ArrayNodeFlatBuffer::try_new(ctx, self)?;
         let fb_root = root.try_write_flatbuffer(&mut fbb)?;
 
         let fb_buffers = fbb.create_vector(&fb_buffers);
@@ -158,12 +157,12 @@ impl ArrayRef {
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
     ctx: &'a ArrayContext,
-    array: &'a dyn DynArray,
+    array: &'a ArrayRef,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn try_new(ctx: &'a ArrayContext, array: &'a dyn DynArray) -> VortexResult<Self> {
+    pub fn try_new(ctx: &'a ArrayContext, array: &'a ArrayRef) -> VortexResult<Self> {
         // Depth-first traversal of the array to ensure it supports serialization.
         for child in array.depth_first_traversal() {
             if child.metadata()?.is_none() {
@@ -202,8 +201,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 )
             })?;
 
-        let array_ref = self.array.to_array();
-        let metadata = array_ref.metadata()?.ok_or_else(|| {
+        let metadata = self.array.metadata()?.ok_or_else(|| {
             vortex_err!(
                 "Array {} does not support serialization",
                 self.array.encoding_id()
@@ -212,18 +210,19 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         let metadata = Some(fbb.create_vector(metadata.as_slice()));
 
         // Assign buffer indices for all child arrays.
-        let nbuffers = u16::try_from(array_ref.nbuffers())
+        let nbuffers = u16::try_from(self.array.nbuffers())
             .map_err(|_| vortex_err!("Array can have at most u16::MAX buffers"))?;
         let mut child_buffer_idx = self.buffer_idx + nbuffers;
 
-        let children = &array_ref
+        let children = self
+            .array
             .children()
             .iter()
             .map(|child| {
                 // Update the number of buffers required.
                 let msg = ArrayNodeFlatBuffer {
                     ctx: self.ctx,
-                    array: &**child,
+                    array: child,
                     buffer_idx: child_buffer_idx,
                 }
                 .try_write_flatbuffer(fbb)?;
@@ -236,7 +235,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 Ok(msg)
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        let children = Some(fbb.create_vector(children));
+        let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
         let stats = Some(self.array.statistics().write_flatbuffer(fbb)?);

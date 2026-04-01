@@ -28,7 +28,7 @@ impl TakeExecute for Bool {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
-            Mask::AllTrue(_) => indices.to_array(),
+            Mask::AllTrue(_) => indices.clone(),
             Mask::AllFalse(_) => {
                 return Ok(Some(
                     ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
@@ -36,7 +36,7 @@ impl TakeExecute for Bool {
                 ));
             }
             Mask::Values(_) => indices
-                .to_array()
+                .clone()
                 .fill_null(Scalar::from(0).cast(indices.dtype())?)?,
         };
         let indices_nulls_zeroed = indices_nulls_zeroed.execute::<PrimitiveArray>(ctx)?;

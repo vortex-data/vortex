@@ -29,7 +29,7 @@ impl FillNullKernel for Dict {
         // to point to the value.
         let found_fill_values = array
             .values()
-            .to_array()
+            .clone()
             .binary(
                 ConstantArray::new(fill_value.clone(), array.values().len()).into_array(),
                 Operator::Eq,
@@ -67,11 +67,11 @@ impl FillNullKernel for Dict {
 
         // Fill nulls in both the codes and the values. Note that the precondition of this function
         // states that the fill value is non-null, so we do not have to worry about the nullability.
-        let codes = codes.to_array().fill_null(Scalar::try_new(
+        let codes = codes.clone().fill_null(Scalar::try_new(
             codes.dtype().as_nonnullable(),
             Some(fill_scalar_value),
         )?)?;
-        let values = array.values().to_array().fill_null(fill_value.clone())?;
+        let values = array.values().clone().fill_null(fill_value.clone())?;
 
         // SAFETY: invariants are still satisfied after patching nulls.
         unsafe {

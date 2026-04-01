@@ -72,7 +72,7 @@ fn test_filter_take_consistency(array: &ArrayRef) {
 
     // Take using those indices
     let taken = array
-        .take(indices_array.to_array())
+        .take(indices_array.clone())
         .vortex_expect("take should succeed in conformance test");
 
     // Results should be identical
@@ -362,7 +362,7 @@ fn test_take_slice_consistency(array: &ArrayRef) {
     let end = 4.min(len);
     let indices = PrimitiveArray::from_iter((1..end).map(|i| i as u64)).into_array();
     let taken = array
-        .take(indices.to_array())
+        .take(indices.clone())
         .vortex_expect("take should succeed in conformance test");
 
     // Slice from 1 to end
@@ -449,7 +449,7 @@ fn test_take_repeated_indices(array: &ArrayRef) {
     // Take the first element three times
     let indices = PrimitiveArray::from_iter([0u64, 0, 0]).into_array();
     let taken = array
-        .take(indices.to_array())
+        .take(indices.clone())
         .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(taken.len(), 3);
@@ -519,7 +519,7 @@ fn test_empty_operations_consistency(array: &ArrayRef) {
     // Empty take
     let empty_indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array();
     let empty_take = array
-        .take(empty_indices.to_array())
+        .take(empty_indices.clone())
         .vortex_expect("take should succeed in conformance test");
     assert_eq!(empty_take.len(), 0);
     assert_eq!(empty_take.dtype(), array.dtype());
@@ -544,7 +544,7 @@ fn test_take_preserves_properties(array: &ArrayRef) {
     // Take all elements in original order
     let indices = PrimitiveArray::from_iter((0..len).map(|i| i as u64)).into_array();
     let taken = array
-        .take(indices.to_array())
+        .take(indices.clone())
         .vortex_expect("take should succeed in conformance test");
 
     // Should be identical to original
@@ -589,7 +589,7 @@ fn test_nullable_indices_consistency(array: &ArrayRef) {
     let indices = PrimitiveArray::from_option_iter([Some(0u64), None, Some(2u64)]).into_array();
 
     let taken = array
-        .take(indices.to_array())
+        .take(indices.clone())
         .vortex_expect("take should succeed in conformance test");
 
     // Result should have nulls where indices were null
@@ -655,7 +655,7 @@ fn test_large_array_consistency(array: &ArrayRef) {
     let indices: Vec<u64> = (0..len).step_by(10).map(|i| i as u64).collect();
     let indices_array = PrimitiveArray::from_iter(indices).into_array();
     let taken = array
-        .take(indices_array.to_array())
+        .take(indices_array.clone())
         .vortex_expect("take should succeed in conformance test");
 
     // Create equivalent filter mask
@@ -720,10 +720,10 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
     let const_array = crate::arrays::ConstantArray::new(test_scalar, len);
     if let (Ok(eq_result), Ok(neq_result)) = (
         array
-            .to_array()
+            .clone()
             .binary(const_array.clone().into_array(), Operator::Eq),
         array
-            .to_array()
+            .clone()
             .binary(const_array.clone().into_array(), Operator::NotEq),
     ) {
         let inverted_eq = eq_result
@@ -754,10 +754,10 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
     // Test Gt vs Lte
     if let (Ok(gt_result), Ok(lte_result)) = (
         array
-            .to_array()
+            .clone()
             .binary(const_array.clone().into_array(), Operator::Gt),
         array
-            .to_array()
+            .clone()
             .binary(const_array.clone().into_array(), Operator::Lte),
     ) {
         let inverted_gt = gt_result
@@ -782,10 +782,10 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
     // Test Lt vs Gte
     if let (Ok(lt_result), Ok(gte_result)) = (
         array
-            .to_array()
+            .clone()
             .binary(const_array.clone().into_array(), Operator::Lt),
         array
-            .to_array()
+            .clone()
             .binary(const_array.into_array(), Operator::Gte),
     ) {
         let inverted_lt = lt_result
@@ -850,12 +850,12 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef) {
     // Test Gt vs Lt symmetry
     if let (Ok(arr_gt_scalar), Ok(scalar_lt_arr)) = (
         array
-            .to_array()
+            .clone()
             .binary(const_array.clone().into_array(), Operator::Gt),
         const_array
             .clone()
             .into_array()
-            .binary(array.to_array(), Operator::Lt),
+            .binary(array.clone(), Operator::Lt),
     ) {
         assert_eq!(
             arr_gt_scalar.len(),
@@ -881,11 +881,11 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef) {
     // Test Eq symmetry
     if let (Ok(arr_eq_scalar), Ok(scalar_eq_arr)) = (
         array
-            .to_array()
+            .clone()
             .binary(const_array.clone().into_array(), Operator::Eq),
         const_array
             .into_array()
-            .binary(array.to_array(), Operator::Eq),
+            .binary(array.clone(), Operator::Eq),
     ) {
         for i in 0..arr_eq_scalar.len() {
             let arr_eq = arr_eq_scalar
@@ -932,7 +932,7 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
 
     // Test first De Morgan's law: NOT(A AND B) = (NOT A) OR (NOT B)
     if let (Ok(a_and_b), Ok(not_a), Ok(not_b)) = (
-        array.to_array().binary(bool_mask.clone(), Operator::And),
+        array.clone().binary(bool_mask.clone(), Operator::And),
         array.not(),
         bool_mask.not(),
     ) {
@@ -966,7 +966,7 @@ fn test_boolean_demorgan_consistency(array: &ArrayRef) {
 
     // Test second De Morgan's law: NOT(A OR B) = (NOT A) AND (NOT B)
     if let (Ok(a_or_b), Ok(not_a), Ok(not_b)) = (
-        array.to_array().binary(bool_mask.clone(), Operator::Or),
+        array.clone().binary(bool_mask.clone(), Operator::Or),
         array.not(),
         bool_mask.not(),
     ) {
@@ -1306,7 +1306,7 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
 
         // Also test the other way: cast then slice
         let casted = match array
-            .to_array()
+            .clone()
             .cast(target_dtype.clone())
             .and_then(|a| a.to_canonical().map(|c| c.into_array()))
         {

@@ -6,7 +6,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::ops::Deref;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -65,14 +64,11 @@ use crate::vtable::ValidityVTable;
 /// This trait is sealed and cannot be implemented outside of `vortex-array`.
 /// Use [`ArrayRef`] as the primary handle for working with arrays.
 #[doc(hidden)]
-pub trait DynArray:
+pub(crate) trait DynArray:
     'static + private::Sealed + Send + Sync + Debug + DynArrayEq + DynArrayHash
 {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
-
-    /// Returns the array as an `Arc<dyn Any + Send + Sync>`.
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 
     /// Returns the array as an [`ArrayRef`].
     fn to_array(&self) -> ArrayRef;
@@ -266,21 +262,6 @@ impl ArrayRef {
     }
 }
 
-// FIXME(ngates): deprecate and remove this
-impl Deref for ArrayRef {
-    type Target = dyn DynArray;
-    fn deref(&self) -> &dyn DynArray {
-        self.0.as_ref()
-    }
-}
-
-// FIXME(ngates): deprecate and remove this
-impl AsRef<dyn DynArray> for ArrayRef {
-    fn as_ref(&self) -> &dyn DynArray {
-        self.0.as_ref()
-    }
-}
-
 impl Debug for ArrayRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Debug::fmt(&*self.0, f)
@@ -296,31 +277,37 @@ impl std::fmt::Display for ArrayRef {
 #[allow(clippy::same_name_method)]
 impl ArrayRef {
     /// Returns the array as a reference to a generic [`Any`] trait object.
+    #[inline]
     pub fn as_any(&self) -> &dyn Any {
         self.0.as_any()
     }
 
     /// Returns the length of the array.
+    #[inline]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
     /// Returns whether the array is empty (has zero rows).
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.0.len() == 0
     }
 
     /// Returns the logical Vortex [`DType`] of the array.
+    #[inline]
     pub fn dtype(&self) -> &DType {
         self.0.dtype()
     }
 
     /// Returns the vtable of the array.
+    #[inline]
     pub fn vtable(&self) -> &dyn DynVTable {
         self.0.vtable()
     }
 
     /// Returns the encoding ID of the array.
+    #[inline]
     pub fn encoding_id(&self) -> ArrayId {
         self.0.encoding_id()
     }
@@ -600,10 +587,6 @@ mod private {
 /// while data-access methods delegate to VTable methods on the inner `V::ArrayData`.
 impl<V: VTable> DynArray for ArrayInner<V> {
     fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync> {
         self
     }
 

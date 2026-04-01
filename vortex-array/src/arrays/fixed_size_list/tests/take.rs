@@ -43,7 +43,7 @@ fn test_take_basic_smoke_test() {
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     let indices = buffer![2u32, 0, 1].into_array();
-    let result = fsl.take(indices.to_array()).unwrap();
+    let result = fsl.take(indices).unwrap();
 
     // Expected: [[5,6], [1,2], [3,4]]
     let expected = FixedSizeListArray::new(
@@ -104,7 +104,7 @@ fn test_take_large_list_size() {
     let fsl = FixedSizeListArray::new(elements, 100, Validity::NonNullable, 3);
 
     let indices = buffer![2u16, 0].into_array();
-    let result = fsl.take(indices.to_array()).unwrap();
+    let result = fsl.take(indices).unwrap();
 
     // Expected: [[200..300], [0..100]]
     let expected_elems = PrimitiveArray::from_iter((200i32..300).chain(0..100)).into_array();

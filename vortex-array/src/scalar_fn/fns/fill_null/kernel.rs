@@ -67,7 +67,7 @@ pub(super) fn precondition(
 
     // If the array has no nulls, fill_null is a no-op (just cast for nullability).
     if !array.dtype().is_nullable() || array.all_valid()? {
-        return array.to_array().cast(fill_value.dtype().clone()).map(Some);
+        return array.clone().cast(fill_value.dtype().clone()).map(Some);
     }
 
     // If all values are null, replace the entire array with the fill value.

@@ -708,7 +708,7 @@ impl Patches {
             return Ok(None);
         }
 
-        let take_indices = take_indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let take_indices = take_indices.clone().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices, true, ctx)
         } else {
@@ -728,7 +728,7 @@ impl Patches {
             return Ok(None);
         }
 
-        let take_indices = take_indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let take_indices = take_indices.clone().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices, false, ctx)
         } else {

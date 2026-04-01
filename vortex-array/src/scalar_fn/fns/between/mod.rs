@@ -164,12 +164,12 @@ fn between_canonical(
 
     // TODO(joe): return lazy compare once the executor supports this
     // Fall back to compare + boolean and
-    let lower_cmp = lower.to_array().binary(
-        arr.to_array(),
+    let lower_cmp = lower.clone().binary(
+        arr.clone(),
         Operator::from(options.lower_strict.to_compare_operator()),
     )?;
-    let upper_cmp = arr.to_array().binary(
-        upper.to_array(),
+    let upper_cmp = arr.clone().binary(
+        upper.clone(),
         Operator::from(options.upper_strict.to_compare_operator()),
     )?;
     execute_boolean(&lower_cmp, &upper_cmp, Operator::And)

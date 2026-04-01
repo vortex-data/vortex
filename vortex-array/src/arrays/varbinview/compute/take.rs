@@ -29,7 +29,7 @@ impl TakeExecute for VarBinView {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().take(indices)?;
-        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
         let indices_mask = indices.validity_mask()?;
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {

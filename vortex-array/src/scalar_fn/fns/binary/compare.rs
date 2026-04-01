@@ -151,8 +151,8 @@ fn arrow_compare_arrays(
     // Arrow's vectorized comparison kernels don't support nested types.
     // For nested types, fall back to `make_comparator` which does element-wise comparison.
     let arrow_array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
-        let rhs = right.to_array().into_arrow_preferred()?;
-        let lhs = left.to_array().into_arrow(rhs.data_type())?;
+        let rhs = right.clone().into_arrow_preferred()?;
+        let lhs = left.clone().into_arrow(rhs.data_type())?;
 
         assert!(
             lhs.data_type().equals_datatype(rhs.data_type()),

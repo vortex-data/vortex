@@ -29,9 +29,9 @@ impl TakeExecute for VarBin {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(joe): Be lazy with execute
-        let offsets = array.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
+        let offsets = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let data = array.bytes();
-        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let dtype = array
             .dtype()
             .clone()
@@ -312,7 +312,7 @@ mod tests {
         );
 
         let indices = buffer![0u32; 3].into_array();
-        let taken = array.take(indices.to_array()).unwrap();
+        let taken = array.take(indices.clone()).unwrap();
 
         let expected = VarBinViewArray::from_iter(
             [Some(scream.clone()), Some(scream.clone()), Some(scream)],

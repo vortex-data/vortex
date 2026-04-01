@@ -330,7 +330,7 @@ impl ListViewArray {
             let scalar = Scalar::primitive(offset, Nullability::NonNullable);
 
             self.offsets()
-                .to_array()
+                .clone()
                 .binary(
                     ConstantArray::new(scalar, self.offsets().len()).into_array(),
                     Operator::Sub,

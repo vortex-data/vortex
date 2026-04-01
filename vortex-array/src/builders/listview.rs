@@ -338,7 +338,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // The incoming sizes might have a different type than the builder, so we need to cast.
         let cast_sizes = listview
             .sizes()
-            .to_array()
+            .clone()
             .cast(self.sizes_builder.dtype().clone())
             .vortex_expect(
                 "was somehow unable to cast the new sizes to the type of the builder sizes",

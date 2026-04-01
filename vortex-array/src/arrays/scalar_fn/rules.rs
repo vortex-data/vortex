@@ -124,7 +124,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
                     .as_any()
                     .downcast_ref::<ArrayRef>()
                     .vortex_expect("ReduceNode is not an ArrayRef")
-                    .to_array(),
+                    .clone(),
             ));
         }
         Ok(None)
@@ -137,7 +137,7 @@ impl ReduceNode for ArrayRef {
     }
 
     fn node_dtype(&self) -> VortexResult<DType> {
-        Ok(self.as_ref().dtype().clone())
+        Ok(self.dtype().clone())
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
@@ -173,7 +173,7 @@ impl ReduceCtx for ArrayReduceCtx {
                         c.as_any()
                             .downcast_ref::<ArrayRef>()
                             .vortex_expect("ReduceNode is not an ArrayRef")
-                            .to_array()
+                            .clone()
                     })
                     .collect(),
                 self.len,

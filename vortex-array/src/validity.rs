@@ -168,7 +168,7 @@ impl Validity {
             },
             Self::AllInvalid => Ok(Self::AllInvalid),
             Self::Array(is_valid) => {
-                let maybe_is_valid = is_valid.take(indices.to_array())?;
+                let maybe_is_valid = is_valid.take(indices.clone())?;
                 // Null indices invalidate that position.
                 let is_valid = maybe_is_valid.fill_null(Scalar::from(false))?;
                 Ok(Self::Array(is_valid))
@@ -319,7 +319,7 @@ impl Validity {
         let patches = Patches::new(
             len,
             indices_offset,
-            indices.to_array(),
+            indices.clone(),
             patch_values.into_array(),
             // TODO(0ax1): chunk offsets
             None,

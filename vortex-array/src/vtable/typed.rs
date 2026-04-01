@@ -33,7 +33,7 @@ use crate::vtable::VTable;
 /// and converting between typed and untyped representations.
 /// This type is returned by reference from [`Matcher`] downcasts.
 #[doc(hidden)]
-pub struct ArrayInner<V: VTable> {
+pub(crate) struct ArrayInner<V: VTable> {
     pub(crate) vtable: V,
     pub(crate) dtype: DType,
     pub(crate) len: usize,

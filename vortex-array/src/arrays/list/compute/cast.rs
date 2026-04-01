@@ -55,8 +55,8 @@ mod tests {
     #[test]
     fn test_cast_list_success() {
         let list = ListArray::try_new(
-            buffer![1i32, 2, 3, 4].into_array().to_array(),
-            buffer![0, 2, 3].into_array().to_array(),
+            buffer![1i32, 2, 3, 4].into_array(),
+            buffer![0, 2, 3].into_array(),
             Validity::NonNullable,
         )
         .unwrap();
@@ -78,8 +78,8 @@ mod tests {
     #[test]
     fn test_cast_to_wrong_type() {
         let list = ListArray::try_new(
-            buffer![0i32, 2, 3, 4].into_array().to_array(),
-            buffer![0, 2, 3].into_array().to_array(),
+            buffer![0i32, 2, 3, 4].into_array(),
+            buffer![0, 2, 3].into_array(),
             Validity::NonNullable,
         )
         .unwrap();
@@ -100,8 +100,8 @@ mod tests {
 
         // Nulls in the list itself
         let list = ListArray::try_new(
-            buffer![0i32, 2, 3, 4].into_array().to_array(),
-            buffer![0, 2, 3].into_array().to_array(),
+            buffer![0i32, 2, 3, 4].into_array(),
+            buffer![0, 2, 3].into_array(),
             Validity::Array(BoolArray::from_iter(vec![false, true]).into_array()),
         )
         .unwrap();
@@ -121,7 +121,7 @@ mod tests {
         // the elements are executed.
         let list = ListArray::try_new(
             PrimitiveArray::from_option_iter([Some(0i32), Some(2), None, None]).into_array(),
-            buffer![0, 2, 3].into_array().to_array(),
+            buffer![0, 2, 3].into_array(),
             Validity::NonNullable,
         )
         .unwrap();

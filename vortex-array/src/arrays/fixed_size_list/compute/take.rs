@@ -51,7 +51,7 @@ fn take_with_indices<I: IntegerPType, E: IntegerPType>(
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
 
-    let indices_array = indices.to_array().execute::<PrimitiveArray>(ctx)?;
+    let indices_array = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
     // Make sure to handle degenerate case where lists have size 0 (these can take fast paths).
     if list_size == 0 {

@@ -17,7 +17,7 @@ impl TakeExecute for Extension {
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let taken_storage = array.storage_array().take(indices.to_array())?;
+        let taken_storage = array.storage_array().take(indices.clone())?;
         Ok(Some(
             ExtensionArray::new(
                 array

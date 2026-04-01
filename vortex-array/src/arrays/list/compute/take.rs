@@ -35,7 +35,7 @@ impl TakeExecute for List {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let indices = indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         // This is an over-approximation of the total number of elements in the resulting array.
         let total_approx = array.elements().len().saturating_mul(indices.len());
 
@@ -64,7 +64,7 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
         return _take_nullable::<I, O, OutputOffsetType>(array, indices_array, ctx);
     }
 
-    let offsets_array = array.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
+    let offsets_array = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
 
@@ -104,7 +104,7 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
 
-    let new_elements = array.elements().take(elements_to_take.to_array())?;
+    let new_elements = array.elements().take(elements_to_take.clone())?;
 
     Ok(ListArray::try_new(
         new_elements,
@@ -119,7 +119,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     indices_array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let offsets_array = array.offsets().to_array().execute::<PrimitiveArray>(ctx)?;
+    let offsets_array = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
     let data_validity = array.validity_mask();
@@ -173,7 +173,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
 
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
-    let new_elements = array.elements().take(elements_to_take.to_array())?;
+    let new_elements = array.elements().take(elements_to_take.clone())?;
 
     Ok(ListArray::try_new(
         new_elements,
@@ -215,7 +215,7 @@ mod test {
         let idx =
             PrimitiveArray::from_option_iter(vec![Some(0), None, Some(1), Some(3)]).into_array();
 
-        let result = list.take(idx.to_array()).unwrap();
+        let result = list.take(idx.clone()).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -273,7 +273,7 @@ mod test {
         let idx = PrimitiveArray::from_option_iter(vec![Some(0), Some(1), None]).into_array();
         // since idx is nullable, the final list will also be nullable
 
-        let result = list.take(idx.to_array()).unwrap();
+        let result = list.take(idx.clone()).unwrap();
         assert_eq!(
             result.dtype(),
             &DType::List(
@@ -295,7 +295,7 @@ mod test {
 
         let idx = buffer![1, 0, 2].into_array();
 
-        let result = list.take(idx.to_array()).unwrap();
+        let result = list.take(idx.clone()).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -350,7 +350,7 @@ mod test {
 
         let idx = PrimitiveArray::empty::<i32>(Nullability::Nullable).into_array();
 
-        let result = list.take(idx.to_array()).unwrap();
+        let result = list.take(idx.clone()).unwrap();
         assert_eq!(
             result.dtype(),
             &DType::List(
@@ -413,7 +413,7 @@ mod test {
 
         // Take the same large list twice - would overflow u8 but works with u64.
         let idx = buffer![0u8, 0].into_array();
-        let result = list.take(idx.to_array()).unwrap();
+        let result = list.take(idx.clone()).unwrap();
 
         assert_eq!(result.len(), 2);
 
@@ -434,7 +434,7 @@ mod test {
 
         // Take the same large list twice - would overflow u8 but works with u64.
         let idx = PrimitiveArray::from_option_iter(vec![Some(0u8), None, Some(0u8)]).into_array();
-        let result = list.take(idx.to_array()).unwrap();
+        let result = list.take(idx.clone()).unwrap();
 
         assert_eq!(result.len(), 3);
 
@@ -464,7 +464,7 @@ mod test {
         let idx = buffer![0u32, 1, 0, 1].into_array();
 
         // This should not panic - result should have length 4.
-        let result = list.take(idx.to_array()).unwrap();
+        let result = list.take(idx.clone()).unwrap();
         assert_eq!(result.len(), 4);
     }
 }

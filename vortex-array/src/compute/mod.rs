@@ -29,7 +29,6 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
@@ -182,7 +181,7 @@ pub struct InvocationArgs<'a> {
 
 /// For unary compute functions, it's useful to just have this short-cut.
 pub struct UnaryArgs<'a, O: Options> {
-    pub array: &'a dyn DynArray,
+    pub array: &'a ArrayRef,
     pub options: &'a O,
 }
 
@@ -206,8 +205,8 @@ impl<'a, O: Options> TryFrom<&InvocationArgs<'a>> for UnaryArgs<'a, O> {
 
 /// For binary compute functions, it's useful to just have this short-cut.
 pub struct BinaryArgs<'a, O: Options> {
-    pub lhs: &'a dyn DynArray,
-    pub rhs: &'a dyn DynArray,
+    pub lhs: &'a ArrayRef,
+    pub rhs: &'a ArrayRef,
     pub options: &'a O,
 }
 
@@ -235,7 +234,7 @@ impl<'a, O: Options> TryFrom<&InvocationArgs<'a>> for BinaryArgs<'a, O> {
 /// Input to a compute function.
 pub enum Input<'a> {
     Scalar(&'a Scalar),
-    Array(&'a dyn DynArray),
+    Array(&'a ArrayRef),
     Mask(&'a Mask),
     Builder(&'a mut dyn ArrayBuilder),
     DType(&'a DType),
@@ -255,15 +254,9 @@ impl Debug for Input<'_> {
     }
 }
 
-impl<'a> From<&'a dyn DynArray> for Input<'a> {
-    fn from(value: &'a dyn DynArray) -> Self {
-        Input::Array(value)
-    }
-}
-
 impl<'a> From<&'a ArrayRef> for Input<'a> {
     fn from(value: &'a ArrayRef) -> Self {
-        Input::Array(value.as_ref())
+        Input::Array(value)
     }
 }
 
@@ -294,7 +287,7 @@ impl<'a> Input<'a> {
         }
     }
 
-    pub fn array(&self) -> Option<&'a dyn DynArray> {
+    pub fn array(&self) -> Option<&'a ArrayRef> {
         if let Input::Array(array) = self {
             Some(*array)
         } else {

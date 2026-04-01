@@ -33,7 +33,7 @@ impl Datum {
             })
         } else {
             Ok(Self {
-                array: array.to_array().into_arrow_preferred()?,
+                array: array.clone().into_arrow_preferred()?,
                 is_scalar: false,
             })
         }
@@ -43,7 +43,7 @@ impl Datum {
     /// This not try and convert the array to a scalar if it is constant.
     pub fn try_new_array(array: &ArrayRef) -> VortexResult<Self> {
         Ok(Self {
-            array: array.to_array().into_arrow_preferred()?,
+            array: array.clone().into_arrow_preferred()?,
             is_scalar: false,
         })
     }
@@ -59,7 +59,7 @@ impl Datum {
             })
         } else {
             Ok(Self {
-                array: array.to_array().into_arrow(target_datatype)?,
+                array: array.clone().into_arrow(target_datatype)?,
                 is_scalar: false,
             })
         }

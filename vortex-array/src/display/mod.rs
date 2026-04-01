@@ -541,7 +541,7 @@ impl ArrayRef {
                         }),
                     ),
                 ];
-                let mut display = TreeDisplay::new(self.to_array());
+                let mut display = TreeDisplay::new(self.clone());
                 for (enabled, extractor) in extractors {
                     if enabled {
                         display = display.with_boxed(extractor);

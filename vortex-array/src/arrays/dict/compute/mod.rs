@@ -30,7 +30,7 @@ impl TakeExecute for Dict {
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let codes = array.codes().take(indices.to_array())?;
+        let codes = array.codes().take(indices.clone())?;
         // SAFETY: selecting codes doesn't change the invariants of DictArray
         // Preserve all_values_referenced since taking codes doesn't affect which values are referenced
         Ok(Some(unsafe {

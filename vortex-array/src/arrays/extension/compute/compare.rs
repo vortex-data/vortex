@@ -26,7 +26,7 @@ impl CompareKernel for Extension {
             let storage_scalar = const_ext.as_extension().to_storage_scalar();
             return lhs
                 .storage_array()
-                .to_array()
+                .clone()
                 .binary(
                     ConstantArray::new(storage_scalar, lhs.len()).into_array(),
                     Operator::from(operator),
@@ -38,8 +38,8 @@ impl CompareKernel for Extension {
         if let Some(rhs_ext) = rhs.as_opt::<Extension>() {
             return lhs
                 .storage_array()
-                .to_array()
-                .binary(rhs_ext.storage_array().to_array(), Operator::from(operator))
+                .clone()
+                .binary(rhs_ext.storage_array().clone(), Operator::from(operator))
                 .map(Some);
         }
 
