@@ -8,7 +8,6 @@ use std::ops::BitAnd;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::ArrayVisitor;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
