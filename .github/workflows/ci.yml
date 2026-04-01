@@ -746,7 +746,7 @@ jobs:
           tool: cargo-codspeed
       - name: Build benchmarks
         env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
+          RUSTFLAGS: "-C target-feature=+avx2"
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
