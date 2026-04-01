@@ -528,7 +528,7 @@ macro_rules! require_patches {
     };
 }
 
-/// Require that a [`Validity::Array`] child matches `$M`. If validity is not array-backed
+/// Require that a [`Validity::Array`](crate::validity::Validity::Array) child matches `$M`. If validity is not array-backed
 /// (e.g. `NonNullable` or `AllValid`), this is a no-op. If it is array-backed but does not
 /// match `$M`, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
 ///
