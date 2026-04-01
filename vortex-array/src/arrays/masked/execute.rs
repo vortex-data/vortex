@@ -8,7 +8,6 @@ use std::ops::BitAnd;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::ArrayVisitor;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -224,9 +223,7 @@ fn mask_validity_variant(
             // Child has an array-backed validity stored as its first child.
             // Combine with the mask and replace that child via with_children.
             let combined = combine_validity(&child_validity, mask, len, ctx)?;
-            let mut children = child.children();
-            children[0] = combined.to_array(len);
-            let new_child = child.with_children(children)?;
+            let new_child = child.with_slot(0, combined.to_array(len))?;
             Ok(VariantArray::new(new_child))
         }
     }
