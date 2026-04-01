@@ -297,20 +297,21 @@ impl WriteStrategyBuilder {
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
         // 5. compress each chunk
-        let data_compressor: Arc<dyn CompressorPlugin> = if let Some(ref compressor) = self.compressor {
-            assert!(
-                self.builder.is_none(),
-                "Cannot configure both a custom compressor and custom builder schemes"
-            );
-            compressor.clone()
-        } else {
-            Arc::new(
-                self.builder
-                    .unwrap_or_default()
-                    .exclude([IntDictScheme.id()])
-                    .build(),
-            )
-        };
+        let data_compressor: Arc<dyn CompressorPlugin> =
+            if let Some(ref compressor) = self.compressor {
+                assert!(
+                    self.builder.is_none(),
+                    "Cannot configure both a custom compressor and custom builder schemes"
+                );
+                compressor.clone()
+            } else {
+                Arc::new(
+                    self.builder
+                        .unwrap_or_default()
+                        .exclude([IntDictScheme.id()])
+                        .build(),
+                )
+            };
         let compressing = CompressingStrategy::new(buffered, data_compressor.clone());
 
         // 4. prior to compression, coalesce up to a minimum size
