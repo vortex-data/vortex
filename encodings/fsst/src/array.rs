@@ -463,13 +463,17 @@ impl FSSTArray {
             Some(arr) => Validity::Array(arr.clone()),
             None => Validity::from(self.dtype.nullability()),
         };
-        VarBinArray::try_new_from_handle(
-            offsets,
-            self.codes_bytes.clone(),
-            DType::Binary(self.dtype.nullability()),
-            validity,
-        )
-        .vortex_expect("FSSTArray codes reconstruction should not fail")
+        // SAFETY: components were validated at FSSTArray construction time and bytes are
+        // immutable; only offsets/validity slots can change, but the executor preserves
+        // their invariants.
+        unsafe {
+            VarBinArray::new_unchecked_from_handle(
+                offsets,
+                self.codes_bytes.clone(),
+                DType::Binary(self.dtype.nullability()),
+                validity,
+            )
+        }
     }
 
     /// Get the DType of the codes array
