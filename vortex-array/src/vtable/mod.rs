@@ -183,8 +183,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// moved out of an `ArrayData` into the concrete `Array` type during deserialization
     /// without copying.
     ///
-    /// TODO: once no encodings rely on side-effects in [`Self::with_slots`], replace the
-    /// `slots`/`with_slots` pair with a single `slots_mut` returning `&mut [Option<ArrayRef>]`.
     fn slots(array: &Self::Array) -> &[Option<ArrayRef>];
 
     /// Returns the name of the slot at the given index.
