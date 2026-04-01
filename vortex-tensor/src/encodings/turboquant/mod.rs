@@ -91,7 +91,7 @@ pub use compress::turboquant_encode_qjl;
 mod array;
 pub(crate) mod centroids;
 mod compress;
-mod compute;
+pub(crate) mod compute;
 pub(crate) mod decompress;
 pub(crate) mod rotation;
 pub mod scheme;

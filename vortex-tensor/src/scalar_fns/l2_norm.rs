@@ -113,6 +113,18 @@ impl ScalarFnVTable for L2Norm {
         let list_size = extension_list_size(ext)? as usize;
 
         let storage = extension_storage(&input)?;
+
+        // TurboQuant stores exact precomputed norms — no decompression needed.
+        // This works for both Exact and Approximate modes since the norms are
+        // computed before quantization and are not affected by the lossy encoding.
+        {
+            use vortex_array::matcher::Matcher;
+            if let Some(tq) = crate::encodings::turboquant::TurboQuant::try_match(&*storage) {
+                let norms: PrimitiveArray = tq.norms().clone().execute(ctx)?;
+                return Ok(norms.into_array());
+            }
+        }
+
         let flat = extract_flat_elements(&storage, list_size, ctx)?;
 
         match_each_float_ptype!(flat.ptype(), |T| {

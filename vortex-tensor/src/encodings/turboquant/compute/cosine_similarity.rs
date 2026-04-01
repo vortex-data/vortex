@@ -35,9 +35,13 @@
 //! usually sufficient — the relative ordering of cosine similarities is preserved
 //! even if the absolute values have bounded error.
 
+use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::array::TurboQuantArray;
@@ -94,4 +98,91 @@ pub fn cosine_similarity_quantized(
         .sum();
 
     Ok(dot)
+}
+
+/// Shared helper: read codes, norms, and centroids from a TurboQuant array,
+/// then compute per-row quantized unit-norm dot products.
+///
+/// Returns `(norms_a, norms_b, unit_dots)` where `unit_dots[i]` is the dot product
+/// of the unit-norm quantized vectors for row i.
+fn quantized_unit_dots(
+    lhs: &TurboQuantArray,
+    rhs: &TurboQuantArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(Vec<f32>, Vec<f32>, Vec<f32>)> {
+    let pd = lhs.padded_dim() as usize;
+    let num_rows = lhs.norms().len();
+
+    let lhs_norms: PrimitiveArray = lhs.norms().clone().execute(ctx)?;
+    let rhs_norms: PrimitiveArray = rhs.norms().clone().execute(ctx)?;
+    let na = lhs_norms.as_slice::<f32>();
+    let nb = rhs_norms.as_slice::<f32>();
+
+    let lhs_codes_fsl: FixedSizeListArray = lhs.codes().clone().execute(ctx)?;
+    let rhs_codes_fsl: FixedSizeListArray = rhs.codes().clone().execute(ctx)?;
+    let lhs_codes = lhs_codes_fsl.elements().to_canonical()?.into_primitive();
+    let rhs_codes = rhs_codes_fsl.elements().to_canonical()?.into_primitive();
+    let ca = lhs_codes.as_slice::<u8>();
+    let cb = rhs_codes.as_slice::<u8>();
+
+    let centroids: PrimitiveArray = lhs.centroids().clone().execute(ctx)?;
+    let c = centroids.as_slice::<f32>();
+
+    let mut dots = Vec::with_capacity(num_rows);
+    for row in 0..num_rows {
+        let row_ca = &ca[row * pd..(row + 1) * pd];
+        let row_cb = &cb[row * pd..(row + 1) * pd];
+        let dot: f32 = row_ca
+            .iter()
+            .zip(row_cb.iter())
+            .map(|(&a, &b)| c[a as usize] * c[b as usize])
+            .sum();
+        dots.push(dot);
+    }
+
+    Ok((na.to_vec(), nb.to_vec(), dots))
+}
+
+/// Compute approximate cosine similarity for all rows between two TurboQuant
+/// arrays (same rotation matrix and codebook) without full decompression.
+pub fn cosine_similarity_quantized_column(
+    lhs: &TurboQuantArray,
+    rhs: &TurboQuantArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let num_rows = lhs.norms().len();
+    let (na, nb, dots) = quantized_unit_dots(lhs, rhs, ctx)?;
+
+    let mut result = BufferMut::<f32>::with_capacity(num_rows);
+    for row in 0..num_rows {
+        if na[row] == 0.0 || nb[row] == 0.0 {
+            result.push(0.0);
+        } else {
+            // Unit-norm dot product IS the cosine similarity.
+            result.push(dots[row]);
+        }
+    }
+
+    Ok(PrimitiveArray::new::<f32>(result.freeze(), Validity::NonNullable).into_array())
+}
+
+/// Compute approximate dot product for all rows between two TurboQuant
+/// arrays (same rotation matrix and codebook) without full decompression.
+///
+/// `dot_product(a, b) ≈ ||a|| * ||b|| * sum(c[code_a[j]] * c[code_b[j]])`
+pub fn dot_product_quantized_column(
+    lhs: &TurboQuantArray,
+    rhs: &TurboQuantArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let num_rows = lhs.norms().len();
+    let (na, nb, dots) = quantized_unit_dots(lhs, rhs, ctx)?;
+
+    let mut result = BufferMut::<f32>::with_capacity(num_rows);
+    for row in 0..num_rows {
+        // Scale the unit-norm dot product by both norms to get the actual dot product.
+        result.push(na[row] * nb[row] * dots[row]);
+    }
+
+    Ok(PrimitiveArray::new::<f32>(result.freeze(), Validity::NonNullable).into_array())
 }

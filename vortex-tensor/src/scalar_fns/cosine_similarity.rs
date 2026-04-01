@@ -113,7 +113,7 @@ impl ScalarFnVTable for CosineSimilarity {
 
     fn execute(
         &self,
-        _options: &Self::Options,
+        options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -134,6 +134,19 @@ impl ScalarFnVTable for CosineSimilarity {
         // than the extension array to avoid canonicalizing the extension wrapper.
         let lhs_storage = extension_storage(&lhs)?;
         let rhs_storage = extension_storage(&rhs)?;
+
+        // TurboQuant approximate path: compute dot product in quantized domain.
+        if *options == ApproxOptions::Approximate {
+            use vortex_array::matcher::Matcher;
+            if let (Some(lhs_tq), Some(rhs_tq)) = (
+                crate::encodings::turboquant::TurboQuant::try_match(&*lhs_storage),
+                crate::encodings::turboquant::TurboQuant::try_match(&*rhs_storage),
+            ) {
+                return crate::encodings::turboquant::compute::cosine_similarity::cosine_similarity_quantized_column(
+                    lhs_tq, rhs_tq, ctx,
+                );
+            }
+        }
 
         let lhs_flat = extract_flat_elements(&lhs_storage, list_size, ctx)?;
         let rhs_flat = extract_flat_elements(&rhs_storage, list_size, ctx)?;
