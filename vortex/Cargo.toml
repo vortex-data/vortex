@@ -50,7 +50,6 @@ vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
-vortex-tensor = { workspace = true, features = ["unstable_encodings"] }
 arrow-array = { workspace = true }
 divan = { workspace = true }
 fastlanes = { workspace = true }
@@ -64,6 +63,7 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 vortex = { path = ".", features = ["tokio"] }
+vortex-tensor = { workspace = true, features = ["unstable_encodings"] }
 
 [features]
 default = ["files", "zstd"]
