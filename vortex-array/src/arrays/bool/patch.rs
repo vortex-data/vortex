@@ -18,13 +18,9 @@ impl BoolArray {
         let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let values = patches.values().clone().execute::<BoolArray>(ctx)?;
 
-        let patched_validity = self.validity().clone().patch(
-            len,
-            offset,
-            patches.indices(),
-            values.validity(),
-            ctx,
-        )?;
+        let patched_validity =
+            self.validity()
+                .patch(len, offset, patches.indices(), &values.validity(), ctx)?;
 
         let bit_buffer = self.into_bit_buffer();
         let mut own_values = bit_buffer

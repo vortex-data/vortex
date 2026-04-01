@@ -73,7 +73,6 @@ impl LikeKernel for FSST {
         let validity = array
             .codes()
             .validity()
-            .clone()
             .union_nullability(pattern_scalar.dtype().nullability());
 
         Ok(Some(BoolArray::new(result, validity).into_array()))

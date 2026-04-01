@@ -8,7 +8,7 @@ pub fn vortex_runend::compress::runend_decode_typed_primitive<T: vortex_array::d
 
 pub fn vortex_runend::compress::runend_decode_varbinview(ends: vortex_array::arrays::primitive::vtable::PrimitiveArray, values: vortex_array::arrays::varbinview::vtable::VarBinViewArray, offset: usize, length: usize) -> vortex_error::VortexResult<vortex_array::arrays::varbinview::vtable::VarBinViewArray>
 
-pub fn vortex_runend::compress::runend_encode(array: &vortex_array::arrays::primitive::array::PrimitiveData) -> (vortex_array::arrays::primitive::vtable::PrimitiveArray, vortex_array::array::ArrayRef)
+pub fn vortex_runend::compress::runend_encode(array: vortex_array::vtable::typed::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> (vortex_array::arrays::primitive::vtable::PrimitiveArray, vortex_array::array::ArrayRef)
 
 pub mod vortex_runend::decompress_bool
 
@@ -70,9 +70,9 @@ pub type vortex_runend::RunEnd::OperationsVTable = vortex_runend::RunEnd
 
 pub type vortex_runend::RunEnd::ValidityVTable = vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::array_eq(array: vortex_array::vtable::typed::ArrayView<'_, Self>, other: vortex_array::vtable::typed::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_runend::RunEnd::array_eq(array: &vortex_runend::RunEndData, other: &vortex_runend::RunEndData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_runend::RunEnd::array_hash<H: core::hash::Hasher>(array: vortex_array::vtable::typed::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_runend::RunEnd::array_hash<H: core::hash::Hasher>(array: &vortex_runend::RunEndData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_runend::RunEnd::buffer(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 

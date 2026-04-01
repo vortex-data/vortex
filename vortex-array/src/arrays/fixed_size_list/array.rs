@@ -13,6 +13,7 @@ use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 /// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
@@ -92,13 +93,6 @@ pub struct FixedSizeListData {
     /// We store the size of each fixed-size list in the array as a field for convenience.
     list_size: u32,
 
-    /// The validity / null map of the array.
-    ///
-    /// Note that this null map refers to which fixed-size list scalars are null, **not** which
-    /// sub-elements of fixed-size list scalars are null. The `elements` array will track individual
-    /// value nullability.
-    pub(super) validity: Validity,
-
     /// The length of the array.
     ///
     /// Note that this is different from the size of each fixed-size list scalar (`list_size`).
@@ -177,18 +171,18 @@ impl FixedSizeListData {
             dtype: DType::FixedSizeList(Arc::new(elements.dtype().clone()), list_size, nullability),
             slots: vec![Some(elements), validity_slot],
             list_size,
-            validity,
             len,
             stats_set: Default::default(),
         }
     }
 
     pub fn into_parts(mut self) -> (ArrayRef, Validity, DType) {
+        let validity = self.validity();
         (
             self.slots[ELEMENTS_SLOT]
                 .take()
                 .vortex_expect("FixedSizeListArray elements slot"),
-            self.validity,
+            validity,
             self.dtype,
         )
     }
@@ -246,13 +240,13 @@ impl FixedSizeListData {
 
     /// Returns the validity of the array.
     #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        &self.validity
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Returns the validity as a [`Mask`](vortex_mask::Mask).
     pub fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity.to_mask(self.len())
+        self.validity().to_mask(self.len())
     }
 
     /// Returns the elements array.
@@ -313,7 +307,7 @@ impl FixedSizeListData {
             index,
             self.len,
         );
-        debug_assert!(self.validity.is_valid(index).unwrap_or(false));
+        debug_assert!(self.validity().is_valid(index).unwrap_or(false));
 
         let start = self.list_size as usize * index;
         let end = self.list_size as usize * (index + 1);

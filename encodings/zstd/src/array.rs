@@ -632,7 +632,7 @@ impl ZstdData {
             dtype,
             metadata,
             parray.len(),
-            parray.validity().clone(),
+            parray.validity(),
         ))
     }
 
@@ -723,7 +723,7 @@ impl ZstdData {
             dtype,
             metadata,
             vbv.len(),
-            vbv.validity().clone(),
+            vbv.validity(),
         ))
     }
 

@@ -370,7 +370,7 @@ impl LayoutReader for StructReader {
                         struct_array.names().clone(),
                         masked_fields,
                         struct_array.len(),
-                        struct_array.validity().clone(),
+                        struct_array.validity(),
                     )?
                     .into_array())
                 } else {

@@ -10,7 +10,7 @@ use crate::arrays::filter::execute::bitbuffer;
 use crate::arrays::filter::execute::filter_validity;
 
 pub fn filter_bool(array: &BoolArray, mask: &Arc<MaskValues>) -> BoolArray {
-    let validity = array.validity().clone();
+    let validity = array.validity();
     let filtered_validity = filter_validity(validity, mask);
 
     let bit_buffer = array.to_bit_buffer();

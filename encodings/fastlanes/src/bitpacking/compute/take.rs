@@ -175,7 +175,7 @@ mod test {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
 
-        let primitive_result = bitpacked.take(indices.clone()).unwrap();
+        let primitive_result = bitpacked.take(indices).unwrap();
         assert_arrays_eq!(
             primitive_result,
             PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18])
@@ -189,7 +189,7 @@ mod test {
 
         let indices = buffer![0, 2, 4, 6].into_array();
 
-        let primitive_result = bitpacked.take(indices.clone()).unwrap();
+        let primitive_result = bitpacked.take(indices).unwrap();
         assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([0u32, 2, 4, 6]));
     }
 
@@ -202,7 +202,7 @@ mod test {
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
         let sliced = bitpacked.slice(128..2050).unwrap();
 
-        let primitive_result = sliced.take(indices.clone()).unwrap();
+        let primitive_result = sliced.take(indices).unwrap();
         assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));
     }
 

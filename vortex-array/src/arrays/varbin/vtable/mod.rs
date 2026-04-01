@@ -28,7 +28,6 @@ use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod canonical;
 mod kernel;
 mod operations;
@@ -57,7 +56,7 @@ impl VTable for VarBin {
 
     type Metadata = ProstMetadata<VarBinMetadata>;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
     fn vtable(_array: &VarBinData) -> &Self {
         &VarBin
     }
@@ -87,7 +86,7 @@ impl VTable for VarBin {
     fn array_eq(array: &VarBinData, other: &VarBinData, precision: Precision) -> bool {
         array.bytes().array_eq(other.bytes(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
-            && array.validity().array_eq(other.validity(), precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

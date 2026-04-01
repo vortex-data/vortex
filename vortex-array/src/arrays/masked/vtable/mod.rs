@@ -36,7 +36,6 @@ use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 vtable!(Masked, Masked, MaskedData);
 
 #[derive(Clone, Debug)]
@@ -51,7 +50,7 @@ impl VTable for Masked {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::ArrayData) -> &Self {
         &Masked
@@ -75,12 +74,12 @@ impl VTable for Masked {
 
     fn array_hash<H: std::hash::Hasher>(array: &MaskedData, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &MaskedData, other: &MaskedData, precision: Precision) -> bool {
         array.child().array_eq(other.child(), precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

@@ -704,13 +704,13 @@ pub struct vortex_compressor::stats::BoolStats
 
 impl vortex_compressor::stats::BoolStats
 
-pub fn vortex_compressor::stats::BoolStats::generate(input: &vortex_array::arrays::bool::array::BoolArray) -> vortex_error::VortexResult<Self>
+pub fn vortex_compressor::stats::BoolStats::generate(input: &vortex_array::arrays::bool::vtable::BoolArray) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_compressor::stats::BoolStats::is_constant(&self) -> bool
 
 pub fn vortex_compressor::stats::BoolStats::null_count(&self) -> u32
 
-pub fn vortex_compressor::stats::BoolStats::source(&self) -> &vortex_array::arrays::bool::array::BoolArray
+pub fn vortex_compressor::stats::BoolStats::source(&self) -> &vortex_array::arrays::bool::vtable::BoolArray
 
 pub fn vortex_compressor::stats::BoolStats::true_count(&self) -> u32
 

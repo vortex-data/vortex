@@ -28,11 +28,7 @@ impl FillNullKernel for Primitive {
 
         Ok(Some(match array.validity() {
             Validity::Array(is_valid) => {
-                let is_invalid = is_valid
-                    .clone()
-                    .execute::<BoolArray>(ctx)?
-                    .into_bit_buffer()
-                    .not();
+                let is_invalid = is_valid.execute::<BoolArray>(ctx)?.into_bit_buffer().not();
                 match_each_native_ptype!(array.ptype(), |T| {
                     let mut buffer = array.to_buffer::<T>().into_mut();
                     let fill_value = fill_value

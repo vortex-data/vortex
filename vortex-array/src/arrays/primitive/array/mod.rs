@@ -35,6 +35,7 @@ pub use patch::patch_chunk;
 
 use crate::ArrayRef;
 use crate::buffer::BufferHandle;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 /// The validity bitmap indicating which elements are non-null.
@@ -75,7 +76,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct PrimitiveData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) buffer: BufferHandle,
     pub(super) stats_set: ArrayStats,
@@ -110,7 +110,6 @@ impl PrimitiveData {
         let dtype = DType::Primitive(ptype, validity.nullability());
         Self {
             slots,
-            validity,
             buffer: handle,
             dtype,
             stats_set: ArrayStats::default(),
@@ -167,7 +166,6 @@ impl PrimitiveData {
         let dtype = DType::Primitive(T::PTYPE, validity.nullability());
         Self {
             slots,
-            validity,
             dtype,
             buffer: BufferHandle::new_host(buffer.into_byte_buffer()),
             stats_set: Default::default(),
@@ -282,7 +280,7 @@ impl PrimitiveData {
     /// Consume the primitive array and returns its component parts.
     pub fn into_parts(self) -> PrimitiveArrayParts {
         let ptype = self.ptype();
-        let validity = self.validity;
+        let validity = self.validity();
         PrimitiveArrayParts {
             ptype,
             buffer: self.buffer,
@@ -307,15 +305,15 @@ impl PrimitiveData {
         self.len() == 0
     }
 
-    /// Returns the validity of the array.
+    /// Reconstructs the validity from the slot state.
     #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        &self.validity
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Returns the validity as a [`Mask`](vortex_mask::Mask).
     pub fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity.to_mask(self.len())
+        self.validity().to_mask(self.len())
     }
 
     pub fn ptype(&self) -> PType {
@@ -333,7 +331,6 @@ impl PrimitiveData {
         let slots = Self::make_slots(&validity, len);
         Self {
             slots,
-            validity,
             buffer: handle,
             dtype,
             stats_set: ArrayStats::default(),
@@ -399,7 +396,7 @@ impl PrimitiveData {
         R: NativePType,
         F: FnMut(T) -> R,
     {
-        let validity = self.validity().clone();
+        let validity = self.validity();
         let buffer = match self.try_into_buffer_mut() {
             Ok(buffer_mut) => buffer_mut.map_each_in_place(f),
             Err(buffer) => BufferMut::from_iter(buffer.iter().copied().map(f)),
@@ -433,7 +430,7 @@ impl PrimitiveData {
                 BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
             }
         };
-        Ok(PrimitiveData::new(buffer.freeze(), validity.clone()))
+        Ok(PrimitiveData::new(buffer.freeze(), validity))
     }
 
     /// Consume the array and get a host Buffer containing the data values.

@@ -51,7 +51,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     }
 
     Ok(TemporalParts {
-        days: PrimitiveArray::new(days, temporal_values.validity().clone()).into_array(),
+        days: PrimitiveArray::new(days, temporal_values.validity()).into_array(),
         seconds: seconds.into_array(),
         subseconds: subseconds.into_array(),
     })

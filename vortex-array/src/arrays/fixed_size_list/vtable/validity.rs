@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::fixed_size_list::FixedSizeListData;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use vortex_error::VortexResult;
 
-impl ValidityHelper for FixedSizeListData {
-    fn validity(&self) -> &Validity {
-        &self.validity
+use crate::arrays::fixed_size_list::vtable::FixedSizeList;
+use crate::validity::Validity;
+use crate::vtable::ArrayView;
+use crate::vtable::ValidityVTable;
+
+impl ValidityVTable<FixedSizeList> for FixedSizeList {
+    fn validity(array: ArrayView<'_, FixedSizeList>) -> VortexResult<Validity> {
+        Ok(array.data().validity())
     }
 }

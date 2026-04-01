@@ -33,13 +33,11 @@ use vortex_session::VortexSession;
 use crate::Precision;
 use crate::arrays::primitive::array::NUM_SLOTS;
 use crate::arrays::primitive::array::SLOT_NAMES;
-use crate::arrays::primitive::array::VALIDITY_SLOT;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
-use crate::vtable::ValidityVTableFromValidityHelper;
 
 vtable!(Primitive, Primitive, PrimitiveData);
 
@@ -48,7 +46,7 @@ impl VTable for Primitive {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::ArrayData) -> &Self {
         &Primitive
@@ -77,7 +75,7 @@ impl VTable for Primitive {
 
     fn array_eq(array: &PrimitiveData, other: &PrimitiveData, precision: Precision) -> bool {
         array.buffer.array_eq(&other.buffer, precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -185,10 +183,6 @@ impl VTable for Primitive {
             slots.len()
         );
 
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

@@ -109,7 +109,7 @@ mod tests {
         ))?;
 
         let indices = buffer![0, 2].into_array();
-        let actual = zigzag.take(indices.clone()).unwrap();
+        let actual = zigzag.take(indices).unwrap();
         let expected =
             zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid))?.into_array();
         assert_arrays_eq!(actual, expected);

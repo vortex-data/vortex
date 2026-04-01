@@ -36,7 +36,7 @@ where
 {
     // Fill-forward null values so the RLE encoder doesn't see garbage at null positions,
     // which would create spurious run boundaries and inflate the dictionary.
-    let values = fill_forward_nulls(array.to_buffer::<T>(), array.validity());
+    let values = fill_forward_nulls(array.to_buffer::<T>(), &array.validity());
     let len = values.len();
     let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
 
@@ -118,7 +118,7 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
             let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
 
             if len == padded_len {
-                return Validity::Array(validity_array.clone());
+                return Validity::Array(validity_array);
             }
 
             let mut builder = BitBufferMut::with_capacity(padded_len);
@@ -254,7 +254,7 @@ mod tests {
         let primitive = values.clone().into_array().to_primitive();
         let result = RLEData::encode(&primitive).unwrap();
         let decoded = result.to_array_ref().to_primitive();
-        let expected = PrimitiveArray::new(values, primitive.validity().clone());
+        let expected = PrimitiveArray::new(values, primitive.validity());
         assert_arrays_eq!(decoded, expected);
     }
 

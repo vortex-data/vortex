@@ -49,7 +49,7 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
                 DecimalArray::new_unchecked(
                     array.buffer::<D>(),
                     array.decimal_dtype(),
-                    array.validity().clone().and(parent.validity().clone())?,
+                    array.validity().and(parent.validity())?,
                 )
             }
             .into_array()

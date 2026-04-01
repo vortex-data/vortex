@@ -21,6 +21,7 @@ use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 /// The offsets array defining the start/end of each variable-length binary element.
@@ -32,7 +33,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets", "validity"];
 
 #[derive(Clone, Debug)]
 pub struct VarBinData {
-    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) bytes: BufferHandle,
     pub(super) slots: Vec<Option<ArrayRef>>,
@@ -168,7 +168,6 @@ impl VarBinData {
         let validity_slot = validity_to_child(&validity, len);
 
         Self {
-            validity,
             dtype,
             bytes,
             slots: vec![Some(offsets), validity_slot],
@@ -287,13 +286,13 @@ impl VarBinData {
 
     /// Returns the [`Validity`] of this array.
     #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        &self.validity
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Returns the validity as a [`Mask`].
     pub fn validity_mask(&self) -> Mask {
-        self.validity.to_mask(self.len())
+        self.validity().to_mask(self.len())
     }
 
     #[inline]
@@ -462,7 +461,7 @@ impl VarBinData {
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
     pub fn into_parts(mut self) -> (DType, BufferHandle, ArrayRef, Validity) {
-        let validity = self.validity.clone();
+        let validity = self.validity();
         let offsets = self.slots[OFFSETS_SLOT]
             .take()
             .vortex_expect("VarBinArray offsets slot");

@@ -50,9 +50,9 @@ pub type vortex_decimal_byte_parts::DecimalByteParts::OperationsVTable = vortex_
 
 pub type vortex_decimal_byte_parts::DecimalByteParts::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::array_eq(array: vortex_array::vtable::typed::ArrayView<'_, Self>, other: vortex_array::vtable::typed::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_decimal_byte_parts::DecimalByteParts::array_eq(array: &vortex_decimal_byte_parts::DecimalBytePartsData, other: &vortex_decimal_byte_parts::DecimalBytePartsData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::array_hash<H: core::hash::Hasher>(array: vortex_array::vtable::typed::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_decimal_byte_parts::DecimalByteParts::array_hash<H: core::hash::Hasher>(array: &vortex_decimal_byte_parts::DecimalBytePartsData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::buffer(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 

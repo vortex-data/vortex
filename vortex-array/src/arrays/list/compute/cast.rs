@@ -20,7 +20,6 @@ impl CastReduce for List {
 
         let validity = array
             .validity()
-            .clone()
             .cast_nullability(dtype.nullability(), array.len())?;
 
         let new_elements = array.elements().cast((**target_element_type).clone())?;

@@ -18,6 +18,7 @@ use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 /// The validity bitmap indicating which elements are non-null.
@@ -61,7 +62,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 pub struct BoolData {
     /// Child arrays stored as slots. See [`VTable::slots`] for design rationale.
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
@@ -95,13 +95,13 @@ impl BoolData {
 
     /// Returns the [`Validity`] of this array.
     #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        &self.validity
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Returns the validity as a [`Mask`].
     pub fn validity_mask(&self) -> Mask {
-        self.validity.to_mask(self.len())
+        self.validity().to_mask(self.len())
     }
 
     /// Returns the underlying [`BitBuffer`] of the array.
@@ -119,11 +119,12 @@ impl BoolData {
     /// Splits into owned parts
     #[inline]
     pub fn into_parts(self) -> BoolArrayParts {
+        let validity = self.validity();
         BoolArrayParts {
             bits: self.bits,
             offset: self.offset,
             len: self.len,
-            validity: self.validity,
+            validity,
         }
     }
 
@@ -134,7 +135,8 @@ impl BoolData {
     }
 
     pub fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
-        let all_valid = match &self.validity {
+        let validity = self.validity();
+        let all_valid = match &validity {
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
             Validity::Array(a) => a.statistics().compute_min::<bool>().unwrap_or(false),
@@ -252,7 +254,6 @@ impl BoolData {
 
         Ok(Self {
             slots,
-            validity,
             dtype,
             bits: BufferHandle::new_host(buffer),
             offset,
@@ -287,7 +288,6 @@ impl BoolData {
 
         Ok(Self {
             slots,
-            validity,
             dtype,
             bits,
             offset,
@@ -306,7 +306,6 @@ impl BoolData {
 
             Self {
                 slots,
-                validity,
                 dtype,
                 bits: BufferHandle::new_host(buffer),
                 offset,

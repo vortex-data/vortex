@@ -27,6 +27,7 @@ use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 /// The elements data array containing all list elements concatenated together.
@@ -94,7 +95,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "validi
 pub struct ListData {
     pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -162,7 +162,6 @@ impl ListData {
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
             slots: vec![Some(elements), Some(offsets), validity_slot],
-            validity,
             stats_set: Default::default(),
         }
     }
@@ -254,6 +253,7 @@ impl ListData {
 
     /// Splits an array into its parts
     pub fn into_parts(mut self) -> ListArrayParts {
+        let validity = self.validity();
         ListArrayParts {
             dtype: self.dtype,
             elements: self.slots[ELEMENTS_SLOT]
@@ -262,7 +262,7 @@ impl ListData {
             offsets: self.slots[OFFSETS_SLOT]
                 .take()
                 .vortex_expect("ListArray offsets slot"),
-            validity: self.validity,
+            validity,
         }
     }
 
@@ -283,13 +283,13 @@ impl ListData {
 
     /// Returns the validity of the array.
     #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        &self.validity
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Returns the validity as a [`Mask`](vortex_mask::Mask).
     pub fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity.to_mask(self.len())
+        self.validity().to_mask(self.len())
     }
 
     /// Returns the offset at the given index from the list array.
@@ -403,6 +403,6 @@ impl ListData {
             Operator::Sub,
         )?;
 
-        Self::try_new(elements, adjusted_offsets, self.validity.clone())
+        Self::try_new(elements, adjusted_offsets, self.validity())
     }
 }

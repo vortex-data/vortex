@@ -109,7 +109,7 @@ where
             let i = unsafe { *slice.get_unchecked(idx) };
             lower_fn(lower, i) & upper_fn(i, upper)
         }),
-        arr.validity().clone().union_nullability(nullability),
+        arr.validity().union_nullability(nullability),
     )
     .into_array()
 }

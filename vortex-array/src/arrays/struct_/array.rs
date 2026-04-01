@@ -9,7 +9,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -21,6 +20,7 @@ use crate::dtype::StructFields;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 // StructArray has a variable number of slots: [validity?, field_0, ..., field_N]
@@ -150,7 +150,6 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 #[derive(Clone, Debug)]
 pub struct StructData {
     pub(super) len: usize,
-    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
@@ -178,15 +177,9 @@ impl StructData {
         self.len() == 0
     }
 
-    /// Returns the [`Validity`] of this array.
-    #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
-    /// Returns the validity as a [`Mask`].
-    pub fn validity_mask(&self) -> Mask {
-        self.validity.to_mask(self.len())
+    /// Reconstructs the validity from the slots.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Return an iterator over the struct fields without the validity of the struct applied.
@@ -335,11 +328,9 @@ impl StructData {
             .chain(fields.iter().map(|f| Some(f.clone())))
             .collect();
 
-        let new_dtype = DType::Struct(dtype, validity.nullability());
         Self {
             len: length,
-            validity,
-            dtype: new_dtype,
+            dtype: DType::Struct(dtype, validity.nullability()),
             slots,
             stats_set: Default::default(),
         }
@@ -412,7 +403,7 @@ impl StructData {
     }
 
     pub fn into_parts(self) -> StructArrayParts {
-        let validity = self.validity;
+        let validity = self.validity();
         let struct_fields = self.dtype.into_struct_fields();
         let fields: Arc<[ArrayRef]> = self
             .slots
@@ -492,7 +483,7 @@ impl StructData {
             FieldNames::from(names.as_slice()),
             children,
             self.len(),
-            self.validity().clone(),
+            self.validity(),
         )
     }
 
@@ -630,6 +621,6 @@ impl StructData {
             .chain(once(array))
             .collect();
 
-        Self::try_new_with_dtype(children, new_fields, self.len, self.validity().clone())
+        Self::try_new_with_dtype(children, new_fields, self.len, self.validity())
     }
 }

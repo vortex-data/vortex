@@ -20,10 +20,7 @@ impl MaskReduce for VarBinView {
                     array.views_handle().clone(),
                     array.data_buffers().clone(),
                     array.dtype().as_nullable(),
-                    array
-                        .validity()
-                        .clone()
-                        .and(Validity::Array(mask.clone()))?,
+                    array.validity().and(Validity::Array(mask.clone()))?,
                 )
                 .into_array(),
             ))

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::bool::BoolData;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use vortex_error::VortexResult;
 
-impl ValidityHelper for BoolData {
-    fn validity(&self) -> &Validity {
-        &self.validity
+use crate::arrays::bool::vtable::Bool;
+use crate::validity::Validity;
+use crate::vtable::ArrayView;
+use crate::vtable::ValidityVTable;
+
+impl ValidityVTable<Bool> for Bool {
+    fn validity(array: ArrayView<'_, Bool>) -> VortexResult<Validity> {
+        Ok(array.data().validity())
     }
 }

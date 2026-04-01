@@ -37,7 +37,6 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
-use crate::vtable::ValidityVTableFromValidityHelper;
 
 vtable!(Bool, Bool, BoolData);
 
@@ -53,7 +52,7 @@ impl VTable for Bool {
 
     type Metadata = ProstMetadata<BoolMetadata>;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::ArrayData) -> &Self {
         &Bool
@@ -84,7 +83,7 @@ impl VTable for Bool {
         array
             .to_bit_buffer()
             .array_eq(&other.to_bit_buffer(), precision)
-            && array.validity().array_eq(other.validity(), precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

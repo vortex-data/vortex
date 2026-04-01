@@ -56,11 +56,7 @@ impl PrimitiveData {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        PrimitiveData::from_buffer_handle(
-            self.buffer_handle().clone(),
-            ptype,
-            self.validity().clone(),
-        )
+        PrimitiveData::from_buffer_handle(self.buffer_handle().clone(), ptype, self.validity())
     }
 }
 
@@ -75,7 +71,7 @@ impl PrimitiveArray {
         let Some(min_max) = min_max(&self.clone().into_array(), &mut ctx)? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
-                self.validity().clone(),
+                self.validity(),
             ));
         };
 

@@ -41,7 +41,6 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
-use crate::vtable::ValidityVTableFromValidityHelper;
 vtable!(Decimal, Decimal, DecimalData);
 
 // The type of the values can be determined by looking at the type info...right?
@@ -56,7 +55,7 @@ impl VTable for Decimal {
 
     type Metadata = ProstMetadata<DecimalMetadata>;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::ArrayData) -> &Self {
         &Decimal
@@ -95,7 +94,7 @@ impl VTable for Decimal {
     fn array_eq(array: &DecimalData, other: &DecimalData, precision: Precision) -> bool {
         array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
-            && array.validity().array_eq(other.validity(), precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

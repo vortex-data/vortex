@@ -78,11 +78,10 @@ impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
         }
 
         let validity = if parent.options.is_nullable() {
-            array.validity().clone().into_nullable()
+            array.validity().into_nullable()
         } else {
             array
                 .validity()
-                .clone()
                 .into_non_nullable(array.len)
                 .ok_or_else(|| vortex_err!("Failed to cast nullable struct to non-nullable"))?
         };
@@ -129,7 +128,7 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
             }
             Validity::Array(mask) => {
                 // If the validity is an array, we need to combine it with the field's validity
-                Mask.try_new_array(field.len(), EmptyOptions, [field.clone(), mask.clone()])
+                Mask.try_new_array(field.len(), EmptyOptions, [field.clone(), mask])
                     .map(Some)
             }
         }

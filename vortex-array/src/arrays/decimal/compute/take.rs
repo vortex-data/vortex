@@ -70,7 +70,7 @@ mod tests {
         );
 
         let indices = buffer![0, 2, 3].into_array();
-        let taken = array.take(indices.clone()).unwrap();
+        let taken = array.take(indices).unwrap();
 
         let expected = DecimalArray::from_iter([10i128, 12, 13], ddtype);
         assert_arrays_eq!(expected, taken);
@@ -86,7 +86,7 @@ mod tests {
         );
 
         let indices = PrimitiveArray::from_option_iter([None, Some(2), Some(3)]).into_array();
-        let taken = array.take(indices.clone()).unwrap();
+        let taken = array.take(indices).unwrap();
 
         let expected = DecimalArray::from_option_iter([None, Some(12i128), Some(13)], ddtype);
         assert_arrays_eq!(expected, taken);

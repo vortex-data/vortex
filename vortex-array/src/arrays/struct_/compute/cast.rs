@@ -72,7 +72,6 @@ impl CastKernel for Struct {
 
         let validity = array
             .validity()
-            .clone()
             .cast_nullability(dtype.nullability(), array.len())?;
 
         StructArray::try_new(

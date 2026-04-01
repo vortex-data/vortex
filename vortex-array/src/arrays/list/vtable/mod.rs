@@ -16,7 +16,6 @@ use crate::ProstMetadata;
 use crate::arrays::list::ListData;
 use crate::arrays::list::array::NUM_SLOTS;
 use crate::arrays::list::array::SLOT_NAMES;
-use crate::arrays::list::array::VALIDITY_SLOT;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
@@ -36,7 +35,6 @@ use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod operations;
 mod validity;
 vtable!(List, List, ListData);
@@ -54,7 +52,7 @@ impl VTable for List {
 
     type Metadata = ProstMetadata<ListMetadata>;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
     fn vtable(_array: &ListData) -> &Self {
         &List
     }
@@ -78,13 +76,13 @@ impl VTable for List {
     fn array_hash<H: std::hash::Hasher>(array: &ListData, state: &mut H, precision: Precision) {
         array.elements().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &ListData, other: &ListData, precision: Precision) -> bool {
         array.elements().array_eq(other.elements(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -179,10 +177,6 @@ impl VTable for List {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

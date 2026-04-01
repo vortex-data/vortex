@@ -52,9 +52,9 @@ pub type vortex_fsst::FSST::ValidityVTable = vortex_array::vtable::validity::Val
 
 pub fn vortex_fsst::FSST::append_to_builder(array: vortex_array::vtable::typed::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_fsst::FSST::array_eq(array: vortex_array::vtable::typed::ArrayView<'_, Self>, other: vortex_array::vtable::typed::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_fsst::FSST::array_eq(array: &vortex_fsst::FSSTData, other: &vortex_fsst::FSSTData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_fsst::FSST::array_hash<H: core::hash::Hasher>(array: vortex_array::vtable::typed::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_fsst::FSST::array_hash<H: core::hash::Hasher>(array: &vortex_fsst::FSSTData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_fsst::FSST::buffer(array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 

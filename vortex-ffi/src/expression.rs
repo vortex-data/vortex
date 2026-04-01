@@ -109,7 +109,7 @@ pub unsafe extern "C" fn vx_expression_and(
     }
     let slice = unsafe { slice::from_raw_parts(expressions, len) };
     match and_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
-        Some(expr) => vx_expression::new(expr.into()),
+        Some(expr) => vx_expression::new(expr),
         None => ptr::null_mut(),
     }
 }
@@ -126,7 +126,7 @@ pub unsafe extern "C" fn vx_expression_or(
     }
     let slice = unsafe { slice::from_raw_parts(expressions, len) };
     match or_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
-        Some(expr) => vx_expression::new(expr.into()),
+        Some(expr) => vx_expression::new(expr),
         None => ptr::null_mut(),
     }
 }
@@ -231,7 +231,7 @@ pub unsafe extern "C" fn vx_expression_not(child: *const vx_expression) -> *cons
     if child.is_null() {
         return child;
     }
-    vx_expression::new(not(vx_expression::as_ref(child).clone()).into())
+    vx_expression::new(not(vx_expression::as_ref(child).clone()))
 }
 
 /// Create an expression that checks for null values.
@@ -242,7 +242,7 @@ pub unsafe extern "C" fn vx_expression_is_null(child: *const vx_expression) -> *
     if child.is_null() {
         return ptr::null_mut();
     }
-    vx_expression::new(is_null(vx_expression::as_ref(child).clone()).into())
+    vx_expression::new(is_null(vx_expression::as_ref(child).clone()))
 }
 
 /// Create an expression that extracts a named field from a struct expression.
@@ -270,7 +270,7 @@ pub unsafe extern "C" fn vx_expression_get_item(
     };
     let item: Arc<str> = Arc::from(item);
     let item: FieldName = item.into();
-    vx_expression::new(get_item(item, vx_expression::as_ref(child).clone()).into())
+    vx_expression::new(get_item(item, vx_expression::as_ref(child).clone()))
 }
 
 /// Create an expression that checks if a value is contained in a list.

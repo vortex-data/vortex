@@ -22,6 +22,7 @@ use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 /// The `elements` data array, where each list scalar is a _slice_ of the `elements` array, and
@@ -124,12 +125,6 @@ pub struct ListViewData {
     /// process which must rebuild the array from scratch.
     is_zero_copy_to_list: bool,
 
-    /// The validity / null map of the array.
-    ///
-    /// Note that this null map refers to which list scalars are null, **not** which sub-elements of
-    /// list scalars are null. The `elements` array will track individual value nullability.
-    pub(super) validity: Validity,
-
     /// The stats for this array.
     pub(super) stats_set: ArrayStats,
 }
@@ -182,7 +177,6 @@ impl ListViewData {
         Ok(Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
             slots: vec![Some(elements), Some(offsets), Some(sizes), validity_slot],
-            validity,
             is_zero_copy_to_list: false,
             stats_set: Default::default(),
         })
@@ -224,7 +218,6 @@ impl ListViewData {
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
             slots: vec![Some(elements), Some(offsets), Some(sizes), validity_slot],
-            validity,
             is_zero_copy_to_list: false,
             stats_set: Default::default(),
         }
@@ -351,6 +344,7 @@ impl ListViewData {
     }
 
     pub fn into_parts(mut self) -> ListViewArrayParts {
+        let validity = self.validity();
         let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
         ListViewArrayParts {
             elements_dtype: dtype,
@@ -363,7 +357,7 @@ impl ListViewData {
             sizes: self.slots[SIZES_SLOT]
                 .take()
                 .vortex_expect("ListViewArray sizes slot"),
-            validity: self.validity,
+            validity,
         }
     }
 
@@ -385,13 +379,13 @@ impl ListViewData {
 
     /// Returns the validity of the array.
     #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        &self.validity
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Returns the validity as a [`Mask`](vortex_mask::Mask).
     pub fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity.to_mask(self.len())
+        self.validity().to_mask(self.len())
     }
 
     /// Returns the offset at the given index.

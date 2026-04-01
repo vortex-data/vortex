@@ -18,10 +18,7 @@ impl MaskReduce for Primitive {
             PrimitiveArray::new_unchecked_from_handle(
                 array.buffer_handle().clone(),
                 array.ptype(),
-                array
-                    .validity()
-                    .clone()
-                    .and(Validity::Array(mask.clone()))?,
+                array.validity().and(Validity::Array(mask.clone()))?,
             )
             .into_array()
         }))

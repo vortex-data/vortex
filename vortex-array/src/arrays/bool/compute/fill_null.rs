@@ -27,7 +27,7 @@ impl FillNullKernel for Bool {
 
         Ok(Some(match array.validity() {
             Validity::Array(v) => {
-                let v_bool = v.clone().execute::<BoolArray>(ctx)?;
+                let v_bool = v.execute::<BoolArray>(ctx)?;
                 let bool_buffer = if fill {
                     array.to_bit_buffer() | &!v_bool.to_bit_buffer()
                 } else {

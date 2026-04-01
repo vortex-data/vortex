@@ -10,7 +10,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -31,6 +30,7 @@ use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 /// The validity bitmap indicating which elements are non-null.
@@ -98,7 +98,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct DecimalData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) values: BufferHandle,
     pub(super) values_type: DecimalType,
@@ -239,14 +238,11 @@ impl DecimalData {
         }
 
         let len = values.len() / values_type.byte_width();
-        let slots = Self::make_slots(&validity, len);
-        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         Self {
-            slots,
-            validity,
+            slots: Self::make_slots(&validity, len),
             values,
             values_type,
-            dtype,
+            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
             stats_set: Default::default(),
         }
     }
@@ -313,19 +309,13 @@ impl DecimalData {
         self.len() == 0
     }
 
-    /// Returns the [`Validity`] of this array.
-    #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        &self.validity
-    }
-
-    /// Returns the validity as a [`Mask`].
-    pub fn validity_mask(&self) -> Mask {
-        self.validity.to_mask(self.len())
+    /// Reconstructs the validity from the slot state.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     pub fn into_parts(self) -> DecimalArrayParts {
-        let validity = self.validity;
+        let validity = self.validity();
         let decimal_dtype = self.dtype.into_decimal_opt().vortex_expect("cannot fail");
 
         DecimalArrayParts {
@@ -423,11 +413,12 @@ impl DecimalData {
         let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
 
-        let patched_validity = self.validity().clone().patch(
+        let patch_validity = patch_values.validity();
+        let patched_validity = self.validity().patch(
             self.len(),
             offset,
             &patch_indices.clone().into_array(),
-            patch_values.validity(),
+            &patch_validity,
             ctx,
         )?;
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());

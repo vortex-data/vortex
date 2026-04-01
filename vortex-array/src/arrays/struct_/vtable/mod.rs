@@ -34,8 +34,6 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
-use crate::vtable::ValidityVTableFromValidityHelper;
-
 vtable!(Struct, Struct, StructData);
 
 impl VTable for Struct {
@@ -43,7 +41,7 @@ impl VTable for Struct {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
     fn vtable(_array: &Self::ArrayData) -> &Self {
         &Struct
     }
@@ -77,7 +75,7 @@ impl VTable for Struct {
                 .iter_unmasked_fields()
                 .zip(other.iter_unmasked_fields())
                 .all(|(a, b)| a.array_eq(b, precision))
-            && array.validity().array_eq(other.validity(), precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -160,10 +158,6 @@ impl VTable for Struct {
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

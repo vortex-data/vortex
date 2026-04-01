@@ -33,11 +33,7 @@ impl FillNullKernel for Decimal {
 
         Ok(Some(match array.validity() {
             Validity::Array(is_valid) => {
-                let is_invalid = is_valid
-                    .clone()
-                    .execute::<BoolArray>(ctx)?
-                    .into_bit_buffer()
-                    .not();
+                let is_invalid = is_valid.execute::<BoolArray>(ctx)?.into_bit_buffer().not();
                 let decimal_scalar = fill_value.as_decimal();
                 let decimal_value = decimal_scalar
                     .decimal_value()

@@ -11,7 +11,7 @@ use crate::arrays::filter::execute::filter_validity;
 use crate::match_each_native_ptype;
 
 pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> PrimitiveArray {
-    let validity = array.validity().clone();
+    let validity = array.validity();
     let filtered_validity = filter_validity(validity, mask);
 
     match_each_native_ptype!(array.ptype(), |T| {

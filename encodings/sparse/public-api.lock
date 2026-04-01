@@ -68,9 +68,9 @@ pub type vortex_sparse::Sparse::OperationsVTable = vortex_sparse::Sparse
 
 pub type vortex_sparse::Sparse::ValidityVTable = vortex_sparse::Sparse
 
-pub fn vortex_sparse::Sparse::array_eq(array: vortex_array::vtable::typed::ArrayView<'_, Self>, other: vortex_array::vtable::typed::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_sparse::Sparse::array_eq(array: &vortex_sparse::SparseData, other: &vortex_sparse::SparseData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_sparse::Sparse::array_hash<H: core::hash::Hasher>(array: vortex_array::vtable::typed::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_sparse::Sparse::array_hash<H: core::hash::Hasher>(array: &vortex_sparse::SparseData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_sparse::Sparse::buffer(array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 

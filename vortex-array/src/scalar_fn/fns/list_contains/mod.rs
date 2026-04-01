@@ -344,7 +344,7 @@ fn list_contains_scalar(
 
     Ok(BoolArray::new(
         list_matches,
-        list_array.validity().clone().union_nullability(nullability),
+        list_array.validity().union_nullability(nullability),
     )
     .into_array())
 }
@@ -407,7 +407,7 @@ fn list_false_or_null(
         Validity::Array(validity_array) => {
             // Create a new bool array with false, and the provided nulls
             let buffer = BitBuffer::new_unset(list_array.len());
-            Ok(BoolArray::new(buffer, Validity::Array(validity_array.clone())).into_array())
+            Ok(BoolArray::new(buffer, Validity::Array(validity_array)).into_array())
         }
     }
 }
@@ -434,11 +434,7 @@ fn list_is_not_empty(
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::new(
-        buffer,
-        list_array.validity().clone().union_nullability(nullability),
-    )
-    .into_array())
+    Ok(BoolArray::new(buffer, list_array.validity().union_nullability(nullability)).into_array())
 }
 
 #[cfg(test)]
@@ -780,7 +776,7 @@ mod tests {
         };
         let elem = ConstantArray::new(scalar, list_array.len());
         let expr = list_contains(root(), lit(elem.scalar().clone()));
-        let result = list_array.clone().apply(&expr).unwrap();
+        let result = list_array.apply(&expr).unwrap();
         assert_arrays_eq!(result, expected);
     }
 
@@ -797,7 +793,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(), lit(2i32));
-        let contains = list_array.clone().apply(&expr).unwrap();
+        let contains = list_array.apply(&expr).unwrap();
         assert!(contains.is::<Constant>(), "Expected constant result");
         let expected = BoolArray::from_iter([true, true]);
         assert_arrays_eq!(contains, expected);
@@ -815,7 +811,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(), lit(2i32));
-        let contains = list_array.clone().apply(&expr).unwrap();
+        let contains = list_array.apply(&expr).unwrap();
         assert!(contains.is::<Constant>(), "Expected constant result");
 
         let expected = BoolArray::new(

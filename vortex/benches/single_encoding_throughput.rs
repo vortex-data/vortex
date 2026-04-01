@@ -27,7 +27,6 @@ use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::DeltaData;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::delta_compress;
-use vortex::encodings::fsst::FSSTArray;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::pco::Pco;
@@ -38,7 +37,6 @@ use vortex::encodings::zstd::ZstdData;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::Nullability;
 use vortex_array::session::ArraySession;
-use vortex_error::VortexExpect;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
 

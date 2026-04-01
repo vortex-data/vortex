@@ -34,9 +34,9 @@ pub type vortex_pco::Pco::OperationsVTable = vortex_pco::Pco
 
 pub type vortex_pco::Pco::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromValiditySliceHelper
 
-pub fn vortex_pco::Pco::array_eq(array: vortex_array::vtable::typed::ArrayView<'_, Self>, other: vortex_array::vtable::typed::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_pco::Pco::array_eq(array: &vortex_pco::PcoData, other: &vortex_pco::PcoData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_pco::Pco::array_hash<H: core::hash::Hasher>(array: vortex_array::vtable::typed::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_pco::Pco::array_hash<H: core::hash::Hasher>(array: &vortex_pco::PcoData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_pco::Pco::buffer(array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 

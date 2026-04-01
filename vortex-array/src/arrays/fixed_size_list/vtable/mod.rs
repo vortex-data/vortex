@@ -17,7 +17,6 @@ use crate::Precision;
 use crate::arrays::fixed_size_list::FixedSizeListData;
 use crate::arrays::fixed_size_list::array::NUM_SLOTS;
 use crate::arrays::fixed_size_list::array::SLOT_NAMES;
-use crate::arrays::fixed_size_list::array::VALIDITY_SLOT;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -31,7 +30,6 @@ use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod kernel;
 mod operations;
 mod validity;
@@ -50,7 +48,7 @@ impl VTable for FixedSizeList {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
     fn vtable(_array: &FixedSizeListData) -> &Self {
         &FixedSizeList
     }
@@ -78,7 +76,7 @@ impl VTable for FixedSizeList {
     ) {
         array.elements().array_hash(state, precision);
         array.list_size().hash(state);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(
@@ -88,7 +86,7 @@ impl VTable for FixedSizeList {
     ) -> bool {
         array.elements().array_eq(other.elements(), precision)
             && array.list_size() == other.list_size()
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -192,10 +190,6 @@ impl VTable for FixedSizeList {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

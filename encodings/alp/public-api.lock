@@ -66,9 +66,9 @@ pub type vortex_alp::ALP::OperationsVTable = vortex_alp::ALP
 
 pub type vortex_alp::ALP::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_alp::ALP::array_eq(array: vortex_array::vtable::typed::ArrayView<'_, Self>, other: vortex_array::vtable::typed::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_alp::ALP::array_eq(array: &vortex_alp::ALPData, other: &vortex_alp::ALPData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_alp::ALP::array_hash<H: core::hash::Hasher>(array: vortex_array::vtable::typed::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_alp::ALP::array_hash<H: core::hash::Hasher>(array: &vortex_alp::ALPData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_alp::ALP::buffer(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -136,7 +136,7 @@ pub fn vortex_alp::ALPData::is_empty(&self) -> bool
 
 pub fn vortex_alp::ALPData::len(&self) -> usize
 
-pub fn vortex_alp::ALPData::patches(&self) -> core::option::Option<&vortex_array::patches::Patches>
+pub fn vortex_alp::ALPData::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
 pub fn vortex_alp::ALPData::ptype(&self) -> vortex_array::dtype::ptype::PType
 
@@ -230,9 +230,9 @@ pub type vortex_alp::ALPRD::OperationsVTable = vortex_alp::ALPRD
 
 pub type vortex_alp::ALPRD::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_alp::ALPRD::array_eq(array: vortex_array::vtable::typed::ArrayView<'_, Self>, other: vortex_array::vtable::typed::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_alp::ALPRD::array_eq(array: &vortex_alp::ALPRDData, other: &vortex_alp::ALPRDData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_alp::ALPRD::array_hash<H: core::hash::Hasher>(array: vortex_array::vtable::typed::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_alp::ALPRD::array_hash<H: core::hash::Hasher>(array: &vortex_alp::ALPRDData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_alp::ALPRD::buffer(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -314,7 +314,7 @@ pub fn vortex_alp::ALPRDData::left_parts(&self) -> &vortex_array::array::ArrayRe
 
 pub fn vortex_alp::ALPRDData::left_parts_dictionary(&self) -> &vortex_buffer::buffer::Buffer<u16>
 
-pub fn vortex_alp::ALPRDData::left_parts_patches(&self) -> core::option::Option<&vortex_array::patches::Patches>
+pub fn vortex_alp::ALPRDData::left_parts_patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
 pub fn vortex_alp::ALPRDData::len(&self) -> usize
 

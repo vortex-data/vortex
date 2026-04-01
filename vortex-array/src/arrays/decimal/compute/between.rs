@@ -106,7 +106,7 @@ fn between_impl<T: NativeDecimalType>(
             let value = buffer[idx];
             lower_op(lower, value) & upper_op(value, upper)
         }),
-        arr.validity().clone().union_nullability(nullability),
+        arr.validity().union_nullability(nullability),
     )
     .into_array()
 }

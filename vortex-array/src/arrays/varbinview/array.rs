@@ -26,6 +26,7 @@ use crate::dtype::Nullability;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 /// The validity bitmap indicating which elements are non-null.
@@ -95,7 +96,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct VarBinViewData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) buffers: Arc<[BufferHandle]>,
     pub(super) views: BufferHandle,
@@ -265,7 +265,6 @@ impl VarBinViewData {
         let slots = Self::make_slots(&validity, len);
         Self {
             slots,
-            validity,
             views,
             buffers,
             dtype,
@@ -379,18 +378,18 @@ impl VarBinViewData {
 
     /// Returns the [`Validity`] of this array.
     #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        &self.validity
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Returns the validity as a [`Mask`].
     pub fn validity_mask(&self) -> Mask {
-        self.validity.to_mask(self.len())
+        self.validity().to_mask(self.len())
     }
 
     /// Splits the array into owned parts
     pub fn into_parts(self) -> VarBinViewArrayParts {
-        let validity = self.validity;
+        let validity = self.validity();
         VarBinViewArrayParts {
             dtype: self.dtype,
             buffers: self.buffers,

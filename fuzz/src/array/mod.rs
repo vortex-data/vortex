@@ -574,7 +574,7 @@ pub fn compress_array(array: &ArrayRef, _strategy: CompressorStrategy) -> ArrayR
 #[allow(clippy::result_large_err)]
 pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
     let FuzzArrayAction { array, actions } = fuzz_action;
-    let mut current_array = array.clone();
+    let mut current_array = array;
 
     let mut ctx = SESSION.create_execution_ctx();
 
@@ -700,7 +700,7 @@ fn assert_search_sorted(
         Err(VortexFuzzError::SearchSortedError(
             s,
             expected,
-            array.clone(),
+            array,
             side,
             search_result,
             step,

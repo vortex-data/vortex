@@ -433,7 +433,7 @@ impl PcoData {
             parray.dtype().clone(),
             metadata,
             parray.len(),
-            parray.validity().clone(),
+            parray.validity(),
         ))
     }
 

@@ -42,9 +42,9 @@ pub type vortex_bytebool::ByteBool::OperationsVTable = vortex_bytebool::ByteBool
 
 pub type vortex_bytebool::ByteBool::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromValidityHelper
 
-pub fn vortex_bytebool::ByteBool::array_eq(array: vortex_array::vtable::typed::ArrayView<'_, Self>, other: vortex_array::vtable::typed::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_bytebool::ByteBool::array_eq(array: &vortex_bytebool::ByteBoolData, other: &vortex_bytebool::ByteBoolData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_bytebool::ByteBool::array_hash<H: core::hash::Hasher>(array: vortex_array::vtable::typed::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_bytebool::ByteBool::array_hash<H: core::hash::Hasher>(array: &vortex_bytebool::ByteBoolData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_bytebool::ByteBool::buffer(array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 

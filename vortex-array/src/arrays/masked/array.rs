@@ -11,6 +11,7 @@ use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 /// The underlying child array being masked.
@@ -23,7 +24,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child", "validity"];
 #[derive(Clone, Debug)]
 pub struct MaskedData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
 }
@@ -52,7 +52,6 @@ impl MaskedData {
 
         Ok(Self {
             slots: vec![Some(child), validity_slot],
-            validity,
             dtype,
             stats: ArrayStats::default(),
         })
@@ -75,13 +74,13 @@ impl MaskedData {
 
     /// Returns the validity of the array.
     #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        &self.validity
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Returns the validity as a [`Mask`](vortex_mask::Mask).
     pub fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity.to_mask(self.len())
+        self.validity().to_mask(self.len())
     }
 
     pub fn child(&self) -> &ArrayRef {

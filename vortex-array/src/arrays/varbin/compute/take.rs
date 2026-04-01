@@ -312,7 +312,7 @@ mod tests {
         );
 
         let indices = buffer![0u32; 3].into_array();
-        let taken = array.take(indices.clone()).unwrap();
+        let taken = array.take(indices).unwrap();
 
         let expected = VarBinViewArray::from_iter(
             [Some(scream.clone()), Some(scream.clone()), Some(scream)],

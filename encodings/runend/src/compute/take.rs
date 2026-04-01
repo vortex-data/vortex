@@ -49,7 +49,7 @@ impl TakeExecute for RunEnd {
                 .collect::<VortexResult<Vec<_>>>()?
         });
 
-        take_indices_unchecked(&array, &checked_indices, primitive_indices.validity()).map(Some)
+        take_indices_unchecked(&array, &checked_indices, &primitive_indices.validity()).map(Some)
     }
 }
 
