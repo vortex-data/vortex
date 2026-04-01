@@ -31,10 +31,26 @@ pub struct DictMetadata {
     pub(super) all_values_referenced: Option<bool>,
 }
 
+/// The codes array mapping each element to a dictionary entry.
 pub(super) const CODES_SLOT: usize = 0;
+/// The dictionary values array containing the unique values.
 pub(super) const VALUES_SLOT: usize = 1;
 pub(super) const NUM_SLOTS: usize = 2;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["codes", "values"];
+
+struct DictArrayChildren<'a> {
+    slots: &'a Vec<Option<ArrayRef>>,
+}
+
+impl<'a> DictArrayChildren<'a> {
+    fn values(&self) -> ArrayRef {
+        todo!()
+    }
+
+    fn codes(&self) -> ArrayRef {
+        todo!()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct DictArray {

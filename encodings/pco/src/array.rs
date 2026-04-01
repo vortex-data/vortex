@@ -307,6 +307,7 @@ impl Pco {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
 }
 
+/// The validity bitmap indicating which elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
