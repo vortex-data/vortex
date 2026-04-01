@@ -11,6 +11,7 @@ members = [
     "bench-orchestrator",
     "docs",
     "vortex-data",
+    "vortex-scripts",
     "workspace",
 ]
 
@@ -1948,6 +1949,23 @@ dev = [
 ]
 
 [[package]]
+name = "vortex-scripts"
+version = "0.1.0"
+source = { editable = "scripts" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "tabulate" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "tabulate" },
+]
+
+[[package]]
 name = "watchfiles"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2090,6 +2108,7 @@ dependencies = [
     { name = "bench-orchestrator" },
     { name = "docs" },
     { name = "vortex-data" },
+    { name = "vortex-scripts" },
 ]
 
 [package.dev-dependencies]
@@ -2108,6 +2127,7 @@ requires-dist = [
     { name = "bench-orchestrator", editable = "bench-orchestrator" },
     { name = "docs", virtual = "docs" },
     { name = "vortex-data", editable = "vortex-python" },
+    { name = "vortex-scripts", editable = "scripts" },
 ]
 
 [package.metadata.requires-dev]

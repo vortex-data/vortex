@@ -1,27 +1,32 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 """Append JSONL benchmark results to an S3 object with duplicate-commit detection and optimistic locking."""
 
-import argparse
 import gzip
-import json
 import os
 import subprocess
 import sys
 import tempfile
 import time
 
+import pandas as pd
+
 
 def head_etag(bucket: str, key: str) -> str | None:
     result = subprocess.run(
         [
-            "aws", "s3api", "head-object",
-            "--bucket", bucket,
-            "--key", key,
-            "--query", "ETag",
-            "--output", "text",
+            "aws",
+            "s3api",
+            "head-object",
+            "--bucket",
+            bucket,
+            "--key",
+            key,
+            "--query",
+            "ETag",
+            "--output",
+            "text",
         ],
         capture_output=True,
         text=True,
@@ -37,10 +42,15 @@ def head_etag(bucket: str, key: str) -> str | None:
 def get_object(bucket: str, key: str, dest: str, if_match: str) -> bool:
     result = subprocess.run(
         [
-            "aws", "s3api", "get-object",
-            "--bucket", bucket,
-            "--key", key,
-            "--if-match", if_match,
+            "aws",
+            "s3api",
+            "get-object",
+            "--bucket",
+            bucket,
+            "--key",
+            key,
+            "--if-match",
+            if_match,
             dest,
         ],
     )
@@ -50,59 +60,79 @@ def get_object(bucket: str, key: str, dest: str, if_match: str) -> bool:
 def put_object(bucket: str, key: str, body: str, if_match: str) -> bool:
     result = subprocess.run(
         [
-            "aws", "s3api", "put-object",
-            "--bucket", bucket,
-            "--key", key,
-            "--body", body,
-            "--if-match", if_match,
+            "aws",
+            "s3api",
+            "put-object",
+            "--bucket",
+            bucket,
+            "--key",
+            key,
+            "--body",
+            body,
+            "--if-match",
+            if_match,
         ],
     )
     return result.returncode == 0
 
 
-def extract_commit_ids(lines: list[str]) -> set[str]:
-    """Extract unique commit identifiers from JSONL lines.
+def extract_commit_ids(path: str, is_gz: bool) -> set[str]:
+    """Extract unique commit identifiers from a JSONL file using pandas.
 
-    Supports both benchmark data ("commit_id" field) and commit metadata ("id" field).
+    Supports both benchmark data ("commit_id" column) and commit metadata ("id" column).
     """
+    df = pd.read_json(path, lines=True, compression="gzip" if is_gz else None)
     ids: set[str] = set()
-    for line in lines:
-        obj = json.loads(line)
-        if "commit_id" in obj:
-            ids.add(obj["commit_id"])
-        elif "id" in obj:
-            ids.add(obj["id"])
+    if "commit_id" in df.columns:
+        ids.update(df["commit_id"].dropna().unique())
+    if "id" in df.columns:
+        ids.update(df["id"].dropna().unique())
     return ids
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Append JSONL to an S3 object with dedup")
-    parser.add_argument("bucket", help="S3 bucket name")
-    parser.add_argument("key", help="S3 object key")
-    parser.add_argument("local_file", help="Local JSONL file to append")
-    parser.add_argument("--max-retries", type=int, default=100)
-    args = parser.parse_args()
+    if len(sys.argv) != 4:
+        print(f"Usage: {sys.argv[0]} <bucket> <key> <local_file>", file=sys.stderr)
+        sys.exit(1)
 
-    is_gz = args.key.endswith(".gz")
+    bucket = sys.argv[1]
+    key = sys.argv[2]
+    local_file = sys.argv[3]
+    max_retries = 100
 
-    with open(args.local_file) as f:
+    is_gz = key.endswith(".gz")
+
+    with open(local_file) as f:
         new_data = f.read()
-    new_lines = [line for line in new_data.splitlines(keepends=True) if line.strip()]
-    new_commit_ids = extract_commit_ids(new_lines)
+    new_commit_ids = extract_commit_ids(local_file, is_gz=False)
 
-    for attempt in range(1, args.max_retries + 1):
-        etag = head_etag(args.bucket, args.key)
+    for attempt in range(1, max_retries + 1):
+        etag = head_etag(bucket, key)
         if etag is None:
             print("Failed to retrieve ETag.", file=sys.stderr)
             sys.exit(1)
 
         local_copy = tempfile.mktemp()
         try:
-            if not get_object(args.bucket, args.key, local_copy, etag):
-                print(f"ETag mismatch during download (attempt {attempt}), retrying...", file=sys.stderr)
+            if not get_object(bucket, key, local_copy, etag):
+                print(
+                    f"ETag mismatch during download (attempt {attempt}), retrying...",
+                    file=sys.stderr,
+                )
                 continue
 
-            # Decompress if needed.
+            # Check for duplicate commits.
+            existing_commit_ids = extract_commit_ids(local_copy, is_gz)
+            duplicates = new_commit_ids & existing_commit_ids
+            if duplicates:
+                print(
+                    f"ERROR: commit(s) {', '.join(sorted(duplicates))} already exist in "
+                    f"s3://{bucket}/{key}. Refusing to append duplicate data.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+            # Decompress existing data, concatenate, recompress.
             if is_gz:
                 with gzip.open(local_copy, "rt") as f:
                     existing_data = f.read()
@@ -110,19 +140,6 @@ def main() -> None:
                 with open(local_copy) as f:
                     existing_data = f.read()
 
-            # Check for duplicate commits.
-            existing_lines = [line for line in existing_data.splitlines(keepends=True) if line.strip()]
-            existing_commit_ids = extract_commit_ids(existing_lines)
-            duplicates = new_commit_ids & existing_commit_ids
-            if duplicates:
-                print(
-                    f"ERROR: commit(s) {', '.join(sorted(duplicates))} already exist in "
-                    f"s3://{args.bucket}/{args.key}. Refusing to append duplicate data.",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-            # Concatenate and write output.
             combined = existing_data + new_data
             output_path = tempfile.mktemp(suffix=".gz" if is_gz else "")
             try:
@@ -133,11 +150,14 @@ def main() -> None:
                     with open(output_path, "w") as f:
                         f.write(combined)
 
-                if put_object(args.bucket, args.key, output_path, etag):
+                if put_object(bucket, key, output_path, etag):
                     print("File updated and uploaded successfully.")
                     return
 
-                print(f"ETag mismatch during upload (attempt {attempt}), retrying...", file=sys.stderr)
+                print(
+                    f"ETag mismatch during upload (attempt {attempt}), retrying...",
+                    file=sys.stderr,
+                )
                 time.sleep(0.1)
             finally:
                 if os.path.exists(output_path):
@@ -146,7 +166,7 @@ def main() -> None:
             if os.path.exists(local_copy):
                 os.unlink(local_copy)
 
-    print(f"Too many failures: {args.max_retries}.", file=sys.stderr)
+    print(f"Too many failures: {max_retries}.", file=sys.stderr)
     sys.exit(1)
 
 

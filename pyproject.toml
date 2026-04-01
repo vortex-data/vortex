@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 authors = [{ name = "Nicholas Gates", email = "nick@nickgates.com" }]
 requires-python = ">= 3.11"
-dependencies = ["bench-orchestrator", "vortex-data", "docs"]
+dependencies = ["bench-orchestrator", "vortex-data", "vortex-scripts", "docs"]
 
 [build-system]
 requires = ["hatchling"]
@@ -32,11 +32,12 @@ managed = true
 required-version = ">=0.8.0"
 
 [tool.uv.workspace]
-members = ["bench-orchestrator", "vortex-python", "docs"]
+members = ["bench-orchestrator", "vortex-python", "scripts", "docs"]
 
 [tool.uv.sources]
 bench-orchestrator = { workspace = true }
 vortex-data = { workspace = true }
+vortex-scripts = { workspace = true }
 docs = { workspace = true }
 
 [tool.ruff]

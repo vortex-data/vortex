@@ -109,7 +109,7 @@ jobs:
 
           echo '# Benchmarks: ${{ matrix.benchmark.name }}' > comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.benchmark.name }}" \
+          uv run --project scripts scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.benchmark.name }}" \
             >> comment.md
           cat comment.md >> $GITHUB_STEP_SUMMARY
 

@@ -246,7 +246,7 @@ jobs:
 
           echo '# Benchmarks: ${{ matrix.name }}' > comment.md
           echo '' >> comment.md
-          uv run --no-project scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
+          uv run --project scripts scripts/compare-benchmark-jsons.py base.json results.json "${{ matrix.name }}" \
             >> comment.md
           cat comment.md >> $GITHUB_STEP_SUMMARY
 
@@ -274,7 +274,7 @@ jobs:
         if: inputs.mode == 'develop'
         shell: bash
         run: |
-          python3 scripts/cat-s3.py vortex-ci-benchmark-results data.json.gz results.json
+          uv run --project scripts scripts/cat-s3.py vortex-ci-benchmark-results data.json.gz results.json
 
       - name: Alert incident.io
         if: failure() && inputs.mode == 'develop'
