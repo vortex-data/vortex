@@ -2,4 +2,4 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #[cfg(feature = "_test-harness")]
-mod conformance;
+pub mod conformance;
