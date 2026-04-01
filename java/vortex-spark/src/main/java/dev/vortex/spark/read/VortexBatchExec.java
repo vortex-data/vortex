@@ -7,6 +7,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import dev.vortex.jni.NativeFileMethods;
 import dev.vortex.spark.VortexFilePartition;
+import java.util.Map;
 import java.util.stream.Stream;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.read.Batch;
@@ -44,17 +45,20 @@ public final class VortexBatchExec implements Batch {
      */
     @Override
     public InputPartition[] planInputPartitions() {
-        // Scan all paths and assign each file its own partition
+        // Scan all paths and assign each file its own partition.
+        // For each discovered file, parse Hive-style partition values from the path.
         return paths.stream()
                 .flatMap(path -> {
                     if (path.endsWith(".vortex")) {
                         return Stream.of(path);
                     } else {
-                        // Scan and return the paths
                         return NativeFileMethods.listVortexFiles(path, formatOptions).stream();
                     }
                 })
-                .map(path -> new VortexFilePartition(path, columns, formatOptions))
+                .map(path -> {
+                    Map<String, String> partVals = PartitionPathUtils.parsePartitionValues(path);
+                    return new VortexFilePartition(path, columns, formatOptions, ImmutableMap.copyOf(partVals));
+                })
                 .toArray(InputPartition[]::new);
     }
 
