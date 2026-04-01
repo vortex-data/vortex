@@ -12,7 +12,6 @@ use vortex_array::dtype::PhysicalPType;
 use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -58,7 +57,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
 
     // TODO(ngates): Do we need this to be into_encoded() somehow?
     let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
-    let validity = encoded.validity().clone();
+    let validity = encoded.validity();
 
     Ok(match_each_integer_ptype!(ptype, |T| {
         let min = array
@@ -117,7 +116,7 @@ pub(crate) fn fused_decompress<
     // Decode all chunks (initial, full, and trailer) in one call.
     unpacked.decode_into(uninit_slice);
 
-    if let Some(patches) = bp.patches() {
+    if let Some(ref patches) = bp.patches() {
         bitpack_decompress::apply_patches_to_uninit_range_fn(
             &mut uninit_range,
             patches,

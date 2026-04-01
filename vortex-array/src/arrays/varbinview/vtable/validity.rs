@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::VarBinViewArray;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use vortex_error::VortexResult;
 
-impl ValidityHelper for VarBinViewArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+use crate::arrays::VarBinViewArray;
+use crate::arrays::varbinview::vtable::VarBinView;
+use crate::validity::Validity;
+use crate::vtable::ValidityVTable;
+
+impl ValidityVTable<VarBinView> for VarBinView {
+    fn validity(array: &VarBinViewArray) -> VortexResult<Validity> {
+        Ok(array.validity())
     }
 }

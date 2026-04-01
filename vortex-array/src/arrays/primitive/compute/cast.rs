@@ -21,7 +21,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ValidityHelper;
 
 impl CastKernel for Primitive {
     fn cast(
@@ -37,7 +36,6 @@ impl CastKernel for Primitive {
         // First, check that the cast is compatible with the source array's validity
         let new_validity = array
             .validity()
-            .clone()
             .cast_nullability(new_nullability, array.len())?;
 
         // Same ptype: zero-copy, just update validity.
@@ -144,7 +142,6 @@ mod test {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[allow(clippy::cognitive_complexity)]
     #[test]

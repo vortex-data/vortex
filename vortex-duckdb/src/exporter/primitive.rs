@@ -6,7 +6,6 @@ use std::marker::PhantomData;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_native_ptype;
-use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::NativePType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;

@@ -39,7 +39,6 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::Buffer;
@@ -453,7 +452,7 @@ impl FSSTArray {
             as Box<dyn Fn() -> Compressor + Send>));
         let codes_array = codes.clone().into_array();
         let codes_offsets_slot = Some(codes.offsets().clone());
-        let codes_validity_slot = validity_to_child(codes.validity(), codes.len());
+        let codes_validity_slot = validity_to_child(&codes.validity(), codes.len());
 
         Self {
             dtype,

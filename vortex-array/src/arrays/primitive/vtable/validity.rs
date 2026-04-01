@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::primitive::vtable::PrimitiveArray;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use vortex_error::VortexResult;
 
-impl ValidityHelper for PrimitiveArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::vtable::Primitive;
+use crate::validity::Validity;
+use crate::vtable::ValidityVTable;
+
+impl ValidityVTable<Primitive> for Primitive {
+    fn validity(array: &PrimitiveArray) -> VortexResult<Validity> {
+        Ok(array.validity())
     }
 }

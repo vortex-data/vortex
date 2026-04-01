@@ -11,7 +11,6 @@ use crate::IntoArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::slice::SliceReduce;
-use crate::vtable::ValidityHelper;
 
 impl SliceReduce for Struct {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

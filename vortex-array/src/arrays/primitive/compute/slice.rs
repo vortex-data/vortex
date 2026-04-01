@@ -12,7 +12,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::slice::SliceReduce;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
-use crate::vtable::ValidityHelper;
 
 impl SliceReduce for Primitive {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

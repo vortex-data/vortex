@@ -136,4 +136,4 @@ pub fn vortex_bytebool::ByteBoolArray::into_array(self) -> vortex_array::array::
 
 impl vortex_array::vtable::validity::ValidityHelper for vortex_bytebool::ByteBoolArray
 
-pub fn vortex_bytebool::ByteBoolArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_bytebool::ByteBoolArray::validity(&self) -> vortex_array::validity::Validity

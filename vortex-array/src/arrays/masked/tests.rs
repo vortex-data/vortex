@@ -101,11 +101,5 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
     assert_eq!(array.len(), len);
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    assert!(
-        array
-            .validity()
-            .unwrap()
-            .mask_eq(&validity, &mut ctx)
-            .unwrap(),
-    );
+    assert!(array.validity().mask_eq(&validity, &mut ctx).unwrap(),);
 }

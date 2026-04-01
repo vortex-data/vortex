@@ -12,7 +12,6 @@ use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::varbinview::build_views::build_views;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -32,7 +31,7 @@ pub(super) fn canonicalize_fsst(
             views,
             Arc::from(buffers),
             array.dtype().clone(),
-            array.codes().validity().clone(),
+            array.codes().validity(),
         )
         .into_array()
     })

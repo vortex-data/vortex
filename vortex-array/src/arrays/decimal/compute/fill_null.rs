@@ -21,7 +21,6 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl FillNullKernel for Decimal {
     fn fill_null(

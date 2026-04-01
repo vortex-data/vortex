@@ -18,7 +18,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::arrow::FromArrowType;
-use crate::vtable::ValidityHelper;
 
 /// Convert a canonical VarBinViewArray directly to Arrow.
 pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
@@ -50,7 +49,7 @@ pub fn execute_varbinview_to_arrow<T: ByteViewType>(
         .iter()
         .map(|buffer| buffer.as_host().clone().into_arrow_buffer())
         .collect();
-    let nulls = to_arrow_null_buffer(array.validity().clone(), array.len(), ctx)?;
+    let nulls = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
 
     // SAFETY: our own VarBinView array is considered safe.
     Ok(Arc::new(unsafe {

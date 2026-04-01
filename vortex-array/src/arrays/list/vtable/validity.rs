@@ -6,7 +6,7 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl ValidityHelper for ListArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+    fn validity(&self) -> Validity {
+        self.validity.clone()
     }
 }

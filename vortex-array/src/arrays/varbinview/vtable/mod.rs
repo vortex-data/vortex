@@ -23,7 +23,6 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::array::NUM_SLOTS;
 use crate::arrays::varbinview::array::SLOT_NAMES;
-use crate::arrays::varbinview::array::VALIDITY_SLOT;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -36,7 +35,6 @@ use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod kernel;
 mod operations;
 mod validity;
@@ -54,7 +52,7 @@ impl VTable for VarBinView {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
     fn vtable(_array: &Self::Array) -> &Self {
         &VarBinView
     }
@@ -85,7 +83,7 @@ impl VTable for VarBinView {
             buffer.array_hash(state, precision);
         }
         array.views.array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &VarBinViewArray, other: &VarBinViewArray, precision: Precision) -> bool {
@@ -97,7 +95,7 @@ impl VTable for VarBinView {
                 .zip(other.buffers.iter())
                 .all(|(a, b)| a.array_eq(b, precision))
             && array.views.array_eq(&other.views, precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(array: &VarBinViewArray) -> usize {
@@ -210,10 +208,6 @@ impl VTable for VarBinView {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

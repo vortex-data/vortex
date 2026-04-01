@@ -17,7 +17,6 @@ use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ValidityHelper;
 
 impl CastKernel for Decimal {
     fn cast(
@@ -62,7 +61,6 @@ impl CastKernel for Decimal {
         // Cast the validity to the new nullability
         let new_validity = array
             .validity()
-            .clone()
             .cast_nullability(*to_nullability, array.len())?;
 
         // If the target needs a wider physical type, upcast the values
@@ -120,7 +118,7 @@ pub fn upcast_decimal_values(
     }
 
     let decimal_dtype = array.decimal_dtype();
-    let validity = array.validity().clone();
+    let validity = array.validity();
 
     // Use match_each_decimal_value_type to dispatch based on source and target types
     match_each_decimal_value_type!(from_values_type, |F| {
@@ -156,7 +154,6 @@ mod tests {
     use crate::dtype::DecimalType;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn cast_decimal_to_nullable() {

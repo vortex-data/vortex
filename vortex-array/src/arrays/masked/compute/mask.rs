@@ -11,14 +11,12 @@ use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl MaskReduce for Masked {
     fn mask(array: &MaskedArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // AND the existing validity mask with the new mask and push into child.
         let combined_mask = array
             .validity()
-            .clone()
             .and(Validity::Array(mask.clone()))?
             .to_array(array.len());
         let masked_child = MaskExpr.try_new_array(

@@ -30,7 +30,6 @@ use vortex_array::expr::transform::replace;
 use vortex_array::expr::transform::replace_root_fields;
 use vortex_array::scalar_fn::fns::merge::Merge;
 use vortex_array::scalar_fn::fns::pack::Pack;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -371,7 +370,7 @@ impl LayoutReader for StructReader {
                         struct_array.names().clone(),
                         masked_fields,
                         struct_array.len(),
-                        struct_array.validity().clone(),
+                        struct_array.validity(),
                     )?
                     .into_array())
                 } else {

@@ -15,7 +15,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ValidityHelper;
 
 impl CastKernel for Struct {
     fn cast(
@@ -72,7 +71,6 @@ impl CastKernel for Struct {
 
         let validity = array
             .validity()
-            .clone()
             .cast_nullability(dtype.nullability(), array.len())?;
 
         StructArray::try_new(

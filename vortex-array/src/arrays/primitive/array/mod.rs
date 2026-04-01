@@ -20,7 +20,6 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 mod accessor;
 mod cast;
@@ -33,6 +32,7 @@ pub use patch::patch_chunk;
 
 use crate::ArrayRef;
 use crate::buffer::BufferHandle;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 pub(super) const VALIDITY_SLOT: usize = 0;
@@ -79,7 +79,6 @@ pub struct PrimitiveArray {
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) buffer: BufferHandle,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -111,7 +110,6 @@ impl PrimitiveArray {
             slots: Self::make_slots(&validity, len),
             buffer: handle,
             dtype: DType::Primitive(ptype, validity.nullability()),
-            validity,
             stats_set: ArrayStats::default(),
         }
     }
@@ -166,7 +164,6 @@ impl PrimitiveArray {
             slots: Self::make_slots(&validity, len),
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
             buffer: BufferHandle::new_host(buffer.into_byte_buffer()),
-            validity,
             stats_set: Default::default(),
         }
     }
@@ -195,13 +192,19 @@ impl PrimitiveArray {
 }
 
 impl PrimitiveArray {
+    /// Reconstructs the validity from the slot state.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
     /// Consume the primitive array and returns its component parts.
     pub fn into_parts(self) -> PrimitiveArrayParts {
         let ptype = self.ptype();
+        let validity = self.validity();
         PrimitiveArrayParts {
             ptype,
             buffer: self.buffer,
-            validity: self.validity,
+            validity,
         }
     }
 }
@@ -223,7 +226,6 @@ impl PrimitiveArray {
             slots: Self::make_slots(&validity, len),
             buffer: handle,
             dtype,
-            validity,
             stats_set: ArrayStats::default(),
         }
     }
@@ -273,7 +275,7 @@ impl PrimitiveArray {
         R: NativePType,
         F: FnMut(T) -> R,
     {
-        let validity = self.validity().clone();
+        let validity = self.validity();
         let buffer = match self.try_into_buffer_mut() {
             Ok(buffer_mut) => buffer_mut.map_each_in_place(f),
             Err(buffer) => BufferMut::from_iter(buffer.iter().copied().map(f)),
@@ -307,6 +309,6 @@ impl PrimitiveArray {
                 BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
             }
         };
-        Ok(PrimitiveArray::new(buffer.freeze(), validity.clone()))
+        Ok(PrimitiveArray::new(buffer.freeze(), validity))
     }
 }

@@ -14,7 +14,6 @@ use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
@@ -86,7 +85,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     assert!(
         decompressed
             .validity()
-            .mask_eq(array.validity(), &mut ctx)
+            .mask_eq(&array.validity(), &mut ctx)
             .unwrap()
     );
 

@@ -9,7 +9,6 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::ValidityHelper;
 
 impl CastReduce for VarBin {
     fn cast(array: &VarBinArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -20,7 +19,6 @@ impl CastReduce for VarBin {
         let new_nullability = dtype.nullability();
         let new_validity = array
             .validity()
-            .clone()
             .cast_nullability(new_nullability, array.len())?;
         let new_dtype = array.dtype().with_nullability(new_nullability);
         Ok(Some(

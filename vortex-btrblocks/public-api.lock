@@ -642,6 +642,6 @@ impl core::marker::StructuralPartialEq for vortex_btrblocks::BtrBlocksCompressor
 
 pub const vortex_btrblocks::ALL_SCHEMES: &[&dyn vortex_compressor::scheme::Scheme]
 
-pub fn vortex_btrblocks::compress_patches(patches: &vortex_array::patches::Patches) -> vortex_error::VortexResult<vortex_array::patches::Patches>
+pub fn vortex_btrblocks::compress_patches(patches: vortex_array::patches::Patches) -> vortex_error::VortexResult<vortex_array::patches::Patches>
 
 pub fn vortex_btrblocks::default_excluded() -> vortex_utils::aliases::hash_set::HashSet<vortex_compressor::scheme::SchemeId>

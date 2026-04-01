@@ -11,7 +11,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -28,10 +27,10 @@ pub fn delta_compress(
         // Fill-forward null values so that transposed deltas at null positions remain
         // small. Without this, bitpacking may skip patches for null positions, and the
         // corrupted delta values propagate through the cumulative sum during decompression.
-        let filled = fill_forward_nulls(array.to_buffer::<T>(), array.validity());
+        let filled = fill_forward_nulls(array.to_buffer::<T>(), &array.validity());
         let (bases, deltas) = compress_primitive::<T, { T::LANES }>(&filled);
         // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
-        let validity = transpose_validity(array.validity(), ctx)?;
+        let validity = transpose_validity(&array.validity(), ctx)?;
         (
             PrimitiveArray::new(bases, array.dtype().nullability().into()),
             PrimitiveArray::new(deltas, validity),

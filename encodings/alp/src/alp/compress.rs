@@ -8,7 +8,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -73,7 +72,7 @@ where
     let (exponents, encoded, exceptional_positions, exceptional_values, mut chunk_offsets) =
         T::encode(values_slice, exponents);
 
-    let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
+    let encoded_array = PrimitiveArray::new(encoded, values.validity()).into_array();
 
     let validity = values.validity_mask()?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage

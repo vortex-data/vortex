@@ -8,7 +8,6 @@ use crate::accessor::ArrayAccessor;
 use crate::arrays::VarBinArray;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl ArrayAccessor<[u8]> for VarBinArray {
     fn with_iterator<F, R>(&self, f: F) -> R

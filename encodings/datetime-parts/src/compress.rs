@@ -9,7 +9,6 @@ use vortex_array::arrays::TemporalArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -53,7 +52,7 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     }
 
     Ok(TemporalParts {
-        days: PrimitiveArray::new(days, temporal_values.validity().clone()).into_array(),
+        days: PrimitiveArray::new(days, temporal_values.validity()).into_array(),
         seconds: seconds.into_array(),
         subseconds: subseconds.into_array(),
     })
@@ -84,7 +83,6 @@ mod tests {
     use vortex_array::arrays::TemporalArray;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
 
     use crate::TemporalParts;

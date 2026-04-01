@@ -30,7 +30,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -229,7 +228,7 @@ impl RDEncoder {
         }
 
         // Bit-pack down the encoded left-parts array that have been dictionary encoded.
-        let primitive_left = PrimitiveArray::new(left_parts, array.validity().clone());
+        let primitive_left = PrimitiveArray::new(left_parts, array.validity());
         // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
         let packed_left = unsafe {
             bitpack_encode_unchecked(primitive_left, left_bit_width as _)

@@ -12,7 +12,6 @@ use crate::arrays::dict::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl TakeReduce for Struct {
     fn take(array: &StructArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

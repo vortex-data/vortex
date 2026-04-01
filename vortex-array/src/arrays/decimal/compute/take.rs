@@ -15,7 +15,6 @@ use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
-use crate::vtable::ValidityHelper;
 
 impl TakeExecute for Decimal {
     fn take(

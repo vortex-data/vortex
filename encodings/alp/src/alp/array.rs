@@ -76,14 +76,14 @@ impl VTable for ALP {
         array.dtype.hash(state);
         array.encoded().array_hash(state, precision);
         array.exponents.hash(state);
-        array.patches.array_hash(state, precision);
+        array.patches().array_hash(state, precision);
     }
 
     fn array_eq(array: &ALPArray, other: &ALPArray, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.encoded().array_eq(other.encoded(), precision)
             && array.exponents == other.exponents
-            && array.patches.array_eq(&other.patches, precision)
+            && array.patches().array_eq(&other.patches(), precision)
     }
 
     fn nbuffers(_array: &ALPArray) -> usize {
@@ -114,23 +114,12 @@ impl VTable for ALP {
             slots.len()
         );
 
-        // Reconstruct patches from slots + existing metadata
-        array.patches = match (&slots[PATCH_INDICES_SLOT], &slots[PATCH_VALUES_SLOT]) {
-            (Some(indices), Some(values)) => {
-                let old = array
-                    .patches
-                    .as_ref()
-                    .vortex_expect("ALPArray had patch slots but no patches metadata");
-                Some(Patches::new(
-                    old.array_len(),
-                    old.offset(),
-                    indices.clone(),
-                    values.clone(),
-                    slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
-                )?)
-            }
-            _ => None,
-        };
+        // If patch slots are being cleared, clear the metadata too
+        if slots[PATCH_INDICES_SLOT].is_none() || slots[PATCH_VALUES_SLOT].is_none() {
+            array.patch_offset = None;
+            array.patch_offset_within_chunk = None;
+        }
+
         array.slots = slots;
         Ok(())
     }
@@ -240,7 +229,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
 #[derive(Clone, Debug)]
 pub struct ALPArray {
     slots: Vec<Option<ArrayRef>>,
-    patches: Option<Patches>,
+    patch_offset: Option<usize>,
+    patch_offset_within_chunk: Option<usize>,
     dtype: DType,
     exponents: Exponents,
     stats_set: ArrayStats,
@@ -409,12 +399,17 @@ impl ALPArray {
         };
 
         let slots = Self::make_slots(&encoded, &patches);
+        let (patch_offset, patch_offset_within_chunk) = match &patches {
+            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
+            None => (None, None),
+        };
 
         Ok(Self {
             dtype,
             slots,
             exponents,
-            patches,
+            patch_offset,
+            patch_offset_within_chunk,
             stats_set: Default::default(),
         })
     }
@@ -430,12 +425,17 @@ impl ALPArray {
         dtype: DType,
     ) -> Self {
         let slots = Self::make_slots(&encoded, &patches);
+        let (patch_offset, patch_offset_within_chunk) = match &patches {
+            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
+            None => (None, None),
+        };
 
         Self {
             dtype,
             slots,
             exponents,
-            patches,
+            patch_offset,
+            patch_offset_within_chunk,
             stats_set: Default::default(),
         }
     }
@@ -472,17 +472,38 @@ impl ALPArray {
         self.exponents
     }
 
-    pub fn patches(&self) -> Option<&Patches> {
-        self.patches.as_ref()
+    pub fn patches(&self) -> Option<Patches> {
+        match (
+            &self.slots[PATCH_INDICES_SLOT],
+            &self.slots[PATCH_VALUES_SLOT],
+        ) {
+            (Some(indices), Some(values)) => {
+                let patch_offset = self
+                    .patch_offset
+                    .vortex_expect("has patch slots but no patch_offset");
+                Some(unsafe {
+                    Patches::new_unchecked(
+                        self.encoded().len(),
+                        patch_offset,
+                        indices.clone(),
+                        values.clone(),
+                        self.slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                        self.patch_offset_within_chunk,
+                    )
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Consumes the array and returns its parts.
     #[inline]
     pub fn into_parts(mut self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
+        let patches = self.patches();
         let encoded = self.slots[ENCODED_SLOT]
             .take()
             .vortex_expect("ALPArray encoded slot");
-        (encoded, self.exponents, self.patches, self.dtype)
+        (encoded, self.exponents, patches, self.dtype)
     }
 }
 
@@ -506,7 +527,6 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
-    use vortex_array::vtable::ValidityHelper;
     use vortex_session::VortexSession;
 
     use super::*;

@@ -38,7 +38,6 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::validity_to_child;
@@ -604,7 +603,7 @@ impl ZstdArray {
             dtype,
             metadata,
             parray.len(),
-            parray.validity().clone(),
+            parray.validity(),
         ))
     }
 
@@ -695,7 +694,7 @@ impl ZstdArray {
             dtype,
             metadata,
             vbv.len(),
-            vbv.validity().clone(),
+            vbv.validity(),
         ))
     }
 
