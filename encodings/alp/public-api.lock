@@ -118,7 +118,7 @@ pub fn vortex_alp::ALPArray::into_parts(self) -> (vortex_array::array::ArrayRef,
 
 pub fn vortex_alp::ALPArray::new(encoded: vortex_array::array::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> Self
 
-pub fn vortex_alp::ALPArray::patches(&self) -> core::option::Option<&vortex_array::patches::Patches>
+pub fn vortex_alp::ALPArray::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
 pub fn vortex_alp::ALPArray::ptype(&self) -> vortex_array::dtype::ptype::PType
 
@@ -278,7 +278,7 @@ pub fn vortex_alp::ALPRDArray::left_parts(&self) -> &vortex_array::array::ArrayR
 
 pub fn vortex_alp::ALPRDArray::left_parts_dictionary(&self) -> &vortex_buffer::buffer::Buffer<u16>
 
-pub fn vortex_alp::ALPRDArray::left_parts_patches(&self) -> core::option::Option<&vortex_array::patches::Patches>
+pub fn vortex_alp::ALPRDArray::left_parts_patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
 pub fn vortex_alp::ALPRDArray::replace_left_parts_patches(&mut self, patches: core::option::Option<vortex_array::patches::Patches>)
 

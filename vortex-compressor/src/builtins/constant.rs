@@ -231,7 +231,7 @@ impl Scheme for StringConstantScheme {
                 let const_arr = ConstantArray::new(scalar, stats.source().len()).into_array();
                 if !stats.source().all_valid()? {
                     Ok(
-                        MaskedArray::try_new(const_arr, stats.source().validity().clone())?
+                        MaskedArray::try_new(const_arr, stats.source().validity())?
                             .into_array(),
                     )
                 } else {
@@ -256,7 +256,7 @@ fn compress_constant_primitive(source: &PrimitiveArray) -> VortexResult<ArrayRef
             let scalar = source.scalar_at(idx)?;
             let const_arr = ConstantArray::new(scalar, source.len()).into_array();
             if !source.all_valid()? {
-                Ok(MaskedArray::try_new(const_arr, source.validity().clone())?.into_array())
+                Ok(MaskedArray::try_new(const_arr, source.validity())?.into_array())
             } else {
                 Ok(const_arr)
             }

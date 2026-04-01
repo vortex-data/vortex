@@ -99,7 +99,7 @@ impl Scheme for FSSTScheme {
             compressed_codes_offsets,
             fsst.codes().bytes().clone(),
             fsst.codes().dtype().clone(),
-            fsst.codes().validity().clone(),
+            fsst.codes().validity(),
         )?;
 
         let fsst = FSSTArray::try_new(
