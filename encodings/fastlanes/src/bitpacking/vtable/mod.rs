@@ -4,6 +4,7 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
+use vortex_array::AnyCanonical;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -14,6 +15,7 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -286,6 +288,33 @@ impl VTable for BitPacked {
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        // Iteratively execute patch children if they exist.
+        if array
+            .patches()
+            .is_some_and(|p| !p.indices().is::<Primitive>())
+        {
+            return Ok(ExecutionResult::execute_slot::<Primitive>(
+                array,
+                PATCH_INDICES_SLOT,
+            ));
+        }
+        if array
+            .patches()
+            .is_some_and(|p| !p.values().is::<Primitive>())
+        {
+            return Ok(ExecutionResult::execute_slot::<Primitive>(
+                array,
+                PATCH_VALUES_SLOT,
+            ));
+        }
+        // Iteratively execute validity if it exists as an encoded array.
+        if matches!(&array.validity, Validity::Array(v) if !v.is::<AnyCanonical>()) {
+            return Ok(ExecutionResult::execute_slot::<AnyCanonical>(
+                array,
+                VALIDITY_SLOT,
+            ));
+        }
+
         Ok(ExecutionResult::done(
             unpack_array(&array, ctx)?.into_array(),
         ))

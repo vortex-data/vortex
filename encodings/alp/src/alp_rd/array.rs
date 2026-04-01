@@ -272,6 +272,26 @@ impl VTable for ALPRD {
         let array = require_child!(array, array.left_parts(), 0 => Primitive);
         let array = require_child!(array, array.right_parts(), 1 => Primitive);
 
+        // Iteratively execute patch children if they exist.
+        if array
+            .left_parts_patches()
+            .is_some_and(|p| !p.indices().is::<Primitive>())
+        {
+            return Ok(ExecutionResult::execute_slot::<Primitive>(
+                array,
+                LP_PATCH_INDICES_SLOT,
+            ));
+        }
+        if array
+            .left_parts_patches()
+            .is_some_and(|p| !p.values().is::<Primitive>())
+        {
+            return Ok(ExecutionResult::execute_slot::<Primitive>(
+                array,
+                LP_PATCH_VALUES_SLOT,
+            ));
+        }
+
         let right_bit_width = array.right_bit_width();
         let ALPRDArrayParts {
             left_parts,
@@ -297,7 +317,6 @@ impl VTable for ALPRD {
         let validity = left_parts.validity_mask()?;
 
         let decoded_array = if ptype == PType::F32 {
-            // TODO(joe): use iterative execution for the patches.
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
                     left_parts.into_buffer::<u16>(),
