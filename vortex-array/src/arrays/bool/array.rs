@@ -57,6 +57,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// ```
 #[derive(Clone, Debug)]
 pub struct BoolArray {
+    /// Child arrays stored as slots. See [`VTable::slots`] for design rationale.
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) bits: BufferHandle,
