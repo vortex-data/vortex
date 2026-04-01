@@ -26,7 +26,6 @@ mod kernel;
 mod operations;
 mod validity;
 
-use std::hash::Hash;
 use std::hash::Hasher;
 
 use vortex_buffer::Alignment;
@@ -71,19 +70,13 @@ impl VTable for Primitive {
         &array.stats_set
     }
 
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+    fn array_hash<H: Hasher>(array: &PrimitiveData, state: &mut H, precision: Precision) {
         array.buffer.array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.buffer.array_eq(&other.buffer, precision)
+    fn array_eq(array: &PrimitiveData, other: &PrimitiveData, precision: Precision) -> bool {
+        array.buffer.array_eq(&other.buffer, precision)
             && array.validity.array_eq(&other.validity, precision)
     }
 

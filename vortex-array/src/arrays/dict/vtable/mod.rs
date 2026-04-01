@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -86,23 +84,13 @@ impl VTable for Dict {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &DictData, state: &mut H, precision: Precision) {
         array.codes().array_hash(state, precision);
         array.values().array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.codes().array_eq(other.codes(), precision)
+    fn array_eq(array: &DictData, other: &DictData, precision: Precision) -> bool {
+        array.codes().array_eq(other.codes(), precision)
             && array.values().array_eq(other.values(), precision)
     }
 

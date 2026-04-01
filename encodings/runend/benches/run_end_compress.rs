@@ -103,7 +103,7 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
         })
         .bench_refs(|(array, indices, execution_ctx)| {
             array
-                .take(indices.to_array())
+                .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()

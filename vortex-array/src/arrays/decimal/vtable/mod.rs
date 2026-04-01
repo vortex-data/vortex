@@ -87,24 +87,14 @@ impl VTable for Decimal {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &DecimalData, state: &mut H, precision: Precision) {
         array.values.array_hash(state, precision);
         std::mem::discriminant(&array.values_type).hash(state);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.values.array_eq(&other.values, precision)
+    fn array_eq(array: &DecimalData, other: &DecimalData, precision: Precision) -> bool {
+        array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
             && array.validity.array_eq(&other.validity, precision)
     }

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -77,24 +75,14 @@ impl VTable for List {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &ListData, state: &mut H, precision: Precision) {
         array.elements().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.elements().array_eq(other.elements(), precision)
+    fn array_eq(array: &ListData, other: &ListData, precision: Precision) -> bool {
+        array.elements().array_eq(other.elements(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
             && array.validity.array_eq(&other.validity, precision)
     }

@@ -73,20 +73,12 @@ impl VTable for FoR {
         array.stats_set()
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &FoRData, state: &mut H, precision: Precision) {
         array.encoded().array_hash(state, precision);
         array.reference_scalar().hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &FoRData, other: &FoRData, precision: Precision) -> bool {
         array.encoded().array_eq(other.encoded(), precision)
             && array.reference_scalar() == other.reference_scalar()
     }

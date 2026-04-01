@@ -5,8 +5,6 @@ mod kernel;
 mod operations;
 mod validity;
 
-use std::hash::Hash;
-
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -66,23 +64,17 @@ impl VTable for Extension {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
+        array: &ExtensionData,
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
         array.storage_array().array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array
-                .storage_array()
-                .array_eq(other.storage_array(), precision)
+    fn array_eq(array: &ExtensionData, other: &ExtensionData, precision: Precision) -> bool {
+        array
+            .storage_array()
+            .array_eq(other.storage_array(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

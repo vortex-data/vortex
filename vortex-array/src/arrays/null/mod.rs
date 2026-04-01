@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -62,20 +60,13 @@ impl VTable for Null {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        _precision: Precision,
-    ) {
-        array.len.hash(state);
+    fn array_hash<H: std::hash::Hasher>(_array: &NullData, _state: &mut H, _precision: Precision) {
+        // len and dtype are hashed by ArrayInner; NullData has no additional fields.
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        _precision: Precision,
-    ) -> bool {
-        array.len == other.len
+    fn array_eq(_array: &NullData, _other: &NullData, _precision: Precision) -> bool {
+        // len and dtype are compared by ArrayInner; NullData has no additional fields.
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

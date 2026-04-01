@@ -77,14 +77,14 @@ impl TakeExecute for ParquetVariant {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity.take(indices)?;
-        let metadata = array.metadata_array().take(indices.to_array())?;
+        let metadata = array.metadata_array().take(indices.clone())?;
         let value = array
             .value_array()
-            .map(|v| v.take(indices.to_array()))
+            .map(|v| v.take(indices.clone()))
             .transpose()?;
         let typed_value = array
             .typed_value_array()
-            .map(|tv| tv.take(indices.to_array()))
+            .map(|tv| tv.take(indices.clone()))
             .transpose()?;
         Ok(Some(
             ParquetVariantData::try_new(validity, metadata, value, typed_value)?.into_array(),

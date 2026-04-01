@@ -228,7 +228,7 @@ mod tests {
         let sliced = array.slice(4..6).unwrap(); // [20, 30]
 
         let expected = buffer![20u32, 30].into_array();
-        assert_arrays_eq!(sliced.to_array(), expected);
+        assert_arrays_eq!(sliced, expected);
     }
 
     #[test]
@@ -237,7 +237,7 @@ mod tests {
         let sliced = array.slice(5..6).unwrap(); // [30]
 
         let expected = buffer![30u32].into_array();
-        assert_arrays_eq!(sliced.to_array(), expected);
+        assert_arrays_eq!(sliced, expected);
     }
 
     #[test]
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn test_slice_decode_with_nulls() {
         let array = fixture::rle_array_with_nulls();
-        let sliced = array.slice(1..4).unwrap().to_array().to_primitive(); // [null, 20, 20]
+        let sliced = array.slice(1..4).unwrap().to_primitive(); // [null, 20, 20]
 
         let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
         assert_arrays_eq!(sliced.into_array(), expected.into_array());

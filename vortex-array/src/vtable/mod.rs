@@ -20,7 +20,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionResult;
@@ -74,14 +73,10 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn stats(array: &Self::ArrayData) -> &ArrayStats;
 
     /// Hashes the array contents.
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision);
+    fn array_hash<H: Hasher>(array: &Self::ArrayData, state: &mut H, precision: Precision);
 
     /// Compares two arrays of the same type for equality.
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool;
+    fn array_eq(array: &Self::ArrayData, other: &Self::ArrayData, precision: Precision) -> bool;
 
     /// Returns the number of buffers in the array.
     fn nbuffers(array: ArrayView<'_, Self>) -> usize;

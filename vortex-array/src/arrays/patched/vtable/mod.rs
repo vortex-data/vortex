@@ -104,8 +104,7 @@ impl VTable for Patched {
         &array.stats_set
     }
 
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.len.hash(state);
+    fn array_hash<H: Hasher>(array: &PatchedArray, state: &mut H, precision: Precision) {
         array.offset.hash(state);
         array.n_lanes.hash(state);
         array.base_array().array_hash(state, precision);
@@ -114,13 +113,8 @@ impl VTable for Patched {
         array.patch_values().array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.len == other.len
-            && array.offset == other.offset
+    fn array_eq(array: &PatchedArray, other: &PatchedArray, precision: Precision) -> bool {
+        array.offset == other.offset
             && array.n_lanes == other.n_lanes
             && array.base_array().array_eq(other.base_array(), precision)
             && array

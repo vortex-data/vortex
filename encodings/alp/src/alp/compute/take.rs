@@ -16,7 +16,7 @@ impl TakeExecute for ALP {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let taken_encoded = array.encoded().take(indices.to_array())?;
+        let taken_encoded = array.encoded().take(indices.clone())?;
         let taken_patches = array
             .patches()
             .map(|p| p.take(indices, ctx))

@@ -69,26 +69,12 @@ impl VTable for PythonVTable {
         &array.stats
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        _precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
         Arc::as_ptr(&array.object).hash(state);
-        array.vtable.id.hash(state);
-        array.len.hash(state);
-        array.dtype.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        _precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
         Arc::ptr_eq(&array.object, &other.object)
-            && array.vtable.id == other.vtable.id // TODO(ngates): in the future this check is already done
-            && array.len == other.len
-            && array.dtype == other.dtype
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

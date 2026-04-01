@@ -21,8 +21,6 @@ use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::Canonical;
-use crate::DynArrayEq;
-use crate::DynArrayHash;
 use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
 use crate::ToCanonical;
@@ -70,11 +68,6 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
 
     /// Returns the length of the array.
     fn len(&self) -> usize;
-
-    /// Returns whether the array is empty (has zero rows).
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
 
     /// Returns the logical Vortex [`DType`] of the array.
     fn dtype(&self) -> &DType;
@@ -152,6 +145,12 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
 
     /// Formats a human-readable metadata description.
     fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result;
+
+    /// Hashes the array contents including len, dtype, and encoding id.
+    fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision);
+
+    /// Compares two arrays of the same concrete type for equality.
+    fn dyn_array_eq(&self, other: &dyn Any, precision: crate::Precision) -> bool;
 }
 
 /// A depth-first pre-order iterator over an Array.
@@ -177,18 +176,21 @@ pub struct ArrayRef(Arc<dyn DynArray>);
 
 impl ArrayRef {
     /// Create from an `Arc<dyn DynArray>`.
-    pub fn from_inner(inner: Arc<dyn DynArray>) -> Self {
+    pub(crate) fn from_inner(inner: Arc<dyn DynArray>) -> Self {
         Self(inner)
     }
 
-    /// Returns a reference to the inner Arc.
-    pub fn inner(&self) -> &Arc<dyn DynArray> {
-        &self.0
+    /// Returns the Arc::as_ptr().addr() of the underlying array.
+    /// This function is used in a couple of places, and we should migrate them to using array_eq.
+    #[doc(hidden)]
+    pub fn addr(&self) -> usize {
+        Arc::as_ptr(&self.0).addr()
     }
 
-    /// Returns a reference to the inner dyn DynArray.
-    pub fn as_dyn(&self) -> &dyn DynArray {
-        self.0.as_ref()
+    /// Returns a reference to the inner Arc.
+    #[inline(always)]
+    pub(crate) fn inner(&self) -> &Arc<dyn DynArray> {
+        &self.0
     }
 
     /// Returns true if the two ArrayRefs point to the same allocation.
@@ -211,24 +213,18 @@ impl std::fmt::Display for ArrayRef {
 
 impl ArrayHash for ArrayRef {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
-        self.0.array_hash(state, precision);
+        self.0.dyn_array_hash(state as &mut dyn Hasher, precision);
     }
 }
 
 impl ArrayEq for ArrayRef {
     fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
-        self.0.array_eq(DynArray::as_any(other.as_dyn()), precision)
+        self.0.dyn_array_eq(other.0.as_any(), precision)
     }
 }
 
 #[allow(clippy::same_name_method)]
 impl ArrayRef {
-    /// Returns the array as a reference to a generic [`Any`] trait object.
-    #[inline]
-    pub fn as_any(&self) -> &dyn Any {
-        self.0.as_any()
-    }
-
     /// Returns the length of the array.
     #[inline]
     pub fn len(&self) -> usize {
@@ -799,13 +795,35 @@ impl<V: VTable> DynArray for ArrayInner<V> {
             Ok(metadata) => Debug::fmt(&metadata, f),
         }
     }
+
+    fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision) {
+        let mut wrapper = HasherWrapper(state);
+        self.len.hash(&mut wrapper);
+        self.dtype.hash(&mut wrapper);
+        self.vtable.id().hash(&mut wrapper);
+        V::array_hash(&self.data, &mut wrapper, precision);
+    }
+
+    fn dyn_array_eq(&self, other: &dyn Any, precision: crate::Precision) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|other| {
+            self.len == other.len
+                && self.dtype == other.dtype
+                && self.vtable.id() == other.vtable.id()
+                && V::array_eq(&self.data, &other.data, precision)
+        })
+    }
 }
 
-impl<V: VTable> ArrayHash for ArrayInner<V> {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
-        self.encoding_id().hash(state);
-        self.data.array_hash()
-        self.data
+/// Wrapper around `&mut dyn Hasher` that implements `Hasher` (and is `Sized`).
+struct HasherWrapper<'a>(&'a mut dyn Hasher);
+
+impl Hasher for HasherWrapper<'_> {
+    fn finish(&self) -> u64 {
+        self.0.finish()
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.write(bytes);
     }
 }
 
@@ -813,12 +831,11 @@ impl<V: VTable> Matcher for V {
     type Match<'a> = ArrayView<'a, V>;
 
     fn matches(array: &ArrayRef) -> bool {
-        array.as_any().is::<ArrayInner<V>>()
+        array.0.as_any().is::<ArrayInner<V>>()
     }
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
-        let inner = array.as_any().downcast_ref::<ArrayInner<V>>()?;
-        // SAFETY: `inner.data` is the `V::ArrayData` stored inside `array`.
-        Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
+        let data = &array.0.as_any().downcast_ref::<ArrayInner<V>>()?.data;
+        Some(unsafe { ArrayView::new_unchecked(array, data) })
     }
 }

@@ -33,8 +33,6 @@ mod kernel;
 mod operations;
 mod validity;
 
-use std::hash::Hash;
-
 use crate::Precision;
 use crate::arrays::bool::compute::rules::RULES;
 use crate::hash::ArrayEq;
@@ -78,24 +76,12 @@ impl VTable for Bool {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &BoolData, state: &mut H, precision: Precision) {
         array.to_bit_buffer().array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        if array.dtype != other.dtype {
-            return false;
-        }
+    fn array_eq(array: &BoolData, other: &BoolData, precision: Precision) -> bool {
         array
             .to_bit_buffer()
             .array_eq(&other.to_bit_buffer(), precision)

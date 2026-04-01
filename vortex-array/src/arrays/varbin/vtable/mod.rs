@@ -34,7 +34,6 @@ mod canonical;
 mod kernel;
 mod operations;
 mod validity;
-use std::hash::Hash;
 
 use canonical::varbin_to_canonical;
 use kernel::PARENT_KERNELS;
@@ -80,24 +79,14 @@ impl VTable for VarBin {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &VarBinData, state: &mut H, precision: Precision) {
         array.bytes().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.bytes().array_eq(other.bytes(), precision)
+    fn array_eq(array: &VarBinData, other: &VarBinData, precision: Precision) -> bool {
+        array.bytes().array_eq(other.bytes(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
             && array.validity.array_eq(&other.validity, precision)
     }

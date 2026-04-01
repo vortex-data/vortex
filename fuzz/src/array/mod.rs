@@ -173,7 +173,7 @@ impl ExpectedValue {
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
         let array = ArbitraryArray::arbitrary(u)?.0;
-        let mut current_array = array.to_array();
+        let mut current_array = array.clone();
 
         let mut ctx = SESSION.create_execution_ctx();
 
@@ -199,7 +199,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let strategy = CompressorStrategy::arbitrary(u)?;
                     (
                         Action::Compress(strategy),
-                        ExpectedValue::Array(current_array.to_array()),
+                        ExpectedValue::Array(current_array.clone()),
                     )
                 }
                 ActionType::Slice => {
@@ -210,7 +210,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
 
                     (
                         Action::Slice(start..stop),
-                        ExpectedValue::Array(current_array.to_array()),
+                        ExpectedValue::Array(current_array.clone()),
                     )
                 }
                 ActionType::Take => {
@@ -243,7 +243,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test");
                     (
                         Action::Take(compressed),
-                        ExpectedValue::Array(current_array.to_array()),
+                        ExpectedValue::Array(current_array.clone()),
                     )
                 }
                 ActionType::SearchSorted => {
@@ -288,7 +288,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         .vortex_expect("filter_canonical_array should succeed in fuzz test");
                     (
                         Action::Filter(Mask::from_iter(mask)),
-                        ExpectedValue::Array(current_array.to_array()),
+                        ExpectedValue::Array(current_array.clone()),
                     )
                 }
                 ActionType::Compare => {
@@ -306,7 +306,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     current_array = compare_canonical_array(&current_array, &scalar, op);
                     (
                         Action::Compare(scalar, op),
-                        ExpectedValue::Array(current_array.to_array()),
+                        ExpectedValue::Array(current_array.clone()),
                     )
                 }
                 ActionType::Cast => {
@@ -574,7 +574,7 @@ pub fn compress_array(array: &ArrayRef, _strategy: CompressorStrategy) -> ArrayR
 #[allow(clippy::result_large_err)]
 pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> VortexFuzzResult<bool> {
     let FuzzArrayAction { array, actions } = fuzz_action;
-    let mut current_array = array.to_array();
+    let mut current_array = array.clone();
 
     let mut ctx = SESSION.create_execution_ctx();
 
@@ -700,7 +700,7 @@ fn assert_search_sorted(
         Err(VortexFuzzError::SearchSortedError(
             s,
             expected,
-            array.to_array(),
+            array.clone(),
             side,
             search_result,
             step,
@@ -727,8 +727,8 @@ pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuz
         return Err(VortexFuzzError::LengthMismatch(
             lhs.len(),
             rhs.len(),
-            lhs.to_array(),
-            rhs.to_array(),
+            lhs.clone(),
+            rhs.clone(),
             step,
             Backtrace::capture(),
         ));

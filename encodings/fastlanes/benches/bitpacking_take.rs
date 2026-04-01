@@ -54,7 +54,7 @@ fn take_10_contiguous(bencher: Bencher) {
         .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(packed, indices, execution_ctx)| {
             packed
-                .take(indices.to_array())
+                .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
@@ -199,7 +199,7 @@ fn patched_take_10_contiguous(bencher: Bencher) {
         .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(packed, indices, execution_ctx)| {
             packed
-                .take(indices.to_array())
+                .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()

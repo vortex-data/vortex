@@ -883,9 +883,7 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef) {
         array
             .clone()
             .binary(const_array.clone().into_array(), Operator::Eq),
-        const_array
-            .into_array()
-            .binary(array.clone(), Operator::Eq),
+        const_array.into_array().binary(array.clone(), Operator::Eq),
     ) {
         for i in 0..arr_eq_scalar.len() {
             let arr_eq = arr_eq_scalar

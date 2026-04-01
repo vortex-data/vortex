@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -100,12 +99,7 @@ impl VTable for FSST {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &FSSTData, state: &mut H, precision: Precision) {
         array.symbols.array_hash(state, precision);
         array.symbol_lengths.array_hash(state, precision);
         array
@@ -116,13 +110,8 @@ impl VTable for FSST {
         array.uncompressed_lengths().array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.symbols.array_eq(&other.symbols, precision)
+    fn array_eq(array: &FSSTData, other: &FSSTData, precision: Precision) -> bool {
+        array.symbols.array_eq(&other.symbols, precision)
             && array
                 .symbol_lengths
                 .array_eq(&other.symbol_lengths, precision)

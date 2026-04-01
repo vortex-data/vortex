@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::hash::Hash;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -100,23 +99,21 @@ impl VTable for DateTimeParts {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
+        array: &DateTimePartsData,
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
         array.days().array_hash(state, precision);
         array.seconds().array_hash(state, precision);
         array.subseconds().array_hash(state, precision);
     }
 
     fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
+        array: &DateTimePartsData,
+        other: &DateTimePartsData,
         precision: Precision,
     ) -> bool {
-        array.dtype == other.dtype
-            && array.days().array_eq(other.days(), precision)
+        array.days().array_eq(other.days(), precision)
             && array.seconds().array_eq(other.seconds(), precision)
             && array.subseconds().array_eq(other.subseconds(), precision)
     }

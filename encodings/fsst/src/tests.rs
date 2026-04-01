@@ -97,5 +97,5 @@ fn test_fsst_array_ops() {
     // test to_canonical
     let canonical_array = fsst_array.to_varbinview().into_array();
 
-    assert_arrays_eq!(fsst_array.to_array(), canonical_array);
+    assert_arrays_eq!(fsst_array, canonical_array);
 }

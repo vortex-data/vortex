@@ -220,7 +220,7 @@ pub unsafe extern "C-unwind" fn vx_file_write_array(
             options
                 .write(
                     &mut async_fs::File::create(path).await?,
-                    vortex::array::ArrayRef::from_inner(array.clone()).to_array_stream(),
+                    array.to_array_stream(),
                 )
                 .await?;
             Ok(())

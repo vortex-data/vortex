@@ -122,7 +122,7 @@ impl Dataset for StructListOfInts {
 
             for chunk in chunked.iter_chunks() {
                 let converted = recursive_list_from_list_view(chunk.clone())?;
-                let batch = RecordBatch::try_from(converted.as_ref())?;
+                let batch = RecordBatch::try_from(&converted)?;
 
                 if writer.is_none() {
                     writer = Some(ArrowWriter::try_new(

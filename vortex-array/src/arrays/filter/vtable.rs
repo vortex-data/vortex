@@ -74,16 +74,12 @@ impl VTable for Filter {
         &array.stats
     }
 
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: &FilterData, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
         array.mask.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &FilterData, other: &FilterData, precision: Precision) -> bool {
         array.child().array_eq(other.child(), precision)
             && array.mask.array_eq(&other.mask, precision)
     }

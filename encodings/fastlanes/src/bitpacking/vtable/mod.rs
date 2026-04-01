@@ -94,27 +94,19 @@ impl VTable for BitPacked {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
+        array: &BitPackedData,
         state: &mut H,
         precision: Precision,
     ) {
         array.offset.hash(state);
-        array.len.hash(state);
-        array.dtype.hash(state);
         array.bit_width.hash(state);
         array.packed.array_hash(state, precision);
         array.patches.array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &BitPackedData, other: &BitPackedData, precision: Precision) -> bool {
         array.offset == other.offset
-            && array.len == other.len
-            && array.dtype == other.dtype
             && array.bit_width == other.bit_width
             && array.packed.array_eq(&other.packed, precision)
             && array.patches.array_eq(&other.patches, precision)

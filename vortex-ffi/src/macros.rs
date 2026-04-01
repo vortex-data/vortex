@@ -249,6 +249,11 @@ macro_rules! box_wrapper {
                     Box::into_raw(obj).cast()
                 }
 
+                /// Wrap an owned object into a raw pointer.
+                pub(crate) fn new_box(obj: $T) -> *mut $ffi_ident {
+                    Box::into_raw(Box::new(obj)).cast()
+                }
+
                 /// Wrap a borrowed object into a raw pointer.
                 pub(crate) fn new_ref(obj: &$T) -> *const $ffi_ident {
                     obj as *const $T as *const $ffi_ident

@@ -7,8 +7,6 @@ pub(crate) mod compute;
 mod rules;
 mod slice;
 
-use std::hash::Hash;
-
 use prost::Message as _;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -85,20 +83,19 @@ impl VTable for DecimalByteParts {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
+        array: &DecimalBytePartsData,
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
         array.msp().array_hash(state, precision);
     }
 
     fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
+        array: &DecimalBytePartsData,
+        other: &DecimalBytePartsData,
         precision: Precision,
     ) -> bool {
-        array.dtype == other.dtype && array.msp().array_eq(other.msp(), precision)
+        array.msp().array_eq(other.msp(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

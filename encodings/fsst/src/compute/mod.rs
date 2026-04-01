@@ -45,7 +45,7 @@ impl TakeExecute for FSST {
                 .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
                 array
                     .uncompressed_lengths()
-                    .take(indices.to_array())?
+                    .take(indices.clone())?
                     .fill_null(Scalar::zero_value(
                         &array.uncompressed_lengths_dtype().clone(),
                     ))?,

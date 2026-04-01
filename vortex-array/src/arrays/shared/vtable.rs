@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -67,24 +65,15 @@ impl VTable for Shared {
         &array.stats
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &SharedData, state: &mut H, precision: Precision) {
         let current = array.current_array_ref();
         current.array_hash(state, precision);
-        array.dtype.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &SharedData, other: &SharedData, precision: Precision) -> bool {
         let current = array.current_array_ref();
         let other_current = other.current_array_ref();
-        current.array_eq(other_current, precision) && array.dtype == other.dtype
+        current.array_eq(other_current, precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

@@ -29,7 +29,6 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod kernel;
 mod operations;
 mod validity;
-use std::hash::Hash;
 
 use crate::Precision;
 use crate::hash::ArrayEq;
@@ -65,27 +64,15 @@ impl VTable for Struct {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.len.hash(state);
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &StructData, state: &mut H, precision: Precision) {
         for field in array.iter_unmasked_fields() {
             field.array_hash(state, precision);
         }
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.len == other.len
-            && array.dtype == other.dtype
-            && array.slots.len() == other.slots.len()
+    fn array_eq(array: &StructData, other: &StructData, precision: Precision) -> bool {
+        array.slots.len() == other.slots.len()
             && array
                 .iter_unmasked_fields()
                 .zip(other.iter_unmasked_fields())

@@ -19,7 +19,6 @@ use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::VarBin;
 use vortex::array::arrays::VarBinView;
-use vortex::array::vtable::Array;
 use vortex::array::vtable::VTable;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPRD;
@@ -252,8 +251,7 @@ impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::ArrayData> for PyRef
     fn as_array_ref(&self) -> &<V::VTable as VTable>::ArrayData {
         self.as_super()
             .inner()
-            .as_any()
-            .downcast_ref::<Array<V::VTable>>()
+            .as_opt::<V::VTable>()
             .vortex_expect("Failed to downcast array")
             .data()
     }

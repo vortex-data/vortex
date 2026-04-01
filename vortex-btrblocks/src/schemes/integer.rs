@@ -718,7 +718,6 @@ mod tests {
     use rand::Rng;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::PrimitiveArray;

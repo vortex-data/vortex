@@ -108,12 +108,7 @@ impl VTable for Pco {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &PcoData, state: &mut H, precision: Precision) {
         array.unsliced_validity.array_hash(state, precision);
         array.unsliced_n_rows.hash(state);
         array.slice_start.hash(state);
@@ -127,15 +122,10 @@ impl VTable for Pco {
         }
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        if array.dtype != other.dtype
-            || !array
-                .unsliced_validity
-                .array_eq(&other.unsliced_validity, precision)
+    fn array_eq(array: &PcoData, other: &PcoData, precision: Precision) -> bool {
+        if !array
+            .unsliced_validity
+            .array_eq(&other.unsliced_validity, precision)
             || array.unsliced_n_rows != other.unsliced_n_rows
             || array.slice_start != other.slice_start
             || array.slice_stop != other.slice_stop

@@ -90,12 +90,7 @@ impl VTable for ALPRD {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &ALPRDData, state: &mut H, precision: Precision) {
         array.left_parts().array_hash(state, precision);
         array.left_parts_dictionary.array_hash(state, precision);
         array.right_parts().array_hash(state, precision);
@@ -103,13 +98,8 @@ impl VTable for ALPRD {
         array.left_parts_patches.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.left_parts().array_eq(other.left_parts(), precision)
+    fn array_eq(array: &ALPRDData, other: &ALPRDData, precision: Precision) -> bool {
+        array.left_parts().array_eq(other.left_parts(), precision)
             && array
                 .left_parts_dictionary
                 .array_eq(&other.left_parts_dictionary, precision)

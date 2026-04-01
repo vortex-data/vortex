@@ -18,7 +18,7 @@ impl TakeExecute for ALPRD {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let taken_left_parts = array.left_parts().take(indices.to_array())?;
+        let taken_left_parts = array.left_parts().take(indices.clone())?;
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.take(indices, ctx))
@@ -34,7 +34,7 @@ impl TakeExecute for ALPRD {
             .transpose()?;
         let right_parts = array
             .right_parts()
-            .take(indices.to_array())?
+            .take(indices.clone())?
             .fill_null(Scalar::zero_value(array.right_parts().dtype()))?;
 
         Ok(Some(

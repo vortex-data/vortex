@@ -25,7 +25,6 @@ use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 

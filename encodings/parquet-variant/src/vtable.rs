@@ -106,7 +106,7 @@ impl VTable for ParquetVariant {
         &array.stats_set
     }
 
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: &ParquetVariantData, state: &mut H, precision: Precision) {
         array.validity.array_hash(state, precision);
         array.metadata_array().array_hash(state, precision);
         // Hash discriminators so that (value=Some, typed_value=None) and
@@ -122,8 +122,8 @@ impl VTable for ParquetVariant {
     }
 
     fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
+        array: &ParquetVariantData,
+        other: &ParquetVariantData,
         precision: Precision,
     ) -> bool {
         if !array.validity.array_eq(&other.validity, precision)

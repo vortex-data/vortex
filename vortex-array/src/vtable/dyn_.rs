@@ -116,22 +116,11 @@ impl<V: VTable> DynVTable for V {
 
     fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
         let typed = array
-            .as_any()
-            .downcast_ref::<ArrayInner<V>>()
+            .as_opt::<V>()
             .vortex_expect("Failed to downcast array");
-        let mut data = typed.data.clone();
+        let mut data = typed.data().clone();
         V::with_slots(&mut data, slots)?;
-        // SAFETY: with_slots preserves dtype and len.
-        Ok(unsafe {
-            ArrayInner::from_data_unchecked(
-                typed.vtable.clone(),
-                typed.dtype.clone(),
-                typed.len,
-                data,
-                typed.stats.clone(),
-            )
-        }
-        .into_array())
+        Ok(Array::<V>::try_from_data(data)?.into_array())
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

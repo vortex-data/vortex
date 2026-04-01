@@ -158,13 +158,11 @@ fn run_like_on_array(
     len: usize,
     opts: LikeOptions,
 ) -> VortexResult<BoolArray> {
-    use vortex_array::ArrayRef;
     use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 
-    let arr: ArrayRef = array.to_array();
     let pattern_arr = ConstantArray::new(pattern, len).into_array();
     let result = Like
-        .try_new_array(len, opts, [arr, pattern_arr])?
+        .try_new_array(len, opts, [array.clone(), pattern_arr])?
         .into_array()
         .execute::<Canonical>(&mut SESSION.create_execution_ctx())?;
     Ok(result.into_bool())

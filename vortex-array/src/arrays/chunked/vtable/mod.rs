@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -77,13 +75,7 @@ impl VTable for Chunked {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
-        array.len.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &ChunkedData, state: &mut H, precision: Precision) {
         array
             .chunk_offsets
             .clone()
@@ -94,18 +86,12 @@ impl VTable for Chunked {
         }
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.len == other.len
-            && array
-                .chunk_offsets
-                .clone()
-                .into_array()
-                .array_eq(&other.chunk_offsets.clone().into_array(), precision)
+    fn array_eq(array: &ChunkedData, other: &ChunkedData, precision: Precision) -> bool {
+        array
+            .chunk_offsets
+            .clone()
+            .into_array()
+            .array_eq(&other.chunk_offsets.clone().into_array(), precision)
             && array.chunks.len() == other.chunks.len()
             && array
                 .iter_chunks()

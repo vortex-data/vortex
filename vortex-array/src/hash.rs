@@ -9,8 +9,6 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_mask::Mask;
 
-use crate::ArrayRef;
-use crate::DynArray;
 use crate::patches::Patches;
 use crate::validity::Validity;
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
 use std::mem::size_of;
 use std::sync::Arc;
 
@@ -77,11 +76,10 @@ impl VTable for VarBinView {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
+        array: &VarBinViewData,
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
         for buffer in array.buffers.iter() {
             buffer.array_hash(state, precision);
         }
@@ -89,13 +87,8 @@ impl VTable for VarBinView {
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.buffers.len() == other.buffers.len()
+    fn array_eq(array: &VarBinViewData, other: &VarBinViewData, precision: Precision) -> bool {
+        array.buffers.len() == other.buffers.len()
             && array
                 .buffers
                 .iter()

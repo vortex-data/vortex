@@ -286,25 +286,16 @@ impl VTable for Sequence {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
+        array: &SequenceData,
         state: &mut H,
         _precision: Precision,
     ) {
         array.base.hash(state);
         array.multiplier.hash(state);
-        array.dtype.hash(state);
-        array.len.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        _precision: Precision,
-    ) -> bool {
-        array.base == other.base
-            && array.multiplier == other.multiplier
-            && array.dtype == other.dtype
-            && array.len == other.len
+    fn array_eq(array: &SequenceData, other: &SequenceData, _precision: Precision) -> bool {
+        array.base == other.base && array.multiplier == other.multiplier
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

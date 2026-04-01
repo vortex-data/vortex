@@ -4,6 +4,7 @@
 //! Typed array wrappers: [`ArrayInner<V>`] (heap-allocated), [`Array<V>`] (typed handle),
 //! and [`ArrayView<V>`] (lightweight borrow).
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
@@ -11,7 +12,6 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -72,17 +72,6 @@ impl<V: VTable> ArrayInner<V> {
     }
 }
 
-impl<V: VTable> ArrayInner<V>
-where
-    V::ArrayData: crate::vtable::ValidityHelper,
-{
-    /// Returns a reference to the validity.
-    #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &crate::validity::Validity {
-        crate::vtable::ValidityHelper::validity(&self.data)
-    }
-}
-
 impl<V: VTable> Deref for ArrayInner<V> {
     type Target = V::ArrayData;
     fn deref(&self) -> &V::ArrayData {
@@ -131,18 +120,6 @@ impl<V: VTable> From<ArrayInner<V>> for ArrayRef {
     }
 }
 
-impl<V: VTable> From<ArrayInner<V>> for Array<V> {
-    fn from(value: ArrayInner<V>) -> Array<V> {
-        Array::from_inner(value)
-    }
-}
-
-impl<V: VTable> IntoArray for Arc<ArrayInner<V>> {
-    fn into_array(self) -> ArrayRef {
-        ArrayRef::from_inner(self)
-    }
-}
-
 // =============================================================================
 // Array<V> — typed owned handle wrapping an ArrayRef
 // =============================================================================
@@ -163,16 +140,11 @@ pub struct Array<V: VTable> {
 impl<V: VTable> Array<V> {
     /// Create a typed array from encoding-specific data.
     pub fn try_from_data(data: V::ArrayData) -> VortexResult<Self> {
-        let inner = ArrayInner::<V>::try_from_data(data)?;
-        Ok(Self::from_inner(inner))
-    }
-
-    /// Create from an `ArrayInner<V>`, wrapping it in an `ArrayRef`.
-    pub(crate) fn from_inner(inner: ArrayInner<V>) -> Self {
-        Self {
-            inner: ArrayRef::from_inner(Arc::new(inner)),
+        let inner = ArrayRef::from_inner(Arc::new(ArrayInner::<V>::try_from_data(data)?));
+        Ok(Self {
+            inner,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Create from an existing `ArrayRef`, trusting that it contains `ArrayInner<V>`.
@@ -189,7 +161,7 @@ impl<V: VTable> Array<V> {
 
     /// Try to create from an `ArrayRef`, returning `Err` if the type doesn't match.
     pub fn try_from_array_ref(array: ArrayRef) -> Result<Self, ArrayRef> {
-        if array.as_any().is::<ArrayInner<V>>() {
+        if array.is::<V>() {
             Ok(Self {
                 inner: array,
                 _phantom: PhantomData,
@@ -257,11 +229,13 @@ impl<V: VTable> Array<V> {
     }
 
     /// Downcast the inner `ArrayRef` to `&ArrayInner<V>`.
+    #[inline(always)]
     fn downcast_inner(&self) -> &ArrayInner<V> {
-        self.inner
-            .as_any()
-            .downcast_ref::<ArrayInner<V>>()
-            .vortex_expect("Array<V> inner type mismatch")
+        let any = self.inner.inner().as_any();
+        // NOTE(ngates): use downcast_unchecked when it becomes stable
+        debug_assert!(any.is::<ArrayInner<V>>());
+        // SAFETY: caller guarantees that T is the correct type
+        unsafe { &*(self as *const dyn Any as *const ArrayInner<V>) }
     }
 }
 

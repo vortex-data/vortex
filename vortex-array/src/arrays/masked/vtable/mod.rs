@@ -4,8 +4,6 @@ mod canonical;
 mod operations;
 mod validity;
 
-use std::hash::Hash;
-
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -76,24 +74,14 @@ impl VTable for Masked {
         &array.stats
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &MaskedData, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
         array.validity.array_hash(state, precision);
-        array.dtype.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &MaskedData, other: &MaskedData, precision: Precision) -> bool {
         array.child().array_eq(other.child(), precision)
             && array.validity.array_eq(&other.validity, precision)
-            && array.dtype == other.dtype
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

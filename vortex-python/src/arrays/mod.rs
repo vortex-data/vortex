@@ -40,6 +40,7 @@ use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::PyPythonArray;
 use crate::arrays::py::PythonArray;
+use crate::arrays::py::PythonVTable;
 use crate::arrow::ToPyArrow;
 use crate::dtype::PyDType;
 use crate::error::PyVortexError;
@@ -118,8 +119,8 @@ impl<'py> IntoPyObject<'py> for PyArrayRef {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         // If the ArrayRef is a PyArrayInstance, extract the Python object.
-        if let Some(pyarray) = self.0.as_any().downcast_ref::<PythonArray>() {
-            return pyarray.clone().into_pyobject(py);
+        if let Some(pyarray) = self.0.as_opt::<PythonVTable>() {
+            return pyarray.data().clone().into_pyobject(py);
         }
 
         // Otherwise, wrap the ArrayRef in a PyNativeArray.

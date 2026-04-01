@@ -109,11 +109,7 @@ impl VTable for Zstd {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(array: &ZstdData, state: &mut H, precision: Precision) {
         match &array.dictionary {
             Some(dict) => {
                 true.hash(state);
@@ -126,18 +122,13 @@ impl VTable for Zstd {
         for frame in &array.frames {
             frame.array_hash(state, precision);
         }
-        array.dtype.hash(state);
         array.unsliced_validity.array_hash(state, precision);
         array.unsliced_n_rows.hash(state);
         array.slice_start.hash(state);
         array.slice_stop.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &ZstdData, other: &ZstdData, precision: Precision) -> bool {
         if !match (&array.dictionary, &other.dictionary) {
             (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
             (None, None) => true,
@@ -153,10 +144,9 @@ impl VTable for Zstd {
                 return false;
             }
         }
-        array.dtype == other.dtype
-            && array
-                .unsliced_validity
-                .array_eq(&other.unsliced_validity, precision)
+        array
+            .unsliced_validity
+            .array_eq(&other.unsliced_validity, precision)
             && array.unsliced_n_rows == other.unsliced_n_rows
             && array.slice_start == other.slice_start
             && array.slice_stop == other.slice_stop

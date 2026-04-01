@@ -64,7 +64,6 @@ fn compare_fsst_constant(
             CompareOperator::Lt => BitBuffer::new_unset(left.len()),
             _ => left
                 .uncompressed_lengths()
-                .to_array()
                 .binary(
                     ConstantArray::new(
                         Scalar::zero_value(left.uncompressed_lengths().dtype()),

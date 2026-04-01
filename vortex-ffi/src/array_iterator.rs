@@ -41,7 +41,7 @@ pub unsafe extern "C-unwind" fn vx_array_iterator_next(
         let element = iter.next();
 
         if let Some(element) = element {
-            Ok(vx_array::new(element?.inner().clone()))
+            Ok(vx_array::new(Box::new(element?.clone())))
         } else {
             // Drop the iter pointer.
             Ok(ptr::null_mut())

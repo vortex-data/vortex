@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::hash::Hash;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -69,23 +68,13 @@ impl VTable for ByteBool {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &ByteBoolData, state: &mut H, precision: Precision) {
         array.buffer.array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.buffer.array_eq(&other.buffer, precision)
+    fn array_eq(array: &ByteBoolData, other: &ByteBoolData, precision: Precision) -> bool {
+        array.buffer.array_eq(&other.buffer, precision)
             && array.validity.array_eq(&other.validity, precision)
     }
 

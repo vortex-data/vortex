@@ -260,7 +260,6 @@ impl Scheme for PcoScheme {
 mod tests {
     use std::iter;
 
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -357,7 +356,6 @@ mod tests {
 #[cfg(test)]
 mod scheme_selection_tests {
     use vortex_alp::ALP;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::Dict;

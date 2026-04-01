@@ -372,7 +372,7 @@ impl VTable for ZstdBuffers {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
+        array: &ZstdBuffersData,
         state: &mut H,
         precision: Precision,
     ) {
@@ -383,18 +383,12 @@ impl VTable for ZstdBuffers {
         }
         array.uncompressed_sizes.hash(state);
         array.buffer_alignments.hash(state);
-        array.dtype.hash(state);
-        array.len.hash(state);
         for child in array.slots.iter().flatten() {
             child.array_hash(state, precision);
         }
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
+    fn array_eq(array: &ZstdBuffersData, other: &ZstdBuffersData, precision: Precision) -> bool {
         array.inner_encoding_id == other.inner_encoding_id
             && array.inner_metadata == other.inner_metadata
             && array.compressed_buffers.len() == other.compressed_buffers.len()
@@ -405,8 +399,6 @@ impl VTable for ZstdBuffers {
                 .all(|(a, b)| a.array_eq(b, precision))
             && array.uncompressed_sizes == other.uncompressed_sizes
             && array.buffer_alignments == other.buffer_alignments
-            && array.dtype == other.dtype
-            && array.len == other.len
             && array.slots.len() == other.slots.len()
             && array
                 .slots

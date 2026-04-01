@@ -59,7 +59,7 @@ pub(crate) fn new_exporter(
         return Ok(all_invalid::new_exporter(array_len, &ltype));
     }
 
-    let values_key = Arc::as_ptr(elements.inner()).addr();
+    let values_key = elements.addr();
     // Check if we have a cached vector and extract it if we do.
     let cached_elements = cache
         .values_cache

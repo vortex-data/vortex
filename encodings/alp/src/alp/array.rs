@@ -70,24 +70,14 @@ impl VTable for ALP {
         &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &ALPData, state: &mut H, precision: Precision) {
         array.encoded().array_hash(state, precision);
         array.exponents.hash(state);
         array.patches.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.dtype == other.dtype
-            && array.encoded().array_eq(other.encoded(), precision)
+    fn array_eq(array: &ALPData, other: &ALPData, precision: Precision) -> bool {
+        array.encoded().array_eq(other.encoded(), precision)
             && array.exponents == other.exponents
             && array.patches.array_eq(&other.patches, precision)
     }

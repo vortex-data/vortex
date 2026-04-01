@@ -6,15 +6,12 @@ use std::ptr;
 use std::sync::Arc;
 
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
-use crate::arc_dyn_wrapper;
-use crate::arc_wrapper;
 use crate::binary::vx_binary;
 use crate::box_wrapper;
 use crate::dtype::vx_dtype;
@@ -23,7 +20,7 @@ use crate::error::vx_error;
 use crate::expression::vx_expression;
 use crate::string::vx_string;
 
-arc_wrapper!(
+box_wrapper!(
     /// Base type for all Vortex arrays.
     ///
     /// All built-in Vortex array types can be safely cast to this type to pass into functions that
@@ -57,7 +54,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
     array: *const vx_array,
     index: u32,
     error_out: *mut *mut vx_error,
-) -> *const vx_array {
+) -> *mut vx_array {
     try_or_default(error_out, || {
         let array = vx_array::as_ref(array);
 
@@ -68,7 +65,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
         }
         let field_array = struct_array.unmasked_field(idx).clone();
 
-        Ok(vx_array::new(field_array.inner().clone()))
+        Ok(vx_array::new_box(field_array))
     })
 }
 
@@ -78,11 +75,11 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     start: u32,
     stop: u32,
     error_out: *mut *mut vx_error,
-) -> *const vx_array {
+) -> *mut vx_array {
     try_or_default(error_out, || {
-        let array = vx_array::as_ref(array).to_array();
+        let array = vx_array::as_ref(array).clone();
         let sliced = array.slice(start as usize..stop as usize)?;
-        Ok(vx_array::new(sliced.inner().clone()))
+        Ok(vx_array::new_box(sliced))
     })
 }
 
@@ -92,7 +89,7 @@ pub unsafe extern "C-unwind" fn vx_array_is_null(
     index: u32,
     _error_out: *mut *mut vx_error,
 ) -> bool {
-    let array = vx_array::as_ref(array).to_array();
+    let array = vx_array::as_ref(array).clone();
     // TODO(joe): propagate this error up instead of expecting
     array
         .is_invalid(index as usize)
@@ -105,7 +102,7 @@ pub unsafe extern "C-unwind" fn vx_array_null_count(
     array: *const vx_array,
     error_out: *mut *mut vx_error,
 ) -> u32 {
-    let array = vx_array::as_ref(array).to_array();
+    let array = vx_array::as_ref(array).clone();
     try_or_default(error_out, || Ok(array.invalid_count()?.try_into()?))
 }
 
@@ -114,7 +111,7 @@ macro_rules! ffiarray_get_ptype {
         paste::paste! {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
-                let array = vx_array::as_ref(array).to_array();
+                let array = vx_array::as_ref(array).clone();
                 // TODO(joe): propagate this error up instead of expecting
                 let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
@@ -125,7 +122,7 @@ macro_rules! ffiarray_get_ptype {
 
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
-                let array = vx_array::as_ref(array).to_array();
+                let array = vx_array::as_ref(array).clone();
                 // TODO(joe): propagate this error up instead of expecting
                 let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
@@ -158,7 +155,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     array: *const vx_array,
     index: u32,
 ) -> *const vx_string {
-    let array = vx_array::as_ref(array).to_array();
+    let array = vx_array::as_ref(array).clone();
     // TODO(joe): propagate this error up instead of expecting
     let value = array
         .scalar_at(index as usize)
@@ -178,7 +175,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     array: *const vx_array,
     index: u32,
 ) -> *const vx_binary {
-    let array = vx_array::as_ref(array).to_array();
+    let array = vx_array::as_ref(array).clone();
     // TODO(joe): propagate this error up instead of expecting
     let value = array
         .scalar_at(index as usize)
@@ -199,14 +196,13 @@ pub unsafe extern "C" fn vx_array_apply(
     array: *const vx_array,
     expression: *const vx_expression,
     error: *mut *mut vx_error,
-) -> *const vx_array {
+) -> *mut vx_array {
     try_or_default(error, || {
         vortex_ensure!(!array.is_null());
         vortex_ensure!(!expression.is_null());
         let array = vx_array::as_ref(array);
         let expression = vx_expression::as_ref(expression);
-        let array_ref = vortex::array::ArrayRef::from_inner(array.clone());
-        Ok(vx_array::new(array_ref.apply(expression)?.inner().clone()))
+        Ok(vx_array::new_box(array.apply(expression)?))
     })
 }
 
@@ -242,7 +238,7 @@ mod tests {
     fn test_simple() {
         unsafe {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-            let ffi_array = vx_array::new(primitive.into_array().inner().clone());
+            let ffi_array = vx_array::new_box(primitive.into_array());
 
             assert_eq!(vx_array_len(ffi_array), 3);
 
@@ -267,7 +263,7 @@ mod tests {
         unsafe {
             let primitive =
                 PrimitiveArray::new(buffer![1i32, 2i32, 3i32, 4i32, 5i32], Validity::NonNullable);
-            let ffi_array = vx_array::new(primitive.into_array().inner().clone());
+            let ffi_array = vx_array::new_box(primitive.into_array());
 
             let mut error = ptr::null_mut();
             let sliced = vx_array_slice(ffi_array, 1, 4, &raw mut error);
@@ -291,7 +287,7 @@ mod tests {
                 buffer![1i32, 2i32, 3i32],
                 Validity::from_iter([true, false, true]),
             );
-            let ffi_array = vx_array::new(primitive.into_array().inner().clone());
+            let ffi_array = vx_array::new_box(primitive.into_array());
 
             let mut error = ptr::null_mut();
             assert!(!vx_array_is_null(ffi_array, 0, &raw mut error));
@@ -323,7 +319,7 @@ mod tests {
                 Validity::NonNullable,
             )
             .unwrap();
-            let ffi_array = vx_array::new(struct_array.into_array().inner().clone());
+            let ffi_array = vx_array::new_box(struct_array.into_array());
 
             let mut error = ptr::null_mut();
             let field0 = vx_array_get_field(ffi_array, 0, &raw mut error);
@@ -360,7 +356,7 @@ mod tests {
             // Test signed integer with edge cases
             let i32_array =
                 PrimitiveArray::new(buffer![i32::MAX, i32::MIN, 0i32], Validity::NonNullable);
-            let ffi_i32 = vx_array::new(i32_array.into_array().inner().clone());
+            let ffi_i32 = vx_array::new_box(i32_array.into_array());
             assert_eq!(vx_array_get_i32(ffi_i32, 0), i32::MAX);
             assert_eq!(vx_array_get_i32(ffi_i32, 1), i32::MIN);
             assert_eq!(vx_array_get_i32(ffi_i32, 2), 0);
@@ -369,7 +365,7 @@ mod tests {
             // Test unsigned integer
             let u64_array =
                 PrimitiveArray::new(buffer![u64::MAX, 0u64, 42u64], Validity::NonNullable);
-            let ffi_u64 = vx_array::new(u64_array.into_array().inner().clone());
+            let ffi_u64 = vx_array::new_box(u64_array.into_array());
             assert_eq!(vx_array_get_u64(ffi_u64, 0), u64::MAX);
             assert_eq!(vx_array_get_u64(ffi_u64, 1), 0);
             assert_eq!(vx_array_get_u64(ffi_u64, 2), 42);
@@ -380,7 +376,7 @@ mod tests {
                 buffer![f64::NEG_INFINITY, 0.0f64, f64::NAN],
                 Validity::NonNullable,
             );
-            let ffi_f64 = vx_array::new(f64_array.into_array().inner().clone());
+            let ffi_f64 = vx_array::new_box(f64_array.into_array());
             assert_eq!(vx_array_get_f64(ffi_f64, 0), f64::NEG_INFINITY);
             assert_eq!(vx_array_get_f64(ffi_f64, 1), 0.0);
             assert!(vx_array_get_f64(ffi_f64, 2).is_nan());
@@ -393,7 +389,7 @@ mod tests {
                     buffer![f16::from_f32(1.0), f16::from_f32(-0.5)],
                     Validity::NonNullable,
                 );
-                let ffi_f16 = vx_array::new(f16_array.into_array().inner().clone());
+                let ffi_f16 = vx_array::new_box(f16_array.into_array());
                 assert_eq!(vx_array_get_f16(ffi_f16, 0), f16::from_f32(1.0));
                 assert_eq!(vx_array_get_f16(ffi_f16, 1), f16::from_f32(-0.5));
                 vx_array_free(ffi_f16);
@@ -407,7 +403,7 @@ mod tests {
     fn test_get_utf8() {
         unsafe {
             let utf8_array = VarBinViewArray::from_iter_str(["hello", "world", "test"]);
-            let ffi_array = vx_array::new(utf8_array.into_array().inner().clone());
+            let ffi_array = vx_array::new_box(utf8_array.into_array());
 
             let vx_str1 = vx_array_get_utf8(ffi_array, 0);
             assert_eq!(vx_string::as_str(vx_str1), "hello");
@@ -435,7 +431,7 @@ mod tests {
                 vec![0xFF, 0xEE],
                 vec![0xAA, 0xBB, 0xCC, 0xDD],
             ]);
-            let ffi_array = vx_array::new(binary_array.into_array().inner().clone());
+            let ffi_array = vx_array::new_box(binary_array.into_array());
 
             let vx_bin1 = vx_array_get_binary(ffi_array, 0);
             assert_eq!(vx_binary::as_slice(vx_bin1), &[0x01, 0x02, 0x03]);
@@ -469,7 +465,7 @@ mod tests {
             assert!(!error.is_null());
             vx_error_free(error);
 
-            let array = vx_array::new(primitive.into_array().inner().clone());
+            let array = vx_array::new_box(primitive.into_array());
 
             let res = vx_array_apply(array, ptr::null(), &raw mut error);
             assert!(res.is_null());
@@ -515,7 +511,7 @@ mod tests {
             .unwrap()
             .into_array()
         };
-        let vx_arr = vx_array::new(array.inner().clone());
+        let vx_arr = vx_array::new_box(array);
 
         // Get dtype reference - this is valid as long as array lives
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
