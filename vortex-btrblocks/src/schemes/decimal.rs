@@ -60,12 +60,12 @@ impl Scheme for DecimalScheme {
         // for compression. 2 for i128 and 4 for i256.
         let decimal = data.array().clone().to_decimal();
         let decimal = narrowed_decimal(decimal);
-        let validity = decimal.validity();
+        let validity = decimal.validity().clone();
         let prim = match decimal.values_type() {
-            DecimalType::I8 => PrimitiveArray::new(decimal.buffer::<i8>(), validity.clone()),
-            DecimalType::I16 => PrimitiveArray::new(decimal.buffer::<i16>(), validity.clone()),
-            DecimalType::I32 => PrimitiveArray::new(decimal.buffer::<i32>(), validity.clone()),
-            DecimalType::I64 => PrimitiveArray::new(decimal.buffer::<i64>(), validity.clone()),
+            DecimalType::I8 => PrimitiveArray::new(decimal.buffer::<i8>(), validity),
+            DecimalType::I16 => PrimitiveArray::new(decimal.buffer::<i16>(), validity),
+            DecimalType::I32 => PrimitiveArray::new(decimal.buffer::<i32>(), validity),
+            DecimalType::I64 => PrimitiveArray::new(decimal.buffer::<i64>(), validity),
             _ => return Ok(decimal.into_array()),
         };
 

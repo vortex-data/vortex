@@ -19,7 +19,6 @@ use crate::arrays::ConstantData;
 use crate::arrays::MaskedData;
 use crate::arrays::masked::array::NUM_SLOTS;
 use crate::arrays::masked::array::SLOT_NAMES;
-use crate::arrays::masked::array::VALIDITY_SLOT;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
@@ -189,10 +188,6 @@ impl VTable for Masked {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

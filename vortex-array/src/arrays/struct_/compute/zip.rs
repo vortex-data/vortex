@@ -39,10 +39,12 @@ impl ZipKernel for Struct {
             .map(|(t, f)| ArrayBuiltins::zip(mask, t.clone(), f.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let validity = match (if_true.validity(), if_false.validity()) {
-            (&Validity::NonNullable, &Validity::NonNullable) => Validity::NonNullable,
-            (&Validity::AllValid, &Validity::AllValid) => Validity::AllValid,
-            (&Validity::AllInvalid, &Validity::AllInvalid) => Validity::AllInvalid,
+        let v1 = if_true.validity();
+        let v2 = if_false.validity();
+        let validity = match (&v1, &v2) {
+            (Validity::NonNullable, Validity::NonNullable) => Validity::NonNullable,
+            (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
+            (Validity::AllInvalid, Validity::AllInvalid) => Validity::AllInvalid,
 
             (v1, v2) => {
                 let mask_mask = mask.try_to_mask_fill_null_false(ctx)?;

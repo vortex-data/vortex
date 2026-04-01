@@ -18,7 +18,6 @@ use crate::SerializeMetadata;
 use crate::arrays::bool::BoolData;
 use crate::arrays::bool::array::NUM_SLOTS;
 use crate::arrays::bool::array::SLOT_NAMES;
-use crate::arrays::bool::array::VALIDITY_SLOT;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -27,7 +26,6 @@ use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod canonical;
 mod kernel;
 mod operations;
@@ -39,6 +37,7 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
+use crate::vtable::ValidityVTableFromValidityHelper;
 
 vtable!(Bool, Bool, BoolData);
 
@@ -78,14 +77,14 @@ impl VTable for Bool {
 
     fn array_hash<H: std::hash::Hasher>(array: &BoolData, state: &mut H, precision: Precision) {
         array.to_bit_buffer().array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &BoolData, other: &BoolData, precision: Precision) -> bool {
         array
             .to_bit_buffer()
             .array_eq(&other.to_bit_buffer(), precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -168,10 +167,6 @@ impl VTable for Bool {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype().nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

@@ -10,7 +10,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 /// Compresses the given patches by downscaling integers and checking for constant values.
-pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
+pub fn compress_patches(patches: Patches) -> VortexResult<Patches> {
     // Downscale the patch indices.
     let indices = patches.indices().to_primitive().narrow()?.into_array();
 

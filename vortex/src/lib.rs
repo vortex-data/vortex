@@ -337,7 +337,7 @@ mod test {
         assert!(
             recovered_primitive
                 .validity()
-                .mask_eq(array.validity(), &mut ctx)?
+                .mask_eq(&array.validity(), &mut ctx)?
         );
         assert_eq!(
             recovered_primitive.to_buffer::<u64>(),

@@ -94,10 +94,10 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct VarBinViewData {
     pub(super) slots: Vec<Option<ArrayRef>>,
+    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) buffers: Arc<[BufferHandle]>,
     pub(super) views: BufferHandle,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -261,12 +261,13 @@ impl VarBinViewData {
         validity: Validity,
     ) -> Self {
         let len = views.len() / size_of::<BinaryView>();
+        let slots = Self::make_slots(&validity, len);
         Self {
-            slots: Self::make_slots(&validity, len),
+            slots,
+            validity,
             views,
             buffers,
             dtype,
-            validity,
             stats_set: Default::default(),
         }
     }
@@ -388,11 +389,12 @@ impl VarBinViewData {
 
     /// Splits the array into owned parts
     pub fn into_parts(self) -> VarBinViewArrayParts {
+        let validity = self.validity;
         VarBinViewArrayParts {
             dtype: self.dtype,
             buffers: self.buffers,
             views: self.views,
-            validity: self.validity,
+            validity,
         }
     }
 

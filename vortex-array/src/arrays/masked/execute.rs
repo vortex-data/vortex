@@ -80,7 +80,7 @@ fn mask_validity_bool(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<BoolArray> {
     let len = array.len();
-    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
+    let new_validity = combine_validity(&array.validity(), mask, len, ctx)?;
     Ok(BoolArray::new(array.to_bit_buffer(), new_validity))
 }
 
@@ -91,7 +91,7 @@ fn mask_validity_primitive(
 ) -> VortexResult<PrimitiveArray> {
     let len = array.len();
     let ptype = array.ptype();
-    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
+    let new_validity = combine_validity(&array.validity(), mask, len, ctx)?;
     // SAFETY: validity has same length as values
     Ok(unsafe {
         PrimitiveArray::new_unchecked_from_handle(
@@ -110,7 +110,7 @@ fn mask_validity_decimal(
     let len = array.len();
     let dec_dtype = array.decimal_dtype();
     let values_type = array.values_type();
-    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
+    let new_validity = combine_validity(&array.validity(), mask, len, ctx)?;
     // SAFETY: We're only changing validity, not the data structure
     Ok(match_each_decimal_value_type!(values_type, |T| {
         let buffer = array.buffer::<T>();
@@ -126,7 +126,7 @@ fn mask_validity_varbinview(
 ) -> VortexResult<VarBinViewArray> {
     let len = array.len();
     let dtype = array.dtype().as_nullable();
-    let new_validity = combine_validity(array.validity(), mask, len, ctx)?;
+    let new_validity = combine_validity(&array.validity(), mask, len, ctx)?;
     // SAFETY: We're only changing validity, not the data structure
     Ok(unsafe {
         VarBinViewArray::new_handle_unchecked(

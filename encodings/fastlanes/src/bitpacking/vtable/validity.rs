@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
+use vortex_array::vtable::ArrayView;
+use vortex_array::vtable::ValidityVTable;
+use vortex_error::VortexResult;
 
-use crate::BitPackedData;
+use crate::BitPacked;
 
-impl ValidityHelper for BitPackedData {
-    fn validity(&self) -> &Validity {
-        &self.validity
+impl ValidityVTable<BitPacked> for BitPacked {
+    fn validity(array: ArrayView<'_, BitPacked>) -> VortexResult<Validity> {
+        Ok(array.data().validity())
     }
 }

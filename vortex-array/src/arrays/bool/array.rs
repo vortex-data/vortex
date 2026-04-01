@@ -59,11 +59,11 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct BoolData {
     pub(super) slots: Vec<Option<ArrayRef>>,
+    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
     pub(super) len: usize,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -245,13 +245,16 @@ impl BoolData {
 
         let (offset, len, buffer) = bits.into_inner();
 
+        let slots = Self::make_slots(&validity, len);
+        let dtype = DType::Bool(validity.nullability());
+
         Ok(Self {
-            slots: Self::make_slots(&validity, len),
-            dtype: DType::Bool(validity.nullability()),
+            slots,
+            validity,
+            dtype,
             bits: BufferHandle::new_host(buffer),
             offset,
             len,
-            validity,
             stats_set: ArrayStats::default(),
         })
     }
@@ -277,13 +280,16 @@ impl BoolData {
             bits.len() * 8,
         );
 
+        let slots = Self::make_slots(&validity, len);
+        let dtype = DType::Bool(validity.nullability());
+
         Ok(Self {
-            slots: Self::make_slots(&validity, len),
-            dtype: DType::Bool(validity.nullability()),
+            slots,
+            validity,
+            dtype,
             bits,
             offset,
             len,
-            validity,
             stats_set: ArrayStats::default(),
         })
     }
@@ -293,14 +299,16 @@ impl BoolData {
             Self::try_new(bits, validity).vortex_expect("Failed to create BoolData")
         } else {
             let (offset, len, buffer) = bits.into_inner();
+            let slots = Self::make_slots(&validity, len);
+            let dtype = DType::Bool(validity.nullability());
 
             Self {
-                slots: Self::make_slots(&validity, len),
-                dtype: DType::Bool(validity.nullability()),
+                slots,
+                validity,
+                dtype,
                 bits: BufferHandle::new_host(buffer),
                 offset,
                 len,
-                validity,
                 stats_set: ArrayStats::default(),
             }
         }

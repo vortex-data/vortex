@@ -448,6 +448,17 @@ impl<'a, V: VTable> ArrayView<'a, V> {
     }
 }
 
+impl<'a, V: VTable> ArrayView<'a, V>
+where
+    V::ArrayData: crate::vtable::ValidityHelper,
+{
+    /// Returns a reference to the validity.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> &'a crate::validity::Validity {
+        crate::vtable::ValidityHelper::validity(self.data)
+    }
+}
+
 impl<V: VTable> Deref for ArrayView<'_, V> {
     type Target = V::ArrayData;
 

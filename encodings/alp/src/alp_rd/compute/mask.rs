@@ -26,7 +26,7 @@ impl MaskReduce for ALPRD {
                 array.left_parts_dictionary().clone(),
                 array.right_parts().clone(),
                 array.right_bit_width(),
-                array.left_parts_patches().cloned(),
+                array.left_parts_patches(),
             )?
             .into_array(),
         ))

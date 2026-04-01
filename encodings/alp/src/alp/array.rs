@@ -73,13 +73,13 @@ impl VTable for ALP {
     fn array_hash<H: std::hash::Hasher>(array: &ALPData, state: &mut H, precision: Precision) {
         array.encoded().array_hash(state, precision);
         array.exponents.hash(state);
-        array.patches.array_hash(state, precision);
+        array.patches().array_hash(state, precision);
     }
 
     fn array_eq(array: &ALPData, other: &ALPData, precision: Precision) -> bool {
         array.encoded().array_eq(other.encoded(), precision)
             && array.exponents == other.exponents
-            && array.patches.array_eq(&other.patches, precision)
+            && array.patches().array_eq(&other.patches(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -453,8 +453,8 @@ impl ALPData {
         Ok(Self {
             dtype,
             slots,
-            exponents,
             patches,
+            exponents,
             stats_set: Default::default(),
         })
     }
@@ -474,8 +474,8 @@ impl ALPData {
         Self {
             dtype,
             slots,
-            exponents,
             patches,
+            exponents,
             stats_set: Default::default(),
         }
     }
@@ -557,17 +557,18 @@ impl ALPData {
         self.exponents
     }
 
-    pub fn patches(&self) -> Option<&Patches> {
-        self.patches.as_ref()
+    pub fn patches(&self) -> Option<Patches> {
+        self.patches.clone()
     }
 
     /// Consumes the array and returns its parts.
     #[inline]
     pub fn into_parts(mut self) -> (ArrayRef, Exponents, Option<Patches>, DType) {
+        let patches = self.patches();
         let encoded = self.slots[ENCODED_SLOT]
             .take()
             .vortex_expect("ALPArray encoded slot");
-        (encoded, self.exponents, self.patches, self.dtype)
+        (encoded, self.exponents, patches, self.dtype)
     }
 }
 

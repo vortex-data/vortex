@@ -75,7 +75,7 @@ impl PrimitiveArray {
         let Some(min_max) = min_max(&self.clone().into_array(), &mut ctx)? else {
             return Ok(PrimitiveArray::new(
                 Buffer::<u8>::zeroed(self.len()),
-                self.validity.clone(),
+                self.validity().clone(),
             ));
         };
 
@@ -176,7 +176,7 @@ mod tests {
             result.dtype(),
             &DType::Primitive(PType::U8, Nullability::Nullable)
         );
-        assert!(matches!(result.validity, Validity::AllInvalid));
+        assert!(matches!(result.validity(), Validity::AllInvalid));
     }
 
     #[rstest]
@@ -222,7 +222,7 @@ mod tests {
             &DType::Primitive(PType::U8, Nullability::Nullable)
         );
         // Check that validity is preserved (the array should still have nullable values)
-        assert!(matches!(&result.validity, Validity::Array(_)));
+        assert!(matches!(&result.validity(), Validity::Array(_)));
     }
 
     #[test]
@@ -259,7 +259,7 @@ mod tests {
         let array2 = PrimitiveArray::new(Buffer::<i64>::empty(), Validity::NonNullable);
         let result2 = array2.narrow().unwrap();
         // Empty arrays should not have their validity changed
-        assert!(matches!(result.validity, Validity::AllInvalid));
-        assert!(matches!(result2.validity, Validity::NonNullable));
+        assert!(matches!(result.validity(), Validity::AllInvalid));
+        assert!(matches!(result2.validity(), Validity::NonNullable));
     }
 }

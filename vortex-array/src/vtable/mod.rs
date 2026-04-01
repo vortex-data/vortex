@@ -26,11 +26,14 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
+use crate::arrays::constant::Constant;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::patches::Patches;
+use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
@@ -241,6 +244,30 @@ pub fn validity_to_child(validity: &Validity, len: usize) -> Option<ArrayRef> {
         Validity::NonNullable | Validity::AllValid => None,
         Validity::AllInvalid => Some(ConstantArray::new(false, len).into_array()),
         Validity::Array(array) => Some(array.clone()),
+    }
+}
+
+/// Reconstruct a [`Validity`] from an optional child array and nullability.
+///
+/// This is the inverse of [`validity_to_child`].
+#[inline]
+pub fn child_to_validity(child: &Option<ArrayRef>, nullability: Nullability) -> Validity {
+    match child {
+        Some(arr) => {
+            // Detect constant bool arrays created by validity_to_child.
+            // Use direct ScalarValue matching to avoid expensive scalar conversion.
+            if let Some(c) = arr.as_opt::<Constant>()
+                && let Some(ScalarValue::Bool(val)) = c.scalar().value()
+            {
+                return if *val {
+                    Validity::AllValid
+                } else {
+                    Validity::AllInvalid
+                };
+            }
+            Validity::Array(arr.clone())
+        }
+        None => Validity::from(nullability),
     }
 }
 

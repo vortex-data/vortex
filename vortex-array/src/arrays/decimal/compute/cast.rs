@@ -127,7 +127,11 @@ pub fn upcast_decimal_values(
         let from_buffer = array.buffer::<F>();
         match_each_decimal_value_type!(to_values_type, |T| {
             let to_buffer = upcast_decimal_buffer::<F, T>(from_buffer);
-            Ok(DecimalArray::new(to_buffer, decimal_dtype, validity))
+            Ok(DecimalArray::new(
+                to_buffer,
+                decimal_dtype,
+                validity.clone(),
+            ))
         })
     })
 }

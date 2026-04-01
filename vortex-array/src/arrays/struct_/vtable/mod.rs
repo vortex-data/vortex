@@ -25,7 +25,6 @@ use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod kernel;
 mod operations;
 mod validity;
@@ -35,6 +34,7 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
+use crate::vtable::ValidityVTableFromValidityHelper;
 
 vtable!(Struct, Struct, StructData);
 
@@ -68,7 +68,7 @@ impl VTable for Struct {
         for field in array.iter_unmasked_fields() {
             field.array_hash(state, precision);
         }
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &StructData, other: &StructData, precision: Precision) -> bool {
@@ -77,7 +77,7 @@ impl VTable for Struct {
                 .iter_unmasked_fields()
                 .zip(other.iter_unmasked_fields())
                 .all(|(a, b)| a.array_eq(b, precision))
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

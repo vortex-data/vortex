@@ -176,7 +176,7 @@ fn fill_varbinview_array(
 ) -> ArrayRef {
     let array_ref = array.clone().into_array();
     match array.validity() {
-        Validity::NonNullable | Validity::AllValid => array.clone().into_array(),
+        Validity::NonNullable | Validity::AllValid => array.into_array(),
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
             let validity_bool_array = validity_array.to_bool();

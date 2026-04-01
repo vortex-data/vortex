@@ -21,7 +21,6 @@ use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod kernel;
 mod operations;
 mod validity;
@@ -40,6 +39,7 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
+use crate::vtable::ValidityVTableFromValidityHelper;
 
 vtable!(Primitive, Primitive, PrimitiveData);
 
@@ -72,7 +72,7 @@ impl VTable for Primitive {
 
     fn array_hash<H: Hasher>(array: &PrimitiveData, state: &mut H, precision: Precision) {
         array.buffer.array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &PrimitiveData, other: &PrimitiveData, precision: Precision) -> bool {

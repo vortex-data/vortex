@@ -85,7 +85,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     assert!(
         decompressed
             .validity()
-            .mask_eq(array.validity(), &mut ctx)
+            .mask_eq(&array.validity(), &mut ctx)
             .unwrap()
     );
 

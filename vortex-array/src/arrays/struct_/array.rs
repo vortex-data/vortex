@@ -146,9 +146,9 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 #[derive(Clone, Debug)]
 pub struct StructData {
     pub(super) len: usize,
+    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -331,11 +331,12 @@ impl StructData {
             .chain(fields.iter().map(|f| Some(f.clone())))
             .collect();
 
+        let new_dtype = DType::Struct(dtype, validity.nullability());
         Self {
             len: length,
-            dtype: DType::Struct(dtype, validity.nullability()),
-            slots,
             validity,
+            dtype: new_dtype,
+            slots,
             stats_set: Default::default(),
         }
     }
@@ -407,6 +408,7 @@ impl StructData {
     }
 
     pub fn into_parts(self) -> StructArrayParts {
+        let validity = self.validity;
         let struct_fields = self.dtype.into_struct_fields();
         let fields: Arc<[ArrayRef]> = self
             .slots
@@ -417,7 +419,7 @@ impl StructData {
         StructArrayParts {
             struct_fields,
             fields,
-            validity: self.validity,
+            validity,
         }
     }
 
@@ -624,6 +626,6 @@ impl StructData {
             .chain(once(array))
             .collect();
 
-        Self::try_new_with_dtype(children, new_fields, self.len, self.validity.clone())
+        Self::try_new_with_dtype(children, new_fields, self.len, self.validity().clone())
     }
 }

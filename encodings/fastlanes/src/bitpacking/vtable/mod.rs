@@ -28,7 +28,6 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -41,11 +40,9 @@ use crate::BitPackedData;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::NUM_SLOTS;
-use crate::bitpacking::array::PATCH_CHUNK_OFFSETS_SLOT;
 use crate::bitpacking::array::PATCH_INDICES_SLOT;
 use crate::bitpacking::array::PATCH_VALUES_SLOT;
 use crate::bitpacking::array::SLOT_NAMES;
-use crate::bitpacking::array::VALIDITY_SLOT;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
@@ -71,7 +68,7 @@ impl VTable for BitPacked {
     type Metadata = ProstMetadata<BitPackedMetadata>;
 
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &BitPackedData) -> &Self {
         &BitPacked
@@ -101,16 +98,16 @@ impl VTable for BitPacked {
         array.offset.hash(state);
         array.bit_width.hash(state);
         array.packed.array_hash(state, precision);
-        array.patches.array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.patches().array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &BitPackedData, other: &BitPackedData, precision: Precision) -> bool {
         array.offset == other.offset
             && array.bit_width == other.bit_width
             && array.packed.array_eq(&other.packed, precision)
-            && array.patches.array_eq(&other.patches, precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.patches().array_eq(&other.patches(), precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -155,32 +152,11 @@ impl VTable for BitPacked {
             slots.len()
         );
 
-        // Reconstruct patches from slots + existing metadata
-        array.patches = match (&slots[PATCH_INDICES_SLOT], &slots[PATCH_VALUES_SLOT]) {
-            (Some(indices), Some(values)) => {
-                let old = array
-                    .patches
-                    .as_ref()
-                    .vortex_expect("BitPackedArray had patch slots but no patches metadata");
-                Some(unsafe {
-                    Patches::new_unchecked(
-                        array.len,
-                        old.offset(),
-                        indices.clone(),
-                        values.clone(),
-                        slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
-                        None,
-                    )
-                })
-            }
-            _ => None,
-        };
-
-        // Reconstruct validity from slot
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
+        // If patch slots are being cleared, clear the metadata too
+        if slots[PATCH_INDICES_SLOT].is_none() || slots[PATCH_VALUES_SLOT].is_none() {
+            array.patch_offset = None;
+            array.patch_offset_within_chunk = None;
+        }
 
         array.slots = slots;
         Ok(())

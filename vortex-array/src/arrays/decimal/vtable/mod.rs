@@ -27,7 +27,6 @@ use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod kernel;
 mod operations;
 mod validity;
@@ -43,6 +42,7 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
 use crate::vtable::ArrayId;
+use crate::vtable::ValidityVTableFromValidityHelper;
 vtable!(Decimal, Decimal, DecimalData);
 
 // The type of the values can be determined by looking at the type info...right?
@@ -90,13 +90,13 @@ impl VTable for Decimal {
     fn array_hash<H: std::hash::Hasher>(array: &DecimalData, state: &mut H, precision: Precision) {
         array.values.array_hash(state, precision);
         std::mem::discriminant(&array.values_type).hash(state);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &DecimalData, other: &DecimalData, precision: Precision) -> bool {
         array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -189,10 +189,6 @@ impl VTable for Decimal {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

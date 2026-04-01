@@ -35,6 +35,7 @@ pub use patch::patch_chunk;
 
 use crate::ArrayRef;
 use crate::buffer::BufferHandle;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 pub(super) const VALIDITY_SLOT: usize = 0;
@@ -79,9 +80,9 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct PrimitiveData {
     pub(super) slots: Vec<Option<ArrayRef>>,
+    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) buffer: BufferHandle,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -110,11 +111,13 @@ impl PrimitiveData {
         validity: Validity,
     ) -> Self {
         let len = handle.len() / ptype.byte_width();
+        let slots = Self::make_slots(&validity, len);
+        let dtype = DType::Primitive(ptype, validity.nullability());
         Self {
-            slots: Self::make_slots(&validity, len),
-            buffer: handle,
-            dtype: DType::Primitive(ptype, validity.nullability()),
+            slots,
             validity,
+            buffer: handle,
+            dtype,
             stats_set: ArrayStats::default(),
         }
     }
@@ -165,11 +168,13 @@ impl PrimitiveData {
             .vortex_expect("[Debug Assertion]: Invalid `PrimitiveArray` parameters");
 
         let len = buffer.len();
+        let slots = Self::make_slots(&validity, len);
+        let dtype = DType::Primitive(T::PTYPE, validity.nullability());
         Self {
-            slots: Self::make_slots(&validity, len),
-            dtype: DType::Primitive(T::PTYPE, validity.nullability()),
-            buffer: BufferHandle::new_host(buffer.into_byte_buffer()),
+            slots,
             validity,
+            dtype,
+            buffer: BufferHandle::new_host(buffer.into_byte_buffer()),
             stats_set: Default::default(),
         }
     }
@@ -282,10 +287,11 @@ impl PrimitiveData {
     /// Consume the primitive array and returns its component parts.
     pub fn into_parts(self) -> PrimitiveArrayParts {
         let ptype = self.ptype();
+        let validity = self.validity;
         PrimitiveArrayParts {
             ptype,
             buffer: self.buffer,
-            validity: self.validity,
+            validity,
         }
     }
 }
@@ -329,11 +335,12 @@ impl PrimitiveData {
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let len = handle.len() / ptype.byte_width();
+        let slots = Self::make_slots(&validity, len);
         Self {
-            slots: Self::make_slots(&validity, len),
+            slots,
+            validity,
             buffer: handle,
             dtype,
-            validity,
             stats_set: ArrayStats::default(),
         }
     }

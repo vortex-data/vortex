@@ -10,6 +10,7 @@ use crate::arrays::VarBinArray;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 use crate::vtable::ArrayView;
+use crate::vtable::ValidityHelper;
 
 impl CastReduce for VarBin {
     fn cast(array: ArrayView<'_, VarBin>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

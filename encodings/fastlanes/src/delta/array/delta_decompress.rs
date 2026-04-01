@@ -29,7 +29,7 @@ pub fn delta_decompress(
     let start = array.offset();
     let end = start + array.len();
 
-    let validity = untranspose_validity(deltas.validity(), ctx)?;
+    let validity = untranspose_validity(&deltas.validity(), ctx)?;
     let validity = validity.slice(start..end)?;
 
     Ok(match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {

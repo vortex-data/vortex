@@ -62,7 +62,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     let mut bit_packed_iter = array.unpacked_chunks();
     bit_packed_iter.decode_into(uninit_slice);
 
-    if let Some(patches) = array.patches() {
+    if let Some(ref patches) = array.patches() {
         apply_patches_to_uninit_range(&mut uninit_range, patches, ctx)?;
     };
 

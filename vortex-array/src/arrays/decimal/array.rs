@@ -96,10 +96,10 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct DecimalData {
     pub(super) slots: Vec<Option<ArrayRef>>,
+    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) values: BufferHandle,
     pub(super) values_type: DecimalType,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -237,12 +237,14 @@ impl DecimalData {
         }
 
         let len = values.len() / values_type.byte_width();
+        let slots = Self::make_slots(&validity, len);
+        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         Self {
-            slots: Self::make_slots(&validity, len),
+            slots,
+            validity,
             values,
             values_type,
-            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
-            validity,
+            dtype,
             stats_set: Default::default(),
         }
     }
@@ -321,13 +323,14 @@ impl DecimalData {
     }
 
     pub fn into_parts(self) -> DecimalArrayParts {
+        let validity = self.validity;
         let decimal_dtype = self.dtype.into_decimal_opt().vortex_expect("cannot fail");
 
         DecimalArrayParts {
             decimal_dtype,
             values: self.values,
             values_type: self.values_type,
-            validity: self.validity,
+            validity,
         }
     }
 

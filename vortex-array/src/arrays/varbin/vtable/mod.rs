@@ -17,7 +17,6 @@ use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinData;
 use crate::arrays::varbin::array::NUM_SLOTS;
 use crate::arrays::varbin::array::SLOT_NAMES;
-use crate::arrays::varbin::array::VALIDITY_SLOT;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -82,13 +81,13 @@ impl VTable for VarBin {
     fn array_hash<H: std::hash::Hasher>(array: &VarBinData, state: &mut H, precision: Precision) {
         array.bytes().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &VarBinData, other: &VarBinData, precision: Precision) -> bool {
         array.bytes().array_eq(other.bytes(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -177,10 +176,6 @@ impl VTable for VarBin {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

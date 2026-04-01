@@ -30,10 +30,10 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets", "validity"];
 
 #[derive(Clone, Debug)]
 pub struct VarBinData {
+    pub(super) validity: Validity,
     pub(super) dtype: DType,
     pub(super) bytes: BufferHandle,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -166,10 +166,10 @@ impl VarBinData {
         let validity_slot = validity_to_child(&validity, len);
 
         Self {
+            validity,
             dtype,
             bytes,
             slots: vec![Some(offsets), validity_slot],
-            validity,
             stats_set: Default::default(),
         }
     }
@@ -460,10 +460,11 @@ impl VarBinData {
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
     pub fn into_parts(mut self) -> (DType, BufferHandle, ArrayRef, Validity) {
+        let validity = self.validity.clone();
         let offsets = self.slots[OFFSETS_SLOT]
             .take()
             .vortex_expect("VarBinArray offsets slot");
-        (self.dtype, self.bytes, offsets, self.validity)
+        (self.dtype, self.bytes, offsets, validity)
     }
 }
 

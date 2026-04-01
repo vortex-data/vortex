@@ -108,7 +108,7 @@ mod setup {
         ALP::try_new(
             for_with_bp.into_array(),
             alp_compressed.exponents(),
-            alp_compressed.patches().cloned(),
+            alp_compressed.patches(),
         )
         .unwrap()
         .into_array()
@@ -262,7 +262,7 @@ mod setup {
             offsets_bp.into_array(),
             codes.bytes().clone(),
             codes.dtype().clone(),
-            codes.validity().clone(),
+            codes.validity(),
         )
         .unwrap();
 
