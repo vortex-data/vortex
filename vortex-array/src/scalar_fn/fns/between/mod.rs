@@ -150,21 +150,16 @@ fn between_canonical(
     }
 
     // Try type-specific kernels
-    if let Some(prim) = arr.as_opt::<Primitive>() {
-        let prim = prim.as_view();
-        if let Some(result) =
-            <Primitive as BetweenKernel>::between(prim.as_view(), lower, upper, options, ctx)?
-        {
-            return Ok(result);
-        }
+    if let Some(prim) = arr.as_opt::<Primitive>()
+        && let Some(result) =
+            <Primitive as BetweenKernel>::between(prim, lower, upper, options, ctx)?
+    {
+        return Ok(result);
     }
-    if let Some(dec) = arr.as_opt::<Decimal>() {
-        let dec = dec.as_view();
-        if let Some(result) =
-            <Decimal as BetweenKernel>::between(dec.as_view(), lower, upper, options, ctx)?
-        {
-            return Ok(result);
-        }
+    if let Some(dec) = arr.as_opt::<Decimal>()
+        && let Some(result) = <Decimal as BetweenKernel>::between(dec, lower, upper, options, ctx)?
+    {
+        return Ok(result);
     }
 
     // TODO(joe): return lazy compare once the executor supports this

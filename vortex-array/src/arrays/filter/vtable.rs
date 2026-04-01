@@ -169,7 +169,7 @@ impl VTable for Filter {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        if let Some(canonical) = execute_filter_fast_paths(array.inner_ref(), ctx)? {
+        if let Some(canonical) = execute_filter_fast_paths(array.as_view(), ctx)? {
             return Ok(ExecutionResult::done(canonical));
         }
         let Mask::Values(mask_values) = &array.mask else {

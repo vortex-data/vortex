@@ -233,8 +233,7 @@ impl VTable for FSST {
                         codes.encoding_id()
                     )
                 })?
-                .clone()
-                .into();
+                .into_owned();
             let uncompressed_lengths = children.get(
                 1,
                 &DType::Primitive(

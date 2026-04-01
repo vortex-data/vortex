@@ -12,12 +12,12 @@ use vortex_array::dtype::PhysicalPType;
 use vortex_array::dtype::UnsignedPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_array::vtable::ArrayView;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitPackedData;
 use crate::FoRArray;
 use crate::bitpack_decompress;
 use crate::unpack_iter::UnpackStrategy;
@@ -80,7 +80,7 @@ pub(crate) fn fused_decompress<
     T: PhysicalPType<Physical = T> + UnsignedPType + FoR + WrappingAdd,
 >(
     for_: &FoRArray,
-    bp: &BitPackedData,
+    bp: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let ref_ = for_

@@ -28,6 +28,7 @@ use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;
 use crate::validity::Validity;
 use crate::vtable::Array;
+
 pub(super) const CHUNK_OFFSETS_SLOT: usize = 0;
 pub(super) const CHUNKS_OFFSET: usize = 1;
 

@@ -32,7 +32,6 @@ use vortex_session::VortexSession;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
@@ -114,7 +113,7 @@ impl ArrayRef {
             let is_done = stack
                 .last()
                 .map_or(M::matches as DonePredicate, |frame| frame.2);
-            if is_done(current.as_ref()) {
+            if is_done(&current) {
                 match stack.pop() {
                     None => {
                         ctx.log(format_args!("-> {}", current));
@@ -130,7 +129,7 @@ impl ArrayRef {
 
             // If we've reached canonical form, we can't execute any further regardless
             // of whether the matcher matched.
-            if AnyCanonical::matches(current.as_ref()) {
+            if AnyCanonical::matches(&current) {
                 match stack.pop() {
                     None => {
                         ctx.log(format_args!("-> canonical (unmatched) {}", current));
@@ -368,7 +367,7 @@ fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
 }
 
 /// A predicate that determines when an array has reached a desired form during execution.
-pub type DonePredicate = fn(&dyn DynArray) -> bool;
+pub type DonePredicate = fn(&ArrayRef) -> bool;
 
 /// Metadata-only step indicator returned alongside an array in [`ExecutionResult`].
 ///

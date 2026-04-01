@@ -187,7 +187,9 @@ impl TryFrom<ArrayRef> for TemporalData {
                 ext.ext_dtype()
             );
         }
-        Ok(Self { ext: ext.as_view() })
+        Ok(Self {
+            ext: ext.into_owned(),
+        })
     }
 }
 

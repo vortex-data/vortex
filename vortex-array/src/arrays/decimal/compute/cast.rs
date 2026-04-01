@@ -70,7 +70,7 @@ impl CastKernel for Decimal {
         let array = if target_values_type > array.values_type() {
             upcast_decimal_values(array, target_values_type)?
         } else {
-            array.array_ref().as_::<Decimal>().as_view()
+            array.array_ref().as_::<Decimal>().into_owned()
         };
 
         // SAFETY: new_validity same length as previous validity, just cast
@@ -107,7 +107,7 @@ pub fn upcast_decimal_values(
 
     // If already the target type, just clone
     if from_values_type == to_values_type {
-        return Ok(array.array_ref().as_::<Decimal>().as_view());
+        return Ok(array.array_ref().as_::<Decimal>().into_owned());
     }
 
     // Only allow upcasting (widening)

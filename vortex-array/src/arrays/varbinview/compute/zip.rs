@@ -54,11 +54,10 @@ impl ZipKernel for VarBinView {
         let mut validity_builder = LazyBitBufferBuilder::new(len);
 
         let true_validity = if_true.validity_mask();
-        let false_validity = if_false.validity_mask()?;
+        let false_validity = if_false.validity_mask();
 
         let mask = mask.try_to_mask_fill_null_false(ctx)?;
-        let if_false_typed = if_false.as_view();
-        let if_false_view = if_false_typed.as_view();
+        let if_false_view = if_false;
         match mask.slices() {
             AllOr::All => push_range(
                 if_true,

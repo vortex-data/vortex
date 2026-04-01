@@ -25,7 +25,6 @@ use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
@@ -48,7 +47,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Dict>,
-        parent: &ArrayInner<ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Check that the scalar function can actually be pushed down.
@@ -150,7 +149,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Dict>,
-        parent: &ArrayInner<ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Don't attempt to pull up if there are less than 2 siblings.

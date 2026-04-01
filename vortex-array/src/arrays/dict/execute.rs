@@ -73,7 +73,7 @@ fn take_bool(
     Ok(<Bool as TakeExecute>::take(array, &codes_ref, ctx)?
         .vortex_expect("take bool should not return None")
         .as_::<Bool>()
-        .as_view())
+        .into_owned())
 }
 
 fn take_primitive(
@@ -87,7 +87,7 @@ fn take_primitive(
         .vortex_expect("take primitive array")
         .vortex_expect("take primitive should not return None")
         .as_::<Primitive>()
-        .as_view()
+        .into_owned()
 }
 
 fn take_decimal(
@@ -101,7 +101,7 @@ fn take_decimal(
         .vortex_expect("take decimal array")
         .vortex_expect("take decimal should not return None")
         .as_::<Decimal>()
-        .as_view()
+        .into_owned()
 }
 
 fn take_varbinview(
@@ -115,7 +115,7 @@ fn take_varbinview(
         .vortex_expect("take varbinview array")
         .vortex_expect("take varbinview should not return None")
         .as_::<VarBinView>()
-        .as_view()
+        .into_owned()
 }
 
 fn take_listview(array: &ListViewArray, codes: &PrimitiveArray) -> ListViewArray {
@@ -125,7 +125,7 @@ fn take_listview(array: &ListViewArray, codes: &PrimitiveArray) -> ListViewArray
         .vortex_expect("take listview array")
         .vortex_expect("take listview should not return None")
         .as_::<ListView>()
-        .as_view()
+        .into_owned()
 }
 
 fn take_fixed_size_list(
@@ -139,7 +139,7 @@ fn take_fixed_size_list(
         .vortex_expect("take fixed size list array")
         .vortex_expect("take fixed size list should not return None")
         .as_::<FixedSizeList>()
-        .as_view()
+        .into_owned()
 }
 
 fn take_struct(array: &StructArray, codes: &PrimitiveArray) -> StructArray {
@@ -149,7 +149,7 @@ fn take_struct(array: &StructArray, codes: &PrimitiveArray) -> StructArray {
         .vortex_expect("take struct array")
         .vortex_expect("take struct should not return None")
         .as_::<Struct>()
-        .as_view()
+        .into_owned()
 }
 
 fn take_extension(
@@ -163,5 +163,5 @@ fn take_extension(
         .vortex_expect("take extension storage")
         .vortex_expect("take extension should not return None")
         .as_::<Extension>()
-        .as_view()
+        .into_owned()
 }

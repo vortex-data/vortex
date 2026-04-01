@@ -20,7 +20,6 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -402,7 +401,6 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::Canonical;
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;

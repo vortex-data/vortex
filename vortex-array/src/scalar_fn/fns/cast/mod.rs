@@ -115,7 +115,7 @@ impl ScalarFnVTable for Cast {
 
         match columnar {
             ColumnarView::Canonical(canonical) => {
-                match cast_canonical(canonical.clone(), target_dtype, ctx)? {
+                match cast_canonical(canonical, target_dtype, ctx)? {
                     Some(result) => Ok(result),
                     None => vortex_bail!(
                         "No CastKernel to cast canonical array {} from {} to {}",
@@ -126,7 +126,7 @@ impl ScalarFnVTable for Cast {
                 }
             }
             ColumnarView::Constant(constant) => {
-                match cast_constant(&constant.as_view(), target_dtype)? {
+                match cast_constant(&constant.into_owned(), target_dtype)? {
                     Some(result) => Ok(result),
                     None => vortex_bail!(
                         "No CastReduce to cast constant array from {} to {}",
@@ -207,42 +207,15 @@ fn cast_canonical(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     match canonical {
-        CanonicalView::Null(a) => {
-            let a = a.as_view();
-            <Null as CastReduce>::cast(a.as_view(), dtype)
-        }
-        CanonicalView::Bool(a) => {
-            let a = a.as_view();
-            <Bool as CastReduce>::cast(a.as_view(), dtype)
-        }
-        CanonicalView::Primitive(a) => {
-            let a = a.as_view();
-            <Primitive as CastKernel>::cast(a.as_view(), dtype, ctx)
-        }
-        CanonicalView::Decimal(a) => {
-            let a = a.as_view();
-            <Decimal as CastKernel>::cast(a.as_view(), dtype, ctx)
-        }
-        CanonicalView::VarBinView(a) => {
-            let a = a.as_view();
-            <VarBinView as CastReduce>::cast(a.as_view(), dtype)
-        }
-        CanonicalView::List(a) => {
-            let a = a.as_view();
-            <ListView as CastReduce>::cast(a.as_view(), dtype)
-        }
-        CanonicalView::FixedSizeList(a) => {
-            let a = a.as_view();
-            <FixedSizeList as CastReduce>::cast(a.as_view(), dtype)
-        }
-        CanonicalView::Struct(a) => {
-            let a = a.as_view();
-            <Struct as CastKernel>::cast(a.as_view(), dtype, ctx)
-        }
-        CanonicalView::Extension(a) => {
-            let a = a.as_view();
-            <Extension as CastReduce>::cast(a.as_view(), dtype)
-        }
+        CanonicalView::Null(a) => <Null as CastReduce>::cast(a, dtype),
+        CanonicalView::Bool(a) => <Bool as CastReduce>::cast(a, dtype),
+        CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::VarBinView(a) => <VarBinView as CastReduce>::cast(a, dtype),
+        CanonicalView::List(a) => <ListView as CastReduce>::cast(a, dtype),
+        CanonicalView::FixedSizeList(a) => <FixedSizeList as CastReduce>::cast(a, dtype),
+        CanonicalView::Struct(a) => <Struct as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),
         CanonicalView::Variant(_) => {
             vortex_bail!("Variant arrays don't support casting")
         }

@@ -13,7 +13,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -52,7 +51,7 @@ use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::matcher::Matcher;
 use crate::validity::Validity;
-use crate::vtable::ArrayInner;
+use crate::vtable::ArrayView;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
@@ -464,66 +463,57 @@ pub trait ToCanonical {
 }
 
 // Blanket impl for all Array encodings.
-impl<A: DynArray + ?Sized> ToCanonical for A {
+impl ToCanonical for ArrayRef {
     fn to_null(&self) -> NullArray {
-        self.to_array()
-            .to_canonical()
+        self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_null()
     }
 
     fn to_bool(&self) -> BoolArray {
-        self.to_array()
-            .to_canonical()
+        self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_bool()
     }
 
     fn to_primitive(&self) -> PrimitiveArray {
-        self.to_array()
-            .to_canonical()
+        self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_primitive()
     }
 
     fn to_decimal(&self) -> DecimalArray {
-        self.to_array()
-            .to_canonical()
+        self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_decimal()
     }
 
     fn to_struct(&self) -> StructArray {
-        self.to_array()
-            .to_canonical()
+        self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_struct()
     }
 
     fn to_listview(&self) -> ListViewArray {
-        self.to_array()
-            .to_canonical()
+        self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_listview()
     }
 
     fn to_fixed_size_list(&self) -> FixedSizeListArray {
-        self.to_array()
-            .to_canonical()
+        self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_fixed_size_list()
     }
 
     fn to_varbinview(&self) -> VarBinViewArray {
-        self.to_array()
-            .to_canonical()
+        self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_varbinview()
     }
 
     fn to_extension(&self) -> ExtensionArray {
-        self.to_array()
-            .to_canonical()
+        self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_extension()
     }
@@ -950,35 +940,35 @@ impl Executable for StructArray {
 
 /// A view into a canonical array type.
 ///
-/// Uses `ArrayInner<V>` rather than `Array<V>` because these are obtained by
-/// downcasting through the `Matcher` trait which returns `&ArrayInner<V>`.
-#[derive(Debug, Clone)]
+/// Uses `ArrayView<V>` because these are obtained by
+/// downcasting through the `Matcher` trait which returns `ArrayView<V>`.
+#[derive(Debug, Clone, Copy)]
 pub enum CanonicalView<'a> {
-    Null(&'a ArrayInner<Null>),
-    Bool(&'a ArrayInner<Bool>),
-    Primitive(&'a ArrayInner<Primitive>),
-    Decimal(&'a ArrayInner<Decimal>),
-    VarBinView(&'a ArrayInner<VarBinView>),
-    List(&'a ArrayInner<ListView>),
-    FixedSizeList(&'a ArrayInner<FixedSizeList>),
-    Struct(&'a ArrayInner<Struct>),
-    Extension(&'a ArrayInner<Extension>),
-    Variant(&'a ArrayInner<Variant>),
+    Null(ArrayView<'a, Null>),
+    Bool(ArrayView<'a, Bool>),
+    Primitive(ArrayView<'a, Primitive>),
+    Decimal(ArrayView<'a, Decimal>),
+    VarBinView(ArrayView<'a, VarBinView>),
+    List(ArrayView<'a, ListView>),
+    FixedSizeList(ArrayView<'a, FixedSizeList>),
+    Struct(ArrayView<'a, Struct>),
+    Extension(ArrayView<'a, Extension>),
+    Variant(ArrayView<'a, Variant>),
 }
 
 impl From<CanonicalView<'_>> for Canonical {
     fn from(value: CanonicalView<'_>) -> Self {
         match value {
-            CanonicalView::Null(a) => Canonical::Null(a.as_view()),
-            CanonicalView::Bool(a) => Canonical::Bool(a.as_view()),
-            CanonicalView::Primitive(a) => Canonical::Primitive(a.as_view()),
-            CanonicalView::Decimal(a) => Canonical::Decimal(a.as_view()),
-            CanonicalView::VarBinView(a) => Canonical::VarBinView(a.as_view()),
-            CanonicalView::List(a) => Canonical::List(a.as_view()),
-            CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.as_view()),
-            CanonicalView::Struct(a) => Canonical::Struct(a.as_view()),
-            CanonicalView::Extension(a) => Canonical::Extension(a.as_view()),
-            CanonicalView::Variant(a) => Canonical::Variant(a.as_view()),
+            CanonicalView::Null(a) => Canonical::Null(a.into_owned()),
+            CanonicalView::Bool(a) => Canonical::Bool(a.into_owned()),
+            CanonicalView::Primitive(a) => Canonical::Primitive(a.into_owned()),
+            CanonicalView::Decimal(a) => Canonical::Decimal(a.into_owned()),
+            CanonicalView::VarBinView(a) => Canonical::VarBinView(a.into_owned()),
+            CanonicalView::List(a) => Canonical::List(a.into_owned()),
+            CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.into_owned()),
+            CanonicalView::Struct(a) => Canonical::Struct(a.into_owned()),
+            CanonicalView::Extension(a) => Canonical::Extension(a.into_owned()),
+            CanonicalView::Variant(a) => Canonical::Variant(a.into_owned()),
         }
     }
 }
@@ -987,16 +977,16 @@ impl CanonicalView<'_> {
     /// Convert to a type-erased [`ArrayRef`].
     pub fn to_array_ref(&self) -> ArrayRef {
         match self {
-            CanonicalView::Null(a) => a.to_array_ref(),
-            CanonicalView::Bool(a) => a.to_array_ref(),
-            CanonicalView::Primitive(a) => a.to_array_ref(),
-            CanonicalView::Decimal(a) => a.to_array_ref(),
-            CanonicalView::VarBinView(a) => a.to_array_ref(),
-            CanonicalView::List(a) => a.to_array_ref(),
-            CanonicalView::FixedSizeList(a) => a.to_array_ref(),
-            CanonicalView::Struct(a) => a.to_array_ref(),
-            CanonicalView::Extension(a) => a.to_array_ref(),
-            CanonicalView::Variant(a) => a.to_array_ref(),
+            CanonicalView::Null(a) => a.array_ref().clone(),
+            CanonicalView::Bool(a) => a.array_ref().clone(),
+            CanonicalView::Primitive(a) => a.array_ref().clone(),
+            CanonicalView::Decimal(a) => a.array_ref().clone(),
+            CanonicalView::VarBinView(a) => a.array_ref().clone(),
+            CanonicalView::List(a) => a.array_ref().clone(),
+            CanonicalView::FixedSizeList(a) => a.array_ref().clone(),
+            CanonicalView::Struct(a) => a.array_ref().clone(),
+            CanonicalView::Extension(a) => a.array_ref().clone(),
+            CanonicalView::Variant(a) => a.array_ref().clone(),
         }
     }
 }
@@ -1006,7 +996,7 @@ pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
-    fn matches(array: &dyn DynArray) -> bool {
+    fn matches(array: &ArrayRef) -> bool {
         array.is::<Null>()
             || array.is::<Bool>()
             || array.is::<Primitive>()
@@ -1020,7 +1010,7 @@ impl Matcher for AnyCanonical {
             || array.is::<Variant>()
     }
 
-    fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(array: &'a ArrayRef) -> Option<Self::Match<'a>> {
         if let Some(a) = array.as_opt::<Null>() {
             Some(CanonicalView::Null(a))
         } else if let Some(a) = array.as_opt::<Bool>() {

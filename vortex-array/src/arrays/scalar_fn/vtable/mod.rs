@@ -19,7 +19,6 @@ use vortex_session::VortexSession;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::scalar_fn::array::ScalarFnData;
@@ -45,7 +44,6 @@ use crate::stats::ArrayStats;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
@@ -257,9 +255,13 @@ impl<V: scalar_fn::ScalarFnVTable> ScalarFnArrayExt for V {}
 #[derive(Debug)]
 pub struct AnyScalarFn;
 impl Matcher for AnyScalarFn {
-    type Match<'a> = &'a ArrayInner<ScalarFnVTable>;
+    type Match<'a> = ArrayView<'a, ScalarFnVTable>;
 
-    fn try_match(array: &dyn DynArray) -> Option<Self::Match<'_>> {
+    fn matches(array: &ArrayRef) -> bool {
+        array.is::<ScalarFnVTable>()
+    }
+
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
         array.as_opt::<ScalarFnVTable>()
     }
 }
@@ -271,17 +273,18 @@ pub struct ExactScalarFn<F: scalar_fn::ScalarFnVTable>(PhantomData<F>);
 impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
     type Match<'a> = ScalarFnArrayView<'a, F>;
 
-    fn matches(array: &dyn DynArray) -> bool {
+    fn matches(array: &ArrayRef) -> bool {
         if let Some(scalar_fn_array) = array.as_opt::<ScalarFnVTable>() {
-            scalar_fn_array.scalar_fn().is::<F>()
+            scalar_fn_array.data().scalar_fn().is::<F>()
         } else {
             false
         }
     }
 
-    fn try_match(array: &dyn DynArray) -> Option<Self::Match<'_>> {
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
         let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
-        let scalar_fn = scalar_fn_array.scalar_fn().downcast_ref::<F>()?;
+        let scalar_fn_data = scalar_fn_array.data();
+        let scalar_fn = scalar_fn_data.scalar_fn().downcast_ref::<F>()?;
         Some(ScalarFnArrayView {
             array,
             vtable: scalar_fn.vtable(),
@@ -291,13 +294,13 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
 }
 
 pub struct ScalarFnArrayView<'a, F: scalar_fn::ScalarFnVTable> {
-    array: &'a dyn DynArray,
+    array: &'a ArrayRef,
     pub vtable: &'a F,
     pub options: &'a F::Options,
 }
 
 impl<F: scalar_fn::ScalarFnVTable> Deref for ScalarFnArrayView<'_, F> {
-    type Target = dyn DynArray;
+    type Target = ArrayRef;
 
     fn deref(&self) -> &Self::Target {
         self.array

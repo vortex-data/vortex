@@ -198,7 +198,7 @@ impl VTable for Constant {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            constant_canonicalize(array.inner_ref())?.into_array(),
+            constant_canonicalize(array.as_view())?.into_array(),
         ))
     }
 
@@ -324,7 +324,7 @@ mod tests {
 
     /// Appends `array` into a fresh builder and asserts the result matches `constant_canonicalize`.
     fn assert_append_matches_canonical(array: ConstantArray) -> vortex_error::VortexResult<()> {
-        let expected = constant_canonicalize(array.inner_ref())?.into_array();
+        let expected = constant_canonicalize(array.as_view())?.into_array();
         let mut builder = builder_with_capacity(array.dtype(), array.len());
         array
             .into_array()

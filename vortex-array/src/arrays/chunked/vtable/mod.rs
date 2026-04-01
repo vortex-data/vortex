@@ -279,7 +279,7 @@ impl VTable for Chunked {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            _canonicalize(array.inner_ref(), ctx)?.into_array(),
+            _canonicalize(array.as_view(), ctx)?.into_array(),
         ))
     }
 

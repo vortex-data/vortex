@@ -179,7 +179,7 @@ pub fn nested_case_when(
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&eq(root(), lit(3))).unwrap();
+/// let result = xs.as_ref().apply(&eq(root(), lit(3))).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().to_bit_buffer(),
@@ -203,7 +203,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, not_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&not_eq(root(), lit(3))).unwrap();
+/// let result = xs.as_ref().apply(&not_eq(root(), lit(3))).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().to_bit_buffer(),
@@ -227,7 +227,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{gt_eq, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&gt_eq(root(), lit(3))).unwrap();
+/// let result = xs.as_ref().apply(&gt_eq(root(), lit(3))).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().to_bit_buffer(),
@@ -251,7 +251,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{gt, root, lit};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&gt(root(), lit(2))).unwrap();
+/// let result = xs.as_ref().apply(&gt(root(), lit(2))).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().to_bit_buffer(),
@@ -275,7 +275,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, lt_eq};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&lt_eq(root(), lit(2))).unwrap();
+/// let result = xs.as_ref().apply(&lt_eq(root(), lit(2))).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().to_bit_buffer(),
@@ -299,7 +299,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_buffer::buffer;
 /// # use vortex_array::expr::{root, lit, lt};
 /// let xs = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-/// let result = xs.to_array().apply(&lt(root(), lit(3))).unwrap();
+/// let result = xs.as_ref().apply(&lt(root(), lit(3))).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().to_bit_buffer(),
@@ -321,7 +321,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 /// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::expr::{root, lit, or};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = xs.to_array().apply(&or(root(), lit(false))).unwrap();
+/// let result = xs.as_ref().apply(&or(root(), lit(false))).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().to_bit_buffer(),
@@ -356,7 +356,7 @@ where
 /// # use vortex_array::{DynArray, IntoArray, ToCanonical};
 /// # use vortex_array::expr::{and, root, lit};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
-/// let result = xs.to_array().apply(&and(root(), lit(true))).unwrap();
+/// let result = xs.as_ref().apply(&and(root(), lit(true))).unwrap();
 ///
 /// assert_eq!(
 ///     result.to_bool().to_bit_buffer(),

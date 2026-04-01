@@ -30,7 +30,6 @@ use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
@@ -94,7 +93,7 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, ScalarFnVTable>,
-        parent: &ArrayInner<Slice>,
+        parent: ArrayView<'_, Slice>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let range = parent.slice_range();
@@ -142,7 +141,8 @@ impl ReduceNode for ArrayRef {
     }
 
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        self.as_opt::<ScalarFnVTable>().map(|a| a.scalar_fn())
+        self.as_opt::<ScalarFnVTable>()
+            .map(|a| a.data().scalar_fn())
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
@@ -192,7 +192,7 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, ScalarFnVTable>,
-        parent: &ArrayInner<Filter>,
+        parent: ArrayView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // If we only have one non-constant child, then it is _always_ cheaper to push down the

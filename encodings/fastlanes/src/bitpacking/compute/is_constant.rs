@@ -18,10 +18,10 @@ use vortex_array::dtype::IntegerPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
+use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitPackedData;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
 /// BitPacked-specific is_constant kernel with SIMD support.
@@ -52,7 +52,7 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
 }
 
 fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
-    array: &BitPackedData,
+    array: ArrayView<'_, BitPacked>,
 ) -> VortexResult<bool> {
     let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
     let patches = array.patches().map(|p| {

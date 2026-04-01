@@ -46,7 +46,7 @@ impl FlatLayoutFixture for RunEndFixture {
             rl_idx += 1;
         }
         let run_prim: PrimitiveArray = values.into_iter().collect();
-        let (run_ends, run_values) = runend_encode(&run_prim);
+        let (run_ends, run_values) = runend_encode(run_prim.as_view());
         let run_col = RunEnd::try_new(run_ends.into_array(), run_values)?;
 
         let statuses = ["open", "closed", "pending", "cancelled"];
@@ -70,7 +70,7 @@ impl FlatLayoutFixture for RunEndFixture {
         )?;
 
         let uniform_prim: PrimitiveArray = (0..N as i32).map(|i| i / 64).collect();
-        let (uniform_ends, uniform_values) = runend_encode(&uniform_prim);
+        let (uniform_ends, uniform_values) = runend_encode(uniform_prim.as_view());
         let uniform_col = RunEnd::try_new(uniform_ends.into_array(), uniform_values)?;
 
         let bool_ends: PrimitiveArray = (1..=N / 32).map(|i| (i * 32) as u16).collect();

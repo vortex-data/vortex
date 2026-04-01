@@ -22,7 +22,7 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::vtable::ArrayInner;
+use crate::vtable::ArrayView;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
 pub(super) fn to_arrow_byte_array<T: ByteArrayType>(
@@ -50,7 +50,7 @@ where
 
 /// Convert a Vortex VarBinArray into an Arrow GenericBinaryArray.
 fn varbin_to_byte_array<T: ByteArrayType>(
-    array: &ArrayInner<VarBin>,
+    array: ArrayView<'_, VarBin>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef>
 where

@@ -22,10 +22,10 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::validity::Validity;
-use crate::vtable::ArrayInner;
+use crate::vtable::ArrayView;
 
 pub(super) fn _canonicalize(
-    array: &ArrayInner<Chunked>,
+    array: ArrayView<'_, Chunked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
     if array.nchunks() == 0 {
@@ -40,7 +40,7 @@ pub(super) fn _canonicalize(
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
                 &owned_chunks,
-                Validity::copy_from_array(&array.clone().into_array())?,
+                Validity::copy_from_array(array.array_ref())?,
                 struct_dtype,
                 ctx,
             )?;
@@ -48,16 +48,13 @@ pub(super) fn _canonicalize(
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             &owned_chunks,
-            Validity::copy_from_array(&array.clone().into_array())?,
+            Validity::copy_from_array(array.array_ref())?,
             elem_dtype,
             ctx,
         )?),
         _ => {
             let mut builder = builder_with_capacity(array.dtype(), array.len());
-            array
-                .clone()
-                .into_array()
-                .append_to_builder(builder.as_mut(), ctx)?;
+            array.array_ref().append_to_builder(builder.as_mut(), ctx)?;
             builder.finish_into_canonical()
         }
     })

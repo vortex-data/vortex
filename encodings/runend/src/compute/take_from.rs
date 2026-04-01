@@ -7,7 +7,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::Dict;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
@@ -22,7 +21,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
     fn execute_parent(
         &self,
         array: ArrayView<'_, RunEnd>,
-        dict: &ArrayInner<Dict>,
+        dict: ArrayView<'_, Dict>,
         child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -85,7 +84,7 @@ mod tests {
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
-            .execute_parent(codes.as_view(), dict.inner_ref(), 0, &mut ctx)?
+            .execute_parent(codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 2, 2, 3, 3, 2, 2]);
@@ -108,7 +107,7 @@ mod tests {
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
-            .execute_parent(sliced_codes.as_view(), dict.inner_ref(), 0, &mut ctx)?
+            .execute_parent(sliced_codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 3, 3]);
@@ -131,7 +130,7 @@ mod tests {
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
-            .execute_parent(sliced_codes.as_view(), dict.inner_ref(), 0, &mut ctx)?
+            .execute_parent(sliced_codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32, 3, 2, 2]);
@@ -154,7 +153,7 @@ mod tests {
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
-            .execute_parent(sliced_codes.as_view(), dict.inner_ref(), 0, &mut ctx)?
+            .execute_parent(sliced_codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32]);
@@ -167,8 +166,7 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let result =
-            RunEndTakeFrom.execute_parent(codes.as_view(), dict.inner_ref(), 1, &mut ctx)?;
+        let result = RunEndTakeFrom.execute_parent(codes.as_view(), dict.as_view(), 1, &mut ctx)?;
         assert!(result.is_none());
         Ok(())
     }

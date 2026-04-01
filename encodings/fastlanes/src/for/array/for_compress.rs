@@ -150,8 +150,11 @@ mod test {
         let compressed = FoRArray::try_from_data(
             FoRData::try_new(bp.clone().into_array(), 10u32.into()).unwrap(),
         )?;
-        let decompressed =
-            fused_decompress::<u32>(&compressed, &bp, &mut SESSION.create_execution_ctx())?;
+        let decompressed = fused_decompress::<u32>(
+            &compressed,
+            bp.as_view(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         assert_arrays_eq!(decompressed, expect);
         Ok(())
     }

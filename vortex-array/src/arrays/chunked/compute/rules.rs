@@ -18,7 +18,6 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new(&[
@@ -37,7 +36,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Chunked>,
-        parent: &ArrayInner<ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         if parent.nchildren() != 1 {
@@ -72,7 +71,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Chunked>,
-        parent: &ArrayInner<ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         for (idx, child) in parent.iter_children().enumerate() {

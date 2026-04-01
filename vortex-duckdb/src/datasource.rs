@@ -331,7 +331,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
                 let array_result: StructArray = if let Some(array) = array_result.as_opt::<Struct>()
                 {
-                    array.clone().into()
+                    array.into_owned()
                 } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
                     && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
                 {

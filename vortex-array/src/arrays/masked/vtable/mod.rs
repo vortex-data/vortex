@@ -279,7 +279,7 @@ mod tests {
 
         assert!(decoded.is::<Masked>());
         assert_eq!(
-            array.to_array().display_values().to_string(),
+            array.as_ref().display_values().to_string(),
             decoded.display_values().to_string()
         );
     }

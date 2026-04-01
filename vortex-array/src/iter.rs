@@ -96,7 +96,7 @@ impl ArrayRef {
     pub fn to_array_iterator(&self) -> impl ArrayIterator + 'static {
         let dtype = self.dtype().clone();
         let iter = if let Some(chunked) = self.as_opt::<Chunked>() {
-            ArrayChunkIterator::Chunked(Arc::new(chunked.as_view()), 0)
+            ArrayChunkIterator::Chunked(Arc::new(chunked.into_owned()), 0)
         } else {
             ArrayChunkIterator::Single(Some(self.clone()))
         };

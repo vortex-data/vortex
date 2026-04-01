@@ -66,7 +66,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;

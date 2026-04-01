@@ -266,6 +266,7 @@ impl ArrayRef {
     }
 }
 
+// FIXME(ngates): deprecate and remove this
 impl Deref for ArrayRef {
     type Target = dyn DynArray;
     fn deref(&self) -> &dyn DynArray {
@@ -273,6 +274,7 @@ impl Deref for ArrayRef {
     }
 }
 
+// FIXME(ngates): deprecate and remove this
 impl AsRef<dyn DynArray> for ArrayRef {
     fn as_ref(&self) -> &dyn DynArray {
         self.0.as_ref()
@@ -296,11 +298,6 @@ impl ArrayRef {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     pub fn as_any(&self) -> &dyn Any {
         self.0.as_any()
-    }
-
-    /// Returns the array as an `Arc<dyn Any + Send + Sync>`.
-    pub fn as_any_arc(self) -> Arc<dyn Any + Send + Sync> {
-        self.0.as_any_arc()
     }
 
     /// Returns the length of the array.
@@ -409,7 +406,7 @@ impl ArrayRef {
 
     /// Does the array match the given matcher.
     pub fn is<M: Matcher>(&self) -> bool {
-        M::matches(&*self.0)
+        M::matches(self)
     }
 
     /// Returns the array downcast by the given matcher.
@@ -419,7 +416,7 @@ impl ArrayRef {
 
     /// Returns the array downcast by the given matcher.
     pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
-        M::try_match(&*self.0)
+        M::try_match(self)
     }
 
     /// Returns the array downcast to the given `Array<V>` as an owned typed handle.
@@ -428,8 +425,9 @@ impl ArrayRef {
     }
 
     /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
-    pub fn as_typed<V: VTable>(&self) -> Option<&ArrayInner<V>> {
-        self.0.as_any().downcast_ref::<ArrayInner<V>>()
+    pub fn as_typed<V: VTable>(&self) -> Option<ArrayView<'_, V>> {
+        let inner = self.0.as_any().downcast_ref::<ArrayInner<V>>()?;
+        Some(unsafe { ArrayView::new_unchecked(self, inner.data()) })
     }
 
     /// Returns the constant scalar if this is a constant array.
@@ -571,35 +569,6 @@ impl ArrayRef {
     pub fn depth_first_traversal(&self) -> impl Iterator<Item = ArrayRef> {
         self.0.depth_first_traversal()
     }
-
-    /// Returns a clone of this ArrayRef as an ArrayRef (for compatibility).
-    pub fn to_array(&self) -> ArrayRef {
-        self.clone()
-    }
-}
-
-// Internal-only methods on dyn DynArray for use within the crate.
-#[allow(dead_code)]
-impl dyn DynArray + '_ {
-    /// Does the array match the given matcher.
-    pub(crate) fn is<M: Matcher>(&self) -> bool {
-        M::matches(self)
-    }
-
-    /// Returns the array downcast by the given matcher.
-    pub(crate) fn as_<M: Matcher>(&self) -> M::Match<'_> {
-        self.as_opt::<M>().vortex_expect("Failed to downcast")
-    }
-
-    /// Returns the array downcast by the given matcher.
-    pub(crate) fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
-        M::try_match(self)
-    }
-
-    /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
-    pub(crate) fn as_typed<V: VTable>(&self) -> Option<&ArrayInner<V>> {
-        DynArray::as_any(self).downcast_ref::<ArrayInner<V>>()
-    }
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -725,7 +694,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         if DynArray::is_invalid(self, this, index)? {
             return Ok(Scalar::null(self.dtype.clone()));
         }
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
             view,
             index,
@@ -801,7 +770,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
 
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity> {
         if self.dtype.is_nullable() {
-            let view = unsafe { ArrayView::new(this, &self.data) };
+            let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
             let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(view)?;
             if let Validity::Array(array) = &validity {
                 vortex_ensure!(array.len() == self.len, "Validity array length mismatch");
@@ -845,7 +814,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         }
         let len = builder.len();
 
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::append_to_builder(view, builder, ctx)?;
 
         assert_eq!(
@@ -862,82 +831,82 @@ impl<V: VTable> DynArray for ArrayInner<V> {
     }
 
     fn children(&self, this: &ArrayRef) -> Vec<ArrayRef> {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nchildren(view)).map(|i| V::child(view, i)).collect()
     }
 
     fn nchildren(&self, this: &ArrayRef) -> usize {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::nchildren(view)
     }
 
     fn nth_child(&self, this: &ArrayRef, idx: usize) -> Option<ArrayRef> {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (idx < V::nchildren(view)).then(|| V::child(view, idx))
     }
 
     fn children_names(&self, this: &ArrayRef) -> Vec<String> {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nchildren(view))
             .map(|i| V::child_name(view, i))
             .collect()
     }
 
     fn named_children(&self, this: &ArrayRef) -> Vec<(String, ArrayRef)> {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nchildren(view))
             .map(|i| (V::child_name(view, i), V::child(view, i)))
             .collect()
     }
 
     fn slots(&self, this: &ArrayRef) -> Vec<Option<ArrayRef>> {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::slots(view).to_vec()
     }
 
     fn slot_name(&self, this: &ArrayRef, idx: usize) -> String {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::slot_name(view, idx)
     }
 
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer> {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view))
             .map(|i| V::buffer(view, i).to_host_sync())
             .collect()
     }
 
     fn buffer_handles(&self, this: &ArrayRef) -> Vec<BufferHandle> {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view)).map(|i| V::buffer(view, i)).collect()
     }
 
     fn buffer_names(&self, this: &ArrayRef) -> Vec<String> {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view))
             .filter_map(|i| V::buffer_name(view, i))
             .collect()
     }
 
     fn named_buffers(&self, this: &ArrayRef) -> Vec<(String, BufferHandle)> {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view))
             .filter_map(|i| V::buffer_name(view, i).map(|name| (name, V::buffer(view, i))))
             .collect()
     }
 
     fn nbuffers(&self, this: &ArrayRef) -> usize {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::nbuffers(view)
     }
 
     fn metadata(&self, this: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::serialize(V::metadata(view)?)
     }
 
     fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let view = unsafe { ArrayView::new(this, &self.data) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         match V::metadata(view) {
             Err(e) => write!(f, "<serde error: {e}>"),
             Ok(metadata) => Debug::fmt(&metadata, f),
@@ -971,13 +940,15 @@ impl<V: VTable> ArrayEq for ArrayInner<V> {
 }
 
 impl<V: VTable> Matcher for V {
-    type Match<'a> = &'a ArrayInner<V>;
+    type Match<'a> = ArrayView<'a, V>;
 
-    fn matches(array: &dyn DynArray) -> bool {
-        DynArray::as_any(array).is::<ArrayInner<V>>()
+    fn matches(array: &ArrayRef) -> bool {
+        array.as_any().is::<ArrayInner<V>>()
     }
 
-    fn try_match(array: &dyn DynArray) -> Option<&ArrayInner<V>> {
-        DynArray::as_any(array).downcast_ref::<ArrayInner<V>>()
+    fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
+        let inner = array.as_any().downcast_ref::<ArrayInner<V>>()?;
+        // SAFETY: `inner.data` is the `V::ArrayData` stored inside `array`.
+        Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
     }
 }

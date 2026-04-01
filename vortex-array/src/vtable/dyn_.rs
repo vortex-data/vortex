@@ -12,7 +12,6 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionResult;
 use crate::ExecutionStep;
 use crate::IntoArray;
@@ -23,7 +22,6 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable::Array;
 use crate::vtable::ArrayInner;
-use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
@@ -137,7 +135,7 @@ impl<V: VTable> DynVTable for V {
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let Some(reduced) = V::reduce(view::<V>(array))? else {
+        let Some(reduced) = V::reduce(array.as_::<V>())? else {
             return Ok(None);
         };
         vortex_ensure!(
@@ -161,7 +159,7 @@ impl<V: VTable> DynVTable for V {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(reduced) = V::reduce_parent(view::<V>(array), parent, child_idx)? else {
+        let Some(reduced) = V::reduce_parent(array.as_::<V>(), parent, child_idx)? else {
             return Ok(None);
         };
 
@@ -220,7 +218,7 @@ impl<V: VTable> DynVTable for V {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(result) = V::execute_parent(view::<V>(array), parent, child_idx, ctx)? else {
+        let Some(result) = V::execute_parent(array.as_::<V>(), parent, child_idx, ctx)? else {
             return Ok(None);
         };
 
@@ -237,22 +235,4 @@ impl<V: VTable> DynVTable for V {
 
         Ok(Some(result))
     }
-}
-
-/// Create an [`ArrayView`] from an `&ArrayRef`.
-fn view<'a, V: VTable>(array: &'a ArrayRef) -> ArrayView<'a, V> {
-    let typed = DynArray::as_any(array.as_ref())
-        .downcast_ref::<ArrayInner<V>>()
-        .vortex_expect("Failed to downcast array to expected encoding type");
-    // SAFETY: `typed.data` is the `V::ArrayData` stored inside `array`.
-    unsafe { ArrayView::new(array, &typed.data) }
-}
-
-/// Downcast an `ArrayRef` into an `Arc<ArrayInner<V>>`.
-fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<ArrayInner<V>> {
-    let any_arc = array.as_any_arc();
-    any_arc
-        .downcast::<ArrayInner<V>>()
-        .ok()
-        .vortex_expect("Failed to downcast array to expected encoding type")
 }

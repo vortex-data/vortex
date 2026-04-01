@@ -6,7 +6,6 @@ use std::ops::Range;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Patched;
 use crate::arrays::PatchedArray;
@@ -61,7 +60,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::Canonical;
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;

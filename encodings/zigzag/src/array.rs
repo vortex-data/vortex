@@ -331,7 +331,7 @@ mod test {
         let sliced = zigzag.slice(0..2).unwrap();
         let sliced = sliced.as_::<ZigZag>();
         assert_eq!(
-            sliced.scalar_at(sliced.len() - 1).unwrap(),
+            sliced.array_ref().scalar_at(sliced.len() - 1).unwrap(),
             Scalar::from(-5i32)
         );
 

@@ -11,6 +11,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -31,7 +32,6 @@ use crate::vtable::VTable;
 /// Prefer using [`Array<V>`] (owned typed handle) for constructing arrays
 /// and converting between typed and untyped representations.
 /// This type is returned by reference from [`Matcher`] downcasts.
-#[doc(hidden)]
 #[doc(hidden)]
 pub struct ArrayInner<V: VTable> {
     pub(crate) vtable: V,
@@ -409,26 +409,14 @@ impl<V: VTable> Array<V> {
         self.inner.statistics()
     }
 
-    /// Returns a reference to the inner `ArrayInner<V>`.
-    #[doc(hidden)]
-    pub fn inner_ref(&self) -> &ArrayInner<V> {
-        // SAFETY: We only construct Array<V> when the ArrayRef contains ArrayInner<V>.
-        unsafe {
-            self.inner
-                .as_any()
-                .downcast_ref::<ArrayInner<V>>()
-                .unwrap_unchecked()
-        }
-    }
-
     /// Returns a reference to the encoding-specific data.
     pub fn data(&self) -> &V::ArrayData {
-        &self.inner_ref().data
+        self.downcast_inner().data()
     }
 
     /// Returns a clone of the inner encoding-specific data.
     pub fn into_data(self) -> V::ArrayData {
-        self.inner_ref().data.clone()
+        self.downcast_inner().data.clone()
     }
 
     /// Returns a cloned [`ArrayRef`].
@@ -438,8 +426,17 @@ impl<V: VTable> Array<V> {
 
     /// Returns an [`ArrayView`] borrowing this array's data.
     pub fn as_view(&self) -> ArrayView<'_, V> {
-        // SAFETY: `self.inner_ref().data` is the data inside `self.inner`.
-        unsafe { ArrayView::new(&self.inner, &self.inner_ref().data) }
+        let inner = self.downcast_inner();
+        // SAFETY: `inner.data` is the `V::ArrayData` stored inside `self.inner`.
+        unsafe { ArrayView::new_unchecked(&self.inner, &inner.data) }
+    }
+
+    /// Downcast the inner `ArrayRef` to `&ArrayInner<V>`.
+    fn downcast_inner(&self) -> &ArrayInner<V> {
+        self.inner
+            .as_any()
+            .downcast_ref::<ArrayInner<V>>()
+            .vortex_expect("Array<V> inner type mismatch")
     }
 }
 
@@ -450,7 +447,7 @@ where
     /// Returns a reference to the validity.
     #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> &crate::validity::Validity {
-        crate::vtable::ValidityHelper::validity(&self.inner_ref().data)
+        crate::vtable::ValidityHelper::validity(self.data())
     }
 }
 
@@ -534,12 +531,6 @@ impl<V: VTable> Array<V> {
     }
 
     #[allow(clippy::same_name_method)]
-    #[deprecated(note = "use `.to_array_ref()` or `.into_array()` instead")]
-    pub fn to_array(&self) -> ArrayRef {
-        self.to_array_ref()
-    }
-
-    #[allow(clippy::same_name_method)]
     pub fn validity_mask(&self) -> VortexResult<vortex_mask::Mask> {
         self.inner.validity_mask()
     }
@@ -549,7 +540,7 @@ impl<V: VTable> Deref for Array<V> {
     type Target = V::ArrayData;
 
     fn deref(&self) -> &V::ArrayData {
-        &self.inner_ref().data
+        self.data()
     }
 }
 
@@ -620,7 +611,7 @@ impl<V: VTable> Clone for ArrayView<'_, V> {
 impl<'a, V: VTable> ArrayView<'a, V> {
     /// # Safety
     /// Caller must ensure `data` is the `V::ArrayData` stored inside `array`.
-    pub(crate) unsafe fn new(array: &'a ArrayRef, data: &'a V::ArrayData) -> Self {
+    pub(crate) unsafe fn new_unchecked(array: &'a ArrayRef, data: &'a V::ArrayData) -> Self {
         Self { array, data }
     }
 
@@ -650,6 +641,11 @@ impl<'a, V: VTable> ArrayView<'a, V> {
 
     pub fn statistics(&self) -> StatsSetRef<'_> {
         self.array.statistics()
+    }
+
+    pub fn into_owned(self) -> Array<V> {
+        // SAFETY: we are ourselves type checked as 'V'
+        unsafe { Array::<V>::from_array_ref_unchecked(self.array.clone()) }
     }
 }
 

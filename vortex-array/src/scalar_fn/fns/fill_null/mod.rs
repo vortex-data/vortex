@@ -116,7 +116,7 @@ impl ScalarFnVTable for FillNull {
 
         match columnar {
             ColumnarView::Canonical(canonical) => fill_null_canonical(canonical, &fill_scalar, ctx),
-            ColumnarView::Constant(constant) => fill_null_constant(constant, &fill_scalar),
+            ColumnarView::Constant(constant) => fill_null_constant(&constant, &fill_scalar),
         }
     }
 
@@ -171,21 +171,14 @@ fn fill_null_canonical(
         return result.execute::<ArrayRef>(ctx);
     }
     match canonical {
-        CanonicalView::Bool(a) => {
-            let a = a.as_view();
-            <Bool as FillNullKernel>::fill_null(a.as_view(), fill_value, ctx)?
-                .ok_or_else(|| vortex_err!("FillNullKernel for BoolArray returned None"))
-        }
+        CanonicalView::Bool(a) => <Bool as FillNullKernel>::fill_null(a, fill_value, ctx)?
+            .ok_or_else(|| vortex_err!("FillNullKernel for BoolArray returned None")),
         CanonicalView::Primitive(a) => {
-            let a = a.as_view();
-            <Primitive as FillNullKernel>::fill_null(a.as_view(), fill_value, ctx)?
+            <Primitive as FillNullKernel>::fill_null(a, fill_value, ctx)?
                 .ok_or_else(|| vortex_err!("FillNullKernel for PrimitiveArray returned None"))
         }
-        CanonicalView::Decimal(a) => {
-            let a = a.as_view();
-            <Decimal as FillNullKernel>::fill_null(a.as_view(), fill_value, ctx)?
-                .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None"))
-        }
+        CanonicalView::Decimal(a) => <Decimal as FillNullKernel>::fill_null(a, fill_value, ctx)?
+            .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
         other => vortex_bail!(
             "No FillNullKernel for canonical array {}",
             other.to_array_ref().encoding_id()

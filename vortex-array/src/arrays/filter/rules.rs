@@ -15,7 +15,6 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(super) const PARENT_RULES: ParentRuleSet<Filter> =
@@ -35,7 +34,7 @@ impl ArrayParentReduceRule<Filter> for FilterFilterRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, Filter>,
-        parent: &ArrayInner<Filter>,
+        parent: ArrayView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let combined_mask = child.mask.intersect_by_rank(&parent.mask);
@@ -75,7 +74,7 @@ impl ArrayReduceRule<Filter> for FilterStructRule {
             struct_fields,
             validity,
             ..
-        } = struct_array.clone().into_data().into_parts();
+        } = struct_array.into_owned().into_data().into_parts();
 
         let filtered_validity = validity.filter(mask)?;
 

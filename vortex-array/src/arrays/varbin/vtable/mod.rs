@@ -215,7 +215,7 @@ impl VTable for VarBin {
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            varbin_to_canonical(array.inner_ref(), ctx)?.into_array(),
+            varbin_to_canonical(array.as_view(), ctx)?.into_array(),
         ))
     }
 }

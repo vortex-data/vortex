@@ -211,7 +211,7 @@ impl Validity {
         match self {
             Self::NonNullable | Self::AllValid => Mask::new_true(length),
             Self::AllInvalid => Mask::new_false(length),
-            Self::Array(a) => ToCanonical::to_bool(a.as_ref()).to_mask(),
+            Self::Array(a) => a.to_bool().to_mask(),
         }
     }
 

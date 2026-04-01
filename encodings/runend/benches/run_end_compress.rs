@@ -48,7 +48,7 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
 
     bencher
         .with_inputs(|| &values)
-        .bench_refs(|values| runend_encode(values));
+        .bench_refs(|values| runend_encode(values.as_view()));
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
@@ -88,7 +88,7 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     let source_array = PrimitiveArray::from_iter(0..(length as i32)).into_array();
-    let (ends, values) = runend_encode(&values);
+    let (ends, values) = runend_encode(values.as_view());
     let runend_array = RunEnd::try_new(ends.into_array(), values)
         .unwrap()
         .into_array();

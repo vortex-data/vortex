@@ -7,7 +7,6 @@ use itertools::Itertools;
 use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;

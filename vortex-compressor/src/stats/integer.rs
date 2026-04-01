@@ -430,7 +430,7 @@ where
 
     let runs = loop_state.runs;
 
-    let array_ref = array.to_array();
+    let array_ref = array.as_ref();
     let min = array_ref
         .statistics()
         .compute_as::<T>(Stat::Min)

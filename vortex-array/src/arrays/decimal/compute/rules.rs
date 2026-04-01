@@ -16,7 +16,6 @@ use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
@@ -38,7 +37,7 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
     fn reduce_parent(
         &self,
         array: ArrayView<'_, Decimal>,
-        parent: &ArrayInner<Masked>,
+        parent: ArrayView<'_, Masked>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Merge the parent's validity mask into the child's validity

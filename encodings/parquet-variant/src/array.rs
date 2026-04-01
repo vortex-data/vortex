@@ -243,12 +243,9 @@ mod tests {
     fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
         let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
-        let inner = vortex_arr
-            .as_opt::<Variant>()
-            .unwrap()
-            .child()
-            .as_opt::<ParquetVariant>()
-            .unwrap();
+        let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
+        let child = variant_view.child();
+        let inner = child.as_opt::<ParquetVariant>().unwrap();
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner.to_arrow(&mut ctx)?;

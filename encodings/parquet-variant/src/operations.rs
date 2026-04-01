@@ -437,12 +437,9 @@ mod tests {
         assert!(vortex_arr.scalar_at(0)?.is_null());
         assert!(vortex_arr.scalar_at(1)?.is_null());
 
-        let inner_pv = vortex_arr
-            .as_opt::<Variant>()
-            .unwrap()
-            .child()
-            .as_opt::<ParquetVariant>()
-            .unwrap();
+        let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
+        let child = variant_view.child();
+        let inner_pv = child.as_opt::<ParquetVariant>().unwrap();
         let mut ctx = vortex_array::LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner_pv.to_arrow(&mut ctx)?;
         assert_eq!(roundtripped.inner().null_count(), 2);

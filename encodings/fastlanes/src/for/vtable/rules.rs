@@ -9,7 +9,6 @@ use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
-use vortex_array::vtable::ArrayInner;
 use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
@@ -33,7 +32,7 @@ impl ArrayParentReduceRule<FoR> for FoRFilterPushDownRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, FoR>,
-        parent: &ArrayInner<Filter>,
+        parent: ArrayView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let new_array = unsafe {

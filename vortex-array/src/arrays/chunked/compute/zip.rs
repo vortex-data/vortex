@@ -30,7 +30,7 @@ impl ZipKernel for Chunked {
             .union_nullability(if_false.dtype().nullability());
         let mut out_chunks = Vec::with_capacity(if_true.nchunks() + if_false.nchunks());
 
-        for pair in if_true.paired_chunks(if_false) {
+        for pair in if_true.paired_chunks(&if_false) {
             let pair = pair?;
             let mask_slice = mask.slice(pair.pos)?;
             out_chunks.push(mask_slice.zip(pair.left, pair.right)?);

@@ -17,7 +17,6 @@ use crate::scalar_fn::fns::between::BetweenReduceAdaptor;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 use crate::scalar_fn::fns::not::NotReduceAdaptor;
-use crate::vtable::ArrayInner;
 use crate::vtable::ArrayView;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Constant> = ParentRuleSet::new(&[
@@ -40,7 +39,7 @@ impl ArrayParentReduceRule<Constant> for ConstantFilterRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, Constant>,
-        parent: &ArrayInner<Filter>,
+        parent: ArrayView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(

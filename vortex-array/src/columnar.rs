@@ -8,7 +8,6 @@ use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::CanonicalView;
-use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -17,7 +16,7 @@ use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayInner;
+use crate::vtable::ArrayView;
 
 /// Represents a columnnar array of data, either in canonical form or as a constant array.
 ///
@@ -73,7 +72,7 @@ impl Executable for Columnar {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let result = array.execute_until::<AnyColumnar>(ctx)?;
         if let Some(constant) = result.as_opt::<Constant>() {
-            Ok(Columnar::Constant(constant.as_view()))
+            Ok(Columnar::Constant(constant.into_owned()))
         } else {
             Ok(Columnar::Canonical(
                 result
@@ -87,7 +86,7 @@ impl Executable for Columnar {
 
 pub enum ColumnarView<'a> {
     Canonical(CanonicalView<'a>),
-    Constant(&'a ArrayInner<Constant>),
+    Constant(ArrayView<'a, Constant>),
 }
 
 impl ColumnarView<'_> {
@@ -95,7 +94,7 @@ impl ColumnarView<'_> {
     pub fn to_array_ref(&self) -> ArrayRef {
         match self {
             ColumnarView::Canonical(canonical) => canonical.to_array_ref(),
-            ColumnarView::Constant(constant) => constant.to_array_ref(),
+            ColumnarView::Constant(constant) => constant.array_ref().clone(),
         }
     }
 }
@@ -104,7 +103,7 @@ pub struct AnyColumnar;
 impl Matcher for AnyColumnar {
     type Match<'a> = ColumnarView<'a>;
 
-    fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(array: &'a ArrayRef) -> Option<Self::Match<'a>> {
         if let Some(constant) = array.as_opt::<Constant>() {
             Some(ColumnarView::Constant(constant))
         } else {

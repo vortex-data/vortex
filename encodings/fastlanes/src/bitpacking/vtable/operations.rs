@@ -65,7 +65,7 @@ mod test {
             .reduce_parent(&array_ref, &slice_array.into_array(), 0)
             .expect("execute_parent failed")
             .expect("expected slice kernel to execute");
-        sliced.as_::<BitPacked>().as_view()
+        sliced.as_::<BitPacked>().into_owned()
     }
 
     #[test]

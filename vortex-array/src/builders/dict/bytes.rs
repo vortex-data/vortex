@@ -166,9 +166,9 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
 
         let len = array.len();
         if let Some(varbinview) = array.as_opt::<VarBinView>() {
-            self.encode_bytes(&varbinview.as_view(), len)
+            self.encode_bytes(&varbinview.into_owned(), len)
         } else if let Some(varbin) = array.as_opt::<VarBin>() {
-            self.encode_bytes(&varbin.as_view(), len)
+            self.encode_bytes(&varbin.into_owned(), len)
         } else {
             // NOTE(aduffy): it is very rare that this path would be taken, only e.g.
             //  if we're performing dictionary encoding downstream of some other compression.

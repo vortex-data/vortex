@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::Patched;
@@ -56,7 +55,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::arrays::Patched;

@@ -14,7 +14,6 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::vtable::Array;
 use vortex_error::VortexExpect;
 
 use crate::FSSTArray;

@@ -33,10 +33,10 @@ use crate::match_each_native_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::ArrayInner;
+use crate::vtable::ArrayView;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
-pub(crate) fn constant_canonicalize(array: &ArrayInner<Constant>) -> VortexResult<Canonical> {
+pub(crate) fn constant_canonicalize(array: ArrayView<'_, Constant>) -> VortexResult<Canonical> {
     let scalar = array.scalar();
 
     let validity = match array.dtype().nullability() {

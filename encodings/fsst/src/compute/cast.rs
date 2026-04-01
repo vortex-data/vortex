@@ -29,7 +29,7 @@ impl CastReduce for FSST {
                     dtype.clone(),
                     array.symbols().clone(),
                     array.symbol_lengths().clone(),
-                    new_codes.as_::<VarBin>().clone().into(),
+                    new_codes.as_::<VarBin>().into_owned(),
                     array.uncompressed_lengths().clone(),
                 )?
                 .into_array(),

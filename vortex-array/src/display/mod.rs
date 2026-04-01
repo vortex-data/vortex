@@ -315,7 +315,7 @@ impl Default for DisplayOptions {
 /// See also:
 /// [Array::display_as](../trait.Array.html#method.display_as)
 /// and [DisplayOptions].
-pub struct DisplayArrayAs<'a>(pub &'a dyn DynArray, pub DisplayOptions);
+pub struct DisplayArrayAs<'a>(pub &'a ArrayRef, pub DisplayOptions);
 
 impl Display for DisplayArrayAs<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -337,7 +337,13 @@ impl Display for DisplayArrayAs<'_> {
 /// ```
 impl Display for dyn DynArray + '_ {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.fmt_as(f, &DisplayOptions::MetadataOnly)
+        write!(
+            f,
+            "{}({}, len={})",
+            self.encoding_id(),
+            self.dtype(),
+            self.len()
+        )
     }
 }
 
@@ -365,7 +371,7 @@ impl ArrayRef {
     /// [DisplayArrayAs], and [DisplayOptions].
     pub fn display_values(&self) -> impl Display {
         DisplayArrayAs(
-            &**self,
+            self,
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space: false,
             },
@@ -376,7 +382,7 @@ impl ArrayRef {
     ///
     /// See [DisplayOptions] for examples.
     pub fn display_as(&self, options: DisplayOptions) -> impl Display {
-        DisplayArrayAs(&**self, options)
+        DisplayArrayAs(self, options)
     }
 
     /// Display the tree of array encodings and lengths without metadata, buffers, or stats.
@@ -403,7 +409,7 @@ impl ArrayRef {
     /// ```
     pub fn display_tree_encodings_only(&self) -> impl Display {
         DisplayArrayAs(
-            &**self,
+            self,
             DisplayOptions::TreeDisplay {
                 buffers: false,
                 metadata: false,
@@ -433,7 +439,7 @@ impl ArrayRef {
     /// ```
     pub fn display_tree(&self) -> impl Display {
         DisplayArrayAs(
-            &**self,
+            self,
             DisplayOptions::TreeDisplay {
                 buffers: true,
                 metadata: true,
@@ -471,11 +477,11 @@ impl ArrayRef {
     /// ```
     #[cfg(feature = "table-display")]
     pub fn display_table(&self) -> impl Display {
-        DisplayArrayAs(&**self, DisplayOptions::TableDisplay)
+        DisplayArrayAs(self, DisplayOptions::TableDisplay)
     }
 }
 
-impl dyn DynArray + '_ {
+impl ArrayRef {
     pub(crate) fn fmt_as(
         &self,
         f: &mut std::fmt::Formatter,
@@ -500,7 +506,7 @@ impl dyn DynArray + '_ {
                 let limit = self.len().min(f.precision().unwrap_or(DISPLAY_LIMIT));
                 let is_truncated = self.len() > limit;
 
-                let this = self.to_array();
+                let this = self;
                 let fmt_scalar = |i| {
                     this.scalar_at(i)
                         .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
@@ -548,7 +554,7 @@ impl dyn DynArray + '_ {
                 use crate::canonical::ToCanonical;
                 use crate::dtype::DType;
 
-                let this = self.to_array();
+                let this = self;
                 let mut builder = tabled::builder::Builder::default();
 
                 // Special logic for struct arrays.

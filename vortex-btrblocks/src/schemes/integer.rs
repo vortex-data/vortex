@@ -572,7 +572,7 @@ impl Scheme for RunEndScheme {
         let stats = data.integer_stats();
 
         // Run-end encode the ends.
-        let (ends, values) = runend_encode(stats.source());
+        let (ends, values) = runend_encode(stats.source().as_view());
 
         let compressed_values =
             compressor.compress_child(&values.to_primitive().into_array(), &ctx, self.id(), 0)?;
