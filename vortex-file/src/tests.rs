@@ -112,7 +112,7 @@ async fn test_read_simple() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -193,7 +193,7 @@ async fn test_round_trip_many_types() {
 
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -250,7 +250,7 @@ async fn test_read_simple_with_spawn() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -281,7 +281,7 @@ async fn test_read_projection() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -350,7 +350,7 @@ async fn unequal_batches() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -410,7 +410,7 @@ async fn write_chunked() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, chunked_st.into_array().to_array_stream())
+        .write(&mut buf, chunked_st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -442,7 +442,7 @@ async fn test_empty_varbin_array_roundtrip() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -471,7 +471,7 @@ async fn issue_5385_filter_casted_column() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, array.to_array_stream())
+        .write(&mut buf, array.to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -521,7 +521,7 @@ async fn filter_string() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -570,7 +570,7 @@ async fn filter_or() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -627,7 +627,7 @@ async fn filter_and() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -681,7 +681,7 @@ async fn test_with_indices_simple() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, expected_array.into_array().to_array_stream())
+        .write(&mut buf, expected_array.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -760,7 +760,7 @@ async fn test_with_indices_on_two_columns() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -815,7 +815,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, expected_array.into_array().to_array_stream())
+        .write(&mut buf, expected_array.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -915,7 +915,7 @@ async fn filter_string_chunked() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, array.to_array_stream())
+        .write(&mut buf, array.to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -1003,7 +1003,7 @@ async fn test_pruning_with_or() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, array.to_array_stream())
+        .write(&mut buf, array.to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -1076,7 +1076,7 @@ async fn test_repeated_projection() {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, single_column_array.into_array().to_array_stream())
+        .write(&mut buf, single_column_array.into_array().to_array_ref().to_array_stream())
         .await
         .unwrap();
 
@@ -1107,7 +1107,7 @@ async fn chunked_file() -> VortexResult<VortexFile> {
     let mut writer = vec![];
     SESSION
         .write_options()
-        .write(&mut writer, array.to_array_stream())
+        .write(&mut writer, array.to_array_ref().to_array_stream())
         .await?;
     let buffer: Bytes = writer.into();
     SESSION.open_options().open_buffer(buffer)
@@ -1138,7 +1138,7 @@ async fn file_excluding_dtype() -> VortexResult<()> {
     SESSION
         .write_options()
         .exclude_dtype()
-        .write(&mut writer, array.to_array_stream())
+        .write(&mut writer, array.to_array_ref().to_array_stream())
         .await?;
     let buffer: Bytes = writer.into();
 
@@ -1191,7 +1191,7 @@ async fn write_nullable_top_level_struct() {
     let mut writer = vec![];
     SESSION
         .write_options()
-        .write(&mut writer, array.to_array_stream())
+        .write(&mut writer, array.to_array_ref().to_array_stream())
         .await
         .unwrap();
 }
@@ -1203,7 +1203,7 @@ async fn round_trip(
     let mut writer = vec![];
     SESSION
         .write_options()
-        .write(&mut writer, array.to_array_stream())
+        .write(&mut writer, array.to_array_ref().to_array_stream())
         .await?;
     let buffer: Bytes = writer.into();
 
@@ -1290,7 +1290,7 @@ async fn test_into_tokio_array_stream() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, st.into_array().to_array_stream())
+        .write(&mut buf, st.into_array().to_array_ref().to_array_stream())
         .await?;
 
     let file = SESSION.open_options().open_buffer(buf)?;
@@ -1313,7 +1313,7 @@ async fn test_array_stream_no_double_dict_encode() -> VortexResult<()> {
     let mut buf = Vec::new();
     SESSION
         .write_options()
-        .write(&mut buf, array.to_array_stream())
+        .write(&mut buf, array.to_array_ref().to_array_stream())
         .await?;
     let file = SESSION.open_options().open_buffer(buf)?;
     let read_array = file.scan()?.into_array_stream()?.read_all().await?;
@@ -1605,7 +1605,7 @@ async fn timestamp_unit_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let mut buf = ByteBufferMut::empty();
     SESSION
         .write_options()
-        .write(&mut buf, temporal.into_array().to_array_stream())
+        .write(&mut buf, temporal.into_array().to_array_ref().to_array_stream())
         .await?;
 
     // Read with SECONDS filter scalar
@@ -1661,7 +1661,7 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
     SESSION
         .write_options()
         .with_strategy(strategy)
-        .write(&mut buf, temporal.into_array().to_array_stream())
+        .write(&mut buf, temporal.into_array().to_array_ref().to_array_stream())
         .await?;
 
     // Read with SECONDS filter scalar — should error due to time unit mismatch.
@@ -1741,7 +1741,7 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.to_array_ref().to_array_stream())
         .await?;
 
     let footer = summary.footer();
@@ -1795,7 +1795,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
     let mut buf = ByteBufferMut::empty();
     let summary = SESSION
         .write_options()
-        .write(&mut buf, st.to_array_stream())
+        .write(&mut buf, st.to_array_ref().to_array_stream())
         .await?;
 
     let footer = summary.footer();

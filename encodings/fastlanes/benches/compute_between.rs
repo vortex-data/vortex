@@ -190,14 +190,14 @@ mod bitpack {
             .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
                 let gte = arr
-                    .to_array()
+                    .clone()
                     .binary(
                         ConstantArray::new(min, arr.len()).into_array(),
                         Operator::Gte,
                     )
                     .vortex_expect("");
                 let lt = arr
-                    .to_array()
+                    .clone()
                     .binary(
                         ConstantArray::new(max, arr.len()).into_array(),
                         Operator::Lt,
@@ -281,14 +281,14 @@ mod alp {
             .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
             .bench_refs(|(arr, ctx)| {
                 let gte = arr
-                    .to_array()
+                    .clone()
                     .binary(
                         ConstantArray::new(min, arr.len()).into_array(),
                         Operator::Gte,
                     )
                     .vortex_expect("");
                 let lt = arr
-                    .to_array()
+                    .clone()
                     .binary(
                         ConstantArray::new(max, arr.len()).into_array(),
                         Operator::Lt,

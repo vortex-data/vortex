@@ -142,7 +142,7 @@ fn export_canonical(
             }
             Canonical::VarBinView(varbinview) => {
                 let len = varbinview.len();
-                check_validity_empty(&varbinview.validity())?;
+                check_validity_empty(varbinview.validity())?;
 
                 let BinaryParts { offsets, bytes } =
                     copy_varbinview_to_varbin(varbinview, ctx).await?;
