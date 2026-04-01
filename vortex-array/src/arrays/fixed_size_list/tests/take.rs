@@ -12,7 +12,6 @@ use super::common::create_single_element_fsl;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
