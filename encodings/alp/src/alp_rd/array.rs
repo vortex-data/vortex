@@ -340,10 +340,15 @@ impl VTable for ALPRD {
     }
 }
 
+/// The left (most significant) parts of the real-double encoded values.
 pub(super) const LEFT_PARTS_SLOT: usize = 0;
+/// The right (least significant) parts of the real-double encoded values.
 pub(super) const RIGHT_PARTS_SLOT: usize = 1;
+/// The indices of left-parts exception values that could not be dictionary-encoded.
 pub(super) const LP_PATCH_INDICES_SLOT: usize = 2;
+/// The exception values for left-parts that could not be dictionary-encoded.
 pub(super) const LP_PATCH_VALUES_SLOT: usize = 3;
+/// Chunk offsets for the left-parts patch indices/values.
 pub(super) const LP_PATCH_CHUNK_OFFSETS_SLOT: usize = 4;
 pub(super) const NUM_SLOTS: usize = 5;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [

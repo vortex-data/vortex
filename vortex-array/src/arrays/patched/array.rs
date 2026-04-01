@@ -92,9 +92,13 @@ use crate::validity::Validity;
 ///
 /// It turns out that this layout is optimal for executing patching on GPUs, because the
 /// `lane_offsets` allows each thread in a warp to seek to its patches in constant time.
+/// The inner array containing the base unpatched values.
 pub(super) const INNER_SLOT: usize = 0;
+/// The lane offsets array for locating patches within lanes.
 pub(super) const LANE_OFFSETS_SLOT: usize = 1;
+/// The indices of patched (exception) values.
 pub(super) const INDICES_SLOT: usize = 2;
+/// The patched (exception) values at the corresponding indices.
 pub(super) const VALUES_SLOT: usize = 3;
 pub(super) const NUM_SLOTS: usize = 4;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] =

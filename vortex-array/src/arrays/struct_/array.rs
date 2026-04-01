@@ -22,7 +22,11 @@ use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
 use crate::vtable::validity_to_child;
+
+// StructArray has a variable number of slots: [validity?, field_0, ..., field_N]
+/// The validity bitmap indicating which struct elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 0;
+/// The offset at which the struct field arrays begin in the slots vector.
 pub(super) const FIELDS_OFFSET: usize = 1;
 
 /// A struct array that stores multiple named fields as columns, similar to a database row.

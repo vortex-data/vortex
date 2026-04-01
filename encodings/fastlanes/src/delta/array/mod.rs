@@ -17,10 +17,12 @@ use vortex_error::vortex_ensure;
 pub mod delta_compress;
 pub mod delta_decompress;
 
-pub(crate) const BASES_SLOT: usize = 0;
-pub(crate) const DELTAS_SLOT: usize = 1;
-pub(crate) const NUM_SLOTS: usize = 2;
-pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
+/// The base values for each block of deltas.
+pub(super) const BASES_SLOT: usize = 0;
+/// The delta-encoded values relative to the base values.
+pub(super) const DELTAS_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 
 /// A FastLanes-style delta-encoded array of primitive values.
 ///

@@ -24,9 +24,20 @@ use crate::validity::Validity;
 use crate::vtable::Array;
 use crate::vtable::validity_to_child;
 
+/// The `elements` data array, where each list scalar is a _slice_ of the `elements` array, and
+/// each inner list element is a _scalar_ of the `elements` array.
 pub(super) const ELEMENTS_SLOT: usize = 0;
+/// The `offsets` array indicating the start position of each list in elements.
+///
+/// Since we also store `sizes`, this `offsets` field is allowed to be stored out-of-order
+/// (which is different from [`ListArray`](crate::arrays::ListArray)).
 pub(super) const OFFSETS_SLOT: usize = 1;
+/// The `sizes` array indicating the length of each list.
+///
+/// This field is intended to be paired with a corresponding offset to determine the list scalar
+/// we want to access.
 pub(super) const SIZES_SLOT: usize = 2;
+/// The validity bitmap indicating which list elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 3;
 pub(super) const NUM_SLOTS: usize = 4;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "sizes", "validity"];

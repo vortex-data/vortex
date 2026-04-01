@@ -17,6 +17,8 @@ interface TreeRowProps {
   row: FlattenedRow;
   isExpanded: boolean;
   isSelected: boolean;
+  isHovered?: boolean;
+  isHoveredAncestor?: boolean;
   mode: 'schema' | 'layout';
   onToggle: () => void;
   onSelect: () => void;
@@ -27,6 +29,8 @@ export function TreeRow({
   row,
   isExpanded,
   isSelected,
+  isHovered,
+  isHoveredAncestor,
   mode,
   onToggle,
   onSelect,
@@ -82,12 +86,18 @@ export function TreeRow({
 
   const opacity = isGroup ? 'opacity-50' : isLeaf ? 'opacity-70' : '';
   const fontStyle = isGroup ? 'italic' : '';
-  const selectedBg = isSelected ? 'bg-vortex-light-blue/10' : '';
+  const highlightBg = isSelected
+    ? 'bg-vortex-light-blue/10'
+    : isHovered
+      ? 'bg-vortex-light-blue/15'
+      : isHoveredAncestor
+        ? 'bg-vortex-light-blue/5'
+        : '';
 
   return (
     <div
       data-node-id={node.id}
-      className={`flex items-center gap-1.5 text-[11px] whitespace-nowrap hover:bg-vortex-black/[0.03] dark:hover:bg-white/[0.04] cursor-default ${opacity} ${fontStyle} ${selectedBg}`}
+      className={`flex items-center gap-1.5 text-[11px] whitespace-nowrap hover:bg-vortex-black/[0.03] dark:hover:bg-white/[0.04] cursor-default ${opacity} ${fontStyle} ${highlightBg}`}
       title={node.isArrayNode ? 'Array encoding node' : undefined}
       style={{
         height: ROW_HEIGHT,

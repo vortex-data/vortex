@@ -15,7 +15,17 @@ use crate::validity::Validity;
 use crate::vtable::Array;
 use crate::vtable::validity_to_child;
 
+/// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
+/// array, and each inner list element is a _scalar_ of the `elements` array.
+///
+/// The fixed-size list scalars are contiguous (regardless of nullability for easy lookups),
+/// each with equal size in memory.
 pub(super) const ELEMENTS_SLOT: usize = 0;
+/// The validity / null map of the array.
+///
+/// Note that this null map refers to which fixed-size list scalars are null, **not** which
+/// sub-elements of fixed-size list scalars are null. The `elements` array will track individual
+/// value nullability.
 pub(super) const VALIDITY_SLOT: usize = 1;
 pub(super) const NUM_SLOTS: usize = 2;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "validity"];

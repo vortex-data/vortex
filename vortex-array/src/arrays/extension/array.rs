@@ -11,6 +11,7 @@ use crate::dtype::extension::ExtDTypeRef;
 use crate::stats::ArrayStats;
 use crate::vtable::Array;
 
+/// The backing storage array for this extension array.
 pub(super) const STORAGE_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["storage"];

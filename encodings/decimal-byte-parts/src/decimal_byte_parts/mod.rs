@@ -213,6 +213,7 @@ impl VTable for DecimalByteParts {
     }
 }
 
+/// The most significant parts of the decimal values.
 pub(super) const MSP_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["msp"];
