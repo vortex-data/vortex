@@ -22,6 +22,7 @@ export function FileMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [crosshair, setCrosshair] = useState<number | null>(null);
   const [byteOffset, setByteOffset] = useState<number | null>(null);
+  const [hoveredSeg, setHoveredSeg] = useState<SegmentMapEntry | null>(null);
 
   // Segments belonging to the selected subtree, sorted by byte offset
   const subtreeSegments = useMemo((): SegmentMapEntry[] => {
@@ -252,6 +253,7 @@ export function FileMap() {
       setByteOffset(Math.floor(byte));
 
       const seg = findSegmentAtByte(byte);
+      setHoveredSeg(seg);
       hoverNode(seg ? seg.layoutPath : null);
     },
     [file.fileStructure.fileSize, findSegmentAtByte, hoverNode],
@@ -260,6 +262,7 @@ export function FileMap() {
   const handleMouseLeave = useCallback(() => {
     setCrosshair(null);
     setByteOffset(null);
+    setHoveredSeg(null);
     hoverNode(null);
   }, [hoverNode]);
 
@@ -296,10 +299,20 @@ export function FileMap() {
           />
           {byteOffset !== null && (
             <div
-              className="absolute bottom-full mb-0.5 -translate-x-1/2 px-1 py-0.5 rounded text-[9px] bg-vortex-black/80 dark:bg-white/80 text-white dark:text-vortex-black whitespace-nowrap pointer-events-none"
+              className="absolute bottom-full mb-1 -translate-x-1/2 px-1.5 py-1 rounded text-[9px] bg-vortex-black/90 dark:bg-white/90 text-white dark:text-vortex-black whitespace-nowrap pointer-events-none leading-normal"
               style={{ left: crosshair }}
             >
-              {formatBytes(byteOffset)}
+              {hoveredSeg ? (
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-medium">{hoveredSeg.layoutPath}</span>
+                  <span className="opacity-70">
+                    segment {hoveredSeg.index} &middot; {formatBytes(hoveredSeg.byteLength)} @{' '}
+                    {formatBytes(hoveredSeg.byteOffset)}
+                  </span>
+                </div>
+              ) : (
+                <span className="opacity-70">{formatBytes(byteOffset)}</span>
+              )}
             </div>
           )}
         </>
