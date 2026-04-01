@@ -271,8 +271,6 @@ impl VTable for ALPRD {
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.left_parts(), 0 => Primitive);
         let array = require_child!(array, array.right_parts(), 1 => Primitive);
-
-        // Iteratively execute patch children if they exist.
         if array
             .left_parts_patches()
             .is_some_and(|p| !p.indices().is::<Primitive>())

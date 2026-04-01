@@ -288,7 +288,6 @@ impl VTable for BitPacked {
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // Iteratively execute patch children if they exist.
         if array
             .patches()
             .is_some_and(|p| !p.indices().is::<Primitive>())
@@ -307,7 +306,6 @@ impl VTable for BitPacked {
                 PATCH_VALUES_SLOT,
             ));
         }
-        // Iteratively execute validity if it exists as an encoded array.
         if matches!(&array.validity, Validity::Array(v) if !v.is::<AnyCanonical>()) {
             return Ok(ExecutionResult::execute_slot::<AnyCanonical>(
                 array,

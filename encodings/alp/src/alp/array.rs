@@ -194,7 +194,6 @@ impl VTable for ALP {
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.encoded(), ENCODED_SLOT => Primitive);
-
         if array
             .patches()
             .is_some_and(|p| !p.indices().is::<Primitive>())
