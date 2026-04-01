@@ -43,65 +43,16 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::encodings::turboquant::array::TurboQuantArray;
 
-/// Compute approximate cosine similarity between two rows of a TurboQuant array
-/// without full decompression.
-///
-/// Both rows must come from the same array (same rotation matrix and codebook).
-/// The result is a **biased estimate** using only MSE-quantized codes (no QJL
-/// correction). The error is bounded by the quantization distortion — see the
-/// module-level documentation for details.
-///
-/// TODO: Wire into `vortex-tensor` cosine_similarity scalar function dispatch
-/// so that `cosine_similarity(Extension(TurboQuant), Extension(TurboQuant))`
-/// short-circuits to this when both arguments share the same encoding.
-#[allow(dead_code)] // TODO: wire into vortex-tensor cosine_similarity dispatch
-pub fn cosine_similarity_quantized(
-    array: &TurboQuantArray,
-    row_a: usize,
-    row_b: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<f32> {
-    let pd = array.padded_dim() as usize;
-
-    // Read norms — execute to handle cascade-compressed children.
-    let norms_prim = array.norms().clone().execute::<PrimitiveArray>(ctx)?;
-    let norms = norms_prim.as_slice::<f32>();
-    let norm_a = norms[row_a];
-    let norm_b = norms[row_b];
-
-    if norm_a == 0.0 || norm_b == 0.0 {
-        return Ok(0.0);
-    }
-
-    // Read codes from the FixedSizeListArray → flat u8.
-    let codes_fsl = array.codes().clone().execute::<FixedSizeListArray>(ctx)?;
-    let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
-    let all_codes = codes_prim.as_slice::<u8>();
-
-    // Read centroids.
-    let centroids_prim = array.centroids().clone().execute::<PrimitiveArray>(ctx)?;
-    let c = centroids_prim.as_slice::<f32>();
-
-    let codes_a = &all_codes[row_a * pd..(row_a + 1) * pd];
-    let codes_b = &all_codes[row_b * pd..(row_b + 1) * pd];
-
-    // Dot product of unit-norm quantized vectors in rotated domain.
-    // Since SRHT preserves inner products, this equals the dot product
-    // of the dequantized (but still unit-norm) vectors.
-    let dot: f32 = codes_a
-        .iter()
-        .zip(codes_b.iter())
-        .map(|(&ca, &cb)| c[ca as usize] * c[cb as usize])
-        .sum();
-
-    Ok(dot)
-}
-
-/// Shared helper: read codes, norms, and centroids from a TurboQuant array,
+/// Shared helper: read codes, norms, and centroids from two TurboQuant arrays,
 /// then compute per-row quantized unit-norm dot products.
+///
+/// Both arrays must have the same dimension (vector length) and row count.
+/// They may have different codebooks (e.g., different bit widths), in which
+/// case each array's own centroids are used for its code lookups.
 ///
 /// Returns `(norms_a, norms_b, unit_dots)` where `unit_dots[i]` is the dot product
 /// of the unit-norm quantized vectors for row i.
@@ -110,6 +61,13 @@ fn quantized_unit_dots(
     rhs: &TurboQuantArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<f32>, Vec<f32>, Vec<f32>)> {
+    vortex_ensure!(
+        lhs.dimension() == rhs.dimension(),
+        "TurboQuant quantized dot product requires matching dimensions, got {} and {}",
+        lhs.dimension(),
+        rhs.dimension()
+    );
+
     let pd = lhs.padded_dim() as usize;
     let num_rows = lhs.norms().len();
 
@@ -125,8 +83,12 @@ fn quantized_unit_dots(
     let ca = lhs_codes.as_slice::<u8>();
     let cb = rhs_codes.as_slice::<u8>();
 
-    let centroids: PrimitiveArray = lhs.centroids().clone().execute(ctx)?;
-    let c = centroids.as_slice::<f32>();
+    // Read centroids from both arrays — they may have different codebooks
+    // (e.g., different bit widths).
+    let lhs_centroids: PrimitiveArray = lhs.centroids().clone().execute(ctx)?;
+    let rhs_centroids: PrimitiveArray = rhs.centroids().clone().execute(ctx)?;
+    let cl = lhs_centroids.as_slice::<f32>();
+    let cr = rhs_centroids.as_slice::<f32>();
 
     let mut dots = Vec::with_capacity(num_rows);
     for row in 0..num_rows {
@@ -135,7 +97,7 @@ fn quantized_unit_dots(
         let dot: f32 = row_ca
             .iter()
             .zip(row_cb.iter())
-            .map(|(&a, &b)| c[a as usize] * c[b as usize])
+            .map(|(&a, &b)| cl[a as usize] * cr[b as usize])
             .sum();
         dots.push(dot);
     }

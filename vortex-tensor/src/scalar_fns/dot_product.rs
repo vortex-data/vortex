@@ -108,6 +108,13 @@ impl ScalarFnVTable for DotProduct {
             "DotProduct inputs must have the same element type, got {lhs_ptype} and {rhs_ptype}"
         );
 
+        let lhs_dim = extension_list_size(lhs_ext)?;
+        let rhs_dim = extension_list_size(rhs_ext)?;
+        vortex_ensure!(
+            lhs_dim == rhs_dim,
+            "DotProduct inputs must have the same dimension, got {lhs_dim} and {rhs_dim}"
+        );
+
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
         Ok(DType::Primitive(lhs_ptype, nullability))
     }

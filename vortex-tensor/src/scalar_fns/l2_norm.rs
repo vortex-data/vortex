@@ -12,6 +12,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -103,7 +104,7 @@ impl ScalarFnVTable for L2Norm {
         let input = args.get(0)?;
         let row_count = args.row_count();
 
-        // Get list size (dimensions) from the dtype.
+        // Get element ptype and list size from the dtype.
         let ext = input.dtype().as_extension_opt().ok_or_else(|| {
             vortex_err!(
                 "l2_norm input must be an extension type, got {}",
@@ -111,17 +112,19 @@ impl ScalarFnVTable for L2Norm {
             )
         })?;
         let list_size = extension_list_size(ext)? as usize;
+        let target_ptype = extension_element_ptype(ext)?;
 
         let storage = extension_storage(&input)?;
 
         // TurboQuant stores exact precomputed norms — no decompression needed.
-        // This works for both Exact and Approximate modes since the norms are
-        // computed before quantization and are not affected by the lossy encoding.
+        // Norms are currently stored as f32; cast to the target dtype if needed
+        // (e.g., if the input extension has f64 elements).
         {
             use vortex_array::matcher::Matcher;
             if let Some(tq) = crate::encodings::turboquant::TurboQuant::try_match(&*storage) {
                 let norms: PrimitiveArray = tq.norms().clone().execute(ctx)?;
-                return Ok(norms.into_array());
+                let target_dtype = DType::Primitive(target_ptype, input.dtype().nullability());
+                return norms.into_array().cast(target_dtype);
             }
         }
 

@@ -953,7 +953,7 @@ mod tests {
 
     #[test]
     fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
-        use crate::encodings::turboquant::compute::cosine_similarity::cosine_similarity_quantized;
+        use vortex_array::arrays::FixedSizeListArray;
 
         let fsl = make_fsl(20, 128, 42);
         let config = TurboQuantConfig {
@@ -967,17 +967,38 @@ mod tests {
         let input_prim = fsl.elements().to_canonical()?.into_primitive();
         let input_f32 = input_prim.as_slice::<f32>();
 
-        for (row_a, row_b) in [(0, 1), (5, 10), (0, 19)] {
-            let a = &input_f32[row_a * 128..(row_a + 1) * 128];
-            let b = &input_f32[row_b * 128..(row_b + 1) * 128];
+        // Read quantized codes, norms, and centroids for approximate computation.
+        let mut ctx = SESSION.create_execution_ctx();
+        let pd = tq.padded_dim() as usize;
+        let norms_prim = tq.norms().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let norms = norms_prim.as_slice::<f32>();
+        let codes_fsl = tq.codes().clone().execute::<FixedSizeListArray>(&mut ctx)?;
+        let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
+        let all_codes = codes_prim.as_slice::<u8>();
+        let centroids_prim = tq.centroids().clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let centroid_vals = centroids_prim.as_slice::<f32>();
 
-            let dot: f32 = a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum();
-            let norm_a: f32 = a.iter().map(|&v| v * v).sum::<f32>().sqrt();
-            let norm_b: f32 = b.iter().map(|&v| v * v).sum::<f32>().sqrt();
+        for (row_a, row_b) in [(0, 1), (5, 10), (0, 19)] {
+            let vec_a = &input_f32[row_a * 128..(row_a + 1) * 128];
+            let vec_b = &input_f32[row_b * 128..(row_b + 1) * 128];
+
+            let dot: f32 = vec_a.iter().zip(vec_b.iter()).map(|(&x, &y)| x * y).sum();
+            let norm_a: f32 = vec_a.iter().map(|&v| v * v).sum::<f32>().sqrt();
+            let norm_b: f32 = vec_b.iter().map(|&v| v * v).sum::<f32>().sqrt();
             let exact_cos = dot / (norm_a * norm_b);
 
-            let mut ctx = SESSION.create_execution_ctx();
-            let approx_cos = cosine_similarity_quantized(tq, row_a, row_b, &mut ctx)?;
+            // Approximate cosine similarity in quantized domain.
+            let approx_cos = if norms[row_a] == 0.0 || norms[row_b] == 0.0 {
+                0.0
+            } else {
+                let codes_a = &all_codes[row_a * pd..(row_a + 1) * pd];
+                let codes_b = &all_codes[row_b * pd..(row_b + 1) * pd];
+                codes_a
+                    .iter()
+                    .zip(codes_b.iter())
+                    .map(|(&ca, &cb)| centroid_vals[ca as usize] * centroid_vals[cb as usize])
+                    .sum::<f32>()
+            };
 
             // 4-bit quantization: expect reasonable accuracy.
             let error = (exact_cos - approx_cos).abs();
