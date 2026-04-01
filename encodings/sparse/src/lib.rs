@@ -416,7 +416,7 @@ impl SparseData {
     pub fn resolved_patches(&self) -> VortexResult<Patches> {
         let patches = self.patches();
         let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
-        let indices = patches.indices().to_array().binary(
+        let indices = patches.indices().binary(
             ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
             Operator::Sub,
         )?;
@@ -503,7 +503,6 @@ impl SparseData {
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
         let non_top_mask = Mask::from_buffer(
             array
-                .to_array()
                 .binary(fill_array.clone(), Operator::NotEq)?
                 .fill_null(Scalar::bool(true, Nullability::NonNullable))?
                 .to_bool()

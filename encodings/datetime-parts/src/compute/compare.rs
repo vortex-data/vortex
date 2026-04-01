@@ -180,7 +180,7 @@ fn compare_dtp(
         .into_array()
         .cast(lhs.dtype().with_nullability(nullability))
     {
-        Ok(casted) => lhs.to_array().binary(casted, Operator::from(operator)),
+        Ok(casted) => lhs.binary(casted, Operator::from(operator)),
         // The narrowing cast failed. Therefore, we know lhs < rhs.
         _ => {
             let constant_value = match operator {

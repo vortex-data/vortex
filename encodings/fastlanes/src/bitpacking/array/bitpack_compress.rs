@@ -89,7 +89,7 @@ pub fn bitpack_encode(
         let bp_ref = bitpacked.clone().into_array();
         bitpacked
             .stats_set
-            .to_ref(&*bp_ref)
+            .to_ref(&bp_ref)
             .inherit_from(array.statistics());
     }
     Ok(bitpacked)
@@ -129,7 +129,7 @@ pub unsafe fn bitpack_encode_unchecked(
         let arr_ref = array.into_array();
         bitpacked
             .stats_set
-            .to_ref(&*bp_ref)
+            .to_ref(&bp_ref)
             .inherit_from(arr_ref.statistics());
     }
     Ok(bitpacked)

@@ -42,7 +42,7 @@ impl TakeExecute for BitPacked {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
             let prim = array.array_ref().clone().execute::<PrimitiveArray>(ctx)?;
-            return prim.into_array().take(indices.to_array()).map(Some);
+            return prim.into_array().take(indices.clone()).map(Some);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must

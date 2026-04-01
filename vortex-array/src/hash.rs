@@ -86,19 +86,6 @@ mod private {
     impl<T: ArrayEq + ?Sized> SealedEq for T {}
 }
 
-impl ArrayHash for ArrayRef {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        self.as_dyn().dyn_array_hash(state, precision);
-    }
-}
-
-impl ArrayEq for ArrayRef {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        self.as_dyn()
-            .dyn_array_eq(DynArray::as_any(other.as_dyn()), precision)
-    }
-}
-
 impl<T: Hash> ArrayHash for Buffer<T> {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         match precision {

@@ -32,7 +32,7 @@ impl TakeExecute for ZigZag {
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let encoded = array.encoded().take(indices.to_array())?;
+        let encoded = array.encoded().take(indices.clone())?;
         Ok(Some(ZigZagData::try_new(encoded)?.into_array()))
     }
 }

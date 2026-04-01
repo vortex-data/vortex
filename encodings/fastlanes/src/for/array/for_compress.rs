@@ -32,8 +32,8 @@ impl FoRData {
         let for_ref = for_array.clone().into_array();
         for_array
             .stats_set()
-            .to_ref(&*for_ref)
-            .inherit_from(stats.to_ref(&*for_ref));
+            .to_ref(&for_ref)
+            .inherit_from(stats.to_ref(&for_ref));
         Ok(for_array)
     }
 }

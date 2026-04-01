@@ -44,10 +44,10 @@ use crate::dtype::Nullability;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
-use crate::hash;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
+use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable::Array;
@@ -64,14 +64,9 @@ use crate::vtable::ValidityVTable;
 /// This trait is sealed and cannot be implemented outside of `vortex-array`.
 /// Use [`ArrayRef`] as the primary handle for working with arrays.
 #[doc(hidden)]
-pub(crate) trait DynArray:
-    'static + private::Sealed + Send + Sync + Debug + DynArrayEq + DynArrayHash
-{
+pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
-
-    /// Returns the array as an [`ArrayRef`].
-    fn to_array(&self) -> ArrayRef;
 
     /// Returns the length of the array.
     fn len(&self) -> usize;
@@ -90,52 +85,13 @@ pub(crate) trait DynArray:
     /// Returns the encoding ID of the array.
     fn encoding_id(&self) -> ArrayId;
 
-    /// Performs a constant-time slice of the array.
-    fn slice(&self, this: &ArrayRef, range: Range<usize>) -> VortexResult<ArrayRef>;
-
-    /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
-    fn filter(&self, this: &ArrayRef, mask: Mask) -> VortexResult<ArrayRef>;
-
-    /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
-    fn take(&self, this: &ArrayRef, indices: ArrayRef) -> VortexResult<ArrayRef>;
-
     /// Fetch the scalar at the given index.
     ///
     /// This method panics if the index is out of bounds for the array.
     fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar>;
 
-    /// Returns whether the item at `index` is valid.
-    fn is_valid(&self, this: &ArrayRef, index: usize) -> VortexResult<bool>;
-
-    /// Returns whether the item at `index` is invalid.
-    fn is_invalid(&self, this: &ArrayRef, index: usize) -> VortexResult<bool>;
-
-    /// Returns whether all items in the array are valid.
-    ///
-    /// This is usually cheaper than computing a precise `valid_count`, but may return false
-    /// negatives.
-    fn all_valid(&self, this: &ArrayRef) -> VortexResult<bool>;
-
-    /// Returns whether the array is all invalid.
-    ///
-    /// This is usually cheaper than computing a precise `invalid_count`, but may return false
-    /// negatives.
-    fn all_invalid(&self, this: &ArrayRef) -> VortexResult<bool>;
-
-    /// Returns the number of valid elements in the array.
-    fn valid_count(&self, this: &ArrayRef) -> VortexResult<usize>;
-
-    /// Returns the number of invalid elements in the array.
-    fn invalid_count(&self, this: &ArrayRef) -> VortexResult<usize>;
-
     /// Returns the [`Validity`] of the array.
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity>;
-
-    /// Returns the canonical validity mask for the array.
-    fn validity_mask(&self, this: &ArrayRef) -> VortexResult<Mask>;
-
-    /// Returns the canonical representation of the array.
-    fn to_canonical(&self, this: &ArrayRef) -> VortexResult<Canonical>;
 
     /// Writes the array into the canonical builder.
     ///
@@ -148,8 +104,7 @@ pub(crate) trait DynArray:
     ) -> VortexResult<()>;
 
     /// Returns the statistics of the array.
-    // TODO(ngates): change how this works. It's weird.
-    fn statistics(&self) -> StatsSetRef<'_>;
+    fn statistics(&self) -> &ArrayStats;
 
     // --- Visitor methods (formerly in ArrayVisitor) ---
 
@@ -197,26 +152,6 @@ pub(crate) trait DynArray:
 
     /// Formats a human-readable metadata description.
     fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result;
-
-    /// Checks if all buffers in the array tree are host-resident.
-    fn is_host(&self, this: &ArrayRef) -> bool;
-
-    /// Count the number of buffers encoded by self and all child arrays.
-    fn nbuffers_recursive(&self) -> usize {
-        let this = self.to_array();
-        this.children()
-            .iter()
-            .map(|c| c.nbuffers_recursive())
-            .sum::<usize>()
-            + this.nbuffers()
-    }
-
-    /// Depth-first traversal of the array and its children.
-    fn depth_first_traversal(&self) -> DepthFirstArrayIterator {
-        DepthFirstArrayIterator {
-            stack: vec![self.to_array()],
-        }
-    }
 }
 
 /// A depth-first pre-order iterator over an Array.
@@ -274,6 +209,18 @@ impl std::fmt::Display for ArrayRef {
     }
 }
 
+impl ArrayHash for ArrayRef {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
+        self.0.array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for ArrayRef {
+    fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
+        self.0.array_eq(DynArray::as_any(other.as_dyn()), precision)
+    }
+}
+
 #[allow(clippy::same_name_method)]
 impl ArrayRef {
     /// Returns the array as a reference to a generic [`Any`] trait object.
@@ -314,52 +261,142 @@ impl ArrayRef {
 
     /// Performs a constant-time slice of the array.
     pub fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
-        self.0.slice(self, range)
+        let len = self.len();
+        let start = range.start;
+        let stop = range.end;
+
+        if start == 0 && stop == len {
+            return Ok(self.clone());
+        }
+
+        vortex_ensure!(start <= len, "OutOfBounds: start {start} > length {}", len);
+        vortex_ensure!(stop <= len, "OutOfBounds: stop {stop} > length {}", len);
+
+        vortex_ensure!(start <= stop, "start ({start}) must be <= stop ({stop})");
+
+        if start == stop {
+            return Ok(Canonical::empty(self.dtype()).into_array());
+        }
+
+        let sliced = SliceArray::try_new(self.clone(), range)?
+            .into_array()
+            .optimize()?;
+
+        // Propagate some stats from the original array to the sliced array.
+        if !sliced.is::<Constant>() {
+            self.statistics().with_iter(|iter| {
+                sliced.statistics().inherit(iter.filter(|(stat, value)| {
+                    matches!(
+                        stat,
+                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
+                    ) && value.as_ref().as_exact().is_some_and(|v| {
+                        Scalar::try_new(DType::Bool(Nullability::NonNullable), Some(v.clone()))
+                            .vortex_expect("A stat that was expected to be a boolean stat was not")
+                            .as_bool()
+                            .value()
+                            .unwrap_or_default()
+                    })
+                }));
+            });
+        }
+
+        Ok(sliced)
     }
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
     pub fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        self.0.filter(self, mask)
+        FilterArray::try_new(self.clone(), mask)?
+            .into_array()
+            .optimize()
     }
 
     /// Wraps the array in a [`DictArray`] such that it is logically taken by the given indices.
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        self.0.take(self, indices)
+        DictArray::try_new(indices, self.clone())?
+            .into_array()
+            .optimize()
     }
 
     /// Fetch the scalar at the given index.
     pub fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
-        self.0.scalar_at(self, index)
+        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
+        if self.is_invalid(index)? {
+            return Ok(Scalar::null(self.dtype().clone()));
+        }
+        let scalar = self.0.scalar_at(self, index)?;
+        vortex_ensure!(self.dtype() == scalar.dtype(), "Scalar dtype mismatch");
+        Ok(scalar)
     }
 
     /// Returns whether the item at `index` is valid.
     pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        self.0.is_valid(self, index)
+        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
+        match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => Ok(true),
+            Validity::AllInvalid => Ok(false),
+            Validity::Array(a) => a
+                .scalar_at(index)?
+                .as_bool()
+                .value()
+                .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
+        }
     }
 
     /// Returns whether the item at `index` is invalid.
     pub fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        self.0.is_invalid(self, index)
+        Ok(!self.is_valid(index)?)
     }
 
     /// Returns whether all items in the array are valid.
     pub fn all_valid(&self) -> VortexResult<bool> {
-        self.0.all_valid(self)
+        match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => Ok(true),
+            Validity::AllInvalid => Ok(false),
+            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>().unwrap_or(false)),
+        }
     }
 
     /// Returns whether the array is all invalid.
     pub fn all_invalid(&self) -> VortexResult<bool> {
-        self.0.all_invalid(self)
+        match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => Ok(false),
+            Validity::AllInvalid => Ok(true),
+            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>().unwrap_or(true)),
+        }
     }
 
     /// Returns the number of valid elements in the array.
     pub fn valid_count(&self) -> VortexResult<usize> {
-        self.0.valid_count(self)
+        let len = self.len();
+        if let Some(Precision::Exact(invalid_count)) =
+            self.statistics().get_as::<usize>(Stat::NullCount)
+        {
+            return Ok(len - invalid_count);
+        }
+
+        let count = match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => len,
+            Validity::AllInvalid => 0,
+            Validity::Array(a) => {
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let array_sum = sum(&a, &mut ctx)?;
+                array_sum
+                    .as_primitive()
+                    .as_::<usize>()
+                    .ok_or_else(|| vortex_err!("sum of validity array is null"))?
+            }
+        };
+        vortex_ensure!(count <= len, "Valid count exceeds array length");
+
+        self.statistics()
+            .set(Stat::NullCount, Precision::exact(len - count));
+
+        Ok(count)
     }
 
     /// Returns the number of invalid elements in the array.
     pub fn invalid_count(&self) -> VortexResult<usize> {
-        self.0.invalid_count(self)
+        Ok(self.len() - self.valid_count()?)
     }
 
     /// Returns the [`Validity`] of the array.
@@ -369,12 +406,21 @@ impl ArrayRef {
 
     /// Returns the canonical validity mask for the array.
     pub fn validity_mask(&self) -> VortexResult<Mask> {
-        self.0.validity_mask(self)
+        match self.validity()? {
+            Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len())),
+            Validity::AllInvalid => Ok(Mask::new_false(self.len())),
+            Validity::Array(a) => Ok(a.to_bool().to_mask()),
+        }
+    }
+
+    /// Returns the canonical representation of the array.
+    pub fn into_canonical(self) -> VortexResult<Canonical> {
+        self.execute(&mut LEGACY_SESSION.create_execution_ctx())
     }
 
     /// Returns the canonical representation of the array.
     pub fn to_canonical(&self) -> VortexResult<Canonical> {
-        self.0.to_canonical(self)
+        self.clone().into_canonical()
     }
 
     /// Writes the array into the canonical builder.
@@ -388,7 +434,7 @@ impl ArrayRef {
 
     /// Returns the statistics of the array.
     pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.0.statistics()
+        self.0.statistics().to_ref(self)
     }
 
     /// Does the array match the given matcher.
@@ -414,7 +460,7 @@ impl ArrayRef {
     /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
     pub fn as_typed<V: VTable>(&self) -> Option<ArrayView<'_, V>> {
         let inner = self.0.as_any().downcast_ref::<ArrayInner<V>>()?;
-        Some(unsafe { ArrayView::new_unchecked(self, inner.data()) })
+        Some(unsafe { ArrayView::new_unchecked(self, &inner.data) })
     }
 
     /// Returns the constant scalar if this is a constant array.
@@ -425,7 +471,7 @@ impl ArrayRef {
     /// Total size of the array in bytes, including all children and buffers.
     pub fn nbytes(&self) -> u64 {
         let mut nbytes = 0;
-        for array in self.0.depth_first_traversal() {
+        for array in self.depth_first_traversal() {
             for buffer in array.buffers() {
                 nbytes += buffer.len() as u64;
             }
@@ -450,11 +496,7 @@ impl ArrayRef {
     /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
     ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
-    pub fn with_slot(
-        self: ArrayRef,
-        slot_idx: usize,
-        replacement: ArrayRef,
-    ) -> VortexResult<ArrayRef> {
+    pub fn with_slot(self, slot_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
         let nslots = self.slots().len();
         vortex_ensure!(
             slot_idx < nslots,
@@ -542,19 +584,30 @@ impl ArrayRef {
 
     /// Returns whether all buffers are host-resident.
     pub fn is_host(&self) -> bool {
-        self.0.is_host(self)
+        for array in self.depth_first_traversal() {
+            if !array.buffer_handles().iter().all(BufferHandle::is_on_host) {
+                return false;
+            }
+        }
+        true
     }
 
     // ArrayVisitorExt delegation methods
 
     /// Count the number of buffers encoded by self and all child arrays.
     pub fn nbuffers_recursive(&self) -> usize {
-        self.0.nbuffers_recursive()
+        self.children()
+            .iter()
+            .map(|c| c.nbuffers_recursive())
+            .sum::<usize>()
+            + self.nbuffers()
     }
 
     /// Depth-first traversal of the array and its children.
-    pub fn depth_first_traversal(&self) -> impl Iterator<Item = ArrayRef> {
-        self.0.depth_first_traversal()
+    pub fn depth_first_traversal(&self) -> DepthFirstArrayIterator {
+        DepthFirstArrayIterator {
+            stack: vec![self.clone()],
+        }
     }
 }
 
@@ -590,10 +643,6 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         self
     }
 
-    fn to_array(&self) -> ArrayRef {
-        self.to_array_ref()
-    }
-
     fn len(&self) -> usize {
         self.len
     }
@@ -610,145 +659,13 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         self.vtable.id()
     }
 
-    fn slice(&self, this: &ArrayRef, range: Range<usize>) -> VortexResult<ArrayRef> {
-        let start = range.start;
-        let stop = range.end;
-
-        if start == 0 && stop == self.len {
-            return Ok(this.clone());
-        }
-
-        vortex_ensure!(
-            start <= self.len,
-            "OutOfBounds: start {start} > length {}",
-            self.len
-        );
-        vortex_ensure!(
-            stop <= self.len,
-            "OutOfBounds: stop {stop} > length {}",
-            self.len
-        );
-
-        vortex_ensure!(start <= stop, "start ({start}) must be <= stop ({stop})");
-
-        if start == stop {
-            return Ok(Canonical::empty(&self.dtype).into_array());
-        }
-
-        let sliced = SliceArray::try_new(this.clone(), range)?
-            .into_array()
-            .optimize()?;
-
-        // Propagate some stats from the original array to the sliced array.
-        if !sliced.is::<Constant>() {
-            self.statistics().with_iter(|iter| {
-                sliced.statistics().inherit(iter.filter(|(stat, value)| {
-                    matches!(
-                        stat,
-                        Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value.as_ref().as_exact().is_some_and(|v| {
-                        Scalar::try_new(DType::Bool(Nullability::NonNullable), Some(v.clone()))
-                            .vortex_expect("A stat that was expected to be a boolean stat was not")
-                            .as_bool()
-                            .value()
-                            .unwrap_or_default()
-                    })
-                }));
-            });
-        }
-
-        Ok(sliced)
-    }
-
-    fn filter(&self, this: &ArrayRef, mask: Mask) -> VortexResult<ArrayRef> {
-        FilterArray::try_new(this.clone(), mask)?
-            .into_array()
-            .optimize()
-    }
-
-    fn take(&self, this: &ArrayRef, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        DictArray::try_new(indices, this.clone())?
-            .into_array()
-            .optimize()
-    }
-
     fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar> {
-        vortex_ensure!(index < self.len, OutOfBounds: index, 0, self.len);
-        if DynArray::is_invalid(self, this, index)? {
-            return Ok(Scalar::null(self.dtype.clone()));
-        }
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
+        <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
             view,
             index,
             &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
-        vortex_ensure!(&self.dtype == scalar.dtype(), "Scalar dtype mismatch");
-        Ok(scalar)
-    }
-
-    fn is_valid(&self, this: &ArrayRef, index: usize) -> VortexResult<bool> {
-        vortex_ensure!(index < self.len, OutOfBounds: index, 0, self.len);
-        match DynArray::validity(self, this)? {
-            Validity::NonNullable | Validity::AllValid => Ok(true),
-            Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => a
-                .scalar_at(index)?
-                .as_bool()
-                .value()
-                .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
-        }
-    }
-
-    fn is_invalid(&self, this: &ArrayRef, index: usize) -> VortexResult<bool> {
-        Ok(!DynArray::is_valid(self, this, index)?)
-    }
-
-    fn all_valid(&self, this: &ArrayRef) -> VortexResult<bool> {
-        match DynArray::validity(self, this)? {
-            Validity::NonNullable | Validity::AllValid => Ok(true),
-            Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a.statistics().compute_min::<bool>().unwrap_or(false)),
-        }
-    }
-
-    fn all_invalid(&self, this: &ArrayRef) -> VortexResult<bool> {
-        match DynArray::validity(self, this)? {
-            Validity::NonNullable | Validity::AllValid => Ok(false),
-            Validity::AllInvalid => Ok(true),
-            Validity::Array(a) => Ok(!a.statistics().compute_max::<bool>().unwrap_or(true)),
-        }
-    }
-
-    fn valid_count(&self, this: &ArrayRef) -> VortexResult<usize> {
-        if let Some(Precision::Exact(invalid_count)) =
-            self.statistics().get_as::<usize>(Stat::NullCount)
-        {
-            return Ok(self.len - invalid_count);
-        }
-
-        let count = match DynArray::validity(self, this)? {
-            Validity::NonNullable | Validity::AllValid => self.len,
-            Validity::AllInvalid => 0,
-            Validity::Array(a) => {
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
-                let array_sum = sum(&a, &mut ctx)?;
-                array_sum
-                    .as_primitive()
-                    .as_::<usize>()
-                    .ok_or_else(|| vortex_err!("sum of validity array is null"))?
-            }
-        };
-        vortex_ensure!(count <= self.len, "Valid count exceeds array length");
-
-        self.statistics()
-            .set(Stat::NullCount, Precision::exact(self.len - count));
-
-        Ok(count)
-    }
-
-    fn invalid_count(&self, this: &ArrayRef) -> VortexResult<usize> {
-        Ok(self.len - DynArray::valid_count(self, this)?)
+        )
     }
 
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity> {
@@ -767,19 +684,6 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         } else {
             Ok(Validity::NonNullable)
         }
-    }
-
-    fn validity_mask(&self, this: &ArrayRef) -> VortexResult<Mask> {
-        match DynArray::validity(self, this)? {
-            Validity::NonNullable | Validity::AllValid => Ok(Mask::new_true(self.len)),
-            Validity::AllInvalid => Ok(Mask::new_false(self.len)),
-            Validity::Array(a) => Ok(a.to_bool().to_mask()),
-        }
-    }
-
-    fn to_canonical(&self, this: &ArrayRef) -> VortexResult<Canonical> {
-        this.clone()
-            .execute(&mut LEGACY_SESSION.create_execution_ctx())
     }
 
     fn append_to_builder(
@@ -809,8 +713,8 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         Ok(())
     }
 
-    fn statistics(&self) -> StatsSetRef<'_> {
-        self.stats.to_ref(self)
+    fn statistics(&self) -> &ArrayStats {
+        &self.stats
     }
 
     fn children(&self, this: &ArrayRef) -> Vec<ArrayRef> {
@@ -895,30 +799,13 @@ impl<V: VTable> DynArray for ArrayInner<V> {
             Ok(metadata) => Debug::fmt(&metadata, f),
         }
     }
-
-    fn is_host(&self, _this: &ArrayRef) -> bool {
-        for array in self.depth_first_traversal() {
-            if !array.buffer_handles().iter().all(BufferHandle::is_on_host) {
-                return false;
-            }
-        }
-        true
-    }
 }
 
 impl<V: VTable> ArrayHash for ArrayInner<V> {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: hash::Precision) {
-        self.vtable.id().hash(state);
-        let this = self.as_view();
-        V::array_hash(this.as_view(), state, precision);
-    }
-}
-
-impl<V: VTable> ArrayEq for ArrayInner<V> {
-    fn array_eq(&self, other: &Self, precision: hash::Precision) -> bool {
-        let this = self.as_view();
-        let other = other.as_view();
-        V::array_eq(this.as_view(), other.as_view(), precision)
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
+        self.encoding_id().hash(state);
+        self.data.array_hash()
+        self.data
     }
 }
 

@@ -15,7 +15,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
@@ -70,180 +69,6 @@ impl<V: VTable> ArrayInner<V> {
             data,
             stats,
         }
-    }
-}
-
-impl<V: VTable> ArrayInner<V> {
-    /// Returns a typed [`Array<V>`] handle by cloning `self` into an `Arc`.
-    ///
-    /// Use this to obtain an [`ArrayView`] via `array.as_view().as_view()`.
-    #[doc(hidden)]
-    pub fn as_view(&self) -> Array<V> {
-        Array::from_inner(self.clone())
-    }
-
-    /// Creates an [`ArrayRef`] by cloning self into an Arc.
-    #[doc(hidden)]
-    pub fn to_array_ref(&self) -> ArrayRef {
-        ArrayRef::from_inner(Arc::new(self.clone()))
-    }
-
-    /// Returns a reference to the encoding-specific data.
-    pub fn data(&self) -> &V::ArrayData {
-        &self.data
-    }
-
-    /// Consumes this array and returns the encoding-specific data.
-    pub fn into_data(self) -> V::ArrayData {
-        self.data
-    }
-
-    /// Returns the dtype.
-    #[allow(clippy::same_name_method)]
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    /// Returns the length.
-    #[allow(clippy::same_name_method)]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Returns whether the array is empty.
-    #[allow(clippy::same_name_method)]
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    /// Returns the encoding ID.
-    #[allow(clippy::same_name_method)]
-    pub fn encoding_id(&self) -> ArrayId {
-        self.vtable.id()
-    }
-
-    /// Returns the statistics.
-    #[allow(clippy::same_name_method)]
-    pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.stats.to_ref(self)
-    }
-
-    /// Returns the canonical validity mask for the array.
-    #[allow(clippy::same_name_method)]
-    pub fn validity_mask(&self) -> VortexResult<vortex_mask::Mask> {
-        let this = self.to_array_ref();
-        DynArray::validity_mask(self, &this)
-    }
-
-    /// Fetch the scalar at the given index.
-    #[allow(clippy::same_name_method)]
-    pub fn scalar_at(&self, index: usize) -> VortexResult<crate::scalar::Scalar> {
-        let this = self.to_array_ref();
-        DynArray::scalar_at(self, &this, index)
-    }
-
-    /// Returns the constant scalar if this is a constant array.
-    pub fn as_constant(&self) -> Option<crate::scalar::Scalar> {
-        self.to_array_ref().as_constant()
-    }
-
-    /// Performs a constant-time slice of the array.
-    #[allow(clippy::same_name_method)]
-    pub fn slice(&self, range: std::ops::Range<usize>) -> VortexResult<ArrayRef> {
-        let this = self.to_array_ref();
-        DynArray::slice(self, &this, range)
-    }
-
-    /// Returns the canonical representation of the array.
-    #[allow(clippy::same_name_method)]
-    pub fn to_canonical(&self) -> VortexResult<crate::Canonical> {
-        let this = self.to_array_ref();
-        DynArray::to_canonical(self, &this)
-    }
-
-    /// Wraps the array in a filter such that it is logically filtered by the given mask.
-    #[allow(clippy::same_name_method)]
-    pub fn filter(&self, mask: vortex_mask::Mask) -> VortexResult<ArrayRef> {
-        let this = self.to_array_ref();
-        DynArray::filter(self, &this, mask)
-    }
-
-    /// Wraps the array in a dict such that it is logically taken by the given indices.
-    #[allow(clippy::same_name_method)]
-    pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
-        let this = self.to_array_ref();
-        DynArray::take(self, &this, indices)
-    }
-
-    /// Returns whether the item at `index` is valid.
-    #[allow(clippy::same_name_method)]
-    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
-        let this = self.to_array_ref();
-        DynArray::is_valid(self, &this, index)
-    }
-
-    /// Returns whether the item at `index` is invalid.
-    #[allow(clippy::same_name_method)]
-    pub fn is_invalid(&self, index: usize) -> VortexResult<bool> {
-        let this = self.to_array_ref();
-        DynArray::is_invalid(self, &this, index)
-    }
-
-    /// Returns whether all items in the array are valid.
-    #[allow(clippy::same_name_method)]
-    pub fn all_valid(&self) -> VortexResult<bool> {
-        let this = self.to_array_ref();
-        DynArray::all_valid(self, &this)
-    }
-
-    /// Returns whether the array is all invalid.
-    #[allow(clippy::same_name_method)]
-    pub fn all_invalid(&self) -> VortexResult<bool> {
-        let this = self.to_array_ref();
-        DynArray::all_invalid(self, &this)
-    }
-
-    /// Returns the number of valid elements in the array.
-    #[allow(clippy::same_name_method)]
-    pub fn valid_count(&self) -> VortexResult<usize> {
-        let this = self.to_array_ref();
-        DynArray::valid_count(self, &this)
-    }
-
-    /// Returns the number of invalid elements in the array.
-    #[allow(clippy::same_name_method)]
-    pub fn invalid_count(&self) -> VortexResult<usize> {
-        let this = self.to_array_ref();
-        DynArray::invalid_count(self, &this)
-    }
-
-    /// Writes the array into the canonical builder.
-    #[allow(clippy::same_name_method)]
-    pub fn append_to_builder(
-        &self,
-        builder: &mut dyn crate::builders::ArrayBuilder,
-        ctx: &mut crate::ExecutionCtx,
-    ) -> VortexResult<()> {
-        let this = self.to_array_ref();
-        DynArray::append_to_builder(self, &this, builder, ctx)
-    }
-
-    /// Total size of the array in bytes.
-    pub fn nbytes(&self) -> u64 {
-        self.to_array_ref().nbytes()
-    }
-
-    /// Returns the number of buffers in the array.
-    #[allow(clippy::same_name_method)]
-    pub fn nbuffers(&self) -> usize {
-        let this = self.to_array_ref();
-        DynArray::nbuffers(self, &this)
-    }
-
-    /// Returns a cloned [`ArrayRef`].
-    #[allow(clippy::same_name_method)]
-    pub fn to_array(&self) -> ArrayRef {
-        self.to_array_ref()
     }
 }
 
@@ -411,7 +236,7 @@ impl<V: VTable> Array<V> {
 
     /// Returns a reference to the encoding-specific data.
     pub fn data(&self) -> &V::ArrayData {
-        self.downcast_inner().data()
+        &self.downcast_inner().data
     }
 
     /// Returns a clone of the inner encoding-specific data.

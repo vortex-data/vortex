@@ -26,7 +26,7 @@ impl TakeExecute for FoR {
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             FoRData::try_new(
-                array.encoded().take(indices.to_array())?,
+                array.encoded().take(indices.clone())?,
                 array.reference_scalar().clone(),
             )?
             .into_array(),
