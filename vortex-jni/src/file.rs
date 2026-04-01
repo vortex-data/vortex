@@ -328,9 +328,6 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
             scan_builder = scan_builder.with_row_range(start_idx..end_idx);
         }
 
-        Ok(NativeArrayIterator::new(
-            scan_builder.into_array_iter(&*RUNTIME)?,
-        ))
-        .into_raw()
+        Ok(NativeArrayIterator::new(Box::new(scan_builder.into_array_iter(&*RUNTIME)?)).into_raw())
     })
 }
