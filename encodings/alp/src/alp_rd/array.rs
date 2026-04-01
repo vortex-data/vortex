@@ -307,10 +307,10 @@ impl VTable for ALPRD {
         let decoded_array = if ptype == PType::F32 {
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
-                    left_parts.into_buffer::<u16>(),
+                    left_parts.into_buffer_mut::<u16>(),
                     &left_parts_dict,
                     right_bit_width,
-                    right_parts.into_buffer::<u32>(),
+                    right_parts.into_buffer_mut::<u32>(),
                     left_parts_patches,
                     ctx,
                 )?,
@@ -319,10 +319,10 @@ impl VTable for ALPRD {
         } else {
             PrimitiveArray::new(
                 alp_rd_decode::<f64>(
-                    left_parts.into_buffer::<u16>(),
+                    left_parts.into_buffer_mut::<u16>(),
                     &left_parts_dict,
                     right_bit_width,
-                    right_parts.into_buffer::<u64>(),
+                    right_parts.into_buffer_mut::<u64>(),
                     left_parts_patches,
                     ctx,
                 )?,
