@@ -431,28 +431,6 @@ mod tests {
         Ok(())
     }
 
-    fn qjl_mse_decreases_with_bits() -> VortexResult<()> {
-        let dim = 128;
-        let num_rows = 50;
-        let fsl = make_fsl(num_rows, dim, 99);
-
-        let mut prev_mse = f32::MAX;
-        for bit_width in 2..=9u8 {
-            let config = TurboQuantConfig {
-                bit_width,
-                seed: Some(123),
-            };
-            let (original, decoded) = encode_decode_qjl(&fsl, &config)?;
-            let mse = per_vector_normalized_mse(&original, &decoded, dim, num_rows);
-            assert!(
-                mse <= prev_mse * 1.01,
-                "QJL MSE should decrease: {bit_width}-bit={mse:.6} > prev={prev_mse:.6}"
-            );
-            prev_mse = mse;
-        }
-        Ok(())
-    }
-
     // -----------------------------------------------------------------------
     // Edge cases
     // -----------------------------------------------------------------------
