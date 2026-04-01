@@ -71,9 +71,7 @@ impl LayoutStrategy for BufferedStrategy {
                 if stream.as_mut().peek().await.is_none() {
                     let mut sequence_ptr = sequence_id.descend();
                     while let Some(chunk) = chunks.pop_front() {
-                        let chunk_size = chunk.nbytes();
-                        nbytes -= chunk_size;
-                        buffered_bytes_counter.fetch_sub(chunk_size, Ordering::Relaxed);
+                        buffered_bytes_counter.fetch_sub(chunk.nbytes(), Ordering::Relaxed);
                         yield (sequence_ptr.advance(), chunk)
                     }
                     break;
