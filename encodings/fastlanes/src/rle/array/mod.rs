@@ -15,8 +15,19 @@ use crate::FL_CHUNK_SIZE;
 pub mod rle_compress;
 pub mod rle_decompress;
 
+/// Run values in the dictionary.
 pub(super) const VALUES_SLOT: usize = 0;
+/// Chunk-local indices from all chunks. The start of each chunk is looked up in `values_idx_offsets`.
 pub(super) const INDICES_SLOT: usize = 1;
+/// Index start positions of each value chunk.
+///
+/// # Example
+/// ```text
+/// // Chunk 0: [10, 20] (starts at index 0)
+/// // Chunk 1: [30, 40] (starts at index 2)
+/// let values = [10, 20, 30, 40];           // Global values array
+/// let values_idx_offsets = [0, 2];         // Chunk 0 starts at index 0, Chunk 1 starts at index 2
+/// ```
 pub(super) const VALUES_IDX_OFFSETS_SLOT: usize = 2;
 pub(super) const NUM_SLOTS: usize = 3;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["values", "indices", "values_idx_offsets"];

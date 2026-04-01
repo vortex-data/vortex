@@ -18,6 +18,7 @@ use crate::validity::Validity;
 use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
+/// The validity bitmap indicating which elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
@@ -56,6 +57,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// ```
 #[derive(Clone, Debug)]
 pub struct BoolArray {
+    /// Child arrays stored as slots. See [`VTable::slots`] for design rationale.
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) bits: BufferHandle,

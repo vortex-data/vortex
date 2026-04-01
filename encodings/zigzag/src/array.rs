@@ -170,6 +170,7 @@ impl VTable for ZigZag {
     }
 }
 
+/// The zigzag-encoded values (signed integers mapped to unsigned).
 pub(super) const ENCODED_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];

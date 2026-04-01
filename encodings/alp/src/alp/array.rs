@@ -214,9 +214,13 @@ impl VTable for ALP {
     }
 }
 
+/// The ALP-encoded values array.
 pub(super) const ENCODED_SLOT: usize = 0;
+/// The indices of exception values that could not be ALP-encoded.
 pub(super) const PATCH_INDICES_SLOT: usize = 1;
+/// The exception values that could not be ALP-encoded.
 pub(super) const PATCH_VALUES_SLOT: usize = 2;
+/// Chunk offsets for the patch indices/values.
 pub(super) const PATCH_CHUNK_OFFSETS_SLOT: usize = 3;
 pub(super) const NUM_SLOTS: usize = 4;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
