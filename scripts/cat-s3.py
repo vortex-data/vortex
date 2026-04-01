@@ -7,6 +7,7 @@
 import argparse
 import gzip
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -59,19 +60,18 @@ def put_object(bucket: str, key: str, body: str, if_match: str) -> bool:
     return result.returncode == 0
 
 
-def read_jsonl(path: str) -> list[str]:
-    """Read a JSONL file, returning raw lines."""
-    with open(path) as f:
-        return [line for line in f if line.strip()]
-
-
 def extract_commit_ids(lines: list[str]) -> set[str]:
-    """Extract unique commit_id values from JSONL lines."""
-    ids = set()
+    """Extract unique commit identifiers from JSONL lines.
+
+    Supports both benchmark data ("commit_id" field) and commit metadata ("id" field).
+    """
+    ids: set[str] = set()
     for line in lines:
         obj = json.loads(line)
         if "commit_id" in obj:
             ids.add(obj["commit_id"])
+        elif "id" in obj:
+            ids.add(obj["id"])
     return ids
 
 
@@ -84,7 +84,10 @@ def main() -> None:
     args = parser.parse_args()
 
     is_gz = args.key.endswith(".gz")
-    new_lines = read_jsonl(args.local_file)
+
+    with open(args.local_file) as f:
+        new_data = f.read()
+    new_lines = [line for line in new_data.splitlines(keepends=True) if line.strip()]
     new_commit_ids = extract_commit_ids(new_lines)
 
     for attempt in range(1, args.max_retries + 1):
@@ -93,50 +96,55 @@ def main() -> None:
             print("Failed to retrieve ETag.", file=sys.stderr)
             sys.exit(1)
 
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            local_copy = tmp.name
+        local_copy = tempfile.mktemp()
+        try:
+            if not get_object(args.bucket, args.key, local_copy, etag):
+                print(f"ETag mismatch during download (attempt {attempt}), retrying...", file=sys.stderr)
+                continue
 
-        if not get_object(args.bucket, args.key, local_copy, etag):
-            print(f"ETag mismatch during download (attempt {attempt}), retrying...", file=sys.stderr)
-            continue
-
-        # Read existing data.
-        if is_gz:
-            with gzip.open(local_copy, "rt") as f:
-                existing_lines = [line for line in f if line.strip()]
-        else:
-            with open(local_copy) as f:
-                existing_lines = [line for line in f if line.strip()]
-
-        # Check for duplicate commits.
-        existing_commit_ids = extract_commit_ids(existing_lines)
-        duplicates = new_commit_ids & existing_commit_ids
-        if duplicates:
-            print(
-                f"ERROR: commit(s) {', '.join(sorted(duplicates))} already exist in "
-                f"s3://{args.bucket}/{args.key}. Refusing to append duplicate data.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        # Concatenate.
-        combined = "".join(existing_lines) + "".join(new_lines)
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".gz" if is_gz else "") as tmp:
-            output_path = tmp.name
+            # Decompress if needed.
             if is_gz:
-                with gzip.open(output_path, "wt") as f:
-                    f.write(combined)
+                with gzip.open(local_copy, "rt") as f:
+                    existing_data = f.read()
             else:
-                with open(output_path, "w") as f:
-                    f.write(combined)
+                with open(local_copy) as f:
+                    existing_data = f.read()
 
-        if put_object(args.bucket, args.key, output_path, etag):
-            print("File updated and uploaded successfully.")
-            return
+            # Check for duplicate commits.
+            existing_lines = [line for line in existing_data.splitlines(keepends=True) if line.strip()]
+            existing_commit_ids = extract_commit_ids(existing_lines)
+            duplicates = new_commit_ids & existing_commit_ids
+            if duplicates:
+                print(
+                    f"ERROR: commit(s) {', '.join(sorted(duplicates))} already exist in "
+                    f"s3://{args.bucket}/{args.key}. Refusing to append duplicate data.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
 
-        print(f"ETag mismatch during upload (attempt {attempt}), retrying...", file=sys.stderr)
-        time.sleep(0.1)
+            # Concatenate and write output.
+            combined = existing_data + new_data
+            output_path = tempfile.mktemp(suffix=".gz" if is_gz else "")
+            try:
+                if is_gz:
+                    with gzip.open(output_path, "wt") as f:
+                        f.write(combined)
+                else:
+                    with open(output_path, "w") as f:
+                        f.write(combined)
+
+                if put_object(args.bucket, args.key, output_path, etag):
+                    print("File updated and uploaded successfully.")
+                    return
+
+                print(f"ETag mismatch during upload (attempt {attempt}), retrying...", file=sys.stderr)
+                time.sleep(0.1)
+            finally:
+                if os.path.exists(output_path):
+                    os.unlink(output_path)
+        finally:
+            if os.path.exists(local_copy):
+                os.unlink(local_copy)
 
     print(f"Too many failures: {args.max_retries}.", file=sys.stderr)
     sys.exit(1)
