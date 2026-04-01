@@ -154,7 +154,7 @@ impl ChunkedData {
 
     #[inline]
     pub fn chunk_offsets(&self) -> Buffer<u64> {
-        self.chunk_offsets.to_buffer()
+        self.chunk_offsets_data().to_buffer()
     }
 
     pub(crate) fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {

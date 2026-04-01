@@ -19,6 +19,8 @@ use crate::Precision;
 use crate::ToCanonical;
 use crate::arrays::ChunkedData;
 use crate::arrays::PrimitiveData;
+use crate::arrays::chunked::array::CHUNK_OFFSETS_SLOT;
+use crate::arrays::chunked::array::CHUNKS_OFFSET;
 use crate::arrays::chunked::compute::kernel::PARENT_KERNELS;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
@@ -210,8 +212,8 @@ impl VTable for Chunked {
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         match idx {
-            0 => "chunk_offsets".to_string(),
-            n => format!("chunks[{}]", n - 1),
+            CHUNK_OFFSETS_SLOT => "chunk_offsets".to_string(),
+            n => format!("chunks[{}]", n - CHUNKS_OFFSET),
         }
     }
 
@@ -219,8 +221,8 @@ impl VTable for Chunked {
         // Slots: chunk_offsets, then chunks...
         vortex_ensure!(!slots.is_empty(), "Chunked array needs at least one slot");
 
-        let nchunks = slots.len() - 1;
-        let chunk_offsets_ref = slots[0]
+        let nchunks = slots.len() - CHUNKS_OFFSET;
+        let chunk_offsets_ref = slots[CHUNK_OFFSETS_SLOT]
             .as_ref()
             .ok_or_else(|| vortex_err!("chunk_offsets slot must not be None"))?;
         let chunk_offsets_buf = chunk_offsets_ref.to_primitive().to_buffer::<u64>();
@@ -232,7 +234,7 @@ impl VTable for Chunked {
             chunk_offsets_buf.len()
         );
 
-        let chunks: Vec<ArrayRef> = slots[1..]
+        let chunks: Vec<ArrayRef> = slots[CHUNKS_OFFSET..]
             .iter()
             .map(|s| {
                 s.clone()

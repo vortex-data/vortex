@@ -17,6 +17,7 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantData;
+use crate::arrays::constant::array::NUM_SLOTS;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
@@ -176,8 +177,9 @@ impl VTable for Constant {
 
     fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            slots.is_empty(),
-            "ConstantArray has no slots, got {}",
+            slots.len() == NUM_SLOTS,
+            "ConstantArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
             slots.len()
         );
         Ok(())

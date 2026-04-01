@@ -235,7 +235,7 @@ impl<V: VTable> Array<V> {
         // NOTE(ngates): use downcast_unchecked when it becomes stable
         debug_assert!(any.is::<ArrayInner<V>>());
         // SAFETY: caller guarantees that T is the correct type
-        unsafe { &*(self as *const dyn Any as *const ArrayInner<V>) }
+        unsafe { &*(any as *const dyn Any as *const ArrayInner<V>) }
     }
 }
 

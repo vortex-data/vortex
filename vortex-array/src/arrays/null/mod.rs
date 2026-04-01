@@ -131,8 +131,9 @@ impl VTable for Null {
 
     fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            slots.is_empty(),
-            "NullArray has no slots, got {}",
+            slots.len() == NUM_SLOTS,
+            "NullArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
             slots.len()
         );
         Ok(())
