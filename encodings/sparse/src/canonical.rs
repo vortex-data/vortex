@@ -40,7 +40,6 @@ use vortex_array::scalar::ListScalar;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::StructScalar;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferString;

@@ -241,10 +241,16 @@ impl VTable for Sparse {
 }
 
 /// The indices of non-fill values in the sparse array.
+/// Will be used once iterative execution is implemented for sparse arrays.
+#[expect(dead_code, reason = "needed once sparse has iterative execution")]
 pub(crate) const PATCH_INDICES_SLOT: usize = 0;
 /// The non-fill values at the corresponding patch indices.
+/// Will be used once iterative execution is implemented for sparse arrays.
+#[expect(dead_code, reason = "needed once sparse has iterative execution")]
 pub(crate) const PATCH_VALUES_SLOT: usize = 1;
 /// Chunk offsets for the patch indices/values.
+/// Will be used once iterative execution is implemented for sparse arrays.
+#[expect(dead_code, reason = "needed once sparse has iterative execution")]
 pub(crate) const PATCH_CHUNK_OFFSETS_SLOT: usize = 2;
 pub(crate) const NUM_SLOTS: usize = 3;
 pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =

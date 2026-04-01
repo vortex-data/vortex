@@ -41,7 +41,7 @@ use vortex_session::VortexSession;
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
-use crate::bitpacking::array::NUM_SLOTS;
+use crate::bitpacking::array::PATCH_CHUNK_OFFSETS_SLOT;
 use crate::bitpacking::array::PATCH_INDICES_SLOT;
 use crate::bitpacking::array::PATCH_VALUES_SLOT;
 use crate::bitpacking::array::SLOT_NAMES;

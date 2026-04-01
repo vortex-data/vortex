@@ -5,8 +5,6 @@ use crate::ArrayRef;
 use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
 
-pub(super) const NUM_SLOTS: usize = 0;
-
 #[derive(Clone, Debug)]
 pub struct ConstantArray {
     pub(super) scalar: Scalar,

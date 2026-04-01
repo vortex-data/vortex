@@ -98,7 +98,7 @@ impl VTable for ALPRD {
         array.left_parts_dictionary.array_hash(state, precision);
         array.right_parts().array_hash(state, precision);
         array.right_bit_width.hash(state);
-        array.left_parts_patches.array_hash(state, precision);
+        array.left_parts_patches().array_hash(state, precision);
     }
 
     fn array_eq(array: &ALPRDArray, other: &ALPRDArray, precision: Precision) -> bool {
@@ -110,8 +110,8 @@ impl VTable for ALPRD {
             && array.right_parts().array_eq(other.right_parts(), precision)
             && array.right_bit_width == other.right_bit_width
             && array
-                .left_parts_patches
-                .array_eq(&other.left_parts_patches, precision)
+                .left_parts_patches()
+                .array_eq(&other.left_parts_patches(), precision)
     }
 
     fn nbuffers(_array: &ALPRDArray) -> usize {
@@ -347,7 +347,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
 pub struct ALPRDArray {
     dtype: DType,
     slots: Vec<Option<ArrayRef>>,
-    left_parts_patches: Option<Patches>,
+    patch_offset: Option<usize>,
+    patch_offset_within_chunk: Option<usize>,
     left_parts_dictionary: Buffer<u16>,
     right_bit_width: u8,
     stats_set: ArrayStats,
@@ -425,13 +426,18 @@ impl ALPRDArray {
             .transpose()?;
 
         let slots = Self::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let (patch_offset, patch_offset_within_chunk) = match &left_parts_patches {
+            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
+            None => (None, None),
+        };
 
         Ok(Self {
             dtype,
             slots,
+            patch_offset,
+            patch_offset_within_chunk,
             left_parts_dictionary,
             right_bit_width,
-            left_parts_patches,
             stats_set: Default::default(),
         })
     }
@@ -447,11 +453,16 @@ impl ALPRDArray {
         left_parts_patches: Option<Patches>,
     ) -> Self {
         let slots = Self::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let (patch_offset, patch_offset_within_chunk) = match &left_parts_patches {
+            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
+            None => (None, None),
+        };
 
         Self {
             dtype,
             slots,
-            left_parts_patches,
+            patch_offset,
+            patch_offset_within_chunk,
             left_parts_dictionary,
             right_bit_width,
             stats_set: Default::default(),
@@ -482,6 +493,7 @@ impl ALPRDArray {
 
     /// Return all the owned parts of the array
     pub fn into_parts(mut self) -> ALPRDArrayParts {
+        let left_parts_patches = self.left_parts_patches();
         let left_parts = self.slots[LEFT_PARTS_SLOT]
             .take()
             .vortex_expect("ALPRDArray left_parts slot");
@@ -491,7 +503,7 @@ impl ALPRDArray {
         ALPRDArrayParts {
             dtype: self.dtype,
             left_parts,
-            left_parts_patches: self.left_parts_patches,
+            left_parts_patches,
             left_parts_dictionary: self.left_parts_dictionary,
             right_parts,
         }
@@ -529,7 +541,27 @@ impl ALPRDArray {
 
     /// Patches of left-most bits.
     pub fn left_parts_patches(&self) -> Option<Patches> {
-        self.left_parts_patches.clone()
+        match (
+            &self.slots[LP_PATCH_INDICES_SLOT],
+            &self.slots[LP_PATCH_VALUES_SLOT],
+        ) {
+            (Some(indices), Some(values)) => {
+                let patch_offset = self
+                    .patch_offset
+                    .vortex_expect("has patch slots but no patch_offset");
+                Some(unsafe {
+                    Patches::new_unchecked(
+                        self.left_parts().len(),
+                        patch_offset,
+                        indices.clone(),
+                        values.clone(),
+                        self.slots[LP_PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                        self.patch_offset_within_chunk,
+                    )
+                })
+            }
+            _ => None,
+        }
     }
 
     /// The dictionary that maps the codes in `left_parts` into bit patterns.
@@ -539,19 +571,21 @@ impl ALPRDArray {
     }
 
     pub fn replace_left_parts_patches(&mut self, patches: Option<Patches>) {
-        // Update both the patches and the corresponding slots to keep them in sync.
-        let (pi, pv, pco) = match &patches {
+        let (pi, pv, pco, patch_offset, patch_offset_within_chunk) = match &patches {
             Some(p) => (
                 Some(p.indices().clone()),
                 Some(p.values().clone()),
                 p.chunk_offsets().clone(),
+                Some(p.offset()),
+                p.offset_within_chunk(),
             ),
-            None => (None, None, None),
+            None => (None, None, None, None, None),
         };
         self.slots[LP_PATCH_INDICES_SLOT] = pi;
         self.slots[LP_PATCH_VALUES_SLOT] = pv;
         self.slots[LP_PATCH_CHUNK_OFFSETS_SLOT] = pco;
-        self.left_parts_patches = patches;
+        self.patch_offset = patch_offset;
+        self.patch_offset_within_chunk = patch_offset_within_chunk;
     }
 }
 

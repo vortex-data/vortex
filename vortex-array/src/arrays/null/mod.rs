@@ -28,8 +28,6 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
-const NUM_SLOTS: usize = 0;
-
 pub(crate) mod compute;
 
 vtable!(Null);
