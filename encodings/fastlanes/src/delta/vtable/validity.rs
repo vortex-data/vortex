@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayView;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::ValidityVTable;
 use vortex_error::VortexResult;
 

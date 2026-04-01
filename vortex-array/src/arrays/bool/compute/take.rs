@@ -10,6 +10,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
@@ -19,7 +20,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayView;
 
 impl TakeExecute for Bool {
     fn take(

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -12,7 +13,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 

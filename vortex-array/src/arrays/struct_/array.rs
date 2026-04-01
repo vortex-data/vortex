@@ -12,6 +12,9 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
 use crate::arrays::Struct;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -19,9 +22,6 @@ use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
-use crate::vtable::child_to_validity;
-use crate::vtable::validity_to_child;
 
 // StructArray has a variable number of slots: [validity?, field_0, ..., field_N]
 /// The validity bitmap indicating which struct elements are non-null.

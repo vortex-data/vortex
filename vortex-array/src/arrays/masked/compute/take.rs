@@ -5,12 +5,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Masked;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::masked::MaskedData;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayView;
 
 impl TakeReduce for Masked {
     fn take(array: ArrayView<'_, Masked>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

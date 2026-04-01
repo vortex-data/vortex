@@ -4,6 +4,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -11,7 +12,6 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::like::LikeKernel;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
-use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::FSST;

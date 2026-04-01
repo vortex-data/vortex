@@ -6,10 +6,10 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::List;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayView;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<List> for List {
     fn scalar_at(

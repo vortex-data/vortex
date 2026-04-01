@@ -2,16 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex::VortexSessionDefault;
-use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::encodings::fastlanes::Delta;
 use vortex::error::VortexResult;
+use vortex_array::ArrayId;
+use vortex_array::ArrayRef;
 use vortex_session::VortexSession;
 
 use super::N;

@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
-use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
@@ -30,6 +29,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::extension::datetime::TimeUnit;
 use vortex::mask::Mask;
+use vortex_array::ArrayRef;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::duckdb_date;

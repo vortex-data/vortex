@@ -6,10 +6,10 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::dict::TakeExecute;
-use crate::vtable::ArrayView;
 
 impl TakeExecute for Extension {
     fn take(

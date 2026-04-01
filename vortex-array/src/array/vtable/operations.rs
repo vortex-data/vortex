@@ -5,10 +5,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayView;
 use crate::vtable::NotSupported;
-use crate::vtable::VTable;
 
 pub trait OperationsVTable<V: VTable> {
     /// Fetch the scalar at the given index.

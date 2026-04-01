@@ -24,10 +24,10 @@ use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
-use crate::array::ArrayRef;
+use crate::ArrayRef;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::matcher::Matcher;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 /// A metadata-only rewrite rule that transforms an array based on its own structure (Layer 1).
 ///

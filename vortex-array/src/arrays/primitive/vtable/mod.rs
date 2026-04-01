@@ -11,16 +11,16 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::arrays::PrimitiveData;
+use crate::array::Array;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 mod kernel;
 mod operations;
 mod validity;
@@ -31,13 +31,13 @@ use vortex_buffer::Alignment;
 use vortex_session::VortexSession;
 
 use crate::Precision;
+use crate::array::ArrayId;
 use crate::arrays::primitive::array::NUM_SLOTS;
 use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
-use crate::vtable::ArrayId;
 
 vtable!(Primitive, Primitive, PrimitiveData);
 

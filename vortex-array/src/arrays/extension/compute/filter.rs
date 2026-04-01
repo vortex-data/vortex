@@ -6,10 +6,10 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::filter::FilterReduce;
-use crate::vtable::ArrayView;
 
 impl FilterReduce for Extension {
     fn filter(array: ArrayView<'_, Extension>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {

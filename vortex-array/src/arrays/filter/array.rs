@@ -7,10 +7,10 @@ use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::array::Array;
 use crate::arrays::Filter;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
 
 /// The source array being filtered.
 pub(super) const CHILD_SLOT: usize = 0;

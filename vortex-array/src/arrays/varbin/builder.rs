@@ -7,6 +7,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::vortex_panic;
 
 use crate::IntoArray;
+use crate::array::VTable;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
@@ -15,7 +16,6 @@ use crate::dtype::IntegerPType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::validity::Validity;
-use crate::vtable::VTable;
 
 pub struct VarBinBuilder<O: IntegerPType> {
     offsets: BufferMut<O>,

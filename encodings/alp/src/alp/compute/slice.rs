@@ -4,10 +4,10 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceKernel;
-use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::ALP;

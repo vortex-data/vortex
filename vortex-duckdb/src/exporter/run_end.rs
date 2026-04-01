@@ -3,7 +3,6 @@
 
 use std::marker::PhantomData;
 
-use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::match_each_integer_ptype;
@@ -14,6 +13,7 @@ use vortex::encodings::runend::RunEndArray;
 use vortex::encodings::runend::RunEndArrayParts;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
+use vortex_array::ArrayRef;
 
 use crate::convert::ToDuckDBScalar;
 use crate::duckdb::SelectionVector;

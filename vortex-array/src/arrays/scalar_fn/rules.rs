@@ -11,14 +11,15 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
 use crate::arrays::ScalarFnArray;
-use crate::arrays::ScalarFnData;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::Slice;
 use crate::arrays::StructArray;
+use crate::arrays::scalar_fn::ScalarFnData;
 use crate::dtype::DType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
@@ -30,7 +31,6 @@ use crate::scalar_fn::ReduceNodeRef;
 use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
     &ScalarFnPackToStructRule,

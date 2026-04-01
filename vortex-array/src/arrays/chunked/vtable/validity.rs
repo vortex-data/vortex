@@ -5,13 +5,13 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::ValidityVTable;
 use crate::arrays::Chunked;
-use crate::arrays::ChunkedData;
+use crate::arrays::chunked::ChunkedData;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
-use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<Chunked> for Chunked {
     fn validity(array: ArrayView<'_, Chunked>) -> VortexResult<Validity> {

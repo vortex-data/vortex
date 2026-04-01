@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
@@ -16,7 +17,6 @@ use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
-use crate::vtable::ArrayView;
 
 impl TakeExecute for Patched {
     fn take(

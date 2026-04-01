@@ -10,6 +10,7 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::dtype::DType;
@@ -17,7 +18,6 @@ use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ArrayView;
 
 impl CastKernel for Decimal {
     fn cast(

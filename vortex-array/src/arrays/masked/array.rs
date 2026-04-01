@@ -6,13 +6,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
 use crate::arrays::Masked;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
-use crate::vtable::child_to_validity;
-use crate::vtable::validity_to_child;
 
 /// The underlying child array being masked.
 pub(super) const CHILD_SLOT: usize = 0;

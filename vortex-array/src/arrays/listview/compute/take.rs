@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::dict::TakeReduce;
@@ -14,7 +15,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayView;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
 /// The threshold for triggering a rebuild of the [`ListViewArray`].

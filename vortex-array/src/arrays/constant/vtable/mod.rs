@@ -16,7 +16,11 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::ConstantData;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::constant::ConstantData;
 use crate::arrays::constant::array::NUM_SLOTS;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
@@ -37,10 +41,6 @@ use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 pub(crate) mod canonical;
 mod operations;
 mod validity;
@@ -194,9 +194,9 @@ impl VTable for Constant {
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(
-            constant_canonicalize(array.as_view())?.into_array(),
-        ))
+        Ok(ExecutionResult::done(constant_canonicalize(
+            array.as_view(),
+        )?))
     }
 
     fn append_to_builder(

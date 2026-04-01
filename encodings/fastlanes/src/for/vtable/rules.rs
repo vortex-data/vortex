@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Filter;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
@@ -9,7 +10,6 @@ use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
-use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::FoR;

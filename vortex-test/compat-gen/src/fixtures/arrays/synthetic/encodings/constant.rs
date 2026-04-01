@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
@@ -16,8 +15,9 @@ use vortex::array::extension::datetime::TimeUnit;
 use vortex::array::scalar::DecimalValue;
 use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::error::VortexResult;
+use vortex_array::ArrayId;
+use vortex_array::ArrayRef;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;

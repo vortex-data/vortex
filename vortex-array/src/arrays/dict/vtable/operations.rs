@@ -6,9 +6,9 @@ use vortex_error::VortexResult;
 
 use super::Dict;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayView;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Dict> for Dict {
     fn scalar_at(

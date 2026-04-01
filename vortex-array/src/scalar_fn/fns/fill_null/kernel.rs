@@ -8,6 +8,8 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
@@ -17,8 +19,6 @@ use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNull as FillNullExpr;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 /// Fill nulls in an array with a scalar value without reading buffers.
 ///
@@ -83,7 +83,7 @@ pub(super) fn precondition(
 /// Fill null on a [`ConstantArray`] by replacing null scalars with the fill value,
 /// or casting non-null scalars to the fill value's dtype.
 pub(crate) fn fill_null_constant(
-    array: &crate::arrays::ConstantData,
+    array: &crate::arrays::constant::ConstantData,
     fill_value: &Scalar,
 ) -> VortexResult<ArrayRef> {
     let scalar = if array.scalar().is_null() {

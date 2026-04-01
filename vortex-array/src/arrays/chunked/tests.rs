@@ -8,6 +8,7 @@ use vortex_buffer::buffer;
 
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
+use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ListArray;
@@ -21,7 +22,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::PType::I32;
 use crate::validity::Validity;
-use crate::vtable::VTable;
 
 fn chunked_array() -> ChunkedArray {
     ChunkedArray::try_new(

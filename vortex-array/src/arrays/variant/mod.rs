@@ -8,9 +8,9 @@ use vortex_error::VortexExpect;
 pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
 use crate::ArrayRef;
+use crate::array::Array;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
 
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];

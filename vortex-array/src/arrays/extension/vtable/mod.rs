@@ -17,7 +17,12 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
-use crate::arrays::ExtensionData;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::array::ValidityVTableFromChild;
+use crate::arrays::extension::ExtensionData;
 use crate::arrays::extension::array::NUM_SLOTS;
 use crate::arrays::extension::array::SLOT_NAMES;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
@@ -28,11 +33,6 @@ use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromChild;
 
 vtable!(Extension, Extension, ExtensionData);
 

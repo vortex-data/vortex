@@ -6,14 +6,14 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::Bool;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 /// Mask an array without reading buffers.
 ///

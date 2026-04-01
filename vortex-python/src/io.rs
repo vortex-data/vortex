@@ -8,7 +8,6 @@ use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3_object_store::PyObjectStore;
 use tokio::fs::File;
-use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrow::FromArrowArray;
@@ -23,6 +22,7 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
+use vortex_array::ArrayRef;
 
 use crate::PyVortex;
 use crate::SESSION;

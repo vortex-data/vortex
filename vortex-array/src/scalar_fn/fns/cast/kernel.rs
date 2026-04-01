@@ -5,6 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::dtype::DType;
@@ -12,8 +14,6 @@ use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::cast::Cast;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 /// Reduce rule for cast: restructure the array without reading buffers.
 ///

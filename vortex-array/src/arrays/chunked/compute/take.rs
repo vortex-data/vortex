@@ -8,6 +8,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
@@ -17,7 +18,6 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 // TODO(joe): this is pretty unoptimized but better than before. We want canonical using a builder
 // we also want to return a chunked array ideally.

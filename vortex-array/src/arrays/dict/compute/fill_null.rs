@@ -9,6 +9,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
@@ -17,7 +18,6 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::vtable::ArrayView;
 
 impl FillNullKernel for Dict {
     fn fill_null(

@@ -15,7 +15,10 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::DecimalData;
+use crate::array::Array;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::decimal::DecimalData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -24,9 +27,6 @@ use crate::match_each_decimal_value_type;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 mod kernel;
 mod operations;
 mod validity;
@@ -34,13 +34,13 @@ mod validity;
 use std::hash::Hash;
 
 use crate::Precision;
+use crate::array::ArrayId;
 use crate::arrays::decimal::array::NUM_SLOTS;
 use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
-use crate::vtable::ArrayId;
 vtable!(Decimal, Decimal, DecimalData);
 
 // The type of the values can be determined by looking at the type info...right?

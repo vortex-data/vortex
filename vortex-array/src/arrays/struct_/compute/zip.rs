@@ -10,12 +10,12 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 impl ZipKernel for Struct {
     fn zip(

@@ -16,8 +16,9 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::Array;
 use crate::arrays::Chunked;
-use crate::arrays::PrimitiveData;
+use crate::arrays::primitive::PrimitiveData;
 use crate::dtype::DType;
 use crate::iter::ArrayIterator;
 use crate::iter::ArrayIteratorAdapter;
@@ -27,7 +28,6 @@ use crate::stats::ArrayStats;
 use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;
 use crate::validity::Validity;
-use crate::vtable::Array;
 
 pub(super) const CHUNK_OFFSETS_SLOT: usize = 0;
 pub(super) const CHUNKS_OFFSET: usize = 1;

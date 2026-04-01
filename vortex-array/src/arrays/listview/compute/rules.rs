@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Filter;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
@@ -14,7 +15,6 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::vtable::ArrayView;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<ListView> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ListViewFilterPushDown),

@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::dict::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 impl TakeReduce for Struct {
     fn take(array: ArrayView<'_, Struct>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

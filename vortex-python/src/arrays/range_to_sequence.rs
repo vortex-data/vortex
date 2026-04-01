@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity;
@@ -14,6 +13,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::scalar::PValue;
+use vortex_array::ArrayRef;
 
 pub fn sequence_array_from_range<T: NativePType + TryFrom<isize> + Into<PValue>>(
     start: isize,

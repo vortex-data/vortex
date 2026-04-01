@@ -6,7 +6,7 @@ use std::ops::Range;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::arrays::ChunkedData;
+use crate::arrays::chunked::ChunkedData;
 
 pub(crate) struct AlignedPair {
     pub left: ArrayRef,

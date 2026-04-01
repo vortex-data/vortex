@@ -8,6 +8,7 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
 use crate::dtype::NativeDecimalType;
@@ -17,7 +18,6 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
-use crate::vtable::ArrayView;
 
 impl BetweenKernel for Decimal {
     fn between(

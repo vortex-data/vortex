@@ -13,10 +13,10 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::array::Array;
 use crate::arrays::Shared;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
 
 /// The source array that is shared and lazily computed.
 pub(super) const SOURCE_SLOT: usize = 0;

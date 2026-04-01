@@ -16,6 +16,7 @@ use crate::ArrayRef;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
@@ -51,7 +52,6 @@ use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::matcher::Matcher;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///

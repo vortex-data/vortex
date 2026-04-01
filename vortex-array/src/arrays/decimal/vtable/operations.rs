@@ -4,12 +4,12 @@
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::Decimal;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayView;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Decimal> for Decimal {
     fn scalar_at(

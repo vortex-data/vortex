@@ -9,6 +9,7 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::array::Array;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
@@ -20,7 +21,6 @@ use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
-use crate::vtable::Array;
 
 /// Creates a `ListViewArray` from a `ListArray` by computing `sizes` from `offsets`.
 ///

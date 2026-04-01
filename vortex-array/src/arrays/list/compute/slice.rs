@@ -7,10 +7,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::slice::SliceReduce;
-use crate::vtable::ArrayView;
 
 impl SliceReduce for List {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

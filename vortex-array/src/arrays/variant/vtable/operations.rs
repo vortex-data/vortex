@@ -4,10 +4,10 @@
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::Variant;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayView;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Variant> for Variant {
     fn scalar_at(

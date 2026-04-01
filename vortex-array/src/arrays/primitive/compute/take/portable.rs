@@ -23,6 +23,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
 use crate::arrays::primitive::vtable::Primitive;
@@ -33,7 +34,6 @@ use crate::dtype::half::f16;
 use crate::match_each_native_simd_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 pub(super) struct TakeKernelPortableSimd;
 

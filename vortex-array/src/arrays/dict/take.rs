@@ -8,6 +8,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -18,8 +20,6 @@ use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::stats::StatsSet;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 pub trait TakeReduce: VTable {
     /// Take elements from an array at the given indices without reading buffers.

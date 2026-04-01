@@ -18,9 +18,9 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::ToCanonical;
-use crate::array::ArrayRef;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;

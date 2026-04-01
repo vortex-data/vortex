@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::vtable::Array;
-use vortex_array::vtable::ArrayView;
+use vortex_array::Array;
+use vortex_array::ArrayView;
 pub(crate) mod compute;
 mod rules;
 mod slice;
@@ -10,6 +10,7 @@ mod slice;
 use prost::Message as _;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
@@ -30,7 +31,6 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
-use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;

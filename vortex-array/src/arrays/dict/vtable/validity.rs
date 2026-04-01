@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 
 use super::Dict;
 use crate::IntoArray;
-use crate::arrays::DictData;
+use crate::array::ArrayView;
+use crate::array::ValidityVTable;
+use crate::arrays::dict::DictData;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
-use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<Dict> for Dict {
     fn validity(array: ArrayView<'_, Dict>) -> VortexResult<Validity> {

@@ -6,6 +6,7 @@ use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -13,7 +14,6 @@ use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayView;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::buffer_mut;
 use vortex_error::VortexExpect;

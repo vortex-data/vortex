@@ -16,11 +16,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
 
 // =============================================================================
 // ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
@@ -387,93 +388,5 @@ impl<V: VTable> IntoArray for Arc<Array<V>> {
 impl<V: VTable> From<Array<V>> for ArrayRef {
     fn from(value: Array<V>) -> ArrayRef {
         value.inner
-    }
-}
-
-// =============================================================================
-// ArrayView<V> — lightweight borrow
-// =============================================================================
-
-/// A lightweight, `Copy`-able typed view into an [`ArrayRef`].
-pub struct ArrayView<'a, V: VTable> {
-    array: &'a ArrayRef,
-    data: &'a V::ArrayData,
-}
-
-impl<V: VTable> Copy for ArrayView<'_, V> {}
-
-impl<V: VTable> Clone for ArrayView<'_, V> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<'a, V: VTable> ArrayView<'a, V> {
-    /// # Safety
-    /// Caller must ensure `data` is the `V::ArrayData` stored inside `array`.
-    pub(crate) unsafe fn new_unchecked(array: &'a ArrayRef, data: &'a V::ArrayData) -> Self {
-        Self { array, data }
-    }
-
-    pub fn array_ref(&self) -> &'a ArrayRef {
-        self.array
-    }
-
-    pub fn data(&self) -> &'a V::ArrayData {
-        self.data
-    }
-
-    pub fn dtype(&self) -> &DType {
-        self.array.dtype()
-    }
-
-    pub fn len(&self) -> usize {
-        self.array.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.array.len() == 0
-    }
-
-    pub fn encoding_id(&self) -> ArrayId {
-        self.array.encoding_id()
-    }
-
-    pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.array.statistics()
-    }
-
-    pub fn into_owned(self) -> Array<V> {
-        // SAFETY: we are ourselves type checked as 'V'
-        unsafe { Array::<V>::from_array_ref_unchecked(self.array.clone()) }
-    }
-}
-
-impl<'a, V: VTable> ArrayView<'a, V>
-where
-    V::ArrayData: crate::vtable::ValidityHelper,
-{
-    /// Returns a reference to the validity.
-    #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &'a crate::validity::Validity {
-        crate::vtable::ValidityHelper::validity(self.data)
-    }
-}
-
-impl<V: VTable> Deref for ArrayView<'_, V> {
-    type Target = V::ArrayData;
-
-    fn deref(&self) -> &V::ArrayData {
-        self.data
-    }
-}
-
-impl<V: VTable> Debug for ArrayView<'_, V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArrayView")
-            .field("encoding", &self.array.encoding_id())
-            .field("dtype", self.array.dtype())
-            .field("len", &self.array.len())
-            .finish()
     }
 }

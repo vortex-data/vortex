@@ -8,13 +8,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
 use crate::arrays::FixedSizeList;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
-use crate::vtable::child_to_validity;
-use crate::vtable::validity_to_child;
 
 /// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
 /// array, and each inner list element is a _scalar_ of the `elements` array.

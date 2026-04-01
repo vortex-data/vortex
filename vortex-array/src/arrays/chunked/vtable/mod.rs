@@ -17,13 +17,17 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
-use crate::arrays::ChunkedData;
-use crate::arrays::PrimitiveData;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::CHUNK_OFFSETS_SLOT;
 use crate::arrays::chunked::array::CHUNKS_OFFSET;
 use crate::arrays::chunked::compute::kernel::PARENT_KERNELS;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
+use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -35,10 +39,6 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 mod canonical;
 mod operations;
 mod validity;
@@ -266,9 +266,7 @@ impl VTable for Chunked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(
-            _canonicalize(array.as_view(), ctx)?.into_array(),
-        ))
+        Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {

@@ -9,6 +9,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
@@ -20,7 +21,6 @@ use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::vtable::ArrayView;
 
 impl CompareKernel for Patched {
     fn compare(
@@ -164,6 +164,7 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::Patched;
@@ -175,7 +176,6 @@ mod tests {
     use crate::scalar_fn::fns::binary::CompareKernel;
     use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::validity::Validity;
-    use crate::vtable::Array;
 
     #[test]
     fn test_basic() {

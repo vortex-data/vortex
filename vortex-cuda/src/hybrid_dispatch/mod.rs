@@ -42,11 +42,11 @@
 //! ```
 
 use tracing::trace;
-use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex_array::ArrayRef;
 
 use crate::dynamic_dispatch::plan_builder::DispatchPlan;
 use crate::executor::CudaArrayExt;

@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
@@ -15,7 +16,6 @@ use crate::dtype::NativeDecimalType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
-use crate::vtable::ArrayView;
 
 impl TakeExecute for Decimal {
     fn take(

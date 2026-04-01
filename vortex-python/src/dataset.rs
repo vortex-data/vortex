@@ -10,7 +10,6 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyString;
-use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::FieldName;
@@ -22,6 +21,7 @@ use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::layout::scan::split_by::SplitBy;
+use vortex_array::ArrayRef;
 
 use crate::RUNTIME;
 use crate::SESSION;

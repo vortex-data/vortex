@@ -11,15 +11,15 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
-use crate::vtable::child_to_validity;
-use crate::vtable::validity_to_child;
 
 /// The validity bitmap indicating which elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 0;

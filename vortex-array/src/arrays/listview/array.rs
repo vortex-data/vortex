@@ -12,6 +12,9 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ToCanonical;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
 use crate::arrays::ListView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -21,9 +24,6 @@ use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
-use crate::vtable::child_to_validity;
-use crate::vtable::validity_to_child;
 
 /// The `elements` data array, where each list scalar is a _slice_ of the `elements` array, and
 /// each inner list element is a _scalar_ of the `elements` array.

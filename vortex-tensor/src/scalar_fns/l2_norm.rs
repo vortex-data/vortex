@@ -8,7 +8,6 @@
 use std::fmt::Formatter;
 
 use num_traits::Float;
-use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -25,6 +24,7 @@ use vortex::scalar_fn::ChildName;
 use vortex::scalar_fn::ExecutionArgs;
 use vortex::scalar_fn::ScalarFnId;
 use vortex::scalar_fn::ScalarFnVTable;
+use vortex_array::ArrayRef;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;

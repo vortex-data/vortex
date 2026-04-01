@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::builtins::ArrayBuiltins;
@@ -14,7 +15,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
 use vortex_array::scalar_fn::fns::between::BetweenReduce;
 use vortex_array::scalar_fn::fns::between::StrictComparison;
-use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::ALP;

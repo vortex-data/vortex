@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 
 use crate::Canonical;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
@@ -33,7 +34,6 @@ use crate::match_each_native_ptype;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
 pub(crate) fn constant_canonicalize(array: ArrayView<'_, Constant>) -> VortexResult<Canonical> {

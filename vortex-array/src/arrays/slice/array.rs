@@ -8,10 +8,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
+use crate::array::Array;
 use crate::arrays::Slice;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
 
 /// The underlying child array being sliced.
 pub(super) const CHILD_SLOT: usize = 0;

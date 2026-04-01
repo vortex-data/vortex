@@ -12,6 +12,12 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
+use crate::array::VTable;
+use crate::array::ValidityVTable;
 use crate::arrays::shared::SharedData;
 use crate::arrays::shared::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
@@ -22,12 +28,6 @@ use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::ArrayView;
-use crate::vtable::OperationsVTable;
-use crate::vtable::VTable;
-use crate::vtable::ValidityVTable;
 
 vtable!(Shared, Shared, SharedData);
 

@@ -17,6 +17,10 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::variant::NUM_SLOTS;
 use crate::arrays::variant::SLOT_NAMES;
 use crate::arrays::variant::VariantData;
@@ -25,10 +29,6 @@ use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 vtable!(Variant, Variant, VariantData);
 

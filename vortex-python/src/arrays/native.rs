@@ -5,7 +5,7 @@ use std::ops::Deref;
 
 use pyo3::PyClass;
 use pyo3::prelude::*;
-use vortex::array::ArrayRef;
+use vortex::array::VTable;
 use vortex::array::arrays::Bool;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::Constant;
@@ -19,7 +19,6 @@ use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::VarBin;
 use vortex::array::arrays::VarBinView;
-use vortex::array::vtable::VTable;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPRD;
 use vortex::encodings::bytebool::ByteBool;
@@ -33,6 +32,7 @@ use vortex::encodings::sequence::Sequence;
 use vortex::encodings::sparse::Sparse;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::error::VortexExpect;
+use vortex_array::ArrayRef;
 
 use crate::arrays::PyArray;
 use crate::arrays::builtins::PyBoolArray;

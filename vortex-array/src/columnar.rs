@@ -11,12 +11,12 @@ use crate::CanonicalView;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayView;
 
 /// Represents a columnnar array of data, either in canonical form or as a constant array.
 ///

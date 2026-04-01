@@ -5,7 +5,6 @@
 
 mod dyn_;
 mod operations;
-mod typed;
 mod validity;
 
 use std::fmt::Debug;
@@ -13,14 +12,15 @@ use std::hash::Hasher;
 
 pub use dyn_::*;
 pub use operations::*;
-pub use typed::*;
 pub use validity::*;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::Array;
 use crate::ArrayRef;
+use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -248,6 +248,8 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 /// Alias for migration — downstream code can start using `ArrayVTable`.
 pub use VTable as ArrayVTable;
 
+use crate::array::ArrayId;
+
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.
 pub struct NotSupported;
 
@@ -344,7 +346,7 @@ macro_rules! vtable {
             impl $crate::IntoArray for [<$Base Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
                     use $crate::aliases::vortex_error::VortexExpect;
-                    $crate::ArrayRef::from($crate::vtable::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
+                    $crate::ArrayRef::from($crate::array::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
                 }
             }
 
@@ -368,12 +370,12 @@ macro_rules! vtable {
     ($Base:ident, $VT:ident, $Data:ident) => {
         $crate::aliases::paste::paste! {
             /// Type alias: `FooArray = Array<Foo>`.
-            pub type [<$Base Array>] = $crate::vtable::Array<$VT>;
+            pub type [<$Base Array>] = $crate::Array<$VT>;
 
             impl $crate::IntoArray for $Data {
                 fn into_array(self) -> $crate::ArrayRef {
                     use $crate::aliases::vortex_error::VortexExpect;
-                    $crate::vtable::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid").into_array()
+                    $crate::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid").into_array()
                 }
             }
 

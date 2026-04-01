@@ -22,12 +22,12 @@ use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
 use cudarc::driver::sys;
 use cudarc::runtime::sys::cudaEvent_t;
-use vortex::array::ArrayRef;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::validity::Validity;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex_array::ArrayRef;
 
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;

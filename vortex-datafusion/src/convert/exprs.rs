@@ -921,11 +921,11 @@ mod tests {
         use datafusion::arrow::array::RecordBatch;
         use datafusion_physical_expr::expressions::CaseExpr;
         use vortex::VortexSessionDefault;
-        use vortex::array::ArrayRef;
         use vortex::array::Canonical;
         use vortex::array::VortexSessionExecute as _;
         use vortex::array::arrow::FromArrowArray;
         use vortex::session::VortexSession;
+        use vortex_array::ArrayRef;
 
         // Create test data
         let values = Arc::new(Int32Array::from(vec![1, 5, 10, 15, 20]));

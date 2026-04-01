@@ -4,11 +4,11 @@
 use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
+use crate::array::Array;
 use crate::arrays::Constant;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
 
 pub(super) const NUM_SLOTS: usize = 0;
 

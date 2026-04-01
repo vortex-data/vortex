@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Masked;
@@ -14,7 +15,6 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::vtable::ArrayView;
 
 pub(crate) const RULES: ParentRuleSet<Bool> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&BoolMaskedValidityRule),

@@ -26,6 +26,12 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::array::ValidityChild;
+use crate::array::ValidityVTableFromChild;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArray;
 use crate::arrays::patched::array::NUM_SLOTS;
@@ -43,12 +49,6 @@ use crate::match_each_native_ptype;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
-use crate::vtable::ValidityChild;
-use crate::vtable::ValidityVTableFromChild;
 
 vtable!(Patched);
 

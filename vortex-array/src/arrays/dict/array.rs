@@ -10,12 +10,12 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::ToCanonical;
+use crate::array::Array;
 use crate::arrays::Dict;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {

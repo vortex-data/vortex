@@ -32,7 +32,6 @@ use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
 use tracing::Instrument;
-use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::error::VortexError;
@@ -43,6 +42,7 @@ use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
+use vortex_array::ArrayRef;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
@@ -490,6 +490,7 @@ mod tests {
     use vortex::metrics::DefaultMetricsRegistry;
     use vortex::scan::selection::Selection;
     use vortex::session::VortexSession;
+    use vortex_array::ArrayRef;
 
     use super::*;
     use crate::VortexAccessPlan;

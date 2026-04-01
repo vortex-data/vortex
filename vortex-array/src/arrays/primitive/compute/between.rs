@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
 use crate::dtype::NativePType;
@@ -15,7 +16,6 @@ use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
-use crate::vtable::ArrayView;
 
 impl BetweenKernel for Primitive {
     fn between(

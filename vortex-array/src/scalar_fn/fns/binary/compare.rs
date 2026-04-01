@@ -15,6 +15,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnVTable;
@@ -29,8 +31,6 @@ use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 /// Trait for encoding-specific comparison kernels that operate in encoded space.
 ///

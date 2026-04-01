@@ -3,6 +3,7 @@
 
 use num_traits::cast::NumCast;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -16,7 +17,6 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayView;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;

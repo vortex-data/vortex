@@ -14,6 +14,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ToCanonical;
+use crate::array::Array;
 use crate::arrays::Primitive;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -22,7 +23,6 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
 
 mod accessor;
 mod cast;
@@ -34,9 +34,9 @@ pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
 use crate::ArrayRef;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
 use crate::buffer::BufferHandle;
-use crate::vtable::child_to_validity;
-use crate::vtable::validity_to_child;
 
 /// The validity bitmap indicating which elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 0;

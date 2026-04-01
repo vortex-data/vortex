@@ -7,13 +7,13 @@ use super::Dict;
 use super::DictArray;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::like::LikeReduce;
-use crate::vtable::ArrayView;
 
 impl LikeReduce for Dict {
     fn like(

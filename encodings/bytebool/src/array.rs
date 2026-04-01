@@ -3,9 +3,12 @@
 
 use std::fmt::Debug;
 
+use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
@@ -19,9 +22,6 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
-use vortex_array::vtable::Array;
-use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;

@@ -15,6 +15,9 @@ use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
 use crate::arrays::ConstantArray;
 use crate::arrays::List;
 use crate::arrays::Primitive;
@@ -26,9 +29,6 @@ use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
-use crate::vtable::child_to_validity;
-use crate::vtable::validity_to_child;
 
 /// The elements data array containing all list elements concatenated together.
 pub(super) const ELEMENTS_SLOT: usize = 0;

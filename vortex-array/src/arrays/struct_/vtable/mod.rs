@@ -13,7 +13,10 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::arrays::StructData;
+use crate::array::Array;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::struct_::StructData;
 use crate::arrays::struct_::array::FIELDS_OFFSET;
 use crate::arrays::struct_::array::VALIDITY_SLOT;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
@@ -22,18 +25,16 @@ use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 mod kernel;
 mod operations;
 mod validity;
 
 use crate::Precision;
+use crate::array::ArrayId;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::stats::ArrayStats;
-use crate::vtable::ArrayId;
+
 vtable!(Struct, Struct, StructData);
 
 impl VTable for Struct {

@@ -21,9 +21,9 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::matcher::Matcher;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 /// A collection of [`ExecuteParentKernel`]s registered for a specific child encoding.
 ///

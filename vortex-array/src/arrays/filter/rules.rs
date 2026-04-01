@@ -7,6 +7,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Filter;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
@@ -15,7 +16,6 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
-use crate::vtable::ArrayView;
 
 pub(super) const PARENT_RULES: ParentRuleSet<Filter> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&FilterFilterRule)]);
@@ -40,7 +40,7 @@ impl ArrayParentReduceRule<Filter> for FilterFilterRule {
         let combined_mask = child.mask.intersect_by_rank(&parent.mask);
         let new_array = child.child().filter(combined_mask)?;
 
-        Ok(Some(new_array.into_array()))
+        Ok(Some(new_array))
     }
 }
 

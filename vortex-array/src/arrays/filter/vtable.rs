@@ -17,6 +17,12 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::Precision;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
+use crate::array::VTable;
+use crate::array::ValidityVTable;
 use crate::arrays::filter::array::FilterData;
 use crate::arrays::filter::array::NUM_SLOTS;
 use crate::arrays::filter::array::SLOT_NAMES;
@@ -33,12 +39,6 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::ArrayView;
-use crate::vtable::OperationsVTable;
-use crate::vtable::VTable;
-use crate::vtable::ValidityVTable;
 
 vtable!(Filter, Filter, FilterData);
 

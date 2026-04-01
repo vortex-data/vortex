@@ -21,6 +21,10 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::Precision;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::scalar_fn::array::ScalarFnData;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
@@ -42,10 +46,6 @@ use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 vtable!(ScalarFn, ScalarFnVTable, ScalarFnData);
 

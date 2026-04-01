@@ -7,13 +7,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
 use crate::arrays::slice::SliceReduce;
 use crate::scalar::Scalar;
-use crate::vtable::ArrayView;
 
 impl SliceReduce for Dict {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

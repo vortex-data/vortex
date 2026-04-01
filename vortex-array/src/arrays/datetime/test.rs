@@ -9,7 +9,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::TemporalData;
+use crate::arrays::datetime::TemporalData;
 use crate::assert_arrays_eq;
 use crate::expr::gt;
 use crate::expr::lit;

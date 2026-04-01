@@ -5,9 +5,9 @@
 //! patching enables fully parallel GPU execution, as outlined by Hepkema et al. in
 //! "G-ALP: Rethinking Light-weight Encodings for GPUs" <https://doi.org/10.1145/3736227.3736242>
 
+use vortex::array::Canonical;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
-use vortex_array::Canonical;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;

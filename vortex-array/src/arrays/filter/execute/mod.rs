@@ -16,6 +16,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
@@ -23,7 +24,6 @@ use crate::arrays::NullArray;
 use crate::arrays::VariantArray;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 mod bitbuffer;
 mod bool;

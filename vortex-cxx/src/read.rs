@@ -14,7 +14,6 @@ use arrow_schema::DataType;
 use arrow_schema::Schema;
 use arrow_schema::SchemaRef;
 use futures::stream::TryStreamExt;
-use vortex::array::ArrayRef;
 use vortex::array::arrow::IntoArrowArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
@@ -22,6 +21,7 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::arrow::RecordBatchIteratorAdapter;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::scan::selection::Selection;
+use vortex_array::ArrayRef;
 
 use crate::RUNTIME;
 use crate::SESSION;

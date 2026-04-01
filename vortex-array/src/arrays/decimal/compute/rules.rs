@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Masked;
@@ -16,7 +17,6 @@ use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::vtable::ArrayView;
 
 pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalMaskedValidityRule),

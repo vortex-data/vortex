@@ -3,13 +3,13 @@
 
 //! Integer compression schemes.
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::Array;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::scheme::AncestorExclusion;

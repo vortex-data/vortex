@@ -10,7 +10,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::array::ArrayRef;
+use crate::ArrayRef;
 
 pub mod rules;
 

@@ -14,6 +14,7 @@ use vortex_mask::MaskIter;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
@@ -23,7 +24,6 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 impl FilterKernel for VarBin {
     fn filter(

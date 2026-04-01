@@ -6,12 +6,12 @@
 use vortex_alp::ALP;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::dtype::PType;
-use vortex_array::vtable::Array;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;

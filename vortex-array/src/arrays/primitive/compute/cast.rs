@@ -13,6 +13,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn;
+use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
@@ -21,7 +22,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
-use crate::vtable::ArrayView;
 
 impl CastKernel for Primitive {
     fn cast(

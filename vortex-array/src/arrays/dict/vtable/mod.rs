@@ -20,12 +20,15 @@ use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
-use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::ConstantData;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::Primitive;
+use crate::arrays::constant::ConstantData;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -40,10 +43,6 @@ use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 mod kernel;
 mod operations;
 mod validity;
@@ -218,13 +217,10 @@ impl VTable for Dict {
         // Also not the check to do here it take value validity using code validity, but this approx
         // is correct.
         if array.codes().all_invalid()? {
-            return Ok(ExecutionResult::done(
-                ConstantData::new(
-                    Scalar::null(array.dtype().as_nullable()),
-                    array.codes().len(),
-                )
-                .into_array(),
-            ));
+            return Ok(ExecutionResult::done(ConstantData::new(
+                Scalar::null(array.dtype().as_nullable()),
+                array.codes().len(),
+            )));
         }
 
         let array = require_child!(array, array.values(), 1 => AnyCanonical);
@@ -239,9 +235,7 @@ impl VTable for Dict {
         // TODO: add canonical owned cast.
         let values = values.to_canonical()?;
 
-        Ok(ExecutionResult::done(
-            take_canonical(values, &codes, ctx)?.into_array(),
-        ))
+        Ok(ExecutionResult::done(take_canonical(values, &codes, ctx)?))
     }
 
     fn reduce_parent(

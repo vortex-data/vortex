@@ -5,11 +5,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::array::Array;
 use crate::arrays::Extension;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
 
 /// The backing storage array for this extension array.
 pub(super) const STORAGE_SLOT: usize = 0;

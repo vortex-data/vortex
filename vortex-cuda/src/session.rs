@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
 use vortex::array::VortexSessionExecute;
-use vortex::array::vtable::ArrayId;
 use vortex::error::VortexResult;
 use vortex::session::Ref;
 use vortex::session::SessionExt;
 use vortex::utils::aliases::dash_map::DashMap;
+use vortex_array::ArrayId;
 
 use crate::ExportDeviceArray;
 use crate::arrow::CanonicalDeviceArrayExport;

@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
@@ -17,7 +18,6 @@ use crate::scalar_fn::fns::between::BetweenReduceAdaptor;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 use crate::scalar_fn::fns::not::NotReduceAdaptor;
-use crate::vtable::ArrayView;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Constant> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&BetweenReduceAdaptor(Constant)),

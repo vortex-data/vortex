@@ -39,6 +39,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
 use crate::arrays::primitive::compute::take::take_primitive_scalar;
@@ -49,7 +50,6 @@ use crate::dtype::UnsignedPType;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 #[allow(unused)]
 pub(super) struct TakeKernelAVX2;

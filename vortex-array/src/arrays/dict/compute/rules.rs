@@ -7,6 +7,7 @@ use crate::ArrayEq;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::Precision;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
@@ -25,7 +26,6 @@ use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::scalar_fn::fns::pack::Pack;
-use crate::vtable::ArrayView;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),

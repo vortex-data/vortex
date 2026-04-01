@@ -21,8 +21,8 @@ use super::TakeExecute;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::filter::FilterReduce;
-use crate::vtable::ArrayView;
 
 impl TakeExecute for Dict {
     fn take(

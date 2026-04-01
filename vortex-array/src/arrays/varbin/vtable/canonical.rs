@@ -7,6 +7,7 @@ use num_traits::AsPrimitive;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinViewArray;
@@ -14,7 +15,6 @@ use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use crate::arrays::varbinview::build_views::build_views;
 use crate::arrays::varbinview::build_views::offsets_to_lengths;
 use crate::match_each_integer_ptype;
-use crate::vtable::ArrayView;
 
 /// Converts a VarBinArray to its canonical form (VarBinViewArray).
 ///

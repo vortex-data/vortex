@@ -5,12 +5,12 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::match_each_decimal_value_type;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 impl MaskReduce for Decimal {
     fn mask(array: ArrayView<'_, Decimal>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

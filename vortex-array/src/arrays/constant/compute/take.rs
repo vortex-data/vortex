@@ -6,6 +6,7 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::TakeReduce;
@@ -14,7 +15,6 @@ use crate::arrays::masked::MaskedData;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 impl TakeReduce for Constant {
     fn take(array: ArrayView<'_, Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

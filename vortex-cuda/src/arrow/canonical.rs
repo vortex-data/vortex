@@ -3,7 +3,6 @@
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::StructArray;
@@ -17,6 +16,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::extension::datetime::AnyTemporal;
+use vortex_array::ArrayRef;
 
 use crate::CudaExecutionCtx;
 use crate::arrow::ArrowArray;

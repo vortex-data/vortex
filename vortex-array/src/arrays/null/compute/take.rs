@@ -7,13 +7,13 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::array::ArrayView;
 use crate::arrays::Null;
 use crate::arrays::NullArray;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::match_each_integer_ptype;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::vtable::ArrayView;
 
 impl TakeReduce for Null {
     #[allow(clippy::cast_possible_truncation)]

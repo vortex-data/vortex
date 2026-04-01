@@ -6,11 +6,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::array::Array;
 use crate::arrays::ScalarFnVTable;
 use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
 
 // ScalarFnArray has a variable number of slots (one per child)
 

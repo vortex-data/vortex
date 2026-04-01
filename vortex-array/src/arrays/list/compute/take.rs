@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::Primitive;
@@ -18,7 +19,6 @@ use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_smallest_offset_type;
-use crate::vtable::ArrayView;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
 // the `ListView::take` compute function once `ListView` is more stable.

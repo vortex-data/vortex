@@ -15,12 +15,12 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::Filter;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 pub trait FilterReduce: VTable {
     /// Filter an array with the provided mask without reading buffers.

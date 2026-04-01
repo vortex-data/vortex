@@ -4,9 +4,9 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 
 pub trait ValidityVTable<V: VTable> {
     /// Returns the [`Validity`] of the array.

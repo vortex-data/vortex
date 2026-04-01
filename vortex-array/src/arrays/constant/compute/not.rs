@@ -5,11 +5,11 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::not::NotReduce;
-use crate::vtable::ArrayView;
 
 impl NotReduce for Constant {
     fn invert(array: ArrayView<'_, Constant>) -> VortexResult<Option<ArrayRef>> {

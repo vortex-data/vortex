@@ -16,7 +16,6 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
 use tracing::instrument;
-use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::Filter;
 use vortex::array::arrays::filter::FilterArrayParts;
@@ -26,6 +25,7 @@ use vortex::array::match_each_native_simd_ptype;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::mask::Mask;
+use vortex_array::ArrayRef;
 use vortex_cub::filter::CubFilterable;
 use vortex_cub::filter::cudaStream_t;
 

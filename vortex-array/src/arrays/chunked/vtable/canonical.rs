@@ -9,6 +9,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ListViewArray;
@@ -22,7 +23,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 pub(super) fn _canonicalize(
     array: ArrayView<'_, Chunked>,

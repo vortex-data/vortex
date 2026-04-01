@@ -9,6 +9,7 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::Primitive;
@@ -19,7 +20,6 @@ use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_smallest_offset_type;
 use crate::validity::Validity;
-use crate::vtable::ArrayView;
 
 /// Take implementation for [`FixedSizeListArray`].
 ///

@@ -13,7 +13,6 @@ use cudarc::driver::DevicePtrMut;
 use futures::future::try_join_all;
 use tracing::debug;
 use tracing::instrument;
-use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
@@ -32,6 +31,7 @@ use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::mask::AllOr;
+use vortex_array::ArrayRef;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
 

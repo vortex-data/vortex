@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
-use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
@@ -29,6 +28,7 @@ use vortex::dtype::NativePType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex_array::ArrayRef;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;

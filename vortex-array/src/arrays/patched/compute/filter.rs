@@ -7,10 +7,10 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::FilterArray;
 use crate::arrays::Patched;
 use crate::arrays::filter::FilterReduce;
-use crate::vtable::ArrayView;
 
 impl FilterReduce for Patched {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {

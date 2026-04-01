@@ -8,7 +8,6 @@ use std::ptr;
 use std::sync::Arc;
 
 use paste::paste;
-use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::NullArray;
@@ -20,6 +19,7 @@ use vortex::dtype::half::f16;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex_array::ArrayRef;
 
 use crate::binary::vx_binary;
 use crate::box_wrapper;

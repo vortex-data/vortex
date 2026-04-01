@@ -6,6 +6,7 @@ use std::ops::Range;
 use itertools::Itertools;
 use lending_iterator::LendingIterator;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -18,7 +19,6 @@ use vortex_array::dtype::IntegerPType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::ArrayView;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;

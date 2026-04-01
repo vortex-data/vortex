@@ -15,8 +15,12 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::ConstantData;
-use crate::arrays::MaskedData;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::constant::ConstantData;
+use crate::arrays::masked::MaskedData;
 use crate::arrays::masked::array::NUM_SLOTS;
 use crate::arrays::masked::array::SLOT_NAMES;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
@@ -32,10 +36,6 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::ArrayView;
-use crate::vtable::VTable;
 vtable!(Masked, Masked, MaskedData);
 
 #[derive(Clone, Debug)]

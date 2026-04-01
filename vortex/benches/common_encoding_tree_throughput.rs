@@ -13,7 +13,6 @@ use divan::counter::BytesCount;
 use mimalloc::MiMalloc;
 use rand::RngExt;
 use rand::SeedableRng;
-use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::DictArray;
@@ -35,6 +34,7 @@ use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::runend::RunEnd;
 use vortex::extension::datetime::TimeUnit;
+use vortex_array::ArrayRef;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

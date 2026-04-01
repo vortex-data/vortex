@@ -18,7 +18,6 @@ use tracing::Instrument;
 use tracing::info;
 use tracing::trace;
 use vortex::VortexSessionDefault;
-use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
@@ -32,6 +31,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::session::VortexSession;
+use vortex_array::ArrayRef;
 
 use crate::CompactionStrategy;
 use crate::Format;

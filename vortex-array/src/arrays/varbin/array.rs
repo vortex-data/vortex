@@ -11,6 +11,9 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ToCanonical;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
 use crate::arrays::VarBin;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
@@ -20,9 +23,6 @@ use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::Array;
-use crate::vtable::child_to_validity;
-use crate::vtable::validity_to_child;
 
 /// The offsets array defining the start/end of each variable-length binary element.
 pub(super) const OFFSETS_SLOT: usize = 0;

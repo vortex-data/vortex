@@ -12,13 +12,13 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
 use crate::scalar_fn::fns::zip::ZipKernel;
-use crate::vtable::ArrayView;
 
 // A dedicated VarBinView zip kernel that builds the result directly by adjusting views and validity,
 // instead of routing through the generic builder (which would redo buffer lookups per mask slice).

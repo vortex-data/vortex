@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::ArrayRef;
+use crate::array::ValidityChild;
 use crate::arrays::Extension;
-use crate::arrays::ExtensionData;
-use crate::vtable::ValidityChild;
+use crate::arrays::extension::ExtensionData;
 
 impl ValidityChild<Extension> for Extension {
     fn validity_child(array: &ExtensionData) -> &ArrayRef {

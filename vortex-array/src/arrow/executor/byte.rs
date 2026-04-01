@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinViewArray;
 use crate::arrow::byte_view::execute_varbinview_to_arrow;
@@ -22,7 +23,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::vtable::ArrayView;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
 pub(super) fn to_arrow_byte_array<T: ByteArrayType>(

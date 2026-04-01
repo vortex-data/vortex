@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use ratatui::prelude::Size;
 use ratatui::widgets::ListState;
-use vortex::array::ArrayRef;
 use vortex::dtype::DType;
 use vortex::error::VortexExpect;
 use vortex::file::Footer;
@@ -20,6 +19,7 @@ use vortex::layout::layouts::zoned::Zoned;
 use vortex::layout::segments::SegmentId;
 use vortex::layout::segments::SegmentSource;
 use vortex::session::VortexSession;
+use vortex_array::ArrayRef;
 
 use super::ui::SegmentGridState;
 

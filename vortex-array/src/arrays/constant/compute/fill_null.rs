@@ -4,11 +4,11 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullReduce;
 use crate::scalar_fn::fns::fill_null::fill_null_constant;
-use crate::vtable::ArrayView;
 
 impl FillNullReduce for Constant {
     fn fill_null(
