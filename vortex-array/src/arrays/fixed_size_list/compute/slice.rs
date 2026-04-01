@@ -10,7 +10,6 @@ use crate::IntoArray;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::slice::SliceReduce;
-use crate::vtable::ValidityHelper;
 
 impl SliceReduce for FixedSizeList {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

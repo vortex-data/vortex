@@ -29,7 +29,6 @@ use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod kernel;
 mod operations;
 mod validity;
@@ -48,7 +47,7 @@ impl VTable for FixedSizeList {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
     fn vtable(_array: &Self::Array) -> &Self {
         &FixedSizeList
     }
@@ -77,7 +76,7 @@ impl VTable for FixedSizeList {
         array.dtype.hash(state);
         array.elements().array_hash(state, precision);
         array.list_size().hash(state);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
         array.len.hash(state);
     }
 
@@ -89,7 +88,7 @@ impl VTable for FixedSizeList {
         array.dtype == other.dtype
             && array.elements().array_eq(other.elements(), precision)
             && array.list_size() == other.list_size()
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
             && array.len == other.len
     }
 

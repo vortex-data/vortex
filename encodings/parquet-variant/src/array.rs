@@ -17,6 +17,7 @@ use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::dtype::DType;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
@@ -60,7 +61,6 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity", "metadata", "value
 #[derive(Clone, Debug)]
 pub struct ParquetVariantArray {
     pub(crate) dtype: DType,
-    pub(crate) validity: Validity,
     pub(crate) slots: Vec<Option<ArrayRef>>,
     pub(crate) stats_set: ArrayStats,
 }
@@ -102,10 +102,14 @@ impl ParquetVariantArray {
 
         Ok(Self {
             dtype: DType::Variant(nullability),
-            validity,
             slots,
             stats_set: ArrayStats::default(),
         })
+    }
+
+    /// Computes validity on demand from the validity slot.
+    pub(crate) fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Returns a reference to the metadata child array.
@@ -172,7 +176,7 @@ impl ParquetVariantArray {
     pub fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
         let metadata = self.metadata_array();
         let len = metadata.len();
-        let nulls = to_arrow_null_buffer(self.validity.clone(), len, ctx)?;
+        let nulls = to_arrow_null_buffer(self.validity(), len, ctx)?;
 
         let mut fields = Vec::with_capacity(3);
         let mut arrays: Vec<ArrowArrayRef> = Vec::with_capacity(3);

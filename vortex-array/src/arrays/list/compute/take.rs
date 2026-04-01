@@ -18,7 +18,6 @@ use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_smallest_offset_type;
-use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
 // the `ListView::take` compute function once `ListView` is more stable.

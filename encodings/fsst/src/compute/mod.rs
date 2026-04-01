@@ -35,7 +35,7 @@ impl TakeExecute for FSST {
                     .union_nullability(indices.dtype().nullability()),
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),
-                VarBin::take(array.codes(), indices, _ctx)?
+                VarBin::take(&array.codes(), indices, _ctx)?
                     .vortex_expect("cannot fail")
                     .try_into::<VarBin>()
                     .map_err(|_| vortex_err!("take for codes must return varbin array"))?,

@@ -15,8 +15,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
-use crate::vtable::ValidityHelper;
-
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
 /// The threshold for triggering a rebuild of the [`ListViewArray`].
 ///

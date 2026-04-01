@@ -441,7 +441,6 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_empty() {

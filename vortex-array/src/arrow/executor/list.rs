@@ -30,7 +30,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex VarBinArray into an Arrow [`GenericListArray`](arrow_array:array::GenericListArray).
 pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(

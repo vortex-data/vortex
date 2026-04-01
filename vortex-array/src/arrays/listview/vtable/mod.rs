@@ -33,7 +33,6 @@ use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod operations;
 mod validity;
 vtable!(ListView);
@@ -60,7 +59,7 @@ impl VTable for ListView {
 
     type Metadata = ProstMetadata<ListViewMetadata>;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
     fn vtable(_array: &Self::Array) -> &Self {
         &ListView
     }
@@ -91,7 +90,7 @@ impl VTable for ListView {
         array.elements().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
         array.sizes().array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &ListViewArray, other: &ListViewArray, precision: Precision) -> bool {
@@ -99,7 +98,7 @@ impl VTable for ListView {
             && array.elements().array_eq(other.elements(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
             && array.sizes().array_eq(other.sizes(), precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: &ListViewArray) -> usize {

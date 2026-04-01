@@ -10,7 +10,6 @@ use crate::arrays::ListArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::ValidityHelper;
 
 impl CastReduce for List {
     fn cast(array: &ListArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {

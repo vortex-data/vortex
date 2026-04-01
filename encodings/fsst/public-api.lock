@@ -46,7 +46,7 @@ pub type vortex_fsst::FSST::Metadata = vortex_array::metadata::ProstMetadata<vor
 
 pub type vortex_fsst::FSST::OperationsVTable = vortex_fsst::FSST
 
-pub type vortex_fsst::FSST::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
+pub type vortex_fsst::FSST::ValidityVTable = vortex_fsst::FSST
 
 pub fn vortex_fsst::FSST::append_to_builder(array: &vortex_fsst::FSSTArray, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -94,17 +94,17 @@ impl vortex_array::vtable::operations::OperationsVTable<vortex_fsst::FSST> for v
 
 pub fn vortex_fsst::FSST::scalar_at(array: &vortex_fsst::FSSTArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-impl vortex_array::vtable::validity::ValidityChild<vortex_fsst::FSST> for vortex_fsst::FSST
+impl vortex_array::vtable::validity::ValidityVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::validity_child(array: &vortex_fsst::FSSTArray) -> &vortex_array::array::ArrayRef
+pub fn vortex_fsst::FSST::validity(array: &vortex_fsst::FSSTArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub struct vortex_fsst::FSSTArray
 
 impl vortex_fsst::FSSTArray
 
-pub fn vortex_fsst::FSSTArray::codes(&self) -> &vortex_array::arrays::varbin::array::VarBinArray
+pub fn vortex_fsst::FSSTArray::codes(&self) -> vortex_array::arrays::varbin::array::VarBinArray
 
-pub fn vortex_fsst::FSSTArray::codes_dtype(&self) -> &vortex_array::dtype::DType
+pub fn vortex_fsst::FSSTArray::codes_dtype(&self) -> vortex_array::dtype::DType
 
 pub fn vortex_fsst::FSSTArray::compressor(&self) -> &fsst::Compressor
 

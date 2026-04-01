@@ -12,6 +12,7 @@ use crate::DynArray;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 pub(super) const ELEMENTS_SLOT: usize = 0;
@@ -80,13 +81,6 @@ pub struct FixedSizeListArray {
     ///
     /// We store the size of each fixed-size list in the array as a field for convenience.
     list_size: u32,
-
-    /// The validity / null map of the array.
-    ///
-    /// Note that this null map refers to which fixed-size list scalars are null, **not** which
-    /// sub-elements of fixed-size list scalars are null. The `elements` array will track individual
-    /// value nullability.
-    pub(super) validity: Validity,
 
     /// The length of the array.
     ///
@@ -166,18 +160,19 @@ impl FixedSizeListArray {
             dtype: DType::FixedSizeList(Arc::new(elements.dtype().clone()), list_size, nullability),
             slots: vec![Some(elements), validity_slot],
             list_size,
-            validity,
             len,
             stats_set: Default::default(),
         }
     }
 
+    /// Returns the parts of this array.
     pub fn into_parts(mut self) -> (ArrayRef, Validity, DType) {
+        let validity = self.validity();
         (
             self.slots[ELEMENTS_SLOT]
                 .take()
                 .vortex_expect("FixedSizeListArray elements slot"),
-            self.validity,
+            validity,
             self.dtype,
         )
     }
@@ -218,6 +213,11 @@ impl FixedSizeListArray {
         Ok(())
     }
 
+    /// Returns the [`Validity`] of the array, computed on demand from the validity slot.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
     /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
         self.slots[ELEMENTS_SLOT]
@@ -242,7 +242,7 @@ impl FixedSizeListArray {
             index,
             self.len,
         );
-        debug_assert!(self.validity.is_valid(index).unwrap_or(false));
+        debug_assert!(self.validity().is_valid(index).unwrap_or(false));
 
         let start = self.list_size as usize * index;
         let end = self.list_size as usize * (index + 1);

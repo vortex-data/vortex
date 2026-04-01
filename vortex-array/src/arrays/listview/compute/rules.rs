@@ -16,7 +16,6 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::vtable::ValidityHelper;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<ListView> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ListViewFilterPushDown),

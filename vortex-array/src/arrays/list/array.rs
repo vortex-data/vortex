@@ -27,6 +27,7 @@ use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 pub(super) const ELEMENTS_SLOT: usize = 0;
@@ -91,7 +92,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "validi
 pub struct ListArray {
     pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -159,7 +159,6 @@ impl ListArray {
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
             slots: vec![Some(elements), Some(offsets), validity_slot],
-            validity,
             stats_set: Default::default(),
         }
     }
@@ -251,6 +250,7 @@ impl ListArray {
 
     /// Splits an array into its parts
     pub fn into_parts(mut self) -> ListArrayParts {
+        let validity = self.validity();
         ListArrayParts {
             dtype: self.dtype,
             elements: self.slots[ELEMENTS_SLOT]
@@ -259,7 +259,7 @@ impl ListArray {
             offsets: self.slots[OFFSETS_SLOT]
                 .take()
                 .vortex_expect("ListArray offsets slot"),
-            validity: self.validity,
+            validity,
         }
     }
 
@@ -318,6 +318,11 @@ impl ListArray {
         }
     }
 
+    /// Returns the validity of the list array, computed on demand from the validity slot.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
     /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
         self.slots[ELEMENTS_SLOT]
@@ -347,6 +352,6 @@ impl ListArray {
             Operator::Sub,
         )?;
 
-        Self::try_new(elements, adjusted_offsets, self.validity.clone())
+        Self::try_new(elements, adjusted_offsets, self.validity())
     }
 }

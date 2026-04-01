@@ -24,7 +24,6 @@ use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -80,7 +79,7 @@ impl VTable for ParquetVariant {
     type Array = ParquetVariantArray;
     type Metadata = ParquetVariantMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {
         &ParquetVariant
@@ -103,7 +102,7 @@ impl VTable for ParquetVariant {
     }
 
     fn array_hash<H: Hasher>(array: &ParquetVariantArray, state: &mut H, precision: Precision) {
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
         array.metadata_array().array_hash(state, precision);
         // Hash discriminators so that (value=Some, typed_value=None) and
         // (value=None, typed_value=Some) produce different hashes.
@@ -122,7 +121,7 @@ impl VTable for ParquetVariant {
         other: &ParquetVariantArray,
         precision: Precision,
     ) -> bool {
-        if !array.validity.array_eq(&other.validity, precision)
+        if !array.validity().array_eq(&other.validity(), precision)
             || !array
                 .metadata_array()
                 .array_eq(other.metadata_array(), precision)

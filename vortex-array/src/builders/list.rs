@@ -330,7 +330,6 @@ mod tests {
     use crate::executor::VortexSessionExecute;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_empty() {

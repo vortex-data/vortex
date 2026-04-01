@@ -23,7 +23,6 @@ use crate::arrays::filter::FilterKernel;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 /// Density threshold for choosing between indices and slices representation when expanding masks.
 ///

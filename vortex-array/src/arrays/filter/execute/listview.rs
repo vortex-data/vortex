@@ -10,7 +10,6 @@ use crate::arrays::ListViewArray;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
 /// The threshold for triggering a rebuild of the [`ListViewArray`].

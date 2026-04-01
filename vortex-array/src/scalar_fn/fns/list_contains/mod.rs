@@ -51,7 +51,6 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 #[derive(Clone)]
 pub struct ListContains;

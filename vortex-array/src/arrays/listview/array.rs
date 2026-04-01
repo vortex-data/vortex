@@ -21,6 +21,7 @@ use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 pub(super) const ELEMENTS_SLOT: usize = 0;
@@ -112,12 +113,6 @@ pub struct ListViewArray {
     /// process which must rebuild the array from scratch.
     is_zero_copy_to_list: bool,
 
-    /// The validity / null map of the array.
-    ///
-    /// Note that this null map refers to which list scalars are null, **not** which sub-elements of
-    /// list scalars are null. The `elements` array will track individual value nullability.
-    pub(super) validity: Validity,
-
     /// The stats for this array.
     pub(super) stats_set: ArrayStats,
 }
@@ -170,7 +165,6 @@ impl ListViewArray {
         Ok(Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
             slots: vec![Some(elements), Some(offsets), Some(sizes), validity_slot],
-            validity,
             is_zero_copy_to_list: false,
             stats_set: Default::default(),
         })
@@ -212,7 +206,6 @@ impl ListViewArray {
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
             slots: vec![Some(elements), Some(offsets), Some(sizes), validity_slot],
-            validity,
             is_zero_copy_to_list: false,
             stats_set: Default::default(),
         }
@@ -339,6 +332,7 @@ impl ListViewArray {
     }
 
     pub fn into_parts(mut self) -> ListViewArrayParts {
+        let validity = self.validity();
         let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
         ListViewArrayParts {
             elements_dtype: dtype,
@@ -351,8 +345,13 @@ impl ListViewArray {
             sizes: self.slots[SIZES_SLOT]
                 .take()
                 .vortex_expect("ListViewArray sizes slot"),
-            validity: self.validity,
+            validity,
         }
+    }
+
+    /// Returns the validity of this array, computed on demand from the validity slot.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Returns the offset at the given index.

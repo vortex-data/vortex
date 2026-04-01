@@ -23,7 +23,6 @@ use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
-use crate::vtable::ValidityHelper;
 
 /// Creates a [`ListViewArray`] from a [`ListArray`] by computing `sizes` from `offsets`.
 ///
@@ -304,7 +303,6 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_list_to_listview_basic() -> VortexResult<()> {

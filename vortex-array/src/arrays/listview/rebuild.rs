@@ -23,7 +23,6 @@ use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::vtable::ValidityHelper;
 
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {
@@ -188,7 +187,7 @@ impl ListViewArray {
         // non-overlapping, all (offset, size) pairs reference valid elements, and the validity
         // array is preserved from the original.
         Ok(unsafe {
-            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity.clone())
+            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity())
                 .with_zero_copy_to_list(true)
         })
     }
@@ -271,7 +270,7 @@ impl ListViewArray {
         // - The array satisfies the zero-copy-to-list property by having sorted offsets, no gaps,
         //   and no overlaps.
         Ok(unsafe {
-            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity.clone())
+            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity())
                 .with_zero_copy_to_list(true)
         })
     }
@@ -382,7 +381,6 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_rebuild_flatten_removes_overlaps() -> VortexResult<()> {

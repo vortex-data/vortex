@@ -19,7 +19,6 @@ use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_smallest_offset_type;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 /// Take implementation for [`FixedSizeListArray`].
 ///

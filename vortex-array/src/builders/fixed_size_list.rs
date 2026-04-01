@@ -287,7 +287,6 @@ mod tests {
     use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_empty() {

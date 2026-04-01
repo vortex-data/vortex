@@ -10,7 +10,6 @@ use crate::arrays::FixedSizeListArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::vtable::ValidityHelper;
 
 /// Cast implementation for [`FixedSizeListArray`].
 ///

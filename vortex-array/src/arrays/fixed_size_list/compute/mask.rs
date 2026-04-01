@@ -9,7 +9,6 @@ use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl MaskReduce for FixedSizeList {
     fn mask(array: &FixedSizeListArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

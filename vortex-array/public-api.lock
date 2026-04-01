@@ -2532,7 +2532,7 @@ pub type vortex_array::arrays::FixedSizeList::Metadata = vortex_array::EmptyMeta
 
 pub type vortex_array::arrays::FixedSizeList::OperationsVTable = vortex_array::arrays::FixedSizeList
 
-pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -2584,6 +2584,10 @@ pub fn vortex_array::arrays::FixedSizeList::stats(array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::FixedSizeList::vtable(_array: &Self::Array) -> &Self
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::FixedSizeList> for vortex_array::arrays::FixedSizeList
+
+pub fn vortex_array::arrays::FixedSizeList::validity(array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::fixed_size_list::FixedSizeListArray
 
 impl vortex_array::arrays::FixedSizeListArray
@@ -2603,6 +2607,8 @@ pub unsafe fn vortex_array::arrays::FixedSizeListArray::new_unchecked(elements: 
 pub fn vortex_array::arrays::FixedSizeListArray::try_new(elements: vortex_array::ArrayRef, list_size: u32, validity: vortex_array::validity::Validity, len: usize) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::FixedSizeListArray::validate(elements: &vortex_array::ArrayRef, len: usize, list_size: u32, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::FixedSizeListArray
 
@@ -2637,10 +2643,6 @@ pub fn vortex_array::arrays::FixedSizeListArray::execute(array: vortex_array::Ar
 impl vortex_array::IntoArray for vortex_array::arrays::FixedSizeListArray
 
 pub fn vortex_array::arrays::FixedSizeListArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::FixedSizeListArray
-
-pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> vortex_array::validity::Validity
 
 pub mod vortex_array::arrays::list
 
@@ -2690,7 +2692,7 @@ pub type vortex_array::arrays::List::Metadata = vortex_array::ProstMetadata<vort
 
 pub type vortex_array::arrays::List::OperationsVTable = vortex_array::arrays::List
 
-pub type vortex_array::arrays::List::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::List::ValidityVTable = vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -2742,6 +2744,10 @@ pub fn vortex_array::arrays::List::stats(array: &vortex_array::arrays::ListArray
 
 pub fn vortex_array::arrays::List::vtable(_array: &Self::Array) -> &Self
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::List> for vortex_array::arrays::List
+
+pub fn vortex_array::arrays::List::validity(array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::list::ListArray
 
 impl vortex_array::arrays::ListArray
@@ -2769,6 +2775,8 @@ pub fn vortex_array::arrays::ListArray::sliced_elements(&self) -> vortex_error::
 pub fn vortex_array::arrays::ListArray::try_new(elements: vortex_array::ArrayRef, offsets: vortex_array::ArrayRef, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::ListArray::validate(elements: &vortex_array::ArrayRef, offsets: &vortex_array::ArrayRef, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::ListArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::ListArray
 
@@ -2799,10 +2807,6 @@ pub fn vortex_array::arrays::ListArray::deref(&self) -> &Self::Target
 impl vortex_array::IntoArray for vortex_array::arrays::ListArray
 
 pub fn vortex_array::arrays::ListArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListArray
-
-pub fn vortex_array::arrays::ListArray::validity(&self) -> vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::list::ListArrayParts
 
@@ -2868,7 +2872,7 @@ pub type vortex_array::arrays::ListView::Metadata = vortex_array::ProstMetadata<
 
 pub type vortex_array::arrays::ListView::OperationsVTable = vortex_array::arrays::ListView
 
-pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::arrays::ListView
 
 pub fn vortex_array::arrays::ListView::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -2920,6 +2924,10 @@ pub fn vortex_array::arrays::ListView::stats(array: &vortex_array::arrays::ListV
 
 pub fn vortex_array::arrays::ListView::vtable(_array: &Self::Array) -> &Self
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::ListView> for vortex_array::arrays::ListView
+
+pub fn vortex_array::arrays::ListView::validity(array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::listview::ListViewArray
 
 impl vortex_array::arrays::ListViewArray
@@ -2947,6 +2955,8 @@ pub fn vortex_array::arrays::ListViewArray::sizes(&self) -> &vortex_array::Array
 pub fn vortex_array::arrays::ListViewArray::try_new(elements: vortex_array::ArrayRef, offsets: vortex_array::ArrayRef, sizes: vortex_array::ArrayRef, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::ListViewArray::validate(elements: &vortex_array::ArrayRef, offsets: &vortex_array::ArrayRef, sizes: &vortex_array::ArrayRef, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::ListViewArray::validity(&self) -> vortex_array::validity::Validity
 
 pub fn vortex_array::arrays::ListViewArray::verify_is_zero_copy_to_list(&self) -> bool
 
@@ -2989,10 +2999,6 @@ pub fn vortex_array::arrays::ListViewArray::execute(array: vortex_array::ArrayRe
 impl vortex_array::IntoArray for vortex_array::arrays::ListViewArray
 
 pub fn vortex_array::arrays::ListViewArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListViewArray
-
-pub fn vortex_array::arrays::ListViewArray::validity(&self) -> vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::listview::ListViewArrayParts
 
@@ -6550,7 +6556,7 @@ pub type vortex_array::arrays::FixedSizeList::Metadata = vortex_array::EmptyMeta
 
 pub type vortex_array::arrays::FixedSizeList::OperationsVTable = vortex_array::arrays::FixedSizeList
 
-pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -6602,6 +6608,10 @@ pub fn vortex_array::arrays::FixedSizeList::stats(array: &vortex_array::arrays::
 
 pub fn vortex_array::arrays::FixedSizeList::vtable(_array: &Self::Array) -> &Self
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::FixedSizeList> for vortex_array::arrays::FixedSizeList
+
+pub fn vortex_array::arrays::FixedSizeList::validity(array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::FixedSizeListArray
 
 impl vortex_array::arrays::FixedSizeListArray
@@ -6621,6 +6631,8 @@ pub unsafe fn vortex_array::arrays::FixedSizeListArray::new_unchecked(elements: 
 pub fn vortex_array::arrays::FixedSizeListArray::try_new(elements: vortex_array::ArrayRef, list_size: u32, validity: vortex_array::validity::Validity, len: usize) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::FixedSizeListArray::validate(elements: &vortex_array::ArrayRef, len: usize, list_size: u32, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::FixedSizeListArray
 
@@ -6655,10 +6667,6 @@ pub fn vortex_array::arrays::FixedSizeListArray::execute(array: vortex_array::Ar
 impl vortex_array::IntoArray for vortex_array::arrays::FixedSizeListArray
 
 pub fn vortex_array::arrays::FixedSizeListArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::FixedSizeListArray
-
-pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::List
 
@@ -6706,7 +6714,7 @@ pub type vortex_array::arrays::List::Metadata = vortex_array::ProstMetadata<vort
 
 pub type vortex_array::arrays::List::OperationsVTable = vortex_array::arrays::List
 
-pub type vortex_array::arrays::List::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::List::ValidityVTable = vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -6758,6 +6766,10 @@ pub fn vortex_array::arrays::List::stats(array: &vortex_array::arrays::ListArray
 
 pub fn vortex_array::arrays::List::vtable(_array: &Self::Array) -> &Self
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::List> for vortex_array::arrays::List
+
+pub fn vortex_array::arrays::List::validity(array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::ListArray
 
 impl vortex_array::arrays::ListArray
@@ -6785,6 +6797,8 @@ pub fn vortex_array::arrays::ListArray::sliced_elements(&self) -> vortex_error::
 pub fn vortex_array::arrays::ListArray::try_new(elements: vortex_array::ArrayRef, offsets: vortex_array::ArrayRef, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::ListArray::validate(elements: &vortex_array::ArrayRef, offsets: &vortex_array::ArrayRef, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::ListArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::ListArray
 
@@ -6815,10 +6829,6 @@ pub fn vortex_array::arrays::ListArray::deref(&self) -> &Self::Target
 impl vortex_array::IntoArray for vortex_array::arrays::ListArray
 
 pub fn vortex_array::arrays::ListArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListArray
-
-pub fn vortex_array::arrays::ListArray::validity(&self) -> vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::ListView
 
@@ -6862,7 +6872,7 @@ pub type vortex_array::arrays::ListView::Metadata = vortex_array::ProstMetadata<
 
 pub type vortex_array::arrays::ListView::OperationsVTable = vortex_array::arrays::ListView
 
-pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::arrays::ListView
 
 pub fn vortex_array::arrays::ListView::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -6914,6 +6924,10 @@ pub fn vortex_array::arrays::ListView::stats(array: &vortex_array::arrays::ListV
 
 pub fn vortex_array::arrays::ListView::vtable(_array: &Self::Array) -> &Self
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::ListView> for vortex_array::arrays::ListView
+
+pub fn vortex_array::arrays::ListView::validity(array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::ListViewArray
 
 impl vortex_array::arrays::ListViewArray
@@ -6941,6 +6955,8 @@ pub fn vortex_array::arrays::ListViewArray::sizes(&self) -> &vortex_array::Array
 pub fn vortex_array::arrays::ListViewArray::try_new(elements: vortex_array::ArrayRef, offsets: vortex_array::ArrayRef, sizes: vortex_array::ArrayRef, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::ListViewArray::validate(elements: &vortex_array::ArrayRef, offsets: &vortex_array::ArrayRef, sizes: &vortex_array::ArrayRef, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::ListViewArray::validity(&self) -> vortex_array::validity::Validity
 
 pub fn vortex_array::arrays::ListViewArray::verify_is_zero_copy_to_list(&self) -> bool
 
@@ -6983,10 +6999,6 @@ pub fn vortex_array::arrays::ListViewArray::execute(array: vortex_array::ArrayRe
 impl vortex_array::IntoArray for vortex_array::arrays::ListViewArray
 
 pub fn vortex_array::arrays::ListViewArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListViewArray
-
-pub fn vortex_array::arrays::ListViewArray::validity(&self) -> vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::Masked
 
@@ -21862,7 +21874,7 @@ pub type vortex_array::arrays::FixedSizeList::Metadata = vortex_array::EmptyMeta
 
 pub type vortex_array::arrays::FixedSizeList::OperationsVTable = vortex_array::arrays::FixedSizeList
 
-pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -21922,7 +21934,7 @@ pub type vortex_array::arrays::List::Metadata = vortex_array::ProstMetadata<vort
 
 pub type vortex_array::arrays::List::OperationsVTable = vortex_array::arrays::List
 
-pub type vortex_array::arrays::List::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::List::ValidityVTable = vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -21982,7 +21994,7 @@ pub type vortex_array::arrays::ListView::Metadata = vortex_array::ProstMetadata<
 
 pub type vortex_array::arrays::ListView::OperationsVTable = vortex_array::arrays::ListView
 
-pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::arrays::ListView
 
 pub fn vortex_array::arrays::ListView::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -23306,7 +23318,7 @@ pub type vortex_array::arrays::FixedSizeList::Metadata = vortex_array::EmptyMeta
 
 pub type vortex_array::arrays::FixedSizeList::OperationsVTable = vortex_array::arrays::FixedSizeList
 
-pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -23366,7 +23378,7 @@ pub type vortex_array::arrays::List::Metadata = vortex_array::ProstMetadata<vort
 
 pub type vortex_array::arrays::List::OperationsVTable = vortex_array::arrays::List
 
-pub type vortex_array::arrays::List::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::List::ValidityVTable = vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -23426,7 +23438,7 @@ pub type vortex_array::arrays::ListView::Metadata = vortex_array::ProstMetadata<
 
 pub type vortex_array::arrays::ListView::OperationsVTable = vortex_array::arrays::ListView
 
-pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::arrays::ListView
 
 pub fn vortex_array::arrays::ListView::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -24220,18 +24232,6 @@ pub trait vortex_array::vtable::ValidityHelper
 
 pub fn vortex_array::vtable::ValidityHelper::validity(&self) -> vortex_array::validity::Validity
 
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::FixedSizeListArray
-
-pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> vortex_array::validity::Validity
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListArray
-
-pub fn vortex_array::arrays::ListArray::validity(&self) -> vortex_array::validity::Validity
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListViewArray
-
-pub fn vortex_array::arrays::ListViewArray::validity(&self) -> vortex_array::validity::Validity
-
 pub trait vortex_array::vtable::ValiditySliceHelper
 
 pub fn vortex_array::vtable::ValiditySliceHelper::sliced_validity(&self) -> vortex_error::VortexResult<vortex_array::validity::Validity>
@@ -24261,6 +24261,18 @@ pub fn vortex_array::arrays::Decimal::validity(array: &vortex_array::arrays::Dec
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Filter> for vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::validity(array: &vortex_array::arrays::FilterArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::FixedSizeList> for vortex_array::arrays::FixedSizeList
+
+pub fn vortex_array::arrays::FixedSizeList::validity(array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::List> for vortex_array::arrays::List
+
+pub fn vortex_array::arrays::List::validity(array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::ListView> for vortex_array::arrays::ListView
+
+pub fn vortex_array::arrays::ListView::validity(array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Masked> for vortex_array::arrays::Masked
 

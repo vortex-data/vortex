@@ -42,7 +42,7 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        if array.validity.is_null(index)? {
+        if array.validity().is_null(index)? {
             return Ok(Scalar::null(DType::Variant(Nullability::Nullable)));
         }
 

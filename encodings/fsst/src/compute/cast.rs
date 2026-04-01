@@ -18,11 +18,10 @@ impl CastReduce for FSST {
         // For nullability changes, we can cast the codes and symbols arrays
         if array.dtype().eq_ignore_nullability(dtype) {
             // Cast codes array to handle nullability
-            let new_codes = array
-                .codes()
-                .clone()
+            let codes = array.codes();
+            let new_codes = codes
                 .into_array()
-                .cast(array.codes().dtype().with_nullability(dtype.nullability()))?;
+                .cast(array.codes_dtype().with_nullability(dtype.nullability()))?;
 
             Ok(Some(
                 FSSTArray::try_new(
