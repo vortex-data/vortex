@@ -15,7 +15,6 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -23,6 +22,8 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_patches;
+use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
@@ -288,30 +289,14 @@ impl VTable for BitPacked {
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        if array
-            .patches()
-            .is_some_and(|p| !p.indices().is::<Primitive>())
-        {
-            return Ok(ExecutionResult::execute_slot::<Primitive>(
-                array,
-                PATCH_INDICES_SLOT,
-            ));
-        }
-        if array
-            .patches()
-            .is_some_and(|p| !p.values().is::<Primitive>())
-        {
-            return Ok(ExecutionResult::execute_slot::<Primitive>(
-                array,
-                PATCH_VALUES_SLOT,
-            ));
-        }
-        if matches!(&array.validity, Validity::Array(v) if !v.is::<AnyCanonical>()) {
-            return Ok(ExecutionResult::execute_slot::<AnyCanonical>(
-                array,
-                VALIDITY_SLOT,
-            ));
-        }
+        require_patches!(
+            array,
+            array.patches(),
+            PATCH_INDICES_SLOT,
+            PATCH_VALUES_SLOT,
+            PATCH_CHUNK_OFFSETS_SLOT
+        );
+        require_validity!(array, &array.validity, VALIDITY_SLOT => AnyCanonical);
 
         Ok(ExecutionResult::done(
             unpack_array(&array, ctx)?.into_array(),

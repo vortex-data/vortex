@@ -26,6 +26,7 @@ use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
+use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -271,24 +272,13 @@ impl VTable for ALPRD {
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.left_parts(), 0 => Primitive);
         let array = require_child!(array, array.right_parts(), 1 => Primitive);
-        if array
-            .left_parts_patches()
-            .is_some_and(|p| !p.indices().is::<Primitive>())
-        {
-            return Ok(ExecutionResult::execute_slot::<Primitive>(
-                array,
-                LP_PATCH_INDICES_SLOT,
-            ));
-        }
-        if array
-            .left_parts_patches()
-            .is_some_and(|p| !p.values().is::<Primitive>())
-        {
-            return Ok(ExecutionResult::execute_slot::<Primitive>(
-                array,
-                LP_PATCH_VALUES_SLOT,
-            ));
-        }
+        require_patches!(
+            array,
+            array.left_parts_patches(),
+            LP_PATCH_INDICES_SLOT,
+            LP_PATCH_VALUES_SLOT,
+            LP_PATCH_CHUNK_OFFSETS_SLOT
+        );
 
         let right_bit_width = array.right_bit_width();
         let ALPRDArrayParts {

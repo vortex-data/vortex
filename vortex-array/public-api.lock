@@ -24082,6 +24082,12 @@ pub macro vortex_array::match_smallest_offset_type!
 
 pub macro vortex_array::require_child!
 
+pub macro vortex_array::require_opt_child!
+
+pub macro vortex_array::require_patches!
+
+pub macro vortex_array::require_validity!
+
 pub macro vortex_array::vtable!
 
 pub enum vortex_array::Canonical
