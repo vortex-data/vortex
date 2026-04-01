@@ -123,9 +123,9 @@ impl dyn DynArray + '_ {
                         ctx.log(format_args!("-> {}", current));
                         return Ok(current);
                     }
-                    Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?;
-                        current = current.optimize()?;
+                    Some((mut parent, slot_idx, _)) => {
+                        parent.put_slot(slot_idx, current);
+                        current = parent.optimize()?;
                         continue;
                     }
                 }
@@ -139,9 +139,9 @@ impl dyn DynArray + '_ {
                         ctx.log(format_args!("-> canonical (unmatched) {}", current));
                         return Ok(current);
                     }
-                    Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?;
-                        current = current.optimize()?;
+                    Some((mut parent, slot_idx, _)) => {
+                        parent.put_slot(slot_idx, current);
+                        current = parent.optimize()?;
                         continue;
                     }
                 }
@@ -159,11 +159,11 @@ impl dyn DynArray + '_ {
 
             // Execute the array itself.
             let result = execute_step(current, ctx)?;
-            let (array, step) = result.into_parts();
+            let (mut array, step) = result.into_parts();
             match step {
                 ExecutionStep::ExecuteSlot(i, done) => {
-                    let child = array.slots()[i]
-                        .clone()
+                    let child = array
+                        .take_slot(i)
                         .vortex_expect("ExecuteSlot index in bounds");
                     ctx.log(format_args!(
                         "ExecuteSlot({i}): pushing {}, focusing on {}",
@@ -338,11 +338,13 @@ impl Executable for ArrayRef {
                 Ok(array)
             }
             ExecutionStep::ExecuteSlot(i, _) => {
-                // For single-step execution, handle ExecuteSlot by executing the slot,
-                // replacing it, and returning the updated array.
-                let child = array.slots()[i].clone().vortex_expect("valid slot index");
+                // Take the child out of the slot, execute it, and put the result back.
+                // This avoids cloning the child or the parent array.
+                let mut array = array;
+                let child = array.take_slot(i).vortex_expect("valid slot index");
                 let executed_child = child.execute::<ArrayRef>(ctx)?;
-                array.with_slot(i, executed_child)
+                array.put_slot(i, executed_child);
+                Ok(array)
             }
         }
     }

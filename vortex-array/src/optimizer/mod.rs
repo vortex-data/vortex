@@ -26,17 +26,16 @@ pub trait ArrayOptimizer {
 
 impl ArrayOptimizer for ArrayRef {
     fn optimize(&self) -> VortexResult<ArrayRef> {
-        Ok(try_optimize(self)?.unwrap_or_else(|| self.clone()))
+        try_optimize(self.clone())
     }
 
     fn optimize_recursive(&self) -> VortexResult<ArrayRef> {
-        Ok(try_optimize_recursive(self)?.unwrap_or_else(|| self.clone()))
+        try_optimize_recursive(self.clone())
     }
 }
 
-fn try_optimize(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-    let mut current_array = array.clone();
-    let mut any_optimizations = false;
+fn try_optimize(array: ArrayRef) -> VortexResult<ArrayRef> {
+    let mut current_array = array;
 
     // Apply reduction rules to the current array until no more rules apply.
     let mut loop_counter = 0;
@@ -48,7 +47,6 @@ fn try_optimize(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
 
         if let Some(new_array) = current_array.vtable().reduce(&current_array)? {
             current_array = new_array;
-            any_optimizations = true;
             continue;
         }
 
@@ -61,59 +59,28 @@ fn try_optimize(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
                     .vtable()
                     .reduce_parent(child, &current_array, slot_idx)?
             {
-                // If the parent was replaced, then we attempt to reduce it again.
                 current_array = new_array;
-                any_optimizations = true;
-
-                // Continue to the start of the outer loop
                 continue 'outer;
             }
         }
 
-        // No more optimizations can be applied
         break;
     }
 
-    if any_optimizations {
-        Ok(Some(current_array))
-    } else {
-        Ok(None)
-    }
+    Ok(current_array)
 }
 
-fn try_optimize_recursive(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-    let mut current_array = array.clone();
-    let mut any_optimizations = false;
+fn try_optimize_recursive(array: ArrayRef) -> VortexResult<ArrayRef> {
+    let mut current_array = try_optimize(array)?;
 
-    if let Some(new_array) = try_optimize(&current_array)? {
-        current_array = new_array;
-        any_optimizations = true;
-    }
-
-    // Collect optimized children first, then apply mutations.
-    let slots_snapshot: Vec<_> = current_array.slots().to_vec();
-    let mut optimized_slots: Vec<(usize, ArrayRef)> = Vec::new();
-    for (i, slot) in slots_snapshot.iter().enumerate() {
-        if let Some(child) = slot
-            && let Some(new_child) = try_optimize_recursive(child)?
-        {
-            optimized_slots.push((i, new_child));
+    // Optimize each child slot in-place.
+    let nslots = current_array.slots().len();
+    for i in 0..nslots {
+        if let Some(child) = current_array.take_slot(i) {
+            let optimized = try_optimize_recursive(child)?;
+            current_array.put_slot(i, optimized);
         }
     }
 
-    if !optimized_slots.is_empty() {
-        let vtable = current_array.vtable().clone_boxed();
-        current_array = vtable.with_slots_mut(current_array, &mut |slots| {
-            for (i, new_child) in optimized_slots.drain(..) {
-                slots[i] = Some(new_child);
-            }
-        })?;
-        any_optimizations = true;
-    }
-
-    if any_optimizations {
-        Ok(Some(current_array))
-    } else {
-        Ok(None)
-    }
+    Ok(current_array)
 }

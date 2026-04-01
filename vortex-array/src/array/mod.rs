@@ -365,6 +365,22 @@ impl dyn DynArray + '_ {
             slots[slot_idx] = Some(replacement.clone());
         })
     }
+
+    /// Take a child out of a slot, setting it to `None`.
+    ///
+    /// Requires unique ownership of the `ArrayRef` (panics if Arc refcount > 1).
+    pub fn take_slot(self: &mut ArrayRef, slot_idx: usize) -> Option<ArrayRef> {
+        let vtable = self.vtable().clone_boxed();
+        vtable.take_slot(self, slot_idx)
+    }
+
+    /// Put a child into a slot, replacing whatever was there.
+    ///
+    /// Requires unique ownership of the `ArrayRef` (panics if Arc refcount > 1).
+    pub fn put_slot(self: &mut ArrayRef, slot_idx: usize, value: ArrayRef) {
+        let vtable = self.vtable().clone_boxed();
+        vtable.put_slot(self, slot_idx, value);
+    }
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].

@@ -58,6 +58,16 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
         f: &mut dyn FnMut(&mut [Option<ArrayRef>]),
     ) -> VortexResult<ArrayRef>;
 
+    /// Take a child out of a slot, setting it to `None`.
+    ///
+    /// Requires unique ownership of the `ArrayRef` (Arc refcount == 1).
+    fn take_slot(&self, array: &mut ArrayRef, slot_idx: usize) -> Option<ArrayRef>;
+
+    /// Put a child back into a slot.
+    ///
+    /// Requires unique ownership of the `ArrayRef` (Arc refcount == 1).
+    fn put_slot(&self, array: &mut ArrayRef, slot_idx: usize, value: ArrayRef);
+
     /// See [`VTable::reduce`]
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
 
@@ -129,6 +139,28 @@ impl<V: VTable> DynVTable for V {
         let mut inner = Arc::try_unwrap(arc).unwrap_or_else(|arc| arc.as_ref().clone());
         f(V::slots_mut(&mut inner.array));
         Ok(inner.into_array())
+    }
+
+    fn take_slot(&self, array: &mut ArrayRef, slot_idx: usize) -> Option<ArrayRef> {
+        // If we have unique ownership, take in-place. Otherwise, clone the child.
+        if let Some(inner) = downcast_mut::<V>(array) {
+            V::slots_mut(&mut inner.array)[slot_idx].take()
+        } else {
+            array.slots()[slot_idx].clone()
+        }
+    }
+
+    fn put_slot(&self, array: &mut ArrayRef, slot_idx: usize, value: ArrayRef) {
+        // If we have unique ownership, put in-place. Otherwise, rebuild via with_slots_mut.
+        if let Some(inner) = downcast_mut::<V>(array) {
+            V::slots_mut(&mut inner.array)[slot_idx] = Some(value);
+        } else {
+            *array = self
+                .with_slots_mut(array.clone(), &mut |slots| {
+                    slots[slot_idx] = Some(value.clone());
+                })
+                .vortex_expect("put_slot with_slots_mut failed");
+        }
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -238,6 +270,16 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &Array<V> {
         .as_any()
         .downcast_ref::<Array<V>>()
         .vortex_expect("Failed to downcast array to expected encoding type")
+}
+
+/// Try to get `&mut Array<V>` from an `ArrayRef` if the Arc is uniquely owned.
+///
+/// Returns `None` if the Arc has other references or the type doesn't match.
+fn downcast_mut<V: VTable>(array: &mut ArrayRef) -> Option<&mut Array<V>> {
+    let ptr = Arc::get_mut(array)? as *mut dyn DynArray as *mut Array<V>;
+    // SAFETY: we verified unique ownership via Arc::get_mut, and the vtable on DynVTable<V>
+    // guarantees the concrete type is Array<V>.
+    Some(unsafe { &mut *ptr })
 }
 
 /// Downcast an `ArrayRef` into an `Arc<Array<V>>`.
