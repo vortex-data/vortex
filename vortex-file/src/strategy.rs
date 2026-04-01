@@ -297,12 +297,12 @@ impl WriteStrategyBuilder {
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
         // 5. compress each chunk
-        let data_compressor: Arc<dyn CompressorPlugin> = if let Some(compressor) = self.compressor {
+        let data_compressor: Arc<dyn CompressorPlugin> = if let Some(ref compressor) = self.compressor {
             assert!(
                 self.builder.is_none(),
                 "Cannot configure both a custom compressor and custom builder schemes"
             );
-            compressor
+            compressor.clone()
         } else {
             Arc::new(
                 self.builder
@@ -331,7 +331,12 @@ impl WriteStrategyBuilder {
         );
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let compress_then_flat = CompressingStrategy::new(flat, data_compressor);
+        let stats_compressor = if let Some(compressor) = self.compressor {
+            compressor.clone()
+        } else {
+            Arc::new(BtrBlocksCompressorBuilder::default().build())
+        };
+        let compress_then_flat = CompressingStrategy::new(flat, stats_compressor);
 
         // 3. apply dict encoding or fallback
         let dict = DictStrategy::new(
