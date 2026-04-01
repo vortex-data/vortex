@@ -69,6 +69,9 @@ struct Args {
     output_path: Option<PathBuf>,
     #[arg(long)]
     tracing: bool,
+    /// When set, compress once then decompress this many times (isolates decompression cost).
+    #[arg(long)]
+    decompress_iterations: Option<usize>,
 }
 
 #[tokio::main]
@@ -79,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
 
     run_compress(
         args.iterations,
+        args.decompress_iterations,
         args.datasets.map(|d| Regex::new(&d)).transpose()?,
         args.formats,
         args.ops,
@@ -104,6 +108,7 @@ const BENCHMARK_ID: &str = "compress";
 
 async fn run_compress(
     iterations: usize,
+    decompress_iterations: Option<usize>,
     datasets_filter: Option<Regex>,
     formats: Vec<Format>,
     ops: Vec<CompressOp>,
@@ -160,8 +165,15 @@ async fn run_compress(
     let mut measurements = vec![];
 
     for dataset_handle in datasets.into_iter() {
-        let m = run_benchmark_for_dataset(&progress, &formats, &ops, iterations, dataset_handle)
-            .await?;
+        let m = run_benchmark_for_dataset(
+            &progress,
+            &formats,
+            &ops,
+            iterations,
+            decompress_iterations,
+            dataset_handle,
+        )
+        .await?;
         measurements.push(m);
     }
 
@@ -196,6 +208,7 @@ async fn run_benchmark_for_dataset(
     formats: &[Format],
     ops: &[CompressOp],
     iterations: usize,
+    decompress_iterations: Option<usize>,
     dataset_handle: &dyn Dataset,
 ) -> anyhow::Result<CompressMeasurements> {
     let bench_name = dataset_handle.name();
@@ -232,6 +245,7 @@ async fn run_benchmark_for_dataset(
                         compressor.as_ref(),
                         &parquet_path,
                         iterations,
+                        decompress_iterations,
                         bench_name,
                     )
                     .await?;

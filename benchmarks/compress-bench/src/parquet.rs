@@ -66,7 +66,14 @@ impl Compressor for ParquetCompressor {
     }
 
     async fn decompress(&self, parquet_path: &Path) -> anyhow::Result<Duration> {
-        // First compress to get the bytes we'll decompress
+        let prepared = self
+            .prepare_decompress(parquet_path)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("prepare_decompress returned None"))?;
+        self.decompress_prepared(&prepared).await
+    }
+
+    async fn prepare_decompress(&self, parquet_path: &Path) -> anyhow::Result<Option<Bytes>> {
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let schema = builder.schema().clone();
@@ -75,12 +82,12 @@ impl Compressor for ParquetCompressor {
 
         let mut buf = Vec::new();
         parquet_compress_write(batches, schema, self.compression, &mut buf)?;
+        Ok(Some(Bytes::from(buf)))
+    }
 
-        let buf = Bytes::from(buf);
-
-        // Now decompress
+    async fn decompress_prepared(&self, prepared: &Bytes) -> anyhow::Result<Duration> {
         let timer = Instant::now();
-        parquet_decompress_read(buf)?;
+        parquet_decompress_read(prepared.clone())?;
         Ok(timer.elapsed())
     }
 }

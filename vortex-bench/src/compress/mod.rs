@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use bytes::Bytes;
 use clap::ValueEnum;
 use serde::Serialize;
 use vortex::utils::aliases::hash_map::HashMap;
@@ -97,6 +98,19 @@ pub trait Compressor: Send + Sync {
     /// This method first compresses the data to the target format, then decompresses it.
     /// The timing returned should only measure the decompression phase.
     async fn decompress(&self, parquet_path: &Path) -> Result<Duration>;
+
+    /// Compress data and return opaque bytes for repeated decompression.
+    ///
+    /// Override this alongside [`decompress_prepared`] to enable compress-once,
+    /// decompress-many benchmarking.
+    async fn prepare_decompress(&self, _parquet_path: &Path) -> Result<Option<Bytes>> {
+        Ok(None)
+    }
+
+    /// Decompress from pre-compressed bytes produced by [`prepare_decompress`].
+    async fn decompress_prepared(&self, _prepared: &Bytes) -> Result<Duration> {
+        anyhow::bail!("decompress_prepared not implemented for this compressor")
+    }
 }
 
 /// Run a compression benchmark for the given compressor.
@@ -142,20 +156,41 @@ pub async fn benchmark_compress(
 
 /// Run a decompression benchmark for the given compressor.
 ///
-/// Benchmarks decompression `iterations` times.
+/// When `decompress_iterations` is set, the compressor compresses once and then
+/// decompresses that many times (via [`Compressor::prepare_decompress`] /
+/// [`Compressor::decompress_prepared`]).  This isolates the decompression cost
+/// and is useful for profiling.
+///
+/// Otherwise falls back to the original behaviour: each of the `iterations`
+/// calls [`Compressor::decompress`] which re-compresses every time.
 pub async fn benchmark_decompress(
     compressor: &dyn Compressor,
     parquet_path: &Path,
     iterations: usize,
+    decompress_iterations: Option<usize>,
     bench_name: &str,
 ) -> Result<DecompressResult> {
     let format = compressor.format();
     let mut fastest = Duration::MAX;
 
-    for _ in 0..iterations {
-        let elapsed = compressor.decompress(parquet_path).await?;
-
-        fastest = fastest.min(elapsed);
+    if let Some(decompress_iters) = decompress_iterations {
+        // Compress once, decompress many times.
+        let prepared = compressor.prepare_decompress(parquet_path).await?;
+        let prepared = prepared.ok_or_else(|| {
+            anyhow::anyhow!(
+                "Compressor for {} does not support prepare_decompress",
+                format.name()
+            )
+        })?;
+        for _ in 0..decompress_iters {
+            let elapsed = compressor.decompress_prepared(&prepared).await?;
+            fastest = fastest.min(elapsed);
+        }
+    } else {
+        for _ in 0..iterations {
+            let elapsed = compressor.decompress(parquet_path).await?;
+            fastest = fastest.min(elapsed);
+        }
     }
 
     let timing = CompressionTimingMeasurement {

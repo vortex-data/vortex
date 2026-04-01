@@ -45,7 +45,14 @@ impl Compressor for VortexCompressor {
     }
 
     async fn decompress(&self, parquet_path: &Path) -> Result<Duration> {
-        // First compress to get the bytes we'll decompress
+        let prepared = self
+            .prepare_decompress(parquet_path)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("prepare_decompress returned None"))?;
+        self.decompress_prepared(&prepared).await
+    }
+
+    async fn prepare_decompress(&self, parquet_path: &Path) -> Result<Option<Bytes>> {
         let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
         let mut buf = Vec::new();
         let mut cursor = Cursor::new(&mut buf);
@@ -53,10 +60,12 @@ impl Compressor for VortexCompressor {
             .write_options()
             .write(&mut cursor, uncompressed.to_array_stream())
             .await?;
+        Ok(Some(Bytes::from(buf)))
+    }
 
-        // Now decompress
+    async fn decompress_prepared(&self, prepared: &Bytes) -> Result<Duration> {
         let start = Instant::now();
-        let data = Bytes::from(buf);
+        let data = prepared.clone();
         let scan = SESSION.open_options().open_buffer(data)?.scan()?;
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
 
