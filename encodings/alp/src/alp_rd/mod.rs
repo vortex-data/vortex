@@ -305,13 +305,22 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     let shift = right_bit_width as usize;
 
     if let Some(patches) = left_parts_patches {
+        // Patched path: some left-part codes map to exception values that live outside
+        // the dictionary. We must dictionary-decode first, then overwrite the exceptions,
+        // before we can combine with right-parts.
+
+        // Dictionary-decode every code in-place (code → actual left bit-pattern).
         for code in left_parts.iter_mut() {
             *code = left_parts_dict[*code as usize];
         }
+
+        // Overwrite exception positions with their true left bit-patterns.
         let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
         alp_rd_apply_patches(&mut left_parts, &indices, &patch_values, patches.offset());
 
+        // Reconstruct floats by shifting each decoded left value into the MSBs
+        // and OR-ing with the corresponding right value.
         alp_rd_combine_inplace::<T>(
             right_parts,
             |right, &left| {
@@ -320,12 +329,15 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
             left_parts.as_ref(),
         )
     } else {
-        // Pre-shift dictionary entries so the hot loop is just a lookup + OR.
+        // Non-patched fast path: every code maps through the dictionary, so we can
+        // pre-shift the entire dictionary once and reduce the per-element hot loop to
+        // a single table lookup + OR.
         let mut shifted_dict = [T::UINT::default(); MAX_DICT_SIZE as usize];
         for (i, &entry) in left_parts_dict.iter().enumerate() {
             shifted_dict[i] = <T as ALPRDFloat>::from_u16(entry) << shift;
         }
 
+        // Each element: look up the pre-shifted left value by code, OR with right-parts.
         alp_rd_combine_inplace::<T>(
             right_parts,
             |right, &code| {
