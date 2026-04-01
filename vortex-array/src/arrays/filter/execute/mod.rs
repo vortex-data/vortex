@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
@@ -21,6 +20,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FilterArray;
 use crate::arrays::NullArray;
+use crate::arrays::VariantArray;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -95,8 +95,12 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }
-        Canonical::Variant(_) => {
-            vortex_panic!("Variant arrays don't support filtering")
+        Canonical::Variant(a) => {
+            let filtered_child = a
+                .child()
+                .filter(values_to_mask(mask))
+                .vortex_expect("VariantArray child could not be filtered");
+            Canonical::Variant(VariantArray::new(filtered_child))
         }
     }
 }
