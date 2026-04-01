@@ -17,6 +17,8 @@ import java.util.*;
 import java.util.stream.Collectors;
 import org.apache.hadoop.shaded.com.google.common.collect.Streams;
 import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.catalyst.expressions.BoundReference;
+import org.apache.spark.sql.catalyst.expressions.UnsafeProjection;
 import org.apache.spark.sql.connector.expressions.Expression;
 import org.apache.spark.sql.connector.expressions.Literal;
 import org.apache.spark.sql.connector.expressions.NamedReference;
@@ -42,7 +44,8 @@ public final class PartitionedVortexDataWriter implements DataWriter<InternalRow
     private static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
 
     private final String baseOutputUri;
-    private final StructType schema;
+    private final StructType dataSchema;
+    private final UnsafeProjection dataProjection;
     private final CaseInsensitiveStringMap options;
     private final ResolvedTransform[] resolvedTransforms;
     private final int partitionId;
@@ -69,11 +72,39 @@ public final class PartitionedVortexDataWriter implements DataWriter<InternalRow
             int partitionId,
             long taskId) {
         this.baseOutputUri = baseOutputUri.endsWith("/") ? baseOutputUri : baseOutputUri + "/";
-        this.schema = schema;
         this.options = options;
         this.partitionId = partitionId;
         this.taskId = taskId;
         this.resolvedTransforms = resolvedTransforms;
+
+        // Compute the data schema by removing identity partition columns.
+        // Only identity transforms correspond to columns that should be stripped from the data,
+        // since temporal/bucket transforms derive values from the source column.
+        Set<Integer> identityPartitionIndices = new HashSet<>();
+        for (ResolvedTransform rt : resolvedTransforms) {
+            if ("identity".equals(rt.transformName())) {
+                identityPartitionIndices.add(rt.columnIndices().get(0));
+            }
+        }
+
+        StructField[] fields = schema.fields();
+        List<StructField> dataFields = new ArrayList<>();
+        List<org.apache.spark.sql.catalyst.expressions.Expression> projExprs = new ArrayList<>();
+        for (int i = 0; i < fields.length; i++) {
+            if (!identityPartitionIndices.contains(i)) {
+                dataFields.add(fields[i]);
+                projExprs.add(new BoundReference(i, fields[i].dataType(), fields[i].nullable()));
+            }
+        }
+        this.dataSchema = new StructType(dataFields.toArray(new StructField[0]));
+        this.dataProjection = UnsafeProjection.create(asScalaSeq(projExprs));
+    }
+
+    @SuppressWarnings("deprecation") // JavaConverters is deprecated in Scala 2.13 but works in both 2.12 and 2.13
+    private static <T> scala.collection.immutable.Seq<T> asScalaSeq(List<T> list) {
+        return scala.collection.JavaConverters.asScalaBufferConverter(list)
+                .asScala()
+                .toList();
     }
 
     @Override
@@ -84,7 +115,7 @@ public final class PartitionedVortexDataWriter implements DataWriter<InternalRow
             writer = createWriterForPartition(partitionPath);
             writers.put(partitionPath, writer);
         }
-        writer.write(row);
+        writer.write(dataProjection.apply(row));
     }
 
     @Override
@@ -153,7 +184,7 @@ public final class PartitionedVortexDataWriter implements DataWriter<InternalRow
         String fileName = String.format("part-%05d-%d.vortex", partitionId, taskId);
         String fileUri = baseOutputUri + partitionPath + "/" + fileName;
         logger.debug("Creating writer for partition path: {}", fileUri);
-        return new VortexDataWriter(fileUri, schema, options);
+        return new VortexDataWriter(fileUri, dataSchema, options);
     }
 
     private String getPartitionPath(InternalRow row) {
