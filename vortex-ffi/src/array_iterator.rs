@@ -35,13 +35,13 @@ box_dyn_wrapper!(
 pub unsafe extern "C-unwind" fn vx_array_iterator_next(
     iter: *mut vx_array_iterator,
     error_out: *mut *mut vx_error,
-) -> *const vx_array {
+) -> *mut vx_array {
     let iter = vx_array_iterator::as_mut(iter);
     try_or_default(error_out, || {
         let element = iter.next();
 
         if let Some(element) = element {
-            Ok(vx_array::new(Box::new(element?)))
+            Ok(vx_array::new(element?))
         } else {
             // Drop the iter pointer.
             Ok(ptr::null_mut())

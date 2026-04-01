@@ -90,10 +90,10 @@ box_wrapper!(
 /// Create a new struct dtype builder.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_builder_new() -> *mut vx_struct_fields_builder {
-    vx_struct_fields_builder::new(Box::new(StructDTypeBuilder {
+    vx_struct_fields_builder::new(StructDTypeBuilder {
         names: Vec::new(),
         fields: Vec::new(),
-    }))
+    })
 }
 
 /// Add a field to the struct dtype builder.

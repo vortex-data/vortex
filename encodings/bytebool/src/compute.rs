@@ -13,7 +13,6 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ArrayView;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
 use super::ByteBool;

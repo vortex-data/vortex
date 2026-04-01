@@ -122,7 +122,7 @@ pub(crate) unsafe fn scan_builder_into_stream(
         }
     };
     let reader = builder.inner.into_record_batch_reader(schema, &*RUNTIME)?;
-    let stream = FFI_ArrowArrayStream::new(Box::new(reader));
+    let stream = FFI_ArrowArrayStream::new(reader);
     let out_stream = out_stream as *mut FFI_ArrowArrayStream;
     // # Safety
     // Arrow C stream interface
