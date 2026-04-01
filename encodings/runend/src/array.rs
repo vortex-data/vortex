@@ -166,15 +166,8 @@ impl VTable for RunEnd {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut RunEndArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "RunEndArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut RunEndArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn reduce_parent(

@@ -25,12 +25,10 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::FoRArray;
-use crate::r#for::array::NUM_SLOTS;
 use crate::r#for::array::SLOT_NAMES;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::kernels::PARENT_KERNELS;
@@ -102,15 +100,8 @@ impl VTable for FoR {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut FoRArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "FoRArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut FoRArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn metadata(array: &FoRArray) -> VortexResult<Self::Metadata> {

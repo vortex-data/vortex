@@ -82,11 +82,11 @@ pub fn vortex_datetime_parts::DateTimeParts::slot_name(_array: &vortex_datetime_
 
 pub fn vortex_datetime_parts::DateTimeParts::slots(array: &vortex_datetime_parts::DateTimePartsArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
+pub fn vortex_datetime_parts::DateTimeParts::slots_mut(array: &mut vortex_datetime_parts::DateTimePartsArray) -> &mut [core::option::Option<vortex_array::array::ArrayRef>]
+
 pub fn vortex_datetime_parts::DateTimeParts::stats(array: &vortex_datetime_parts::DateTimePartsArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_datetime_parts::DateTimeParts::vtable(_array: &Self::Array) -> &Self
-
-pub fn vortex_datetime_parts::DateTimeParts::with_slots(array: &mut vortex_datetime_parts::DateTimePartsArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_datetime_parts::DateTimeParts> for vortex_datetime_parts::DateTimeParts
 

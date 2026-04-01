@@ -18,7 +18,6 @@ use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
-use crate::arrays::decimal::array::NUM_SLOTS;
 use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -183,15 +182,8 @@ impl VTable for Decimal {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut DecimalArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "DecimalArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

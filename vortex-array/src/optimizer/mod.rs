@@ -90,25 +90,24 @@ fn try_optimize_recursive(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         any_optimizations = true;
     }
 
-    let mut new_slots = Vec::with_capacity(current_array.slots().len());
-    let mut any_slot_optimized = false;
-    for slot in current_array.slots() {
-        match slot {
-            Some(child) => {
-                if let Some(new_child) = try_optimize_recursive(child)? {
-                    new_slots.push(Some(new_child));
-                    any_slot_optimized = true;
-                } else {
-                    new_slots.push(Some(child.clone()));
-                }
-            }
-            None => new_slots.push(None),
+    // Collect optimized children first, then apply mutations.
+    let slots_snapshot: Vec<_> = current_array.slots().to_vec();
+    let mut optimized_slots: Vec<(usize, ArrayRef)> = Vec::new();
+    for (i, slot) in slots_snapshot.iter().enumerate() {
+        if let Some(child) = slot
+            && let Some(new_child) = try_optimize_recursive(child)?
+        {
+            optimized_slots.push((i, new_child));
         }
     }
 
-    if any_slot_optimized {
+    if !optimized_slots.is_empty() {
         let vtable = current_array.vtable().clone_boxed();
-        current_array = vtable.with_slots(current_array, new_slots)?;
+        current_array = vtable.with_slots_mut(current_array, &mut |slots| {
+            for (i, new_child) in optimized_slots.drain(..) {
+                slots[i] = Some(new_child);
+            }
+        })?;
         any_optimizations = true;
     }
 

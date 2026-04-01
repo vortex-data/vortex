@@ -7,7 +7,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -218,69 +217,8 @@ impl VTable for Chunked {
         }
     }
 
-    fn with_slots(array: &mut ChunkedArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(!slots.is_empty(), "Chunked array needs at least one slot");
-
-        let chunk_offsets = slots[0]
-            .as_ref()
-            .ok_or_else(|| vortex_err!("Chunked array chunk_offsets slot must be present"))?;
-        let chunk_offsets_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
-        vortex_ensure!(
-            chunk_offsets.dtype() == &chunk_offsets_dtype,
-            MismatchedTypes: &chunk_offsets_dtype,
-            chunk_offsets.dtype()
-        );
-
-        #[cfg(debug_assertions)]
-        {
-            let chunk_offsets = chunk_offsets
-                .as_opt::<crate::arrays::Primitive>()
-                .unwrap_or_else(|| {
-                    vortex_panic!("Chunked array chunk_offsets slot must be primitive")
-                });
-            let chunk_offsets_buf = chunk_offsets.to_buffer::<u64>();
-            debug_assert_eq!(
-                chunk_offsets_buf.len(),
-                slots.len(),
-                "Expected {} chunk offsets, found {}",
-                slots.len(),
-                chunk_offsets_buf.len(),
-            );
-            debug_assert_eq!(
-                chunk_offsets_buf.last().copied().unwrap_or_default(),
-                array.len as u64,
-                "Chunked array replacement changed logical len: expected {}, got {}",
-                array.len,
-                chunk_offsets_buf.last().copied().unwrap_or_default(),
-            );
-
-            let mut total_len = 0usize;
-
-            for (idx, chunk_slot) in slots[1..].iter().enumerate() {
-                let chunk = chunk_slot.as_ref().unwrap_or_else(|| {
-                    vortex_panic!("Chunked array chunk slot {idx} must be present")
-                });
-                debug_assert!(
-                    chunk.dtype() == array.dtype(),
-                    "Chunked array chunk slot {} has dtype {:?}, expected {:?}",
-                    idx,
-                    chunk.dtype(),
-                    array.dtype(),
-                );
-                total_len = total_len.checked_add(chunk.len()).unwrap_or_else(|| {
-                    vortex_panic!("Chunked array chunk lengths exceed usize range")
-                });
-            }
-
-            debug_assert_eq!(
-                total_len, array.len,
-                "Chunked array replacement changed logical len: expected {}, got {}",
-                array.len, total_len,
-            );
-        }
-
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {

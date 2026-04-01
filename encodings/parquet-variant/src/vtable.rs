@@ -32,10 +32,8 @@ use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 
-use crate::array::NUM_SLOTS;
 use crate::array::ParquetVariantArray;
 use crate::array::SLOT_NAMES;
-use crate::array::VALIDITY_SLOT;
 use crate::kernel::PARENT_KERNELS;
 
 /// VTable for [`ParquetVariantArray`].
@@ -269,19 +267,8 @@ impl VTable for ParquetVariant {
         ParquetVariantArray::try_new(validity, variant_metadata, value, typed_value)
     }
 
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ParquetVariantArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        // Update validity from the validity slot.
-        if let Some(validity_child) = &slots[VALIDITY_SLOT] {
-            array.validity = Validity::Array(validity_child.clone());
-        }
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

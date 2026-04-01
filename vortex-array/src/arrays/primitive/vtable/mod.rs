@@ -14,7 +14,6 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::primitive::array::NUM_SLOTS;
 use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -179,15 +178,8 @@ impl VTable for Primitive {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut PrimitiveArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "PrimitiveArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

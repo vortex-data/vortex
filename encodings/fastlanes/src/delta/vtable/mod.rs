@@ -25,13 +25,11 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::DeltaArray;
-use crate::delta::array::NUM_SLOTS;
 use crate::delta::array::SLOT_NAMES;
 use crate::delta::array::delta_decompress::delta_decompress;
 
@@ -123,15 +121,8 @@ impl VTable for Delta {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut DeltaArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "DeltaArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut DeltaArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn metadata(array: &DeltaArray) -> VortexResult<Self::Metadata> {

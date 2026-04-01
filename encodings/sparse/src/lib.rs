@@ -214,31 +214,8 @@ impl VTable for Sparse {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut SparseArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "SparseArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // Reconstruct patches from slots + existing metadata
-        let indices = slots[PATCH_INDICES_SLOT]
-            .clone()
-            .vortex_expect("SparseArray requires patch_indices slot");
-        let values = slots[PATCH_VALUES_SLOT]
-            .clone()
-            .vortex_expect("SparseArray requires patch_values slot");
-
-        array.patches = Patches::new(
-            array.patches.array_len(),
-            array.patches.offset(),
-            indices,
-            values,
-            slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
-        )?;
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut SparseArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn reduce_parent(

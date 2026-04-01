@@ -48,8 +48,15 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
-    /// See [`VTable::with_slots`]
-    fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
+    /// Unwrap the Arc, get mutable access to slots, apply a mutation, and re-wrap.
+    ///
+    /// The callback receives `&mut [Option<ArrayRef>]` so callers can modify individual
+    /// slots in-place without cloning all children.
+    fn with_slots_mut(
+        &self,
+        array: ArrayRef,
+        f: &mut dyn FnMut(&mut [Option<ArrayRef>]),
+    ) -> VortexResult<ArrayRef>;
 
     /// See [`VTable::reduce`]
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
@@ -113,10 +120,14 @@ impl<V: VTable> DynVTable for V {
         Ok(array.into_array())
     }
 
-    fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+    fn with_slots_mut(
+        &self,
+        array: ArrayRef,
+        f: &mut dyn FnMut(&mut [Option<ArrayRef>]),
+    ) -> VortexResult<ArrayRef> {
         let arc = downcast_owned::<V>(array);
         let mut inner = Arc::try_unwrap(arc).unwrap_or_else(|arc| arc.as_ref().clone());
-        V::with_slots(&mut inner.array, slots)?;
+        f(V::slots_mut(&mut inner.array));
         Ok(inner.into_array())
     }
 

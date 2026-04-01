@@ -82,11 +82,11 @@ pub fn vortex_sequence::Sequence::slot_name(_array: &vortex_sequence::SequenceAr
 
 pub fn vortex_sequence::Sequence::slots(array: &vortex_sequence::SequenceArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
+pub fn vortex_sequence::Sequence::slots_mut(array: &mut vortex_sequence::SequenceArray) -> &mut [core::option::Option<vortex_array::array::ArrayRef>]
+
 pub fn vortex_sequence::Sequence::stats(array: &vortex_sequence::SequenceArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_sequence::Sequence::vtable(_array: &Self::Array) -> &Self
-
-pub fn vortex_sequence::Sequence::with_slots(array: &mut vortex_sequence::SequenceArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 

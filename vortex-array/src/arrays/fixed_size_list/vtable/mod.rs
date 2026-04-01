@@ -16,9 +16,7 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::fixed_size_list::array::NUM_SLOTS;
 use crate::arrays::fixed_size_list::array::SLOT_NAMES;
-use crate::arrays::fixed_size_list::array::VALIDITY_SLOT;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -189,22 +187,8 @@ impl VTable for FixedSizeList {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(
-        array: &mut FixedSizeListArray,
-        slots: Vec<Option<ArrayRef>>,
-    ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "FixedSizeListArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

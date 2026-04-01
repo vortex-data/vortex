@@ -40,7 +40,6 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -238,34 +237,8 @@ impl VTable for ALPRD {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut ALPRDArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ALPRDArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // Reconstruct patches from slots + existing metadata
-        array.left_parts_patches =
-            match (&slots[LP_PATCH_INDICES_SLOT], &slots[LP_PATCH_VALUES_SLOT]) {
-                (Some(indices), Some(values)) => {
-                    let old = array
-                        .left_parts_patches
-                        .as_ref()
-                        .vortex_expect("ALPRDArray had patch slots but no patches metadata");
-                    Some(Patches::new(
-                        old.array_len(),
-                        old.offset(),
-                        indices.clone(),
-                        values.clone(),
-                        slots[LP_PATCH_CHUNK_OFFSETS_SLOT].clone(),
-                    )?)
-                }
-                _ => None,
-            };
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut ALPRDArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

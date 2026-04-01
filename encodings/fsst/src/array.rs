@@ -46,7 +46,6 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -297,31 +296,8 @@ impl VTable for FSST {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut FSSTArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "FSSTArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // Reconstruct codes VarBinArray from new offsets + existing bytes + new validity
-        let codes_offsets = slots[CODES_OFFSETS_SLOT]
-            .clone()
-            .vortex_expect("FSSTArray requires codes_offsets slot");
-        let codes_validity = match &slots[CODES_VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.codes.dtype().nullability()),
-        };
-        array.codes = VarBinArray::try_new_from_handle(
-            codes_offsets,
-            array.codes.bytes_handle().clone(),
-            array.codes.dtype().clone(),
-            codes_validity,
-        )?;
-        array.codes_array = array.codes.clone().into_array();
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut FSSTArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

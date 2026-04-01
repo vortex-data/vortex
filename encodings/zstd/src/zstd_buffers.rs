@@ -412,9 +412,8 @@ impl VTable for ZstdBuffers {
         format!("child_{idx}")
     }
 
-    fn with_slots(array: &mut ZstdBuffersArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut ZstdBuffersArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn metadata(array: &ZstdBuffersArray) -> VortexResult<Self::Metadata> {

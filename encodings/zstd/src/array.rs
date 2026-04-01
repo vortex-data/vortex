@@ -38,8 +38,7 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValiditySliceHelper;
-use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
+use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -50,7 +49,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -88,7 +86,7 @@ impl VTable for Zstd {
 
     type Metadata = ProstMetadata<ZstdMetadata>;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValiditySliceHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {
         &Zstd
@@ -124,7 +122,7 @@ impl VTable for Zstd {
             frame.array_hash(state, precision);
         }
         array.dtype.hash(state);
-        array.unsliced_validity.array_hash(state, precision);
+        array.unsliced_validity().array_hash(state, precision);
         array.unsliced_n_rows.hash(state);
         array.slice_start.hash(state);
         array.slice_stop.hash(state);
@@ -148,8 +146,8 @@ impl VTable for Zstd {
         }
         array.dtype == other.dtype
             && array
-                .unsliced_validity
-                .array_eq(&other.unsliced_validity, precision)
+                .unsliced_validity()
+                .array_eq(&other.unsliced_validity(), precision)
             && array.unsliced_n_rows == other.unsliced_n_rows
             && array.slice_start == other.slice_start
             && array.slice_stop == other.slice_stop
@@ -254,21 +252,8 @@ impl VTable for Zstd {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut ZstdArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ZstdArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        array.unsliced_validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
-
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut ZstdArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -304,7 +289,6 @@ pub struct ZstdArray {
     pub(crate) frames: Vec<ByteBuffer>,
     pub(crate) metadata: ZstdMetadata,
     dtype: DType,
-    pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
     pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
@@ -444,7 +428,6 @@ impl ZstdArray {
             frames,
             metadata,
             dtype,
-            unsliced_validity: validity,
             unsliced_n_rows: n_rows,
             slots: vec![validity_slot],
             stats_set: Default::default(),
@@ -737,7 +720,7 @@ impl ZstdArray {
         let byte_width = self.byte_width();
         let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
-            .unsliced_validity
+            .unsliced_validity()
             .execute_mask(self.unsliced_n_rows, ctx)?
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
 
@@ -805,7 +788,7 @@ impl ZstdArray {
         let decompressed = decompressed.freeze();
         // Last, we slice the exact values requested out of the decompressed data.
         let mut slice_validity = self
-            .unsliced_validity
+            .unsliced_validity()
             .slice(self.slice_start..self.slice_stop)?;
 
         // NOTE: this block handles setting the output type when the validity and DType disagree.
@@ -925,15 +908,24 @@ impl ZstdArray {
 
     /// Consumes the array and returns its parts.
     pub fn into_parts(self) -> ZstdArrayParts {
+        let validity = self.unsliced_validity();
         ZstdArrayParts {
             dictionary: self.dictionary,
             frames: self.frames,
             metadata: self.metadata,
             dtype: self.dtype,
-            validity: self.unsliced_validity,
+            validity,
             n_rows: self.unsliced_n_rows,
             slice_start: self.slice_start,
             slice_stop: self.slice_stop,
+        }
+    }
+
+    /// Returns the validity of the full (unsliced) array, derived from the validity slot.
+    pub(crate) fn unsliced_validity(&self) -> Validity {
+        match &self.slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(self.dtype.nullability()),
         }
     }
 
@@ -954,9 +946,11 @@ impl ZstdArray {
     }
 }
 
-impl ValiditySliceHelper for ZstdArray {
-    fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize) {
-        (&self.unsliced_validity, self.slice_start, self.slice_stop)
+impl ValidityVTable<Zstd> for Zstd {
+    fn validity(array: &ZstdArray) -> VortexResult<Validity> {
+        array
+            .unsliced_validity()
+            .slice(array.slice_start..array.slice_stop)
     }
 }
 

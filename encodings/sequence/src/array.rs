@@ -40,7 +40,6 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -379,14 +378,8 @@ impl VTable for Sequence {
         vortex_panic!("SequenceArray has no slots, requested index {idx}")
     }
 
-    fn with_slots(array: &mut SequenceArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.is_empty(),
-            "SequenceArray expects 0 slots, got {}",
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut SequenceArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

@@ -44,8 +44,7 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValiditySliceHelper;
-use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
+use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
@@ -88,7 +87,7 @@ impl VTable for Pco {
 
     type Metadata = ProstMetadata<PcoMetadata>;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValiditySliceHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {
         &Pco
@@ -112,7 +111,7 @@ impl VTable for Pco {
 
     fn array_hash<H: std::hash::Hasher>(array: &PcoArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.unsliced_validity.array_hash(state, precision);
+        array.unsliced_validity().array_hash(state, precision);
         array.unsliced_n_rows.hash(state);
         array.slice_start.hash(state);
         array.slice_stop.hash(state);
@@ -128,8 +127,8 @@ impl VTable for Pco {
     fn array_eq(array: &PcoArray, other: &PcoArray, precision: Precision) -> bool {
         if array.dtype != other.dtype
             || !array
-                .unsliced_validity
-                .array_eq(&other.unsliced_validity, precision)
+                .unsliced_validity()
+                .array_eq(&other.unsliced_validity(), precision)
             || array.unsliced_n_rows != other.unsliced_n_rows
             || array.slice_start != other.slice_start
             || array.slice_stop != other.slice_stop
@@ -242,19 +241,8 @@ impl VTable for Pco {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut PcoArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "PcoArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.unsliced_validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut PcoArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -317,7 +305,6 @@ pub struct PcoArray {
     pub(crate) pages: Vec<ByteBuffer>,
     pub(crate) metadata: PcoMetadata,
     dtype: DType,
-    pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
     pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
@@ -341,7 +328,6 @@ impl PcoArray {
             pages,
             metadata,
             dtype,
-            unsliced_validity: validity,
             unsliced_n_rows: len,
             slots: vec![validity_slot],
             stats_set: Default::default(),
@@ -453,7 +439,7 @@ impl PcoArray {
         Ok(PrimitiveArray::from_values_byte_buffer(
             values_byte_buffer,
             self.dtype.as_ptype(),
-            self.unsliced_validity
+            self.unsliced_validity()
                 .slice(self.slice_start..self.slice_stop)?,
             self.slice_stop - self.slice_start,
         ))
@@ -465,7 +451,7 @@ impl PcoArray {
     ) -> VortexResult<ByteBuffer> {
         // To start, we figure out what range of values we need to decompress.
         let slice_value_indices = self
-            .unsliced_validity
+            .unsliced_validity()
             .execute_mask(self.unsliced_n_rows, ctx)?
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
         let slice_value_start = slice_value_indices[0];
@@ -559,11 +545,21 @@ impl PcoArray {
     pub(crate) fn unsliced_n_rows(&self) -> usize {
         self.unsliced_n_rows
     }
+
+    /// Returns the validity of the full (unsliced) array, derived from the validity slot.
+    pub(crate) fn unsliced_validity(&self) -> Validity {
+        match &self.slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(self.dtype.nullability()),
+        }
+    }
 }
 
-impl ValiditySliceHelper for PcoArray {
-    fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize) {
-        (&self.unsliced_validity, self.slice_start, self.slice_stop)
+impl ValidityVTable<Pco> for Pco {
+    fn validity(array: &PcoArray) -> VortexResult<Validity> {
+        array
+            .unsliced_validity()
+            .slice(array.slice_start..array.slice_stop)
     }
 }
 

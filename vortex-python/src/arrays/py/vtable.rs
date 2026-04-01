@@ -25,7 +25,6 @@ use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
-use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::scalar::Scalar;
@@ -149,13 +148,8 @@ impl VTable for PythonVTable {
         vortex_panic!("PythonArray has no slots, requested index {idx}")
     }
 
-    fn with_slots(_array: &mut PythonArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.is_empty(),
-            "PythonArray has no slots, got {}",
-            slots.len()
-        );
-        Ok(())
+    fn slots_mut(_array: &mut PythonArray) -> &mut [Option<ArrayRef>] {
+        &mut []
     }
 
     fn execute(_array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

@@ -7,10 +7,8 @@ mod validity;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayEq;
@@ -21,7 +19,6 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::VariantArray;
-use crate::arrays::variant::NUM_SLOTS;
 use crate::arrays::variant::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -137,20 +134,8 @@ impl VTable for Variant {
         Ok(VariantArray::new(child))
     }
 
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VariantArray expects exactly {} slot, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        let child = slots
-            .into_iter()
-            .next()
-            .vortex_expect("VariantArray slot vector length was validated")
-            .ok_or_else(|| vortex_err!("VariantArray child slot must be present"))?;
-        array.slots = [Some(child)];
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -165,11 +150,13 @@ mod tests {
     use crate::arrays::PrimitiveArray;
 
     #[test]
-    fn with_slots_rejects_missing_child() {
+    fn slots_mut_returns_mutable_slots() {
         let mut array = VariantArray::new(PrimitiveArray::from_iter([1u8, 2, 3]).into_array());
+        let replacement = PrimitiveArray::from_iter([4u8, 5, 6]).into_array();
 
-        let err = <Variant as VTable>::with_slots(&mut array, vec![None]).unwrap_err();
+        let slots = <Variant as VTable>::slots_mut(&mut array);
+        slots[0] = Some(replacement);
 
-        assert!(err.to_string().contains("child slot must be present"));
+        assert_eq!(array.child().len(), 3);
     }
 }

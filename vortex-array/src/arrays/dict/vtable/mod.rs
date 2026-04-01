@@ -8,7 +8,6 @@ use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -16,7 +15,6 @@ use vortex_session::VortexSession;
 use super::DictArray;
 use super::DictArrayParts;
 use super::DictMetadata;
-use super::array::NUM_SLOTS;
 use super::array::SLOT_NAMES;
 use super::take_canonical;
 use crate::AnyCanonical;
@@ -178,15 +176,8 @@ impl VTable for Dict {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut DictArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "DictArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

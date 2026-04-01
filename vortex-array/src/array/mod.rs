@@ -360,10 +360,10 @@ impl dyn DynArray + '_ {
             slot_idx,
             nslots
         );
-        let mut slots = self.slots().to_vec();
-        slots[slot_idx] = Some(replacement);
         let vtable = self.vtable().clone_boxed();
-        vtable.with_slots(self, slots)
+        vtable.with_slots_mut(self, &mut |slots| {
+            slots[slot_idx] = Some(replacement.clone());
+        })
     }
 }
 

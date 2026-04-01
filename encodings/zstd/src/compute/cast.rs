@@ -39,7 +39,7 @@ impl CastReduce for Zstd {
                         dtype.clone(),
                         array.metadata.clone(),
                         array.unsliced_n_rows(),
-                        array.unsliced_validity.clone(),
+                        array.unsliced_validity(),
                     )
                     .slice(array.slice_start()..array.slice_stop())?,
                 ))
@@ -64,7 +64,7 @@ impl CastReduce for Zstd {
                         dtype.clone(),
                         array.metadata.clone(),
                         array.unsliced_n_rows(),
-                        array.unsliced_validity.clone(),
+                        array.unsliced_validity(),
                     )
                     .slice(array.slice_start()..array.slice_stop())?,
                 ))

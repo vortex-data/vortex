@@ -164,9 +164,8 @@ impl VTable for Struct {
         }
     }
 
-    fn with_slots(array: &mut StructArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

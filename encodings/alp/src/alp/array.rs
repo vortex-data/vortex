@@ -106,22 +106,8 @@ impl VTable for ALP {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut ALPArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ALPArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // If patch slots are being cleared, clear the metadata too
-        if slots[PATCH_INDICES_SLOT].is_none() || slots[PATCH_VALUES_SLOT].is_none() {
-            array.patch_offset = None;
-            array.patch_offset_within_chunk = None;
-        }
-
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut ALPArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {

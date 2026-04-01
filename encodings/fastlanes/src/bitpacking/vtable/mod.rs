@@ -31,7 +31,6 @@ use vortex_array::vtable::VTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -39,9 +38,6 @@ use vortex_session::VortexSession;
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
-use crate::bitpacking::array::NUM_SLOTS;
-use crate::bitpacking::array::PATCH_INDICES_SLOT;
-use crate::bitpacking::array::PATCH_VALUES_SLOT;
 use crate::bitpacking::array::SLOT_NAMES;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
@@ -148,22 +144,8 @@ impl VTable for BitPacked {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut BitPackedArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "BitPackedArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // If patch slots are being cleared, clear the metadata too
-        if slots[PATCH_INDICES_SLOT].is_none() || slots[PATCH_VALUES_SLOT].is_none() {
-            array.patch_offset = None;
-            array.patch_offset_within_chunk = None;
-        }
-
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut BitPackedArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn metadata(array: &BitPackedArray) -> VortexResult<Self::Metadata> {

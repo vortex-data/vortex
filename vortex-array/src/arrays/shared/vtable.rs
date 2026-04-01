@@ -3,11 +3,8 @@
 
 use std::hash::Hash;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
-use async_lock::Mutex as AsyncMutex;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -18,7 +15,6 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::SharedArray;
-use crate::arrays::shared::array::NUM_SLOTS;
 use crate::arrays::shared::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -102,17 +98,8 @@ impl VTable for Shared {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "SharedArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        array.cached = Arc::new(OnceLock::new());
-        array.async_compute_lock = Arc::new(AsyncMutex::new(()));
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {

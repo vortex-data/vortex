@@ -42,7 +42,6 @@ use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -167,18 +166,8 @@ impl VTable for DecimalByteParts {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(
-        array: &mut DecimalBytePartsArray,
-        slots: Vec<Option<ArrayRef>>,
-    ) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "DecimalBytePartsArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut DecimalBytePartsArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn reduce_parent(

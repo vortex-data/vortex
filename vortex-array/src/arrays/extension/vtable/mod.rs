@@ -11,7 +11,6 @@ use std::sync::Arc;
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -21,7 +20,6 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::ExtensionArray;
-use crate::arrays::extension::array::NUM_SLOTS;
 use crate::arrays::extension::array::SLOT_NAMES;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -136,15 +134,8 @@ impl VTable for Extension {
         Ok(ExtensionArray::new(ext_dtype.clone(), storage))
     }
 
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ExtensionArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

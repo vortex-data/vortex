@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -21,7 +20,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::Precision;
-use crate::arrays::slice::array::NUM_SLOTS;
 use crate::arrays::slice::array::SLOT_NAMES;
 use crate::arrays::slice::array::SliceArray;
 use crate::arrays::slice::rules::PARENT_RULES;
@@ -135,15 +133,8 @@ impl VTable for Slice {
         SliceArray::try_new(child, metadata.0.clone())
     }
 
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "SliceArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

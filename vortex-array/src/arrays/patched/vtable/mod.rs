@@ -12,7 +12,6 @@ use std::sync::Arc;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -30,7 +29,6 @@ use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArray;
-use crate::arrays::patched::array::NUM_SLOTS;
 use crate::arrays::patched::array::SLOT_NAMES;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
@@ -277,15 +275,8 @@ impl VTable for Patched {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "PatchedArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -664,13 +655,15 @@ mod tests {
         let indices = array.patch_indices().clone();
         let values = array.patch_values().clone();
 
-        // Create new PatchedArray with same children using with_slots
+        // Create new PatchedArray with same children using with_slots_mut
         let array_ref = array.clone().into_array();
         let vtable = array_ref.vtable().clone_boxed();
-        let new_array = vtable.with_slots(
-            array_ref,
-            vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
-        )?;
+        let new_array = vtable.with_slots_mut(array_ref, &mut |slots| {
+            slots[0] = Some(inner.clone());
+            slots[1] = Some(lane_offsets.clone());
+            slots[2] = Some(indices.clone());
+            slots[3] = Some(values.clone());
+        })?;
 
         assert!(new_array.is::<Patched>());
         assert_eq!(array.len(), new_array.len());
@@ -701,15 +694,12 @@ mod tests {
 
         let array_ref = array.into_array();
         let vtable = array_ref.vtable().clone_boxed();
-        let new_array = vtable.with_slots(
-            array_ref,
-            vec![
-                Some(new_inner),
-                Some(lane_offsets),
-                Some(indices),
-                Some(values),
-            ],
-        )?;
+        let new_array = vtable.with_slots_mut(array_ref, &mut |slots| {
+            slots[0] = Some(new_inner.clone());
+            slots[1] = Some(lane_offsets.clone());
+            slots[2] = Some(indices.clone());
+            slots[3] = Some(values.clone());
+        })?;
 
         // Execute and verify the inner values changed (except at patch positions)
         let mut ctx = ExecutionCtx::new(VortexSession::empty());

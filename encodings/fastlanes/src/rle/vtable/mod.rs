@@ -25,7 +25,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -132,15 +131,8 @@ impl VTable for RLE {
         crate::rle::array::SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut RLEArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == crate::rle::array::NUM_SLOTS,
-            "RLEArray expects {} slots, got {}",
-            crate::rle::array::NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut RLEArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn metadata(array: &RLEArray) -> VortexResult<Self::Metadata> {

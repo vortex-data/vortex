@@ -6,7 +6,6 @@ use std::ops::Range;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
 use crate::ByteBool;
@@ -17,7 +16,7 @@ impl SliceReduce for ByteBool {
         Ok(Some(
             ByteBoolArray::new(
                 array.buffer().slice(range.clone()),
-                array.validity().slice(range)?,
+                array.unsliced_validity().slice(range)?,
             )
             .into_array(),
         ))

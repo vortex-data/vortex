@@ -9,7 +9,6 @@ use kernel::PARENT_KERNELS;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -21,7 +20,6 @@ use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
-use crate::arrays::varbinview::array::NUM_SLOTS;
 use crate::arrays::varbinview::array::SLOT_NAMES;
 use crate::arrays::varbinview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -201,15 +199,8 @@ impl VTable for VarBinView {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut VarBinViewArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VarBinViewArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn reduce_parent(

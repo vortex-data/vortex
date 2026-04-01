@@ -84,11 +84,11 @@ pub fn vortex_fsst::FSST::slot_name(_array: &vortex_fsst::FSSTArray, idx: usize)
 
 pub fn vortex_fsst::FSST::slots(array: &vortex_fsst::FSSTArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
+pub fn vortex_fsst::FSST::slots_mut(array: &mut vortex_fsst::FSSTArray) -> &mut [core::option::Option<vortex_array::array::ArrayRef>]
+
 pub fn vortex_fsst::FSST::stats(array: &vortex_fsst::FSSTArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_fsst::FSST::vtable(_array: &Self::Array) -> &Self
-
-pub fn vortex_fsst::FSST::with_slots(array: &mut vortex_fsst::FSSTArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 

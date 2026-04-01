@@ -82,11 +82,11 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::slot_name(_array: &vortex_de
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::slots(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
+pub fn vortex_decimal_byte_parts::DecimalByteParts::slots_mut(array: &mut vortex_decimal_byte_parts::DecimalBytePartsArray) -> &mut [core::option::Option<vortex_array::array::ArrayRef>]
+
 pub fn vortex_decimal_byte_parts::DecimalByteParts::stats(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::vtable(_array: &Self::Array) -> &Self
-
-pub fn vortex_decimal_byte_parts::DecimalByteParts::with_slots(array: &mut vortex_decimal_byte_parts::DecimalBytePartsArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_decimal_byte_parts::DecimalByteParts> for vortex_decimal_byte_parts::DecimalByteParts
 

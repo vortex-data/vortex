@@ -18,7 +18,6 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
-use crate::arrays::constant::array::NUM_SLOTS;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
@@ -122,15 +121,8 @@ impl VTable for Constant {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
 
-    fn with_slots(array: &mut ConstantArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ConstantArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn metadata(array: &ConstantArray) -> VortexResult<Self::Metadata> {

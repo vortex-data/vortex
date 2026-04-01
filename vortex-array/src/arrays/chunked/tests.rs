@@ -198,31 +198,25 @@ pub fn pack_nested_lists() {
 }
 
 #[test]
-fn with_slots_updates_nchunks_len_and_offsets() {
+fn slots_mut_replaces_individual_chunk() {
     let mut array = chunked_array();
-    let slots = vec![
-        Some(buffer![0u64, 4, 9].into_array()),
-        Some(buffer![10u64, 11, 12, 13].into_array()),
-        Some(buffer![14u64, 15, 16, 17, 18].into_array()),
-    ];
-    let expected_nchunks = slots.len() - 1;
-    let expected_len = array.len();
+    // Replace the second chunk (slot index 2, after offsets at 0 and first chunk at 1)
+    let replacement = buffer![10u64, 11, 12].into_array();
 
-    <Chunked as VTable>::with_slots(&mut array, slots).unwrap();
+    let slots = <Chunked as VTable>::slots_mut(&mut array);
+    slots[2] = Some(replacement);
 
-    assert_eq!(array.nchunks(), expected_nchunks);
-    assert_eq!(array.len(), expected_len);
-    assert_eq!(array.chunk_offsets(), buffer![0u64, 4, 9]);
-    assert_arrays_eq!(
-        array.chunk(0).clone(),
-        PrimitiveArray::from_iter([10u64, 11, 12, 13])
-    );
     assert_arrays_eq!(
         array.chunk(1).clone(),
-        PrimitiveArray::from_iter([14u64, 15, 16, 17, 18])
+        PrimitiveArray::from_iter([10u64, 11, 12])
+    );
+    // Other chunks unchanged
+    assert_arrays_eq!(
+        array.chunk(0).clone(),
+        PrimitiveArray::from_iter([1u64, 2, 3])
     );
     assert_arrays_eq!(
-        array,
-        PrimitiveArray::from_iter([10u64, 11, 12, 13, 14, 15, 16, 17, 18])
+        array.chunk(2).clone(),
+        PrimitiveArray::from_iter([7u64, 8, 9])
     );
 }

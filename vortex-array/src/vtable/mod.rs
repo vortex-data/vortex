@@ -182,8 +182,10 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Panics if `idx >= slots(array).len()`.
     fn slot_name(array: &Self::Array, idx: usize) -> String;
 
-    /// Replaces the slots in `array` with `slots`.
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()>;
+    /// Returns a mutable reference to the slots of the array.
+    ///
+    /// This allows callers to replace individual slots in-place without cloning all children.
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>];
 
     /// Execute this array by returning an [`ExecutionResult`].
     ///

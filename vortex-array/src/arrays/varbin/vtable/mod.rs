@@ -6,7 +6,6 @@ use std::sync::Arc;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -17,7 +16,6 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::VarBinArray;
-use crate::arrays::varbin::array::NUM_SLOTS;
 use crate::arrays::varbin::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -172,15 +170,8 @@ impl VTable for VarBin {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut VarBinArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VarBinArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn reduce_parent(

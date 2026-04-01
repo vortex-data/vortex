@@ -20,7 +20,6 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
-use crate::arrays::masked::array::NUM_SLOTS;
 use crate::arrays::masked::array::SLOT_NAMES;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
@@ -184,15 +183,8 @@ impl VTable for Masked {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut MaskedArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "MaskedArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 }
 

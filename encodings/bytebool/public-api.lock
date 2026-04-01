@@ -38,7 +38,7 @@ pub type vortex_bytebool::ByteBool::Metadata = vortex_array::metadata::EmptyMeta
 
 pub type vortex_bytebool::ByteBool::OperationsVTable = vortex_bytebool::ByteBool
 
-pub type vortex_bytebool::ByteBool::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromValidityHelper
+pub type vortex_bytebool::ByteBool::ValidityVTable = vortex_bytebool::ByteBool
 
 pub fn vortex_bytebool::ByteBool::array_eq(array: &vortex_bytebool::ByteBoolArray, other: &vortex_bytebool::ByteBoolArray, precision: vortex_array::hash::Precision) -> bool
 
@@ -74,15 +74,19 @@ pub fn vortex_bytebool::ByteBool::slot_name(_array: &vortex_bytebool::ByteBoolAr
 
 pub fn vortex_bytebool::ByteBool::slots(array: &vortex_bytebool::ByteBoolArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
+pub fn vortex_bytebool::ByteBool::slots_mut(array: &mut vortex_bytebool::ByteBoolArray) -> &mut [core::option::Option<vortex_array::array::ArrayRef>]
+
 pub fn vortex_bytebool::ByteBool::stats(array: &vortex_bytebool::ByteBoolArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_bytebool::ByteBool::vtable(_array: &Self::Array) -> &Self
 
-pub fn vortex_bytebool::ByteBool::with_slots(array: &mut vortex_bytebool::ByteBoolArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
-
 impl vortex_array::vtable::operations::OperationsVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool
 
 pub fn vortex_bytebool::ByteBool::scalar_at(array: &vortex_bytebool::ByteBoolArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::vtable::validity::ValidityVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool
+
+pub fn vortex_bytebool::ByteBool::validity(array: &vortex_bytebool::ByteBoolArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub struct vortex_bytebool::ByteBoolArray
 
@@ -133,7 +137,3 @@ pub fn vortex_bytebool::ByteBoolArray::deref(&self) -> &Self::Target
 impl vortex_array::array::IntoArray for vortex_bytebool::ByteBoolArray
 
 pub fn vortex_bytebool::ByteBoolArray::into_array(self) -> vortex_array::array::ArrayRef
-
-impl vortex_array::vtable::validity::ValidityHelper for vortex_bytebool::ByteBoolArray
-
-pub fn vortex_bytebool::ByteBoolArray::validity(&self) -> vortex_array::validity::Validity

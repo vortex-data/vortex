@@ -5,7 +5,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -90,15 +89,8 @@ impl VTable for Null {
         vortex_panic!("NullArray slot_name index {idx} out of bounds")
     }
 
-    fn with_slots(array: &mut NullArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "NullArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {

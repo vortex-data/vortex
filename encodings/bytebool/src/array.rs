@@ -26,14 +26,12 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
-use vortex_array::vtable::ValidityVTableFromValidityHelper;
+use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -46,7 +44,7 @@ impl VTable for ByteBool {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {
         &ByteBool
@@ -75,13 +73,15 @@ impl VTable for ByteBool {
     ) {
         array.dtype.hash(state);
         array.buffer.array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.unsliced_validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.buffer.array_eq(&other.buffer, precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array
+                .unsliced_validity()
+                .array_eq(&other.unsliced_validity(), precision)
     }
 
     fn nbuffers(_array: &ByteBoolArray) -> usize {
@@ -152,19 +152,8 @@ impl VTable for ByteBool {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut ByteBoolArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ByteBoolArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut ByteBoolArray) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn reduce_parent(
@@ -177,7 +166,7 @@ impl VTable for ByteBool {
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
-        let validity = array.validity();
+        let validity = array.validity()?;
         Ok(ExecutionResult::done(
             BoolArray::new(boolean_buffer, validity).into_array(),
         ))
@@ -201,7 +190,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 pub struct ByteBoolArray {
     dtype: DType,
     buffer: BufferHandle,
-    validity: Validity,
     pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
@@ -229,11 +217,11 @@ impl ByteBoolArray {
                 vlen
             );
         }
+        let dtype = DType::Bool(validity.nullability());
         let slots = Self::make_slots(&validity, length);
         Self {
-            dtype: DType::Bool(validity.nullability()),
+            dtype,
             buffer,
-            validity,
             slots,
             stats_set: Default::default(),
         }
@@ -255,11 +243,19 @@ impl ByteBoolArray {
         // Safety: The internal buffer contains byte-sized bools
         unsafe { std::mem::transmute(self.buffer().as_host().as_slice()) }
     }
+
+    /// Returns the validity derived on demand from the validity slot.
+    pub(crate) fn unsliced_validity(&self) -> Validity {
+        match &self.slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(self.dtype.nullability()),
+        }
+    }
 }
 
-impl ValidityHelper for ByteBoolArray {
-    fn validity(&self) -> Validity {
-        self.validity.clone()
+impl ValidityVTable<ByteBool> for ByteBool {
+    fn validity(array: &ByteBoolArray) -> VortexResult<Validity> {
+        Ok(array.unsliced_validity())
     }
 }
 

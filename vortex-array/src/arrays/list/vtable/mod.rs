@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -18,9 +17,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
-use crate::arrays::list::array::NUM_SLOTS;
 use crate::arrays::list::array::SLOT_NAMES;
-use crate::arrays::list::array::VALIDITY_SLOT;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
@@ -177,19 +174,8 @@ impl VTable for List {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut ListArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ListArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
-        array.slots = slots;
-        Ok(())
+    fn slots_mut(array: &mut Self::Array) -> &mut [Option<ArrayRef>] {
+        &mut array.slots
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
