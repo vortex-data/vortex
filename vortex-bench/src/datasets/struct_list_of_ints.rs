@@ -116,12 +116,11 @@ impl Dataset for StructListOfInts {
 
             // Convert to Arrow RecordBatches and write to parquet
             let chunked = array.as_::<vortex::array::arrays::Chunked>();
-            let chunks = chunked.chunks();
 
             let file = File::create(&temp_path)?;
             let mut writer: Option<ArrowWriter<File>> = None;
 
-            for chunk in chunks.iter() {
+            for chunk in chunked.iter_chunks() {
                 let converted = recursive_list_from_list_view(chunk.clone())?;
                 let batch = RecordBatch::try_from(converted.as_ref())?;
 

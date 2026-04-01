@@ -44,10 +44,6 @@ pub fn vortex_pco::Pco::buffer_name(array: vortex_array::vtable::typed::ArrayVie
 
 pub fn vortex_pco::Pco::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_pco::PcoData>
 
-pub fn vortex_pco::Pco::child(array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_pco::Pco::child_name(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
-
 pub fn vortex_pco::Pco::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_pco::Pco::dtype(array: &vortex_pco::PcoData) -> &vortex_array::dtype::DType
@@ -62,17 +58,19 @@ pub fn vortex_pco::Pco::metadata(array: vortex_array::vtable::typed::ArrayView<'
 
 pub fn vortex_pco::Pco::nbuffers(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> usize
 
-pub fn vortex_pco::Pco::nchildren(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> usize
-
 pub fn vortex_pco::Pco::reduce_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_pco::Pco::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_pco::Pco::slot_name(__array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
+
+pub fn vortex_pco::Pco::slots(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
 pub fn vortex_pco::Pco::stats(array: &vortex_pco::PcoData) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_pco::Pco::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_pco::Pco::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_pco::Pco::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_pco::Pco> for vortex_pco::Pco
 
@@ -184,4 +182,4 @@ pub fn vortex_pco::PcoPageInfo::clear(&mut self)
 
 pub fn vortex_pco::PcoPageInfo::encoded_len(&self) -> usize
 
-pub type vortex_pco::PcoArray = vortex_array::vtable::typed::ArrayInner<vortex_pco::Pco>
+pub type vortex_pco::PcoArray = vortex_array::vtable::typed::Array<vortex_pco::Pco>

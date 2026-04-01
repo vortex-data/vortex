@@ -182,7 +182,7 @@ mod tests {
         };
 
         {
-            let arr2 = chunked_arr.to_varbinview();
+            let arr2 = chunked_arr.to_array_ref().to_varbinview();
             let res2 =
                 arr2.with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>());
             assert_eq!(data, res2)

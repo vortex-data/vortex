@@ -15,6 +15,7 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::shared::SharedData;
+use crate::arrays::shared::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
@@ -145,17 +146,25 @@ impl VTable for Shared {
         Ok(SharedData::new(child))
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_error::vortex_ensure!(
-            children.len() == 1,
-            "SharedArray expects exactly 1 child, got {}",
-            children.len()
+            slots.len() == 1,
+            "SharedArray expects exactly 1 slot, got {}",
+            slots.len()
         );
-        let child = children
+        let slot = slots
             .into_iter()
             .next()
-            .vortex_expect("children length already validated");
-        array.set_source(child);
+            .vortex_expect("slots length already validated");
+        array.set_source(slot);
         Ok(())
     }
 

@@ -64,8 +64,14 @@ macro_rules! primitive_scalar {
             type Error = VortexError;
 
             fn try_from(value: &Scalar) -> VortexResult<Self> {
-                <Option<$T>>::try_from(value)?
-                    .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+                match value.value() {
+                    Some(ScalarValue::Primitive(pv)) => pv.cast::<$T>(),
+                    Some(_) => Err(vortex_err!(
+                        "Expected primitive scalar, found {}",
+                        value.dtype()
+                    )),
+                    None => Err(vortex_err!("Can't extract present value from null scalar")),
+                }
             }
         }
 

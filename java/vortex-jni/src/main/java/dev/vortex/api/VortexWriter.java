@@ -43,6 +43,18 @@ public interface VortexWriter extends AutoCloseable {
     void writeBatch(byte[] arrowData) throws IOException;
 
     /**
+     * Writes a batch of Arrow data directly from Arrow C Data Interface pointers.
+     * <p>
+     * This avoids the IPC serialization overhead by accepting raw memory addresses
+     * of ArrowArray and ArrowSchema structs.
+     *
+     * @param arrowArrayAddr  memory address of the ArrowArray struct
+     * @param arrowSchemaAddr memory address of the ArrowSchema struct
+     * @throws IOException if writing fails
+     */
+    void writeBatchFfi(long arrowArrayAddr, long arrowSchemaAddr) throws IOException;
+
+    /**
      * Closes the writer and finalizes the Vortex file.
      * <p>
      * This method must be called to ensure the file is properly written

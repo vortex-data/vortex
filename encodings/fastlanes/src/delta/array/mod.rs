@@ -10,11 +10,17 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::stats::ArrayStats;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 pub mod delta_compress;
 pub mod delta_decompress;
+
+pub(crate) const BASES_SLOT: usize = 0;
+pub(crate) const DELTAS_SLOT: usize = 1;
+pub(crate) const NUM_SLOTS: usize = 2;
+pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 
 /// A FastLanes-style delta-encoded array of primitive values.
 ///
@@ -60,8 +66,7 @@ pub struct DeltaData {
     pub(super) offset: usize,
     pub(super) len: usize,
     pub(super) dtype: DType,
-    pub(super) bases: ArrayRef,
-    pub(super) deltas: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -126,24 +131,28 @@ impl DeltaData {
         offset: usize,
         logical_len: usize,
     ) -> Self {
+        let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         Self {
             offset,
             len: logical_len,
-            dtype: bases.dtype().with_nullability(deltas.dtype().nullability()),
-            bases,
-            deltas,
+            dtype,
+            slots: vec![Some(bases), Some(deltas)],
             stats_set: Default::default(),
         }
     }
 
     #[inline]
     pub fn bases(&self) -> &ArrayRef {
-        &self.bases
+        self.slots[BASES_SLOT]
+            .as_ref()
+            .vortex_expect("DeltaArray bases slot")
     }
 
     #[inline]
     pub fn deltas(&self) -> &ArrayRef {
-        &self.deltas
+        self.slots[DELTAS_SLOT]
+            .as_ref()
+            .vortex_expect("DeltaArray deltas slot")
     }
 
     pub(crate) fn lanes(&self) -> usize {
@@ -172,11 +181,11 @@ impl DeltaData {
     }
 
     pub(crate) fn bases_len(&self) -> usize {
-        self.bases.len()
+        self.bases().len()
     }
 
     pub(crate) fn deltas_len(&self) -> usize {
-        self.deltas.len()
+        self.deltas().len()
     }
 
     pub(crate) fn stats_set(&self) -> &ArrayStats {

@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(array.values_type(), DecimalType::I32);
 
         let array = array.as_view();
-        let casted = upcast_decimal_values(array.as_view(), DecimalType::I64).unwrap();
+        let casted = upcast_decimal_values(array, DecimalType::I64).unwrap();
 
         assert_eq!(casted.values_type(), DecimalType::I64);
         assert_eq!(casted.decimal_dtype(), decimal_dtype);
@@ -347,7 +347,7 @@ mod tests {
         );
 
         let array = array.as_view();
-        let casted = upcast_decimal_values(array.as_view(), DecimalType::I128).unwrap();
+        let casted = upcast_decimal_values(array, DecimalType::I128).unwrap();
 
         assert_eq!(casted.values_type(), DecimalType::I128);
         assert_eq!(casted.decimal_dtype(), decimal_dtype);
@@ -366,7 +366,7 @@ mod tests {
         );
 
         let array = array.as_view();
-        let casted = upcast_decimal_values(array.as_view(), DecimalType::I32).unwrap();
+        let casted = upcast_decimal_values(array, DecimalType::I32).unwrap();
 
         assert_eq!(casted.values_type(), DecimalType::I32);
         assert_eq!(casted.decimal_dtype(), decimal_dtype);
@@ -378,7 +378,7 @@ mod tests {
         let array = DecimalArray::from_option_iter([Some(100i32), None, Some(300)], decimal_dtype);
 
         let array = array.as_view();
-        let casted = upcast_decimal_values(array.as_view(), DecimalType::I64).unwrap();
+        let casted = upcast_decimal_values(array, DecimalType::I64).unwrap();
 
         assert_eq!(casted.values_type(), DecimalType::I64);
         assert_eq!(casted.len(), 3);
@@ -406,7 +406,7 @@ mod tests {
 
         // Attempt to downcast from i64 to i32 should fail
         let array = array.as_view();
-        let result = upcast_decimal_values(array.as_view(), DecimalType::I32);
+        let result = upcast_decimal_values(array, DecimalType::I32);
         assert!(result.is_err());
         assert!(
             result

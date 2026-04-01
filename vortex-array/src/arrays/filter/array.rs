@@ -12,6 +12,10 @@ use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::vtable::Array;
 
+pub(super) const CHILD_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
+
 /// Decomposed parts of the filter array.
 pub struct FilterArrayParts {
     /// Child array that is filtered by the mask
@@ -27,8 +31,7 @@ pub struct FilterArrayParts {
 /// The resulting array contains only the elements where the mask is true.
 #[derive(Clone, Debug)]
 pub struct FilterData {
-    /// The source array being filtered.
-    pub(super) child: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
 
     /// The boolean mask selecting which elements to keep.
     pub(super) mask: Mask,
@@ -52,7 +55,7 @@ impl FilterData {
         );
 
         Ok(Self {
-            child: array,
+            slots: vec![Some(array)],
             mask,
             stats: ArrayStats::default(),
         })
@@ -65,7 +68,7 @@ impl FilterData {
 
     /// Returns the [`DType`] of this array.
     pub fn dtype(&self) -> &DType {
-        self.child.dtype()
+        self.child().dtype()
     }
 
     /// Returns `true` if this array is empty.
@@ -75,7 +78,9 @@ impl FilterData {
 
     /// The child array being filtered.
     pub fn child(&self) -> &ArrayRef {
-        &self.child
+        self.slots[CHILD_SLOT]
+            .as_ref()
+            .vortex_expect("FilterArray child slot")
     }
 
     /// The mask used to filter the child array.
@@ -99,9 +104,11 @@ impl Array<Filter> {
 
 impl FilterData {
     /// Consume the array and return its individual components.
-    pub fn into_parts(self) -> FilterArrayParts {
+    pub fn into_parts(mut self) -> FilterArrayParts {
         FilterArrayParts {
-            child: self.child,
+            child: self.slots[CHILD_SLOT]
+                .take()
+                .vortex_expect("FilterArray child slot"),
             mask: self.mask,
         }
     }

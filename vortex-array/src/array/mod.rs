@@ -155,9 +155,6 @@ pub trait DynArray:
     // TODO(ngates): change how this works. It's weird.
     fn statistics(&self) -> StatsSetRef<'_>;
 
-    /// Replaces the children of the array with the given array references.
-    fn with_children(&self, this: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
-
     // --- Visitor methods (formerly in ArrayVisitor) ---
 
     /// Returns the children of the array.
@@ -191,6 +188,12 @@ pub trait DynArray:
 
     /// Returns the number of buffers of the array.
     fn nbuffers(&self, this: &ArrayRef) -> usize;
+
+    /// Returns the slots of the array.
+    fn slots(&self, this: &ArrayRef) -> Vec<Option<ArrayRef>>;
+
+    /// Returns the name of the slot at the given index.
+    fn slot_name(&self, this: &ArrayRef, idx: usize) -> String;
 
     /// Returns the serialized metadata of the array, or `None` if the array does not
     /// support serialization.
@@ -404,11 +407,6 @@ impl ArrayRef {
         self.0.statistics()
     }
 
-    /// Replaces the children of the array with the given array references.
-    pub fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        self.0.with_children(self, children)
-    }
-
     /// Does the array match the given matcher.
     pub fn is<M: Matcher>(&self) -> bool {
         M::matches(&*self.0)
@@ -464,17 +462,25 @@ impl ArrayRef {
         self.is::<AnyCanonical>()
     }
 
-    /// Returns a new array with the child at `child_idx` replaced by `replacement`.
-    pub fn with_child(&self, child_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
-        let mut children: Vec<ArrayRef> = self.children();
+    /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
+    ///
+    /// Takes ownership to allow in-place mutation when the refcount is 1.
+    pub fn with_slot(
+        self: ArrayRef,
+        slot_idx: usize,
+        replacement: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        let nslots = self.slots().len();
         vortex_ensure!(
-            child_idx < children.len(),
-            "child index {} out of bounds for array with {} children",
-            child_idx,
-            children.len()
+            slot_idx < nslots,
+            "slot index {} out of bounds for array with {} slots",
+            slot_idx,
+            nslots
         );
-        children[child_idx] = replacement;
-        self.with_children(children)
+        let mut slots = self.slots().to_vec();
+        slots[slot_idx] = Some(replacement);
+        let vtable = self.vtable().clone_boxed();
+        vtable.with_slots(self, slots)
     }
 
     // ArrayVisitor delegation methods
@@ -527,6 +533,16 @@ impl ArrayRef {
     /// Returns the number of data buffers of the array.
     pub fn nbuffers(&self) -> usize {
         self.0.nbuffers(self)
+    }
+
+    /// Returns the slots of the array.
+    pub fn slots(&self) -> Vec<Option<ArrayRef>> {
+        self.0.slots(self)
+    }
+
+    /// Returns the name of the slot at the given index.
+    pub fn slot_name(&self, idx: usize) -> String {
+        self.0.slot_name(self, idx)
     }
 
     /// Returns the serialized metadata of the array.
@@ -845,21 +861,6 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         self.stats.to_ref(self)
     }
 
-    fn with_children(&self, _this: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        let mut inner = self.data.clone();
-        V::with_children(&mut inner, children)?;
-        // SAFETY: with_children preserves dtype and len.
-        Ok(ArrayRef::from_inner(Arc::new(unsafe {
-            ArrayInner::from_data_unchecked(
-                self.vtable.clone(),
-                self.dtype.clone(),
-                self.len,
-                inner,
-                self.stats.clone(),
-            )
-        })))
-    }
-
     fn children(&self, this: &ArrayRef) -> Vec<ArrayRef> {
         let view = unsafe { ArrayView::new(this, &self.data) };
         (0..V::nchildren(view)).map(|i| V::child(view, i)).collect()
@@ -887,6 +888,16 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         (0..V::nchildren(view))
             .map(|i| (V::child_name(view, i), V::child(view, i)))
             .collect()
+    }
+
+    fn slots(&self, this: &ArrayRef) -> Vec<Option<ArrayRef>> {
+        let view = unsafe { ArrayView::new(this, &self.data) };
+        V::slots(view).to_vec()
+    }
+
+    fn slot_name(&self, this: &ArrayRef, idx: usize) -> String {
+        let view = unsafe { ArrayView::new(this, &self.data) };
+        V::slot_name(view, idx)
     }
 
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer> {

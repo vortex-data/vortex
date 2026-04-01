@@ -579,7 +579,7 @@ mod test {
         let indices = buffer![0u64, 1, 7].into_array();
         let values = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
         let sparse_bools = Sparse::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
-        let actual = sparse_bools.to_bool();
+        let actual = sparse_bools.to_array_ref().to_bool();
 
         let expected = BoolArray::from_iter([
             Some(true),
@@ -607,7 +607,7 @@ mod test {
         let sparse_ints = Sparse::try_new(indices, values, 10, Scalar::from(fill_value)).unwrap();
         assert_eq!(*sparse_ints.dtype(), DType::Primitive(PType::I32, Nullable));
 
-        let flat_ints = sparse_ints.to_primitive();
+        let flat_ints = sparse_ints.to_array_ref().to_primitive();
         let expected = PrimitiveArray::from_option_iter([
             Some(0i32),
             None,
@@ -690,7 +690,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = sparse_struct.to_struct();
+        let actual = sparse_struct.to_array_ref().to_struct();
         assert_arrays_eq!(actual, expected);
     }
 
@@ -757,7 +757,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let actual = sparse_struct.to_struct();
+        let actual = sparse_struct.to_array_ref().to_struct();
         assert_arrays_eq!(actual, expected);
     }
 
@@ -786,6 +786,7 @@ mod test {
         .unwrap();
 
         let actual = sparse_struct
+            .to_array_ref()
             .to_decimal()
             .into_array()
             .into_arrow_preferred()
@@ -816,7 +817,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.to_array_ref().to_varbinview().into_array();
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             Some("123"),
@@ -857,7 +858,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.to_array_ref().to_varbinview().into_array();
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             None,
@@ -891,7 +892,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.to_array_ref().to_varbinview().into_array();
         let expected = VarBinViewArray::from_iter_str([
             "hello", "123", "123", "goodbye", "hello", "bonjour", "123", "123", "你好",
         ])
@@ -921,7 +922,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.to_array_ref().to_varbinview().into_array();
         let expected = <VarBinViewArray as FromIterator<_>>::from_iter([
             Some("hello"),
             None,
@@ -962,7 +963,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.to_array_ref().to_varbinview().into_array();
         let expected = VarBinViewArray::from_iter_nullable_bin([
             Some(b"hello" as &[u8]),
             Some(b"123"),
@@ -1175,7 +1176,7 @@ mod test {
         )
         .unwrap();
 
-        let actual = array.to_varbinview().into_array();
+        let actual = array.to_array_ref().to_varbinview().into_array();
         let expected = VarBinViewArray::from_iter_nullable_bin([
             Some(b"hello" as &[u8]),
             None,

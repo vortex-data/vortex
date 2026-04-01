@@ -11,7 +11,7 @@ use vortex_mask::Mask;
 use crate::DecimalByteParts;
 impl FilterReduce for DecimalByteParts {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        DecimalByteParts::try_new(array.msp.filter(mask.clone())?, *array.decimal_dtype())
+        DecimalByteParts::try_new(array.msp().filter(mask.clone())?, *array.decimal_dtype())
             .map(|d| Some(d.into_array()))
     }
 }

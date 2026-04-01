@@ -231,7 +231,7 @@ mod test {
         );
         let arr = arr.as_view();
         let buf = filter_select_var_bin_by_index(
-            arr.as_view(),
+            arr,
             &[0, 2],
             2,
             &mut LEGACY_SESSION.create_execution_ctx(),
@@ -256,7 +256,7 @@ mod test {
 
         let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(
-            arr.as_view(),
+            arr,
             &[(0, 1), (2, 3), (4, 5)],
             3,
             &mut LEGACY_SESSION.create_execution_ctx(),
@@ -288,7 +288,7 @@ mod test {
 
         let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(
-            arr.as_view(),
+            arr,
             &[(0, 3), (4, 6)],
             5,
             &mut LEGACY_SESSION.create_execution_ctx(),
@@ -320,7 +320,7 @@ mod test {
 
         let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(
-            arr.as_view(),
+            arr,
             &[(0, 1), (2, 3)],
             2,
             &mut LEGACY_SESSION.create_execution_ctx(),
@@ -344,7 +344,7 @@ mod test {
 
         let arr = arr.as_view();
         let buf = filter_select_var_bin_by_slice(
-            arr.as_view(),
+            arr,
             &[(0, 1), (2, 3)],
             2,
             &mut LEGACY_SESSION.create_execution_ctx(),

@@ -7,7 +7,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -21,6 +20,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::slice::array::NUM_SLOTS;
+use crate::arrays::slice::array::SLOT_NAMES;
 use crate::arrays::slice::array::SliceData;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -66,7 +67,7 @@ impl VTable for Slice {
     }
 
     fn dtype(array: &SliceData) -> &DType {
-        array.child.dtype()
+        array.child().dtype()
     }
 
     fn stats(array: &SliceData) -> &ArrayStats {
@@ -74,7 +75,7 @@ impl VTable for Slice {
     }
 
     fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.child.array_hash(state, precision);
+        array.child().array_hash(state, precision);
         array.range.start.hash(state);
         array.range.end.hash(state);
     }
@@ -84,7 +85,7 @@ impl VTable for Slice {
         other: ArrayView<'_, Self>,
         precision: Precision,
     ) -> bool {
-        array.child.array_eq(&other.child, precision) && array.range == other.range
+        array.child().array_eq(other.child(), precision) && array.range == other.range
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -105,7 +106,7 @@ impl VTable for Slice {
 
     fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.child.clone(),
+            0 => array.child().clone(),
             _ => vortex_panic!("SliceArray child index {idx} out of bounds"),
         }
     }
@@ -145,32 +146,34 @@ impl VTable for Slice {
     ) -> VortexResult<Self::ArrayData> {
         assert_eq!(len, metadata.0.len());
         let child = children.get(0, dtype, metadata.0.end)?;
-        Ok(SliceData {
-            child,
-            range: metadata.0.clone(),
-            stats: Default::default(),
-        })
+        SliceData::try_new(child, metadata.0.clone())
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 1,
-            "SliceArray expects exactly 1 child, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "SliceArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-        array.child = children
-            .into_iter()
-            .next()
-            .vortex_expect("children length already validated");
+        array.slots = slots;
         Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // Execute the child to get canonical form, then slice it
-        let Some(canonical) = array.child.as_opt::<AnyCanonical>() else {
+        let Some(canonical) = array.child().as_opt::<AnyCanonical>() else {
             // If the child is not canonical, recurse.
             return array
-                .child
+                .child()
                 .clone()
                 .execute::<ArrayRef>(ctx)?
                 .slice(array.slice_range().clone())
@@ -198,13 +201,13 @@ impl OperationsVTable<Slice> for Slice {
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.child.scalar_at(array.range.start + index)
+        array.child().scalar_at(array.range.start + index)
     }
 }
 
 impl ValidityVTable<Slice> for Slice {
     fn validity(array: ArrayView<'_, Slice>) -> VortexResult<Validity> {
-        array.child.validity()?.slice(array.range.clone())
+        array.child().validity()?.slice(array.range.clone())
     }
 }
 

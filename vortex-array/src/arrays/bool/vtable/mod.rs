@@ -16,6 +16,9 @@ use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::bool::BoolData;
+use crate::arrays::bool::array::NUM_SLOTS;
+use crate::arrays::bool::array::SLOT_NAMES;
+use crate::arrays::bool::array::VALIDITY_SLOT;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -25,8 +28,6 @@ use crate::vtable::Array;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod canonical;
 mod kernel;
 mod operations;
@@ -119,22 +120,6 @@ impl VTable for Bool {
         }
     }
 
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        validity_nchildren(&array.validity)
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => validity_to_child(&array.validity, array.len())
-                .vortex_expect("BoolArray child index out of bounds"),
-            _ => vortex_panic!("BoolArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
-        "validity".to_string()
-    }
-
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
         Ok(ProstMetadata(BoolMetadata {
@@ -182,19 +167,26 @@ impl VTable for Bool {
         BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() <= 1,
-            "BoolArray can have at most 1 child (validity), got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "BoolArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        array.validity = if children.is_empty() {
-            Validity::from(array.dtype().nullability())
-        } else {
-            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype().nullability()),
         };
-
+        array.slots = slots;
         Ok(())
     }
 
@@ -225,4 +217,48 @@ pub struct Bool;
 
 impl Bool {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.bool");
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::ByteBufferMut;
+    use vortex_session::registry::ReadContext;
+
+    use crate::ArrayContext;
+    use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::arrays::BoolArray;
+    use crate::assert_arrays_eq;
+    use crate::serde::ArrayParts;
+    use crate::serde::SerializeOptions;
+
+    #[test]
+    fn test_nullable_bool_serde_roundtrip() {
+        let array = BoolArray::from_iter([Some(true), None, Some(false), None]);
+        let dtype = array.dtype().clone();
+        let len = array.len();
+
+        let ctx = ArrayContext::empty();
+        let serialized = array
+            .clone()
+            .into_array()
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
+
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let decoded = parts
+            .decode(
+                &dtype,
+                len,
+                &ReadContext::new(ctx.to_ids()),
+                &LEGACY_SESSION,
+            )
+            .unwrap();
+
+        assert_arrays_eq!(decoded, array);
+    }
 }

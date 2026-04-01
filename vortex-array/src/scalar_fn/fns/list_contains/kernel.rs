@@ -68,7 +68,7 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let list = &scalar_fn_array.children()[0];
+        let list = scalar_fn_array.get_child(0);
         <V as ListContainsElementReduce>::list_contains(list, array)
     }
 }
@@ -97,7 +97,7 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let list = &scalar_fn_array.children()[0];
+        let list = scalar_fn_array.get_child(0);
         <V as ListContainsElementKernel>::list_contains(list, array, ctx)
     }
 }

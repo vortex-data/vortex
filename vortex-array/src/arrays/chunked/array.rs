@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use futures::stream;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect as _;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -28,6 +28,8 @@ use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;
 use crate::validity::Validity;
 use crate::vtable::Array;
+pub(super) const CHUNK_OFFSETS_SLOT: usize = 0;
+pub(super) const CHUNKS_OFFSET: usize = 1;
 
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
@@ -35,10 +37,22 @@ pub struct ChunkedData {
     pub(super) len: usize,
     pub(super) chunk_offsets: PrimitiveData,
     pub(super) chunks: Vec<ArrayRef>,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
 impl ChunkedData {
+    /// Builds the slots vector from chunk_offsets and chunks.
+    pub(super) fn make_slots(
+        chunk_offsets: &PrimitiveData,
+        chunks: &[ArrayRef],
+    ) -> Vec<Option<ArrayRef>> {
+        let mut slots = Vec::with_capacity(1 + chunks.len());
+        slots.push(Some(chunk_offsets.clone().into_array()));
+        slots.extend(chunks.iter().map(|c| Some(c.clone())));
+        slots
+    }
+
     /// Constructs a new `ChunkedArray`.
     ///
     /// See `ChunkedArray::new_unchecked` for more information.
@@ -81,6 +95,7 @@ impl ChunkedData {
 
         let chunk_offsets = PrimitiveData::new(chunk_offsets_buf.freeze(), Validity::NonNullable);
 
+        let slots = Self::make_slots(&chunk_offsets, &chunks);
         Self {
             dtype,
             len: curr_offset
@@ -88,6 +103,7 @@ impl ChunkedData {
                 .vortex_expect("chunk offset must fit in usize"),
             chunk_offsets,
             chunks,
+            slots,
             stats_set: Default::default(),
         }
     }
@@ -123,12 +139,16 @@ impl ChunkedData {
     #[inline]
     pub fn chunk(&self, idx: usize) -> &ArrayRef {
         assert!(idx < self.nchunks(), "chunk index {idx} out of bounds");
-        // SAFETY: bounds checked by the assert above.
-        unsafe { self.chunks.get_unchecked(idx) }
+        &self.chunks[idx]
     }
 
     pub fn nchunks(&self) -> usize {
         self.chunks.len()
+    }
+
+    /// Returns the chunk offsets as a `PrimitiveData`.
+    pub(crate) fn chunk_offsets_data(&self) -> &PrimitiveData {
+        &self.chunk_offsets
     }
 
     #[inline]
@@ -154,22 +174,31 @@ impl ChunkedData {
         Ok((index_chunk, index_in_chunk))
     }
 
-    pub fn chunks(&self) -> &[ArrayRef] {
-        &self.chunks
+    /// Returns an iterator over chunk references without allocation.
+    pub fn iter_chunks(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
+        self.chunks.iter()
+    }
+
+    /// Returns the chunks as a vector of owned references.
+    pub fn chunks(&self) -> Vec<ArrayRef> {
+        self.chunks.clone()
     }
 
     pub fn non_empty_chunks(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        self.chunks().iter().filter(|c| !c.is_empty())
+        self.chunks.iter().filter(|c| !c.is_empty())
     }
 
     pub fn array_iterator(&self) -> impl ArrayIterator + '_ {
-        ArrayIteratorAdapter::new(self.dtype().clone(), self.chunks().iter().cloned().map(Ok))
+        ArrayIteratorAdapter::new(
+            self.dtype().clone(),
+            self.chunks.iter().map(|c| Ok(c.clone())),
+        )
     }
 
     pub fn array_stream(&self) -> impl ArrayStream + '_ {
         ArrayStreamAdapter::new(
             self.dtype().clone(),
-            stream::iter(self.chunks().iter().cloned().map(Ok)),
+            stream::iter(self.chunks.iter().map(|c| Ok(c.clone()))),
         )
     }
 
@@ -178,7 +207,7 @@ impl ChunkedData {
         let mut chunks_to_combine = Vec::new();
         let mut new_chunk_n_bytes = 0;
         let mut new_chunk_n_elements = 0;
-        for chunk in self.chunks() {
+        for chunk in self.iter_chunks() {
             let n_bytes = chunk.nbytes();
             let n_elements = chunk.len();
 
@@ -310,7 +339,7 @@ mod test {
         let rechunked = chunked.rechunk(1 << 16, 5).unwrap();
 
         assert_eq!(rechunked.nchunks(), 2);
-        assert!(rechunked.chunks().iter().all(|c| c.len() < 5));
+        assert!(rechunked.iter_chunks().all(|c| c.len() < 5));
         assert_arrays_eq!(chunked, rechunked);
     }
 

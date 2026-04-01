@@ -25,9 +25,8 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
-use vortex_array::vtable::validity_nchildren;
 use vortex_array::vtable::validity_to_child;
-use vortex_error::VortexExpect as _;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -35,7 +34,10 @@ use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 
+use crate::array::NUM_SLOTS;
 use crate::array::ParquetVariantData;
+use crate::array::SLOT_NAMES;
+use crate::array::VALIDITY_SLOT;
 use crate::kernel::PARENT_KERNELS;
 
 /// VTable for [`ParquetVariantArray`].
@@ -93,7 +95,7 @@ impl VTable for ParquetVariant {
     }
 
     fn len(array: &ParquetVariantData) -> usize {
-        array.metadata.len()
+        array.metadata_array().len()
     }
 
     fn dtype(array: &ParquetVariantData) -> &DType {
@@ -106,15 +108,15 @@ impl VTable for ParquetVariant {
 
     fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.validity.array_hash(state, precision);
-        array.metadata.array_hash(state, precision);
+        array.metadata_array().array_hash(state, precision);
         // Hash discriminators so that (value=Some, typed_value=None) and
         // (value=None, typed_value=Some) produce different hashes.
-        array.value.is_some().hash(state);
-        if let Some(ref value) = array.value {
+        array.value_array().is_some().hash(state);
+        if let Some(value) = array.value_array() {
             value.array_hash(state, precision);
         }
-        array.typed_value.is_some().hash(state);
-        if let Some(ref typed_value) = array.typed_value {
+        array.typed_value_array().is_some().hash(state);
+        if let Some(typed_value) = array.typed_value_array() {
             typed_value.array_hash(state, precision);
         }
     }
@@ -125,11 +127,13 @@ impl VTable for ParquetVariant {
         precision: Precision,
     ) -> bool {
         if !array.validity.array_eq(&other.validity, precision)
-            || !array.metadata.array_eq(&other.metadata, precision)
+            || !array
+                .metadata_array()
+                .array_eq(other.metadata_array(), precision)
         {
             return false;
         }
-        match (&array.value, &other.value) {
+        match (array.value_array(), other.value_array()) {
             (Some(a), Some(b)) => {
                 if !a.array_eq(b, precision) {
                     return false;
@@ -138,7 +142,7 @@ impl VTable for ParquetVariant {
             (None, None) => {}
             _ => return false,
         }
-        match (&array.typed_value, &other.typed_value) {
+        match (array.typed_value_array(), other.typed_value_array()) {
             (Some(a), Some(b)) => a.array_eq(b, precision),
             (None, None) => true,
             _ => false,
@@ -158,30 +162,39 @@ impl VTable for ParquetVariant {
     }
 
     fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        1 + validity_nchildren(&array.validity)
-            + array.value.is_some() as usize
-            + array.typed_value.is_some() as usize
+        let validity_children = if matches!(array.validity, Validity::Array(_)) {
+            1
+        } else {
+            0
+        };
+        1 + validity_children
+            + array.value_array().is_some() as usize
+            + array.typed_value_array().is_some() as usize
     }
 
     fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        let vc = validity_nchildren(&array.validity);
+        let vc = if matches!(array.validity, Validity::Array(_)) {
+            1
+        } else {
+            0
+        };
         if idx < vc {
-            validity_to_child(&array.validity, array.metadata.len())
+            validity_to_child(&array.validity, array.metadata_array().len())
                 .vortex_expect("ParquetVariantArray validity child out of bounds")
         } else {
             match idx - vc {
-                0 => array.metadata.clone(),
-                1 if array.value.is_some() => array
-                    .value
-                    .clone()
+                0 => array.metadata_array().clone(),
+                1 if array.value_array().is_some() => array
+                    .value_array()
+                    .cloned()
                     .vortex_expect("ParquetVariantArray missing value child"),
                 1 => array
-                    .typed_value
-                    .clone()
+                    .typed_value_array()
+                    .cloned()
                     .vortex_expect("ParquetVariantArray missing typed_value child"),
                 2 => array
-                    .typed_value
-                    .clone()
+                    .typed_value_array()
+                    .cloned()
                     .vortex_expect("ParquetVariantArray missing typed_value child"),
                 _ => vortex_panic!("ParquetVariantArray child index {idx} out of bounds"),
             }
@@ -189,12 +202,16 @@ impl VTable for ParquetVariant {
     }
 
     fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        let vc = validity_nchildren(&array.validity);
+        let vc = if matches!(array.validity, Validity::Array(_)) {
+            1
+        } else {
+            0
+        };
         match idx {
             idx if idx < vc => "validity".to_string(),
             idx => match idx - vc {
                 0 => "metadata".to_string(),
-                1 if array.value.is_some() => "value".to_string(),
+                1 if array.value_array().is_some() => "value".to_string(),
                 1 => "typed_value".to_string(),
                 2 => "typed_value".to_string(),
                 _ => vortex_panic!("ParquetVariantArray child_name index {idx} out of bounds"),
@@ -204,12 +221,9 @@ impl VTable for ParquetVariant {
 
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ParquetVariantMetadata {
-            has_value: array.value.is_some(),
-            value_nullable: array
-                .value
-                .as_ref()
-                .is_some_and(|v| v.dtype().is_nullable()),
-            typed_value_dtype: array.typed_value.as_ref().map(|tv| tv.dtype().clone()),
+            has_value: array.value_array().is_some(),
+            value_nullable: array.value_array().is_some_and(|v| v.dtype().is_nullable()),
+            typed_value_dtype: array.typed_value_array().map(|tv| tv.dtype().clone()),
         })
     }
 
@@ -307,39 +321,26 @@ impl VTable for ParquetVariant {
         ParquetVariantData::try_new(validity, variant_metadata, value, typed_value)
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
-        let expected_nchildren = 1
-            + validity_nchildren(&array.validity)
-            + array.value.is_some() as usize
-            + array.typed_value.is_some() as usize;
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == expected_nchildren,
-            "ParquetVariantArray expects {} children, got {}",
-            expected_nchildren,
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "ParquetVariantArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-        let mut iter = children.into_iter();
-        if validity_nchildren(&array.validity) == 1 {
-            array.validity = Validity::Array(
-                iter.next()
-                    .vortex_expect("ParquetVariantArray missing validity child"),
-            );
+        // Update validity from the validity slot.
+        if let Some(validity_child) = &slots[VALIDITY_SLOT] {
+            array.validity = Validity::Array(validity_child.clone());
         }
-        array.metadata = iter
-            .next()
-            .vortex_expect("ParquetVariantArray missing metadata child");
-        if array.value.is_some() {
-            array.value = Some(
-                iter.next()
-                    .vortex_expect("ParquetVariantArray missing value child in with_children"),
-            );
-        }
-        if array.typed_value.is_some() {
-            array.typed_value =
-                Some(iter.next().vortex_expect(
-                    "ParquetVariantArray missing typed_value child in with_children",
-                ));
-        }
+        array.slots = slots;
         Ok(())
     }
 

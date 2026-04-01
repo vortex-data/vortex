@@ -3,16 +3,20 @@
 
 use vortex_error::VortexExpect;
 
+use crate::ArrayRef;
 use crate::arrays::Constant;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
 use crate::vtable::Array;
 
+pub(super) const NUM_SLOTS: usize = 0;
+
 #[derive(Clone, Debug)]
 pub struct ConstantData {
     pub(super) scalar: Scalar,
     pub(super) len: usize,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -25,6 +29,7 @@ impl ConstantData {
         Self {
             scalar,
             len,
+            slots: vec![],
             stats_set: Default::default(),
         }
     }

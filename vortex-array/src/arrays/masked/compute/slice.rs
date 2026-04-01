@@ -14,7 +14,7 @@ use crate::vtable::ArrayView;
 
 impl SliceReduce for Masked {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let child = array.child.slice(range.clone())?;
+        let child = array.child().slice(range.clone())?;
         let validity = array.validity().clone().slice(range)?;
 
         Ok(Some(MaskedData::try_new(child, validity)?.into_array()))

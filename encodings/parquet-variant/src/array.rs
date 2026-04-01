@@ -17,10 +17,19 @@ use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::dtype::DType;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BitBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+
+pub(crate) const VALIDITY_SLOT: usize = 0;
+pub(crate) const METADATA_SLOT: usize = 1;
+pub(crate) const VALUE_SLOT: usize = 2;
+pub(crate) const TYPED_VALUE_SLOT: usize = 3;
+pub(crate) const NUM_SLOTS: usize = 4;
+pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity", "metadata", "value", "typed_value"];
 
 /// Array storage for Arrow's canonical `arrow.parquet.variant` extension type.
 ///
@@ -52,9 +61,7 @@ use vortex_error::vortex_ensure_eq;
 pub struct ParquetVariantData {
     pub(crate) dtype: DType,
     pub(crate) validity: Validity,
-    pub(crate) metadata: ArrayRef,
-    pub(crate) value: Option<ArrayRef>,
-    pub(crate) typed_value: Option<ArrayRef>,
+    pub(crate) slots: Vec<Option<ArrayRef>>,
     pub(crate) stats_set: ArrayStats,
 }
 
@@ -90,29 +97,32 @@ impl ParquetVariantData {
         }
         let nullability = validity.nullability();
 
+        let validity_child = validity_to_child(&validity, len);
+        let slots = vec![validity_child, Some(metadata), value, typed_value];
+
         Ok(Self {
             dtype: DType::Variant(nullability),
             validity,
-            metadata,
-            value,
-            typed_value,
+            slots,
             stats_set: ArrayStats::default(),
         })
     }
 
     /// Returns a reference to the metadata child array.
     pub fn metadata_array(&self) -> &ArrayRef {
-        &self.metadata
+        self.slots[METADATA_SLOT]
+            .as_ref()
+            .vortex_expect("ParquetVariantArray metadata slot")
     }
 
     /// Returns a reference to the un-shredded value child array, if present.
     pub fn value_array(&self) -> Option<&ArrayRef> {
-        self.value.as_ref()
+        self.slots[VALUE_SLOT].as_ref()
     }
 
     /// Returns a reference to the shredded typed_value child array, if present.
     pub fn typed_value_array(&self) -> Option<&ArrayRef> {
-        self.typed_value.as_ref()
+        self.slots[TYPED_VALUE_SLOT].as_ref()
     }
 
     /// Converts an Arrow `parquet_variant_compute::VariantArray` into a Vortex `ArrayRef`
@@ -160,13 +170,14 @@ impl ParquetVariantData {
 
     /// Converts this array back to an Arrow [`parquet_variant_compute::VariantArray`].
     pub fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
-        let len = self.metadata.len();
+        let metadata = self.metadata_array();
+        let len = metadata.len();
         let nulls = to_arrow_null_buffer(self.validity.clone(), len, ctx)?;
 
         let mut fields = Vec::with_capacity(3);
         let mut arrays: Vec<ArrowArrayRef> = Vec::with_capacity(3);
 
-        let metadata_arrow = self.metadata.clone().execute_arrow(None, ctx)?;
+        let metadata_arrow = metadata.clone().execute_arrow(None, ctx)?;
         fields.push(Arc::new(Field::new(
             "metadata",
             metadata_arrow.data_type().clone(),
@@ -174,7 +185,7 @@ impl ParquetVariantData {
         )));
         arrays.push(metadata_arrow);
 
-        if let Some(ref value) = self.value {
+        if let Some(value) = self.value_array() {
             let value_arrow = value.clone().execute_arrow(None, ctx)?;
             fields.push(Arc::new(Field::new(
                 "value",
@@ -184,7 +195,7 @@ impl ParquetVariantData {
             arrays.push(value_arrow);
         }
 
-        if let Some(ref typed_value) = self.typed_value {
+        if let Some(typed_value) = self.typed_value_array() {
             let tv_arrow = typed_value.clone().execute_arrow(None, ctx)?;
             fields.push(Arc::new(Field::new(
                 "typed_value",

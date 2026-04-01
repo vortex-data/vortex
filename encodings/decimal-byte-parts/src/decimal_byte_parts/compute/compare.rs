@@ -39,19 +39,21 @@ impl CompareKernel for DecimalByteParts {
         };
 
         let nullability = lhs.dtype.nullability() | rhs.dtype().nullability();
-        let scalar_type = lhs.msp.dtype().with_nullability(nullability);
+        let scalar_type = lhs.msp().dtype().with_nullability(nullability);
 
         let rhs_decimal = rhs_const
             .as_decimal()
             .decimal_value()
             .vortex_expect("checked for null in entry func");
 
-        match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp.as_primitive_typed().ptype())
-        {
+        match decimal_value_wrapper_to_primitive(
+            rhs_decimal,
+            lhs.msp().as_primitive_typed().ptype(),
+        ) {
             Ok(value) => {
                 let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
                 let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
-                lhs.msp
+                lhs.msp()
                     .binary(encoded_const.into_array(), Operator::from(operator))
                     .map(Some)
             }

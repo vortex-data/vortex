@@ -42,7 +42,7 @@ impl ValidityVTable<Chunked> for Chunked {
                 ChunkedData::new_unchecked(
                     validities
                         .into_iter()
-                        .zip(array.chunks())
+                        .zip(array.iter_chunks())
                         .map(|(v, chunk)| v.to_array(chunk.len()))
                         .collect(),
                     DType::Bool(Nullability::NonNullable),

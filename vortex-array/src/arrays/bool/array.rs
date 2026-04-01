@@ -18,6 +18,11 @@ use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::validity_to_child;
+
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 /// Inner data for a boolean array that stores true/false values in a compact bit-packed format.
 ///
@@ -53,6 +58,7 @@ use crate::vtable::Array;
 /// ```
 #[derive(Clone, Debug)]
 pub struct BoolData {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
@@ -142,6 +148,10 @@ impl BoolData {
             Mask::Values(validity) => validity.bit_buffer() & self.to_bit_buffer(),
         };
         Mask::from_buffer(buffer)
+    }
+
+    fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+        vec![validity_to_child(validity, len)]
     }
 }
 
@@ -236,6 +246,7 @@ impl BoolData {
         let (offset, len, buffer) = bits.into_inner();
 
         Ok(Self {
+            slots: Self::make_slots(&validity, len),
             dtype: DType::Bool(validity.nullability()),
             bits: BufferHandle::new_host(buffer),
             offset,
@@ -267,6 +278,7 @@ impl BoolData {
         );
 
         Ok(Self {
+            slots: Self::make_slots(&validity, len),
             dtype: DType::Bool(validity.nullability()),
             bits,
             offset,
@@ -283,6 +295,7 @@ impl BoolData {
             let (offset, len, buffer) = bits.into_inner();
 
             Self {
+                slots: Self::make_slots(&validity, len),
                 dtype: DType::Bool(validity.nullability()),
                 bits: BufferHandle::new_host(buffer),
                 offset,

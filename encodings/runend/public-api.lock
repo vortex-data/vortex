@@ -8,7 +8,7 @@ pub fn vortex_runend::compress::runend_decode_typed_primitive<T: vortex_array::d
 
 pub fn vortex_runend::compress::runend_decode_varbinview(ends: vortex_array::arrays::primitive::vtable::PrimitiveArray, values: vortex_array::arrays::varbinview::vtable::VarBinViewArray, offset: usize, length: usize) -> vortex_error::VortexResult<vortex_array::arrays::varbinview::vtable::VarBinViewArray>
 
-pub fn vortex_runend::compress::runend_encode(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> (vortex_array::arrays::primitive::vtable::PrimitiveArray, vortex_array::array::ArrayRef)
+pub fn vortex_runend::compress::runend_encode(array: &vortex_array::arrays::primitive::array::PrimitiveData) -> (vortex_array::arrays::primitive::vtable::PrimitiveArray, vortex_array::array::ArrayRef)
 
 pub mod vortex_runend::decompress_bool
 
@@ -106,11 +106,15 @@ pub fn vortex_runend::RunEnd::reduce_parent(array: vortex_array::vtable::typed::
 
 pub fn vortex_runend::RunEnd::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_runend::RunEnd::slot_name(__array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
+
+pub fn vortex_runend::RunEnd::slots(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::ArrayRef>]
+
 pub fn vortex_runend::RunEnd::stats(array: &vortex_runend::RunEndData) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_runend::RunEnd::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_runend::RunEnd::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_runend::RunEnd::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 
@@ -212,4 +216,4 @@ pub fn vortex_runend::initialize(session: &mut vortex_session::VortexSession)
 
 pub fn vortex_runend::trimmed_ends_iter<E: vortex_array::dtype::ptype::IntegerPType>(run_ends: &[E], offset: usize, length: usize) -> impl core::iter::traits::iterator::Iterator<Item = usize> + use<'_, E>
 
-pub type vortex_runend::RunEndArray = vortex_array::vtable::typed::ArrayInner<vortex_runend::RunEnd>
+pub type vortex_runend::RunEndArray = vortex_array::vtable::typed::Array<vortex_runend::RunEnd>

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use kernel::PARENT_KERNELS;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -23,8 +22,6 @@ use crate::vtable::Array;
 use crate::vtable::ArrayView;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
@@ -36,6 +33,9 @@ use vortex_buffer::Alignment;
 use vortex_session::VortexSession;
 
 use crate::Precision;
+use crate::arrays::primitive::array::NUM_SLOTS;
+use crate::arrays::primitive::array::SLOT_NAMES;
+use crate::arrays::primitive::array::VALIDITY_SLOT;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
@@ -103,22 +103,6 @@ impl VTable for Primitive {
             0 => Some("values".to_string()),
             _ => None,
         }
-    }
-
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        validity_nchildren(&array.validity)
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => validity_to_child(&array.validity, array.len())
-                .vortex_expect("PrimitiveArray child index out of bounds"),
-            _ => vortex_panic!("PrimitiveArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
-        "validity".to_string()
     }
 
     fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
@@ -192,19 +176,27 @@ impl VTable for Primitive {
         }
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(__array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() <= 1,
-            "PrimitiveArray can have at most 1 child (validity), got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "PrimitiveArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
 
-        array.validity = if children.is_empty() {
-            Validity::from(array.dtype.nullability())
-        } else {
-            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
         };
-
+        array.slots = slots;
         Ok(())
     }
 
@@ -235,4 +227,53 @@ pub struct Primitive;
 
 impl Primitive {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.primitive");
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::ByteBufferMut;
+    use vortex_buffer::buffer;
+    use vortex_session::registry::ReadContext;
+
+    use crate::ArrayContext;
+    use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
+    use crate::serde::ArrayParts;
+    use crate::serde::SerializeOptions;
+    use crate::validity::Validity;
+
+    #[test]
+    fn test_nullable_primitive_serde_roundtrip() {
+        let array = PrimitiveArray::new(
+            buffer![1i32, 2, 3, 4],
+            Validity::from_iter([true, false, true, false]),
+        );
+        let dtype = array.dtype().clone();
+        let len = array.len();
+
+        let ctx = ArrayContext::empty();
+        let serialized = array
+            .clone()
+            .into_array()
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
+
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
+        }
+        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let decoded = parts
+            .decode(
+                &dtype,
+                len,
+                &ReadContext::new(ctx.to_ids()),
+                &LEGACY_SESSION,
+            )
+            .unwrap();
+
+        assert_arrays_eq!(decoded, array);
+    }
 }

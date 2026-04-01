@@ -8,7 +8,6 @@ mod validity;
 use std::hash::Hash;
 
 use kernel::PARENT_KERNELS;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -21,6 +20,8 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::ExtensionData;
+use crate::arrays::extension::array::NUM_SLOTS;
+use crate::arrays::extension::array::SLOT_NAMES;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -53,7 +54,7 @@ impl VTable for Extension {
     }
 
     fn len(array: &ExtensionData) -> usize {
-        array.storage_array.len()
+        array.storage_array().len()
     }
 
     fn dtype(array: &ExtensionData) -> &DType {
@@ -70,7 +71,7 @@ impl VTable for Extension {
         precision: Precision,
     ) {
         array.dtype.hash(state);
-        array.storage_array.array_hash(state, precision);
+        array.storage_array().array_hash(state, precision);
     }
 
     fn array_eq(
@@ -80,8 +81,8 @@ impl VTable for Extension {
     ) -> bool {
         array.dtype == other.dtype
             && array
-                .storage_array
-                .array_eq(&other.storage_array, precision)
+                .storage_array()
+                .array_eq(other.storage_array(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -102,7 +103,7 @@ impl VTable for Extension {
 
     fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.storage_array.clone(),
+            0 => array.storage_array().clone(),
             _ => vortex_panic!("ExtensionArray child index {idx} out of bounds"),
         }
     }
@@ -149,16 +150,22 @@ impl VTable for Extension {
         Ok(ExtensionData::new(ext_dtype.clone(), storage))
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 1,
-            "ExtensionArray expects exactly 1 child (storage), got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "ExtensionArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-        array.storage_array = children
-            .into_iter()
-            .next()
-            .vortex_expect("children length already validated");
+        array.slots = slots;
         Ok(())
     }
 

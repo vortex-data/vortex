@@ -60,6 +60,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::Extension;
     use crate::arrays::ExtensionArray;
+    use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::dtype::DType;
@@ -75,7 +76,6 @@ mod tests {
     use crate::scalar::ScalarValue;
     use crate::scalar_fn::fns::binary::Binary;
     use crate::scalar_fn::fns::operators::Operator;
-    use crate::vtable::ArrayInner;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;

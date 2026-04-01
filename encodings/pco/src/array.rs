@@ -44,18 +44,15 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
-use vortex_array::vtable::validity_nchildren;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::PcoChunkInfo;
@@ -181,22 +178,6 @@ impl VTable for Pco {
         }
     }
 
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        validity_nchildren(&array.unsliced_validity)
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        validity_to_child(&array.unsliced_validity, array.unsliced_n_rows)
-            .unwrap_or_else(|| vortex_panic!("PcoArray child index {idx} out of bounds"))
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "validity".to_string(),
-            _ => vortex_panic!("PcoArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(array.metadata.clone()))
     }
@@ -259,20 +240,26 @@ impl VTable for Pco {
         ))
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(__array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() <= 1,
-            "PcoArray expects 0 or 1 children, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "PcoArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        if children.is_empty() {
-            array.unsliced_validity = Validity::from(array.dtype.nullability());
-        } else {
-            array.unsliced_validity =
-                Validity::Array(children.into_iter().next().vortex_expect("validity child"));
-        }
-
+        array.unsliced_validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
+        };
+        array.slots = slots;
         Ok(())
     }
 
@@ -335,6 +322,10 @@ impl Pco {
     }
 }
 
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
+
 #[derive(Clone, Debug)]
 pub struct PcoData {
     pub(crate) chunk_metas: Vec<ByteBuffer>,
@@ -343,6 +334,7 @@ pub struct PcoData {
     dtype: DType,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
@@ -357,6 +349,8 @@ impl PcoData {
         len: usize,
         validity: Validity,
     ) -> Self {
+        let validity_slot = validity_to_child(&validity, len);
+
         Self {
             chunk_metas,
             pages,
@@ -364,6 +358,7 @@ impl PcoData {
             dtype,
             unsliced_validity: validity,
             unsliced_n_rows: len,
+            slots: vec![validity_slot],
             stats_set: Default::default(),
             slice_start: 0,
             slice_stop: len,

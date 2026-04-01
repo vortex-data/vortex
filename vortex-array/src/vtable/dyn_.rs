@@ -51,7 +51,8 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
-    fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
+    /// See [`VTable::with_slots`]
+    fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
 
     /// See [`VTable::reduce`]
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
@@ -115,14 +116,14 @@ impl<V: VTable> DynVTable for V {
         Ok(array.into_array())
     }
 
-    fn with_children(&self, array: &ArrayRef, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
+    fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
         let typed = array
             .as_any()
             .downcast_ref::<ArrayInner<V>>()
             .vortex_expect("Failed to downcast array");
         let mut data = typed.data.clone();
-        V::with_children(&mut data, children)?;
-        // SAFETY: with_children preserves dtype and len.
+        V::with_slots(&mut data, slots)?;
+        // SAFETY: with_slots preserves dtype and len.
         Ok(unsafe {
             ArrayInner::from_data_unchecked(
                 typed.vtable.clone(),

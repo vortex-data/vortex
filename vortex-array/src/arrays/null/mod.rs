@@ -29,6 +29,8 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
+const NUM_SLOTS: usize = 0;
+
 pub(crate) mod compute;
 
 vtable!(Null, Null, NullData);
@@ -128,11 +130,19 @@ impl VTable for Null {
         Ok(NullData::new(len))
     }
 
-    fn with_children(_array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        vortex_panic!("NullArray slot_name index {idx} out of bounds")
+    }
+
+    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.is_empty(),
-            "NullArray has no children, got {}",
-            children.len()
+            slots.is_empty(),
+            "NullArray has no slots, got {}",
+            slots.len()
         );
         Ok(())
     }
@@ -180,6 +190,7 @@ impl VTable for Null {
 #[derive(Clone, Debug)]
 pub struct NullData {
     len: usize,
+    slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
@@ -200,6 +211,7 @@ impl NullData {
     pub fn new(len: usize) -> Self {
         Self {
             len,
+            slots: vec![],
             stats_set: Default::default(),
         }
     }

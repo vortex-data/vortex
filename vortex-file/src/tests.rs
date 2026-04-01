@@ -302,7 +302,7 @@ async fn test_read_projection() {
         )
     );
 
-    let actual = array.to_struct().unmasked_fields()[0].clone();
+    let actual = array.to_struct().unmasked_field(0).clone();
     let expected = VarBinArray::from(strings_expected.to_vec()).into_array();
     assert_arrays_eq!(actual, expected);
 
@@ -324,7 +324,7 @@ async fn test_read_projection() {
         )
     );
 
-    let actual = array.to_struct().unmasked_fields()[0].clone();
+    let actual = array.to_struct().unmasked_field(0).clone();
     let expected = Buffer::copy_from(numbers_expected).into_array();
     assert_arrays_eq!(actual, expected);
 }
@@ -537,13 +537,13 @@ async fn filter_string() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().unmasked_fields()[0].clone();
+    let names_actual = result[0].to_struct().unmasked_field(0).clone();
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
     assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
+    let ages_actual = result[0].to_struct().unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
     assert_arrays_eq!(ages_actual, ages_expected);
 }
@@ -592,7 +592,7 @@ async fn filter_or() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().unmasked_fields()[0].clone();
+    let names_actual = result[0].to_struct().unmasked_field(0).clone();
     let names_expected = VarBinArray::from_iter(
         vec![Some("Joseph"), Some("Angela")],
         DType::Utf8(Nullability::Nullable),
@@ -600,7 +600,7 @@ async fn filter_or() {
     .into_array();
     assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
+    let ages_actual = result[0].to_struct().unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), None]).into_array();
     assert_arrays_eq!(ages_actual, ages_expected);
 }
@@ -646,7 +646,7 @@ async fn filter_and() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().unmasked_fields()[0].clone();
+    let names_actual = result[0].to_struct().unmasked_field(0).clone();
     let names_expected = VarBinArray::from_iter(
         vec![Some("Joseph"), None],
         DType::Utf8(Nullability::Nullable),
@@ -654,7 +654,7 @@ async fn filter_and() {
     .into_array();
     assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
+    let ages_actual = result[0].to_struct().unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), Some(31i32)]).into_array();
     assert_arrays_eq!(ages_actual, ages_expected);
 }
@@ -712,7 +712,7 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .to_struct();
-    let actual_kept_numbers_array = actual_kept_array.unmasked_fields()[0].to_primitive();
+    let actual_kept_numbers_array = actual_kept_array.unmasked_field(0).to_primitive();
 
     let expected_kept_numbers: Vec<i16> = kept_indices
         .iter()
@@ -732,7 +732,7 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .to_struct();
-    let actual_numbers_array = actual_array.unmasked_fields()[0].clone();
+    let actual_numbers_array = actual_array.unmasked_field(0).clone();
     let expected_array = Buffer::copy_from(&expected_numbers).into_array();
     assert_arrays_eq!(actual_numbers_array, expected_array);
 }
@@ -774,10 +774,9 @@ async fn test_with_indices_on_two_columns() {
         .read_all()
         .await
         .unwrap()
-        .to_struct()
         .to_struct();
 
-    let strings_actual = array.unmasked_fields()[0].clone();
+    let strings_actual = array.unmasked_field(0).clone();
     let strings_expected_vec: Vec<&str> = kept_indices
         .iter()
         .map(|&x| strings_expected[x as usize])
@@ -785,7 +784,7 @@ async fn test_with_indices_on_two_columns() {
     let strings_expected_array = VarBinArray::from(strings_expected_vec).into_array();
     assert_arrays_eq!(strings_actual, strings_expected_array);
 
-    let numbers_actual = array.unmasked_fields()[1].clone();
+    let numbers_actual = array.unmasked_field(1).clone();
     let numbers_expected_vec: Vec<u32> = kept_indices
         .iter()
         .map(|&x| numbers_expected[x as usize])
@@ -849,7 +848,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .to_struct();
 
-    let actual_kept_numbers_array = actual_kept_array.unmasked_fields()[0].to_primitive();
+    let actual_kept_numbers_array = actual_kept_array.unmasked_field(0).to_primitive();
 
     let expected_kept_numbers: Buffer<i16> = kept_indices
         .iter()
@@ -872,7 +871,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .to_struct();
 
-    let actual_numbers_array = actual_array.unmasked_fields()[0].clone();
+    let actual_numbers_array = actual_array.unmasked_field(0).clone();
     let expected_filtered: Buffer<i16> = expected_numbers
         .iter()
         .filter(|&&x| x > 50)
@@ -932,13 +931,13 @@ async fn filter_string_chunked() {
         .to_struct();
 
     assert_eq!(actual_array.len(), 1);
-    let names_actual = actual_array.unmasked_fields()[0].clone();
+    let names_actual = actual_array.unmasked_field(0).clone();
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
     assert_arrays_eq!(names_actual, names_expected);
 
-    let ages_actual = actual_array.unmasked_fields()[1].clone();
+    let ages_actual = actual_array.unmasked_field(1).clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
     assert_arrays_eq!(ages_actual, ages_expected);
 }
@@ -1023,7 +1022,7 @@ async fn test_pruning_with_or() {
         .to_struct();
 
     assert_eq!(actual_array.len(), 10);
-    let letters_actual = actual_array.unmasked_fields()[0].clone();
+    let letters_actual = actual_array.unmasked_field(0).clone();
     let letters_expected = VarBinViewArray::from_iter_nullable_str([
         Some("A".to_owned()),
         Some("B".to_owned()),
@@ -1039,7 +1038,7 @@ async fn test_pruning_with_or() {
     .into_array();
     assert_arrays_eq!(letters_actual, letters_expected);
 
-    let numbers_actual = actual_array.unmasked_fields()[1].clone();
+    let numbers_actual = actual_array.unmasked_field(1).clone();
     let numbers_expected = PrimitiveArray::from_option_iter([
         Some(25_i32),
         Some(31),
@@ -1240,7 +1239,7 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
     let result = round_trip(&array, Ok).await?.to_struct();
 
     assert_eq!(result.len(), 3);
-    assert_eq!(result.unmasked_fields().len(), 1);
+    assert_eq!(result.struct_fields().nfields(), 1);
     assert!(result.all_valid()?);
 
     let nested_struct = result.unmasked_field_by_name("struct")?.to_struct();

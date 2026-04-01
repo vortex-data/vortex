@@ -17,7 +17,10 @@ impl TakeExecute for DecimalByteParts {
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        DecimalBytePartsData::try_new(array.msp.take(indices.to_array())?, *array.decimal_dtype())
-            .map(|a| Some(a.into_array()))
+        DecimalBytePartsData::try_new(
+            array.msp().take(indices.to_array())?,
+            *array.decimal_dtype(),
+        )
+        .map(|a| Some(a.into_array()))
     }
 }

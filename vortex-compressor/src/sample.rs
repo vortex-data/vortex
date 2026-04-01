@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Sampling utilities for compression ratio estimation.
+
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
@@ -9,9 +11,21 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexExpect;
 
-use crate::stats::SAMPLE_COUNT;
-use crate::stats::SAMPLE_SIZE;
+/// The size of each sampled run.
+pub const SAMPLE_SIZE: u32 = 64;
 
+/// The number of sampled runs.
+///
+/// # Warning
+///
+/// The product of `SAMPLE_SIZE` and `SAMPLE_COUNT` should be (roughly) a multiple of 1024 so that
+/// fastlanes bitpacking of sampled vectors does not introduce (large amounts of) padding.
+pub const SAMPLE_COUNT: u32 = 16;
+
+/// Fixed seed for the sampling RNG, ensuring deterministic compression output.
+const SAMPLE_SEED: u64 = 1234567890;
+
+/// Samples approximately 1% of the input array for compression ratio estimation.
 pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> ArrayRef {
     if input.len() <= (sample_size as usize) * (sample_count as usize) {
         return input.to_array();
@@ -21,7 +35,7 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
         input.len(),
         sample_size,
         sample_count,
-        &mut StdRng::seed_from_u64(1234567890u64),
+        &mut StdRng::seed_from_u64(SAMPLE_SEED),
     );
 
     // For every slice, grab the relevant slice and repack into a new PrimitiveArray.
@@ -33,9 +47,8 @@ pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> A
                 .vortex_expect("slice should succeed")
         })
         .collect();
-    ChunkedArray::try_new(chunks, input.dtype().clone())
-        .vortex_expect("sample slices should form valid chunked array")
-        .into_array()
+    // SAFETY: all chunks are slices of `input`, so they share its dtype.
+    unsafe { ChunkedArray::new_unchecked(chunks, input.dtype().clone()) }.into_array()
 }
 
 /// Computes the number of sample chunks to cover approximately 1% of `len` elements,
@@ -54,6 +67,15 @@ pub(crate) fn sample_count_approx_one_percent(len: usize) -> u32 {
     )
 }
 
+/// Divides an array into `sample_count` equal partitions and picks one random contiguous
+/// slice of `sample_size` elements from each partition.
+///
+/// This is a stratified sampling strategy: instead of drawing all samples from one region,
+/// it spreads them evenly across the array so that every part of the data is represented.
+/// Each returned `(start, end)` pair is a half-open range into the original array.
+///
+/// If the total number of requested samples (`sample_size * sample_count`) is greater than or
+/// equal to `length`, a single slice spanning the whole array is returned.
 fn stratified_slices(
     length: usize,
     sample_size: u32,
@@ -85,8 +107,12 @@ fn stratified_slices(
         .collect()
 }
 
-/// Split a range of array indices into as-equal-as-possible slices. If the provided `num_partitions` doesn't
-/// evenly divide into `length`, then the first `(length % num_partitions)` slices will have an extra element.
+/// Splits `[0, length)` into `num_partitions` contiguous, non-overlapping slices of
+/// approximately equal size.
+///
+/// If `length` is not evenly divisible by `num_partitions`, the first
+/// `length % num_partitions` slices get one extra element. Each returned `(start, end)` pair
+/// is a half-open range.
 fn partition_indices(length: usize, num_partitions: u32) -> Vec<(usize, usize)> {
     let num_long_parts = length % num_partitions as usize;
     let short_step = length / num_partitions as usize;

@@ -36,6 +36,16 @@ public final class NativeWriterMethods {
     public static native boolean writeBatch(long writerPtr, byte[] arrowData);
 
     /**
+     * Writes a batch of Arrow data to the Vortex file directly from Arrow C Data Interface pointers.
+     *
+     * @param writerPtr       the native writer pointer
+     * @param arrowArrayAddr  memory address of the ArrowArray struct
+     * @param arrowSchemaAddr memory address of the ArrowSchema struct
+     * @return true if successful, false otherwise
+     */
+    public static native boolean writeBatchFfi(long writerPtr, long arrowArrayAddr, long arrowSchemaAddr);
+
+    /**
      * Close and flush the writer, finalizing it to the storage system.
      *
      * @param writerPtr the native writer pointer

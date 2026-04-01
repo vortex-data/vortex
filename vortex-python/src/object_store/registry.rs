@@ -172,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::use_debug)]
+    #[expect(clippy::use_debug)]
     fn test_resolve_url() {
         with_var("AWS_REGION", "us-east-3", || {
             let registry = Registry::default();

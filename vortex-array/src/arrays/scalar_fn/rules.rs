@@ -61,7 +61,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
         Ok(Some(
             StructArray::try_new(
                 pack_options.names.clone(),
-                array.children.clone(),
+                array.children(),
                 array.len,
                 validity,
             )?
@@ -74,7 +74,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
 struct ScalarFnConstantRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
     fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
-        if !array.children.iter().all(|c| c.is::<Constant>()) {
+        if !array.children().iter().all(|c| c.is::<Constant>()) {
             return Ok(None);
         }
         if array.is_empty() {
@@ -100,8 +100,7 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
         let range = parent.slice_range();
 
         let children: Vec<_> = array
-            .children()
-            .iter()
+            .iter_children()
             .map(|c| c.slice(range.clone()))
             .collect::<VortexResult<_>>()?;
 
@@ -199,15 +198,13 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
         // If we only have one non-constant child, then it is _always_ cheaper to push down the
         // filter over the children of the scalar function array.
         if child
-            .children
-            .iter()
+            .iter_children()
             .filter(|c| !c.is::<Constant>())
             .count()
             == 1
         {
             let new_children: Vec<_> = child
-                .children
-                .iter()
+                .iter_children()
                 .map(|c| match c.as_opt::<Constant>() {
                     Some(array) => {
                         Ok(ConstantArray::new(array.scalar().clone(), parent.len()).into_array())

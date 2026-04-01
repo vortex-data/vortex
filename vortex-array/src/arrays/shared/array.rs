@@ -18,13 +18,17 @@ use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::vtable::Array;
 
+pub(super) const SOURCE_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["source"];
+
 /// A lazily-executing array wrapper with a one-way transition from source to cached form.
 ///
 /// Before materialization, operations delegate to the source array.
 /// After materialization (via `get_or_compute`), operations delegate to the cached result.
 #[derive(Debug, Clone)]
 pub struct SharedData {
-    source: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
     async_compute_lock: Arc<AsyncMutex<()>>,
     pub(super) dtype: DType,
@@ -35,11 +39,18 @@ impl SharedData {
     pub fn new(source: ArrayRef) -> Self {
         Self {
             dtype: source.dtype().clone(),
-            source,
+            slots: vec![Some(source)],
             cached: Arc::new(OnceLock::new()),
             async_compute_lock: Arc::new(AsyncMutex::new(())),
             stats: ArrayStats::default(),
         }
+    }
+
+    /// Returns the source array reference.
+    pub(super) fn source(&self) -> &ArrayRef {
+        self.slots[SOURCE_SLOT]
+            .as_ref()
+            .vortex_expect("SharedArray source slot")
     }
 
     /// Returns the current array reference.
@@ -49,7 +60,7 @@ impl SharedData {
     pub(super) fn current_array_ref(&self) -> &ArrayRef {
         match self.cached.get() {
             Some(Ok(arr)) => arr,
-            _ => &self.source,
+            _ => self.source(),
         }
     }
 
@@ -62,7 +73,7 @@ impl SharedData {
     ) -> VortexResult<ArrayRef> {
         let result = self
             .cached
-            .get_or_init(|| f(&self.source).map(|c| c.into_array()).map_err(Arc::new));
+            .get_or_init(|| f(self.source()).map(|c| c.into_array()).map_err(Arc::new));
         result.clone().map_err(Into::into)
     }
 
@@ -85,7 +96,7 @@ impl SharedData {
             return result.clone().map_err(Into::into);
         }
 
-        let computed = f(self.source.clone())
+        let computed = f(self.source().clone())
             .await
             .map(|c| c.into_array())
             .map_err(Arc::new);
@@ -118,9 +129,11 @@ impl Array<Shared> {
 }
 
 impl SharedData {
-    pub(super) fn set_source(&mut self, source: ArrayRef) {
-        self.dtype = source.dtype().clone();
-        self.source = source;
+    pub(super) fn set_source(&mut self, source: Option<ArrayRef>) {
+        if let Some(ref s) = source {
+            self.dtype = s.dtype().clone();
+        }
+        self.slots = vec![source];
         self.cached = Arc::new(OnceLock::new());
         self.async_compute_lock = Arc::new(AsyncMutex::new(()));
     }

@@ -33,9 +33,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-use vortex_array::vtable::patches_child;
-use vortex_array::vtable::patches_child_name;
-use vortex_array::vtable::patches_nchildren;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect as _;
@@ -139,18 +136,6 @@ impl VTable for Sparse {
         }
     }
 
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        patches_nchildren(array.patches())
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        patches_child(array.patches(), idx)
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        patches_child_name(idx).to_string()
-    }
-
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         let patches = array.patches().to_metadata(array.len(), array.dtype())?;
 
@@ -227,26 +212,38 @@ impl VTable for Sparse {
         )
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure_eq!(
-            children.len(),
-            2,
-            "SparseArray expects 2 children, got {}",
-            children.len()
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(__array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "SparseArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
 
-        let mut children_iter = children.into_iter();
-        let patch_indices = children_iter.next().vortex_expect("patch_indices child");
-        let patch_values = children_iter.next().vortex_expect("patch_values child");
+        // Reconstruct patches from slots + existing metadata
+        let indices = slots[PATCH_INDICES_SLOT]
+            .clone()
+            .vortex_expect("SparseArray requires patch_indices slot");
+        let values = slots[PATCH_VALUES_SLOT]
+            .clone()
+            .vortex_expect("SparseArray requires patch_values slot");
 
         array.patches = Patches::new(
             array.patches.array_len(),
             array.patches.offset(),
-            patch_indices,
-            patch_values,
-            array.patches.chunk_offsets().clone(),
+            indices,
+            values,
+            slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
         )?;
-
+        array.slots = slots;
         Ok(())
     }
 
@@ -272,8 +269,16 @@ impl VTable for Sparse {
     }
 }
 
+pub(crate) const PATCH_INDICES_SLOT: usize = 0;
+pub(crate) const PATCH_VALUES_SLOT: usize = 1;
+pub(crate) const PATCH_CHUNK_OFFSETS_SLOT: usize = 2;
+pub(crate) const NUM_SLOTS: usize = 3;
+pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
+    ["patch_indices", "patch_values", "patch_chunk_offsets"];
+
 #[derive(Clone, Debug)]
 pub struct SparseData {
+    pub(crate) slots: Vec<Option<ArrayRef>>,
     patches: Patches,
     fill_value: Scalar,
     stats_set: ArrayStats,
@@ -302,6 +307,14 @@ impl Sparse {
 }
 
 impl SparseData {
+    fn make_slots(patches: &Patches) -> Vec<Option<ArrayRef>> {
+        vec![
+            Some(patches.indices().clone()),
+            Some(patches.values().clone()),
+            patches.chunk_offsets().clone(),
+        ]
+    }
+
     pub fn try_new(
         indices: ArrayRef,
         values: ArrayRef,
@@ -333,9 +346,13 @@ impl SparseData {
             }
         }
 
+        // TODO(0ax1): handle chunk offsets
+        let patches = Patches::new(len, 0, indices, values, None)?;
+        let slots = Self::make_slots(&patches);
+
         Ok(Self {
-            // TODO(0ax1): handle chunk offsets
-            patches: Patches::new(len, 0, indices, values, None)?,
+            slots,
+            patches,
             fill_value,
             stats_set: Default::default(),
         })
@@ -351,7 +368,10 @@ impl SparseData {
             fill_value.dtype(),
         );
 
+        let slots = Self::make_slots(&patches);
+
         Ok(Self {
+            slots,
             patches,
             fill_value,
             stats_set: Default::default(),
@@ -359,7 +379,10 @@ impl SparseData {
     }
 
     pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> Self {
+        let slots = Self::make_slots(&patches);
+
         Self {
+            slots,
             patches,
             fill_value,
             stats_set: Default::default(),

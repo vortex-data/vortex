@@ -334,13 +334,17 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.unmasked_fields()[1]
+            stats_table
+                .array
+                .unmasked_field(1)
                 .to_bool()
                 .to_bit_buffer(),
             BitBuffer::from(vec![false, true])
         );
         assert_eq!(
-            stats_table.array.unmasked_fields()[3]
+            stats_table
+                .array
+                .unmasked_field(3)
                 .to_bool()
                 .to_bit_buffer(),
             BitBuffer::from(vec![true, false])
@@ -368,13 +372,17 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.unmasked_fields()[1]
+            stats_table
+                .array
+                .unmasked_field(1)
                 .to_bool()
                 .to_bit_buffer(),
             BitBuffer::from(vec![false])
         );
         assert_eq!(
-            stats_table.array.unmasked_fields()[3]
+            stats_table
+                .array
+                .unmasked_field(3)
                 .to_bool()
                 .to_bit_buffer(),
             BitBuffer::from(vec![false])

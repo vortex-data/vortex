@@ -15,6 +15,8 @@ use vortex_session::VortexSession;
 use super::DictArrayParts;
 use super::DictData;
 use super::DictMetadata;
+use super::array::NUM_SLOTS;
+use super::array::SLOT_NAMES;
 use super::take_canonical;
 use crate::AnyCanonical;
 use crate::ArrayRef;
@@ -73,7 +75,7 @@ impl VTable for Dict {
     }
 
     fn len(array: &DictData) -> usize {
-        array.codes.len()
+        array.codes().len()
     }
 
     fn dtype(array: &DictData) -> &DType {
@@ -90,8 +92,8 @@ impl VTable for Dict {
         precision: Precision,
     ) {
         array.dtype.hash(state);
-        array.codes.array_hash(state, precision);
-        array.values.array_hash(state, precision);
+        array.codes().array_hash(state, precision);
+        array.values().array_hash(state, precision);
     }
 
     fn array_eq(
@@ -100,8 +102,8 @@ impl VTable for Dict {
         precision: Precision,
     ) -> bool {
         array.dtype == other.dtype
-            && array.codes.array_eq(&other.codes, precision)
-            && array.values.array_eq(&other.values, precision)
+            && array.codes().array_eq(other.codes(), precision)
+            && array.values().array_eq(other.values(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -195,17 +197,22 @@ impl VTable for Dict {
         })
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(__array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 2,
-            "DictArray expects exactly 2 children (codes, values), got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "DictArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-        let [codes, values]: [ArrayRef; 2] = children
-            .try_into()
-            .map_err(|_| vortex_err!("Failed to convert children to array"))?;
-        array.codes = codes;
-        array.values = values;
+        array.slots = slots;
         Ok(())
     }
 
@@ -224,8 +231,11 @@ impl VTable for Dict {
         // is correct.
         if array.codes().all_invalid()? {
             return Ok(ExecutionResult::done(
-                ConstantData::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
-                    .into_array(),
+                ConstantData::new(
+                    Scalar::null(array.dtype().as_nullable()),
+                    array.codes().len(),
+                )
+                .into_array(),
             ));
         }
 

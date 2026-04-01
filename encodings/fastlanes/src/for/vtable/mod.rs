@@ -31,6 +31,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::FoRData;
+use crate::r#for::array::NUM_SLOTS;
+use crate::r#for::array::SLOT_NAMES;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::kernels::PARENT_KERNELS;
 use crate::r#for::vtable::rules::PARENT_RULES;
@@ -119,18 +121,22 @@ impl VTable for FoR {
         }
     }
 
-    fn with_children(array: &mut FoRData, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // FoRArray children order (from visit_children):
-        // 1. encoded
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 1,
-            "Expected 1 child for FoR encoding, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "FoRArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        array.encoded = children[0].clone();
-
+        array.slots = slots;
         Ok(())
     }
 

@@ -95,19 +95,41 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn buffer_name(array: ArrayView<'_, Self>, idx: usize) -> Option<String>;
 
     /// Returns the number of children in the array.
-    fn nchildren(array: ArrayView<'_, Self>) -> usize;
+    ///
+    /// The default counts non-None slots.
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
+        Self::slots(array).iter().filter(|s| s.is_some()).count()
+    }
 
     /// Returns the child at the given index.
     ///
-    /// # Panics
-    /// Panics if `idx >= nchildren(array)`.
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef;
-
-    /// Returns the name of the child at the given index.
+    /// The default returns the `idx`-th non-None slot.
     ///
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
-    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String;
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
+        Self::slots(array)
+            .iter()
+            .filter_map(|s| s.clone())
+            .nth(idx)
+            .vortex_expect("child index out of bounds")
+    }
+
+    /// Returns the name of the child at the given index.
+    ///
+    /// The default returns the slot name of the `idx`-th non-None slot.
+    ///
+    /// # Panics
+    /// Panics if `idx >= nchildren(array)`.
+    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
+        Self::slots(array)
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.is_some())
+            .nth(idx)
+            .map(|(slot_idx, _)| Self::slot_name(array, slot_idx))
+            .vortex_expect("child_name index out of bounds")
+    }
 
     /// Exports metadata for an array.
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata>;
@@ -149,10 +171,37 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::ArrayData>;
 
-    /// Replaces the children in `array` with `children`.
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()>;
+    /// Returns the slots of the array as a slice.
+    ///
+    /// Slots provide fixed-position storage for child arrays, enabling direct access
+    /// by slot index without the overhead of dynamic child lookups. Optional children
+    /// (like validity) are represented as `None` slots rather than shifting dense indices.
+    fn slots<'a>(array: ArrayView<'a, Self>) -> &'a [Option<ArrayRef>];
+
+    /// Returns the name of the slot at the given index.
+    ///
+    /// # Panics
+    /// Panics if `idx >= slots(array).len()`.
+    fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String;
+
+    /// Replaces the slots in `array` with `slots`.
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()>;
 
     /// Execute this array by returning an [`ExecutionResult`].
+    ///
+    /// Instead of recursively executing children, implementations should return
+    /// [`ExecutionResult::execute_slot`] to request that the scheduler execute a slot first,
+    /// or [`ExecutionResult::done`] when the encoding can produce a result directly.
+    ///
+    /// Array execution is designed such that repeated execution of an array will eventually
+    /// converge to a canonical representation. Implementations of this function should therefore
+    /// ensure they make progress towards that goal.
+    ///
+    /// The returned array (in `Done`) must be logically equivalent to the input array. In other
+    /// words, the recursively canonicalized forms of both arrays must be equal.
+    ///
+    /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
+    /// incorrectly contains null values.
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.

@@ -62,10 +62,6 @@ pub fn vortex_fsst::FSST::buffer_name(_array: vortex_array::vtable::typed::Array
 
 pub fn vortex_fsst::FSST::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_fsst::FSSTData>
 
-pub fn vortex_fsst::FSST::child(array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_fsst::FSST::child_name(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
-
 pub fn vortex_fsst::FSST::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_fsst::FSST::dtype(array: &vortex_fsst::FSSTData) -> &vortex_array::dtype::DType
@@ -82,17 +78,19 @@ pub fn vortex_fsst::FSST::metadata(array: vortex_array::vtable::typed::ArrayView
 
 pub fn vortex_fsst::FSST::nbuffers(_array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> usize
 
-pub fn vortex_fsst::FSST::nchildren(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> usize
-
 pub fn vortex_fsst::FSST::reduce_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_fsst::FSST::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_fsst::FSST::slot_name(__array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
+
+pub fn vortex_fsst::FSST::slots(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
 pub fn vortex_fsst::FSST::stats(array: &vortex_fsst::FSSTData) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_fsst::FSST::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_fsst::FSST::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_fsst::FSST::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 
@@ -186,4 +184,4 @@ pub fn vortex_fsst::fsst_compress_iter<'a, I>(iter: I, len: usize, dtype: vortex
 
 pub fn vortex_fsst::fsst_train_compressor<A: vortex_array::accessor::ArrayAccessor<[u8]>>(array: &A) -> fsst::Compressor
 
-pub type vortex_fsst::FSSTArray = vortex_array::vtable::typed::ArrayInner<vortex_fsst::FSST>
+pub type vortex_fsst::FSSTArray = vortex_array::vtable::typed::Array<vortex_fsst::FSST>

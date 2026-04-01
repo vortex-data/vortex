@@ -62,6 +62,11 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.values.as_ref()
     }
 
+    /// Returns the raw primitive values in this builder as a mutable slice.
+    pub fn values_mut(&mut self) -> &mut [T] {
+        self.values.as_mut()
+    }
+
     /// Create a new handle to the next `len` uninitialized values in the builder.
     ///
     /// All reads/writes through the handle to the values buffer or the validity buffer will operate

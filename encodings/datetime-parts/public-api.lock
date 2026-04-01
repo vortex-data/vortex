@@ -88,11 +88,15 @@ pub fn vortex_datetime_parts::DateTimeParts::reduce_parent(array: vortex_array::
 
 pub fn vortex_datetime_parts::DateTimeParts::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
+pub fn vortex_datetime_parts::DateTimeParts::slot_name(__array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
+
+pub fn vortex_datetime_parts::DateTimeParts::slots(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::ArrayRef>]
+
 pub fn vortex_datetime_parts::DateTimeParts::stats(array: &vortex_datetime_parts::DateTimePartsData) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_datetime_parts::DateTimeParts::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_datetime_parts::DateTimeParts::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_datetime_parts::DateTimeParts::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_datetime_parts::DateTimeParts> for vortex_datetime_parts::DateTimeParts
 
@@ -222,4 +226,4 @@ pub fn vortex_datetime_parts::initialize(session: &mut vortex_session::VortexSes
 
 pub fn vortex_datetime_parts::split_temporal(array: vortex_array::arrays::datetime::TemporalArray) -> vortex_error::VortexResult<vortex_datetime_parts::TemporalParts>
 
-pub type vortex_datetime_parts::DateTimePartsArray = vortex_array::vtable::typed::ArrayInner<vortex_datetime_parts::DateTimeParts>
+pub type vortex_datetime_parts::DateTimePartsArray = vortex_array::vtable::typed::Array<vortex_datetime_parts::DateTimeParts>

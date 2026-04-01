@@ -171,11 +171,19 @@ impl VTable for Constant {
         Ok(ConstantData::new(metadata.clone(), len))
     }
 
-    fn with_children(_array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
+    }
+
+    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.is_empty(),
-            "ConstantArray has no children, got {}",
-            children.len()
+            slots.is_empty(),
+            "ConstantArray has no slots, got {}",
+            slots.len()
         );
         Ok(())
     }
@@ -316,7 +324,7 @@ mod tests {
 
     /// Appends `array` into a fresh builder and asserts the result matches `constant_canonicalize`.
     fn assert_append_matches_canonical(array: ConstantArray) -> vortex_error::VortexResult<()> {
-        let expected = constant_canonicalize(&array)?.into_array();
+        let expected = constant_canonicalize(array.inner_ref())?.into_array();
         let mut builder = builder_with_capacity(array.dtype(), array.len());
         array
             .into_array()

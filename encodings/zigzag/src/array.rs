@@ -57,7 +57,7 @@ impl VTable for ZigZag {
     }
 
     fn len(array: &ZigZagData) -> usize {
-        array.encoded.len()
+        array.encoded().len()
     }
 
     fn dtype(array: &ZigZagData) -> &DType {
@@ -74,7 +74,7 @@ impl VTable for ZigZag {
         precision: Precision,
     ) {
         array.dtype.hash(state);
-        array.encoded.array_hash(state, precision);
+        array.encoded().array_hash(state, precision);
     }
 
     fn array_eq(
@@ -82,7 +82,7 @@ impl VTable for ZigZag {
         other: ArrayView<'_, Self>,
         precision: Precision,
     ) -> bool {
-        array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
+        array.dtype == other.dtype && array.encoded().array_eq(other.encoded(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -151,13 +151,22 @@ impl VTable for ZigZag {
         ZigZagData::try_new(encoded)
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(__array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 1,
-            "ZigZagArray expects exactly 1 child (encoded), got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "ZigZagArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-        array.encoded = children.into_iter().next().vortex_expect("checked");
+        array.slots = slots;
         Ok(())
     }
 
@@ -185,10 +194,14 @@ impl VTable for ZigZag {
     }
 }
 
+pub(super) const ENCODED_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
+
 #[derive(Clone, Debug)]
 pub struct ZigZagData {
     dtype: DType,
-    encoded: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
@@ -220,7 +233,7 @@ impl ZigZagData {
 
         Ok(Self {
             dtype,
-            encoded,
+            slots: vec![Some(encoded)],
             stats_set: Default::default(),
         })
     }
@@ -228,13 +241,13 @@ impl ZigZagData {
     /// Returns the length of the array.
     #[inline]
     pub fn len(&self) -> usize {
-        self.encoded.len()
+        self.encoded().len()
     }
 
     /// Returns whether the array is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.encoded.is_empty()
+        self.encoded().is_empty()
     }
 
     /// Returns the logical data type of the array.
@@ -248,7 +261,9 @@ impl ZigZagData {
     }
 
     pub fn encoded(&self) -> &ArrayRef {
-        &self.encoded
+        self.slots[ENCODED_SLOT]
+            .as_ref()
+            .vortex_expect("ZigZagArray encoded slot")
     }
 }
 

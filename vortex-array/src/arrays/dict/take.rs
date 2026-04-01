@@ -4,7 +4,6 @@
 use vortex_error::VortexResult;
 
 use super::Dict;
-use super::DictArray;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;

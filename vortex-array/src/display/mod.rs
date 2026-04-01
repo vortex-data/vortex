@@ -1,12 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod tree;
+mod extractor;
+mod extractors;
+mod tree_display;
 
 use std::fmt::Display;
 
+pub use extractor::IndentedFormatter;
+pub use extractor::TreeContext;
+pub use extractor::TreeExtractor;
+pub use extractors::BufferExtractor;
+pub use extractors::EncodingSummaryExtractor;
+pub use extractors::MetadataExtractor;
+pub use extractors::NbytesExtractor;
+pub use extractors::StatsExtractor;
 use itertools::Itertools as _;
-use tree::TreeDisplayWrapper;
+pub use tree_display::TreeDisplay;
 
 use crate::ArrayRef;
 use crate::DynArray;
@@ -472,15 +482,13 @@ impl dyn DynArray + '_ {
         options: &DisplayOptions,
     ) -> std::fmt::Result {
         match options {
-            DisplayOptions::MetadataOnly => {
-                write!(
-                    f,
-                    "{}({}, len={})",
-                    self.encoding_id(),
-                    self.dtype(),
-                    self.len()
-                )
-            }
+            DisplayOptions::MetadataOnly => write!(
+                f,
+                "{}({}, len={})",
+                self.encoding_id(),
+                self.dtype(),
+                self.len()
+            ),
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space,
             } => {
@@ -515,16 +523,25 @@ impl dyn DynArray + '_ {
                 metadata,
                 stats,
             } => {
-                write!(
-                    f,
-                    "{}",
-                    TreeDisplayWrapper {
-                        array: self.to_array(),
-                        buffers: *buffers,
-                        metadata: *metadata,
-                        stats: *stats
+                let extractors: [(bool, Box<dyn TreeExtractor>); 5] = [
+                    (true, Box::new(EncodingSummaryExtractor)),
+                    (*stats, Box::new(NbytesExtractor)),
+                    (*stats, Box::new(StatsExtractor)),
+                    (*metadata, Box::new(MetadataExtractor)),
+                    (
+                        *buffers,
+                        Box::new(BufferExtractor {
+                            show_percent: *stats,
+                        }),
+                    ),
+                ];
+                let mut display = TreeDisplay::new(self.to_array());
+                for (enabled, extractor) in extractors {
+                    if enabled {
+                        display = display.with_boxed(extractor);
                     }
-                )
+                }
+                write!(f, "{display}")
             }
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
@@ -559,7 +576,7 @@ impl dyn DynArray + '_ {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in struct_.unmasked_fields().iter() {
+                        for field_array in struct_.iter_unmasked_fields() {
                             let value = field_array
                                 .scalar_at(row_idx)
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());

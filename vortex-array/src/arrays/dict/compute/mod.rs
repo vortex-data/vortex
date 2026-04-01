@@ -88,7 +88,7 @@ mod test {
 
         let dict =
             dict_encode(&PrimitiveArray::from_option_iter(values.clone()).into_array()).unwrap();
-        let actual = dict.to_primitive();
+        let actual = dict.to_array_ref().to_primitive();
 
         let expected = PrimitiveArray::from_option_iter(values);
 
@@ -101,7 +101,7 @@ mod test {
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 32]));
 
         let dict = dict_encode(&expected.clone().into_array()).unwrap();
-        let actual = dict.to_primitive();
+        let actual = dict.to_array_ref().to_primitive();
 
         assert_arrays_eq!(actual, expected);
     }
@@ -112,7 +112,7 @@ mod test {
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 100]));
 
         let dict = dict_encode(&expected.clone().into_array()).unwrap();
-        let actual = dict.to_primitive();
+        let actual = dict.to_array_ref().to_primitive();
 
         assert_arrays_eq!(actual, expected);
     }
@@ -125,7 +125,7 @@ mod test {
         );
         assert_eq!(reference.len(), 6);
         let dict = dict_encode(&reference.clone().into_array()).unwrap();
-        let flattened_dict = dict.to_varbinview();
+        let flattened_dict = dict.to_array_ref().to_varbinview();
         assert_eq!(
             flattened_dict.with_iterator(|iter| iter
                 .map(|slice| slice.map(|s| s.to_vec()))

@@ -84,9 +84,8 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let codes = codes.as_view();
         let result = RunEndTakeFrom
-            .execute_parent(codes.as_view(), &dict, 0, &mut ctx)?
+            .execute_parent(codes.as_view(), dict.inner_ref(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 2, 2, 3, 3, 2, 2]);
@@ -108,9 +107,8 @@ mod tests {
         };
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let sliced_codes = sliced_codes.as_view();
         let result = RunEndTakeFrom
-            .execute_parent(sliced_codes.as_view(), &dict, 0, &mut ctx)?
+            .execute_parent(sliced_codes.as_view(), dict.inner_ref(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 3, 3]);
@@ -132,9 +130,8 @@ mod tests {
         };
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let sliced_codes = sliced_codes.as_view();
         let result = RunEndTakeFrom
-            .execute_parent(sliced_codes.as_view(), &dict, 0, &mut ctx)?
+            .execute_parent(sliced_codes.as_view(), dict.inner_ref(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32, 3, 2, 2]);
@@ -156,9 +153,8 @@ mod tests {
         };
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let sliced_codes = sliced_codes.as_view();
         let result = RunEndTakeFrom
-            .execute_parent(sliced_codes.as_view(), &dict, 0, &mut ctx)?
+            .execute_parent(sliced_codes.as_view(), dict.inner_ref(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32]);
@@ -171,8 +167,8 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let codes = codes.as_view();
-        let result = RunEndTakeFrom.execute_parent(codes.as_view(), &dict, 1, &mut ctx)?;
+        let result =
+            RunEndTakeFrom.execute_parent(codes.as_view(), dict.inner_ref(), 1, &mut ctx)?;
         assert!(result.is_none());
         Ok(())
     }

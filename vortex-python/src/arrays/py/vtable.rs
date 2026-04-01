@@ -162,11 +162,19 @@ impl VTable for PythonVTable {
         todo!()
     }
 
-    fn with_children(_array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(_array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &[]
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
+        vortex_panic!("PythonArray has no slots")
+    }
+
+    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.is_empty(),
-            "PythonArray has no children, got {}",
-            children.len()
+            slots.is_empty(),
+            "PythonArray has no slots, got {}",
+            slots.len()
         );
         Ok(())
     }

@@ -18,8 +18,7 @@ impl FillNullReduce for Chunked {
         fill_value: &Scalar,
     ) -> VortexResult<Option<ArrayRef>> {
         let new_chunks = array
-            .chunks()
-            .iter()
+            .iter_chunks()
             .map(|c| c.fill_null(fill_value.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 

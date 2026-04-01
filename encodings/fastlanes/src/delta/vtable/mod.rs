@@ -32,6 +32,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::DeltaData;
+use crate::delta::array::NUM_SLOTS;
+use crate::delta::array::SLOT_NAMES;
 use crate::delta::array::delta_decompress::delta_decompress;
 
 mod operations;
@@ -142,20 +144,22 @@ impl VTable for Delta {
         rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut DeltaData, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // DeltaArray children order (from visit_children):
-        // 1. bases
-        // 2. deltas
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 2,
-            "Expected 2 children for Delta encoding, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "DeltaArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        array.bases = children[0].clone();
-        array.deltas = children[1].clone();
-
+        array.slots = slots;
         Ok(())
     }
 

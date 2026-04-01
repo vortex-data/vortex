@@ -510,7 +510,7 @@ mod tests {
             DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_listview();
+        let canon_values = chunked_list.unwrap().to_array_ref().to_listview();
 
         assert_eq!(
             one_trailing_unused_element.scalar_at(0).unwrap(),

@@ -7,8 +7,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::filter::FilterReduce;
+use crate::arrays::masked::MaskedData;
 use crate::vtable::ArrayView;
 
 impl FilterReduce for Masked {
@@ -18,11 +18,11 @@ impl FilterReduce for Masked {
 
         // Filter the child array
         // The child is guaranteed to have no nulls, so filtering it is straightforward
-        let filtered_child = array.child.filter(mask.clone())?;
+        let filtered_child = array.child().filter(mask.clone())?;
 
         // Construct new MaskedArray
         Ok(Some(
-            MaskedArray::try_new(filtered_child, filtered_validity)?.into_array(),
+            MaskedData::try_new(filtered_child, filtered_validity)?.into_array(),
         ))
     }
 }

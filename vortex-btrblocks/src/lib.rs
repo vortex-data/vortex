@@ -12,70 +12,71 @@
 //!
 //! # Key Features
 //!
-//! - **Adaptive Compression**: Automatically selects the best compression scheme based on data patterns
-//! - **Type-Specific Compressors**: Specialized compression for integers, floats, strings, and temporal data
-//! - **Cascaded Encoding**: Multiple compression layers can be applied for optimal results
-//! - **Statistical Analysis**: Uses data sampling and statistics to predict compression ratios
-//! - **Recursive Structure Handling**: Compresses nested structures like structs and lists
+//! - **Adaptive Compression**: Automatically selects the best compression scheme based on data
+//!   patterns.
+//! - **Unified Scheme Trait**: A single [`Scheme`] trait covers all data types (integers, floats,
+//!   strings, etc.) with a [`SchemeId`] for identity.
+//! - **Cascaded Encoding**: Multiple compression layers can be applied for optimal results.
+//! - **Statistical Analysis**: Uses data sampling and statistics to predict compression ratios.
+//! - **Recursive Structure Handling**: Compresses nested structures like structs and lists.
 //!
 //! # How It Works
 //!
 //! [`BtrBlocksCompressor::compress()`] takes an `&ArrayRef` and returns an `ArrayRef` that may
 //! use a different encoding. It first canonicalizes the input, then dispatches by type.
-//! Primitives go to a type-specific `Compressor` (integer, float, or string). Compound types
-//! like structs and lists recurse into their fields and elements.
+//! Primitives and strings go through `choose_and_compress`, which evaluates every enabled
+//! [`Scheme`] and picks the one with the best compression ratio. Compound types like structs
+//! and lists recurse into their fields and elements.
 //!
-//! Each type-specific compressor holds a static list of `Scheme` implementations (e.g.
-//! BitPacking, ALP, Dict). There is no dynamic registry. The compressor evaluates each scheme by
-//! compressing a ~1% sample and measuring the ratio, then picks the best. See `SchemeExt` for
-//! details on how sampling works.
+//! Each `Scheme` implementation declares whether it [`matches`](Scheme::matches) a given
+//! canonical form and, if so, estimates the compression ratio (often by compressing a ~1%
+//! sample). There is no dynamic registry — the set of schemes is fixed at build time via
+//! [`ALL_SCHEMES`].
 //!
 //! Schemes can produce arrays that are themselves further compressed (e.g. FoR then BitPacking),
-//! up to `MAX_CASCADE` (3) layers deep. An `Excludes` set prevents the same scheme from being
-//! applied twice in a chain.
+//! up to [`MAX_CASCADE`] (3) layers deep. Descendant exclusion rules for of [`SchemeId`] prevents
+//! the same scheme from being applied twice in a chain.
 //!
 //! # Example
 //!
 //! ```rust
-//! use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, IntCode};
+//! use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, Scheme, SchemeExt};
+//! use vortex_btrblocks::schemes::integer::IntDictScheme;
+//! use vortex_array::DynArray;
 //!
-//! // Default compressor with all schemes enabled
+//! // Default compressor with all schemes enabled.
 //! let compressor = BtrBlocksCompressor::default();
 //!
-//! // Configure with builder to exclude specific schemes
+//! // Configure with builder to exclude specific schemes.
 //! let compressor = BtrBlocksCompressorBuilder::default()
-//!     .exclude_int([IntCode::Dict])
+//!     .exclude([IntDictScheme.id()])
 //!     .build();
 //! ```
 //!
 //! [BtrBlocks]: https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf
 
-pub use compressor::float::FloatCode;
-use compressor::float::FloatCompressor;
-pub use compressor::integer::IntCode;
-use compressor::integer::IntCompressor;
-pub use compressor::string::StringCode;
-use compressor::string::StringCompressor;
-
 mod builder;
 mod canonical_compressor;
-mod compressor;
-mod ctx;
-mod sample;
-mod scheme;
-mod stats;
+/// Compression scheme implementations.
+pub mod schemes;
 
+// Re-export framework types from vortex-compressor for backwards compatibility.
+// Btrblocks-specific exports.
+pub use builder::ALL_SCHEMES;
 pub use builder::BtrBlocksCompressorBuilder;
+pub use builder::default_excluded;
 pub use canonical_compressor::BtrBlocksCompressor;
-pub use canonical_compressor::CanonicalCompressor;
-use compressor::Compressor;
-use compressor::CompressorExt;
-use compressor::MAX_CASCADE;
-pub use compressor::integer::IntegerStats;
-pub use compressor::integer::dictionary::dictionary_encode as integer_dictionary_encode;
-use ctx::CompressorContext;
-use ctx::Excludes;
-use scheme::Scheme;
-use scheme::SchemeExt;
-pub use stats::CompressorStats;
-pub use stats::GenerateStatsOptions;
+pub use schemes::patches::compress_patches;
+pub use vortex_compressor::CascadingCompressor;
+pub use vortex_compressor::builtins::integer_dictionary_encode;
+pub use vortex_compressor::ctx::CompressorContext;
+pub use vortex_compressor::ctx::MAX_CASCADE;
+pub use vortex_compressor::scheme::Scheme;
+pub use vortex_compressor::scheme::SchemeExt;
+pub use vortex_compressor::scheme::SchemeId;
+pub use vortex_compressor::scheme::estimate_compression_ratio_with_sampling;
+pub use vortex_compressor::stats::ArrayAndStats;
+pub use vortex_compressor::stats::FloatStats;
+pub use vortex_compressor::stats::GenerateStatsOptions;
+pub use vortex_compressor::stats::IntegerStats;
+pub use vortex_compressor::stats::StringStats;

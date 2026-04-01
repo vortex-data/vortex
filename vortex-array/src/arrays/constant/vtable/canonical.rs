@@ -340,7 +340,7 @@ mod tests {
     #[test]
     fn test_canonicalize_null() {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
-        let actual = const_null.to_null();
+        let actual = const_null.to_array_ref().to_null();
         assert_eq!(actual.len(), 42);
         assert_eq!(actual.scalar_at(33).unwrap(), Scalar::null(DType::Null));
     }
@@ -470,7 +470,7 @@ mod tests {
             3,
         );
 
-        let struct_array = array.to_struct();
+        let struct_array = array.to_array_ref().to_struct();
         assert_eq!(struct_array.len(), 3);
         assert_eq!(struct_array.valid_count().unwrap(), 0);
 

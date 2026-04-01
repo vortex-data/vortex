@@ -237,8 +237,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
 
         let fsst = fsst.as_view();
-        let result =
-            <FSST as LikeKernel>::like(fsst.as_view(), &pattern, LikeOptions::default(), &mut ctx)?;
+        let result = <FSST as LikeKernel>::like(fsst, &pattern, LikeOptions::default(), &mut ctx)?;
         assert!(result.is_some(), "FSST LikeKernel should handle prefix%");
         assert_arrays_eq!(result.unwrap(), BoolArray::from_iter([true, false]));
         Ok(())
@@ -255,8 +254,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
 
         let fsst = fsst.as_view();
-        let result =
-            <FSST as LikeKernel>::like(fsst.as_view(), &pattern, LikeOptions::default(), &mut ctx)?;
+        let result = <FSST as LikeKernel>::like(fsst, &pattern, LikeOptions::default(), &mut ctx)?;
         assert!(result.is_some(), "FSST LikeKernel should handle %needle%");
         assert_arrays_eq!(result.unwrap(), BoolArray::from_iter([true, false]));
         Ok(())
@@ -271,12 +269,8 @@ mod tests {
         // Underscore wildcard -- not handled.
         let pattern = ConstantArray::new("a_c", fsst.len()).into_array();
         let fsst_v = fsst.as_view();
-        let result = <FSST as LikeKernel>::like(
-            fsst_v.as_view(),
-            &pattern,
-            LikeOptions::default(),
-            &mut ctx,
-        )?;
+        let result =
+            <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
         assert!(result.is_none(), "underscore pattern should fall back");
 
         // Case-insensitive -- not handled.
@@ -285,7 +279,7 @@ mod tests {
             negated: false,
             case_insensitive: true,
         };
-        let result = <FSST as LikeKernel>::like(fsst_v.as_view(), &pattern, opts, &mut ctx)?;
+        let result = <FSST as LikeKernel>::like(fsst_v, &pattern, opts, &mut ctx)?;
         assert!(result.is_none(), "ilike should fall back");
 
         Ok(())
@@ -305,7 +299,7 @@ mod tests {
 
         let fsst = fsst.as_view();
         let direct = <FSST as LikeKernel>::like(
-            fsst.as_view(),
+            fsst,
             &ConstantArray::new(pattern, fsst.len()).into_array(),
             LikeOptions::default(),
             &mut SESSION.create_execution_ctx(),
@@ -333,7 +327,7 @@ mod tests {
 
         let fsst_v = fsst.as_view();
         let direct = <FSST as LikeKernel>::like(
-            fsst_v.as_view(),
+            fsst_v,
             &ConstantArray::new(pattern.as_str(), fsst.len()).into_array(),
             LikeOptions::default(),
             &mut SESSION.create_execution_ctx(),
@@ -362,7 +356,7 @@ mod tests {
 
         let fsst = fsst.as_view();
         let direct = <FSST as LikeKernel>::like(
-            fsst.as_view(),
+            fsst,
             &ConstantArray::new(pattern.as_str(), fsst.len()).into_array(),
             LikeOptions::default(),
             &mut SESSION.create_execution_ctx(),

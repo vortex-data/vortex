@@ -150,6 +150,6 @@ mod tests {
             .unwrap(),
         )
         .vortex_expect("DeltaData is always valid");
-        assert_arrays_eq!(packed_delta.to_primitive(), array);
+        assert_arrays_eq!(packed_delta.to_array_ref().to_primitive(), array);
     }
 }

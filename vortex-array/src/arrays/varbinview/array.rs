@@ -15,6 +15,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
 use crate::arrays::VarBinView;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
@@ -25,6 +26,11 @@ use crate::dtype::Nullability;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::Array;
+use crate::vtable::validity_to_child;
+
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 /// A variable-length binary view array that stores strings and binary data efficiently.
 ///
@@ -87,6 +93,7 @@ use crate::vtable::Array;
 /// ```
 #[derive(Clone, Debug)]
 pub struct VarBinViewData {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) buffers: Arc<[BufferHandle]>,
     pub(super) views: BufferHandle,
@@ -102,6 +109,11 @@ pub struct VarBinViewArrayParts {
 }
 
 impl VarBinViewData {
+    /// Build the slots vector for this array.
+    pub(super) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+        vec![validity_to_child(validity, len)]
+    }
+
     /// Creates a new `VarBinViewArray`.
     ///
     /// # Panics
@@ -248,7 +260,9 @@ impl VarBinViewData {
         dtype: DType,
         validity: Validity,
     ) -> Self {
+        let len = views.len() / size_of::<BinaryView>();
         Self {
+            slots: Self::make_slots(&validity, len),
             views,
             buffers,
             dtype,

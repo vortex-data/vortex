@@ -15,7 +15,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::arrays::VarBin;
-use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrow::byte_view::execute_varbinview_to_arrow;
 use crate::arrow::executor::validity::to_arrow_null_buffer;

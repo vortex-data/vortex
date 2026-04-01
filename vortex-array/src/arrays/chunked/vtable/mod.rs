@@ -108,9 +108,8 @@ impl VTable for Chunked {
                 .array_eq(&other.chunk_offsets.clone().into_array(), precision)
             && array.chunks.len() == other.chunks.len()
             && array
-                .chunks
-                .iter()
-                .zip(&other.chunks)
+                .iter_chunks()
+                .zip(other.iter_chunks())
                 .all(|(a, b)| a.array_eq(b, precision))
     }
 
@@ -188,7 +187,7 @@ impl VTable for Chunked {
         let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
 
         // The remaining children contain the actual data of the chunks
-        let chunks = chunk_offsets_buf
+        let chunks: Vec<ArrayRef> = chunk_offsets_buf
             .iter()
             .tuple_windows()
             .enumerate()
@@ -207,26 +206,38 @@ impl VTable for Chunked {
         let len = usize::try_from(*total_len)
             .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
 
+        let slots = ChunkedData::make_slots(&chunk_offsets, &chunks);
         // Construct directly using the struct fields to avoid recomputing chunk_offsets
         Ok(ChunkedData {
             dtype: dtype.clone(),
             len,
             chunk_offsets,
             chunks,
+            slots,
             stats_set: Default::default(),
         })
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // Children: chunk_offsets, then chunks...
-        vortex_ensure!(
-            !children.is_empty(),
-            "Chunked array needs at least one child"
-        );
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
 
-        let nchunks = children.len() - 1;
-        let chunk_offsets_array = children[0].to_primitive();
-        let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        match idx {
+            0 => "chunk_offsets".to_string(),
+            n => format!("chunks[{}]", n - 1),
+        }
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        // Slots: chunk_offsets, then chunks...
+        vortex_ensure!(!slots.is_empty(), "Chunked array needs at least one slot");
+
+        let nchunks = slots.len() - 1;
+        let chunk_offsets_ref = slots[0]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("chunk_offsets slot must not be None"))?;
+        let chunk_offsets_buf = chunk_offsets_ref.to_primitive().to_buffer::<u64>();
 
         vortex_ensure!(
             chunk_offsets_buf.len() == nchunks + 1,
@@ -235,9 +246,16 @@ impl VTable for Chunked {
             chunk_offsets_buf.len()
         );
 
-        let chunks = children.into_iter().skip(1).collect();
+        let chunks: Vec<ArrayRef> = slots[1..]
+            .iter()
+            .map(|s| {
+                s.clone()
+                    .ok_or_else(|| vortex_err!("chunk slot must not be None"))
+            })
+            .try_collect()?;
         array.chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
         array.chunks = chunks;
+        array.slots = slots;
 
         let total_len = chunk_offsets_buf
             .last()
@@ -253,7 +271,7 @@ impl VTable for Chunked {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        for chunk in array.chunks() {
+        for chunk in array.iter_chunks() {
             chunk.append_to_builder(builder, ctx)?;
         }
         Ok(())
@@ -268,7 +286,7 @@ impl VTable for Chunked {
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         Ok(match array.chunks.len() {
             0 => Some(Canonical::empty(array.dtype()).into_array()),
-            1 => Some(array.chunks[0].clone()),
+            1 => Some(array.chunk(0).clone()),
             _ => None,
         })
     }

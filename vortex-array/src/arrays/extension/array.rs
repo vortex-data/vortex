@@ -11,6 +11,10 @@ use crate::dtype::extension::ExtDTypeRef;
 use crate::stats::ArrayStats;
 use crate::vtable::Array;
 
+pub(super) const STORAGE_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["storage"];
+
 /// An extension array that wraps another array with additional type information.
 ///
 /// **⚠️ Unstable API**: This is an experimental feature that may change significantly
@@ -53,11 +57,7 @@ use crate::vtable::Array;
 pub struct ExtensionData {
     /// The storage dtype. This **must** be a [`Extension::DType`] variant.
     pub(super) dtype: DType,
-
-    /// The backing storage array for this extension array.
-    pub(super) storage_array: ArrayRef,
-
-    /// The stats for this array.
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -110,14 +110,14 @@ impl ExtensionData {
 
         Self {
             dtype: DType::Extension(ext_dtype),
-            storage_array,
+            slots: vec![Some(storage_array)],
             stats_set: ArrayStats::default(),
         }
     }
 
     /// Returns the length of this array.
     pub fn len(&self) -> usize {
-        self.storage_array.len()
+        self.storage_array().len()
     }
 
     /// Returns the [`DType`] of this array.
@@ -140,7 +140,9 @@ impl ExtensionData {
     }
 
     pub fn storage_array(&self) -> &ArrayRef {
-        &self.storage_array
+        self.slots[STORAGE_SLOT]
+            .as_ref()
+            .vortex_expect("ExtensionArray storage slot")
     }
 }
 

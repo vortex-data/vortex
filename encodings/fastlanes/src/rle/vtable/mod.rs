@@ -156,22 +156,22 @@ impl VTable for RLE {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut RLEData, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // RLEArray children order (from visit_children):
-        // 1. values
-        // 2. indices
-        // 3. values_idx_offsets
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        crate::rle::array::SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 3,
-            "Expected 3 children for RLE encoding, got {}",
-            children.len()
+            slots.len() == crate::rle::array::NUM_SLOTS,
+            "RLEArray expects {} slots, got {}",
+            crate::rle::array::NUM_SLOTS,
+            slots.len()
         );
-
-        array.values = children[0].clone();
-        array.indices = children[1].clone();
-        array.values_idx_offsets = children[2].clone();
-
+        array.slots = slots;
         Ok(())
     }
 

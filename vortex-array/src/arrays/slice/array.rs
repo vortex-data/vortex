@@ -13,9 +13,13 @@ use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::vtable::Array;
 
+pub(super) const CHILD_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
+
 #[derive(Clone, Debug)]
 pub struct SliceData {
-    pub(super) child: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) range: Range<usize>,
     pub(super) stats: ArrayStats,
 }
@@ -35,7 +39,7 @@ impl SliceData {
             );
         }
         Ok(Self {
-            child,
+            slots: vec![Some(child)],
             range,
             stats: ArrayStats::default(),
         })
@@ -52,7 +56,7 @@ impl SliceData {
 
     /// Returns the [`DType`] of this array.
     pub fn dtype(&self) -> &DType {
-        self.child.dtype()
+        self.child().dtype()
     }
 
     /// Returns `true` if this array is empty.
@@ -67,7 +71,9 @@ impl SliceData {
 
     /// The child array being sliced.
     pub fn child(&self) -> &ArrayRef {
-        &self.child
+        self.slots[CHILD_SLOT]
+            .as_ref()
+            .vortex_expect("SliceArray child slot")
     }
 }
 
@@ -86,9 +92,11 @@ impl Array<Slice> {
 
 impl SliceData {
     /// Consume the slice array and return its components.
-    pub fn into_parts(self) -> SliceArrayParts {
+    pub fn into_parts(mut self) -> SliceArrayParts {
         SliceArrayParts {
-            child: self.child,
+            child: self.slots[CHILD_SLOT]
+                .take()
+                .vortex_expect("SliceArray child slot"),
             range: self.range,
         }
     }

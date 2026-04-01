@@ -78,10 +78,6 @@ pub fn vortex_sparse::Sparse::buffer_name(_array: vortex_array::vtable::typed::A
 
 pub fn vortex_sparse::Sparse::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sparse::SparseData>
 
-pub fn vortex_sparse::Sparse::child(array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_sparse::Sparse::child_name(_array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
-
 pub fn vortex_sparse::Sparse::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_sparse::Sparse::dtype(array: &vortex_sparse::SparseData) -> &vortex_array::dtype::DType
@@ -98,17 +94,19 @@ pub fn vortex_sparse::Sparse::metadata(array: vortex_array::vtable::typed::Array
 
 pub fn vortex_sparse::Sparse::nbuffers(_array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> usize
 
-pub fn vortex_sparse::Sparse::nchildren(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> usize
-
 pub fn vortex_sparse::Sparse::reduce_parent(array: vortex_array::vtable::typed::ArrayView<'_, Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_sparse::Sparse::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_sparse::Sparse::slot_name(__array: vortex_array::vtable::typed::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
+
+pub fn vortex_sparse::Sparse::slots(array: vortex_array::vtable::typed::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
 pub fn vortex_sparse::Sparse::stats(array: &vortex_sparse::SparseData) -> &vortex_array::stats::array::ArrayStats
 
 pub fn vortex_sparse::Sparse::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_sparse::Sparse::with_children(array: &mut Self::ArrayData, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_sparse::Sparse::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_sparse::Sparse> for vortex_sparse::Sparse
 
@@ -162,4 +160,4 @@ impl core::fmt::Debug for vortex_sparse::SparseMetadata
 
 pub fn vortex_sparse::SparseMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub type vortex_sparse::SparseArray = vortex_array::vtable::typed::ArrayInner<vortex_sparse::Sparse>
+pub type vortex_sparse::SparseArray = vortex_array::vtable::typed::Array<vortex_sparse::Sparse>

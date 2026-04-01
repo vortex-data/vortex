@@ -73,6 +73,8 @@ pub struct SequenceArrayParts {
     pub nullability: Nullability,
 }
 
+pub(super) const SLOT_NAMES: [&str; 0] = [];
+
 #[derive(Clone, Debug)]
 /// An array representing the equation `A[i] = base + i * multiplier`.
 pub struct SequenceData {
@@ -80,6 +82,7 @@ pub struct SequenceData {
     multiplier: PValue,
     dtype: DType,
     pub(crate) len: usize,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
@@ -168,6 +171,7 @@ impl SequenceData {
             multiplier,
             dtype,
             len: length,
+            slots: vec![],
             stats_set: ArrayStats::from(stats_set),
         }
     }
@@ -399,12 +403,21 @@ impl VTable for Sequence {
         )
     }
 
-    fn with_children(_array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.is_empty(),
-            "SequenceArray expects 0 children, got {}",
-            children.len()
+            slots.is_empty(),
+            "SequenceArray expects 0 slots, got {}",
+            slots.len()
         );
+        array.slots = slots;
         Ok(())
     }
 

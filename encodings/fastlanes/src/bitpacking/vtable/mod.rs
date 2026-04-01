@@ -29,11 +29,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayView;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
-use vortex_array::vtable::patches_child;
-use vortex_array::vtable::patches_child_name;
-use vortex_array::vtable::patches_nchildren;
-use vortex_array::vtable::validity_nchildren;
-use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -45,6 +40,12 @@ use vortex_session::VortexSession;
 use crate::BitPackedData;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
+use crate::bitpacking::array::NUM_SLOTS;
+use crate::bitpacking::array::PATCH_CHUNK_OFFSETS_SLOT;
+use crate::bitpacking::array::PATCH_INDICES_SLOT;
+use crate::bitpacking::array::PATCH_VALUES_SLOT;
+use crate::bitpacking::array::SLOT_NAMES;
+use crate::bitpacking::array::VALIDITY_SLOT;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
@@ -138,36 +139,6 @@ impl VTable for BitPacked {
         }
     }
 
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        array.patches().map_or(0, patches_nchildren) + validity_nchildren(&array.validity)
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        let pc = array.patches().map_or(0, patches_nchildren);
-        if idx < pc {
-            patches_child(
-                array
-                    .patches()
-                    .vortex_expect("BitPackedArray child index out of bounds"),
-                idx,
-            )
-        } else if idx < pc + validity_nchildren(&array.validity) {
-            validity_to_child(&array.validity, array.len)
-                .vortex_expect("BitPackedArray child index out of bounds")
-        } else {
-            vortex_panic!("BitPackedArray child index {idx} out of bounds")
-        }
-    }
-
-    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        let pc = array.patches().map_or(0, patches_nchildren);
-        if idx < pc {
-            patches_child_name(idx).to_string()
-        } else {
-            "validity".to_string()
-        }
-    }
-
     fn reduce_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,
@@ -176,72 +147,50 @@ impl VTable for BitPacked {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut BitPackedData, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // Children: patches (if present): indices, values, chunk_offsets; then validity (if present)
-        let patches_info = array
-            .patches()
-            .map(|p| (p.offset(), p.chunk_offsets().is_some()));
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
 
-        let mut child_idx = 0;
-        let patches = if let Some((patch_offset, has_chunk_offsets)) = patches_info {
-            let patch_indices = children
-                .get(child_idx)
-                .ok_or_else(|| vortex_err!("Expected patch_indices child at index {}", child_idx))?
-                .clone();
-            child_idx += 1;
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
 
-            let patch_values = children
-                .get(child_idx)
-                .ok_or_else(|| vortex_err!("Expected patch_values child at index {}", child_idx))?
-                .clone();
-            child_idx += 1;
-
-            let patch_chunk_offsets = if has_chunk_offsets {
-                let offsets = children
-                    .get(child_idx)
-                    .ok_or_else(|| {
-                        vortex_err!("Expected patch_chunk_offsets child at index {}", child_idx)
-                    })?
-                    .clone();
-                child_idx += 1;
-                Some(offsets)
-            } else {
-                None
-            };
-
-            Some(Patches::new(
-                array.len(),
-                patch_offset,
-                patch_indices,
-                patch_values,
-                patch_chunk_offsets,
-            )?)
-        } else {
-            None
-        };
-
-        let validity = if child_idx < children.len() {
-            Validity::Array(children[child_idx].clone())
-        } else {
-            Validity::from(array.dtype().nullability())
-        };
-
-        let expected_children = child_idx
-            + if matches!(validity, Validity::Array(_)) {
-                1
-            } else {
-                0
-            };
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == expected_children,
-            "Expected {} children, got {}",
-            expected_children,
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "BitPackedArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
 
-        array.patches = patches;
-        array.validity = validity;
+        // Reconstruct patches from slots + existing metadata
+        array.patches = match (&slots[PATCH_INDICES_SLOT], &slots[PATCH_VALUES_SLOT]) {
+            (Some(indices), Some(values)) => {
+                let old = array
+                    .patches
+                    .as_ref()
+                    .vortex_expect("BitPackedArray had patch slots but no patches metadata");
+                Some(unsafe {
+                    Patches::new_unchecked(
+                        array.len,
+                        old.offset(),
+                        indices.clone(),
+                        values.clone(),
+                        slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                        None,
+                    )
+                })
+            }
+            _ => None,
+        };
 
+        // Reconstruct validity from slot
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
+        };
+
+        array.slots = slots;
         Ok(())
     }
 

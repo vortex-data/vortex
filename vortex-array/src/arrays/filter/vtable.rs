@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -19,6 +18,8 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::filter::array::FilterData;
+use crate::arrays::filter::array::NUM_SLOTS;
+use crate::arrays::filter::array::SLOT_NAMES;
 use crate::arrays::filter::execute::execute_filter;
 use crate::arrays::filter::execute::execute_filter_fast_paths;
 use crate::arrays::filter::rules::PARENT_RULES;
@@ -66,7 +67,7 @@ impl VTable for Filter {
     }
 
     fn dtype(array: &FilterData) -> &DType {
-        array.child.dtype()
+        array.child().dtype()
     }
 
     fn stats(array: &FilterData) -> &ArrayStats {
@@ -74,7 +75,7 @@ impl VTable for Filter {
     }
 
     fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.child.array_hash(state, precision);
+        array.child().array_hash(state, precision);
         array.mask.array_hash(state, precision);
     }
 
@@ -83,7 +84,8 @@ impl VTable for Filter {
         other: ArrayView<'_, Self>,
         precision: Precision,
     ) -> bool {
-        array.child.array_eq(&other.child, precision) && array.mask.array_eq(&other.mask, precision)
+        array.child().array_eq(other.child(), precision)
+            && array.mask.array_eq(&other.mask, precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -104,7 +106,7 @@ impl VTable for Filter {
 
     fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
-            0 => array.child.clone(),
+            0 => array.child().clone(),
             _ => vortex_panic!("FilterArray child index {idx} out of bounds"),
         }
     }
@@ -144,23 +146,25 @@ impl VTable for Filter {
     ) -> VortexResult<FilterData> {
         assert_eq!(len, metadata.0.true_count());
         let child = children.get(0, dtype, metadata.0.len())?;
-        Ok(FilterData {
-            child,
-            mask: metadata.0.clone(),
-            stats: Default::default(),
-        })
+        FilterData::try_new(child, metadata.0.clone())
     }
 
-    fn with_children(array: &mut Self::ArrayData, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 1,
-            "FilterArray expects exactly 1 child, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "FilterArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-        array.child = children
-            .into_iter()
-            .next()
-            .vortex_expect("children length already validated");
+        array.slots = slots;
         Ok(())
     }
 
@@ -175,7 +179,7 @@ impl VTable for Filter {
         // We rely on the optimization pass that runs prior to this execution for filter pushdown,
         // so now we can just execute the filter without worrying.
         Ok(ExecutionResult::done(
-            execute_filter(array.child.clone().execute(ctx)?, mask_values).into_array(),
+            execute_filter(array.child().clone().execute(ctx)?, mask_values).into_array(),
         ))
     }
 
@@ -198,13 +202,13 @@ impl OperationsVTable<Filter> for Filter {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let rank_idx = array.mask.rank(index);
-        array.child.scalar_at(rank_idx)
+        array.child().scalar_at(rank_idx)
     }
 }
 
 impl ValidityVTable<Filter> for Filter {
     fn validity(array: ArrayView<'_, Filter>) -> VortexResult<Validity> {
-        array.child.validity()?.filter(&array.mask)
+        array.child().validity()?.filter(&array.mask)
     }
 }
 

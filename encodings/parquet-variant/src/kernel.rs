@@ -33,15 +33,13 @@ impl SliceKernel for ParquetVariant {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity.slice(range.clone())?;
-        let metadata = array.metadata.slice(range.clone())?;
+        let metadata = array.metadata_array().slice(range.clone())?;
         let value = array
-            .value
-            .as_ref()
+            .value_array()
             .map(|v| v.slice(range.clone()))
             .transpose()?;
         let typed_value = array
-            .typed_value
-            .as_ref()
+            .typed_value_array()
             .map(|tv| tv.slice(range))
             .transpose()?;
         Ok(Some(
@@ -57,15 +55,13 @@ impl FilterKernel for ParquetVariant {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity.filter(mask)?;
-        let metadata = array.metadata.filter(mask.clone())?;
+        let metadata = array.metadata_array().filter(mask.clone())?;
         let value = array
-            .value
-            .as_ref()
+            .value_array()
             .map(|v| v.filter(mask.clone()))
             .transpose()?;
         let typed_value = array
-            .typed_value
-            .as_ref()
+            .typed_value_array()
             .map(|tv| tv.filter(mask.clone()))
             .transpose()?;
         Ok(Some(
@@ -81,15 +77,13 @@ impl TakeExecute for ParquetVariant {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity.take(indices)?;
-        let metadata = array.metadata.take(indices.to_array())?;
+        let metadata = array.metadata_array().take(indices.to_array())?;
         let value = array
-            .value
-            .as_ref()
+            .value_array()
             .map(|v| v.take(indices.to_array()))
             .transpose()?;
         let typed_value = array
-            .typed_value
-            .as_ref()
+            .typed_value_array()
             .map(|tv| tv.take(indices.to_array()))
             .transpose()?;
         Ok(Some(
