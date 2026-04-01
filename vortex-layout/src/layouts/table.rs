@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! A more configurable variant of the `StructStrategy` that allows overwriting
-//! specific leaf fields with custom write strategies.
+//! A configurable writer strategy for tabular data.
+//!
+//! Allows the caller to override specific leaf fields with custom layout strategies.
 
 use std::sync::Arc;
 
