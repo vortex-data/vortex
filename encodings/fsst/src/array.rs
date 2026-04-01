@@ -346,8 +346,11 @@ impl VTable for FSST {
     }
 }
 
+/// Lengths of the original values before compression, can be compressed.
 pub(crate) const UNCOMPRESSED_LENGTHS_SLOT: usize = 0;
+/// The offsets array for the FSST-compressed codes.
 pub(crate) const CODES_OFFSETS_SLOT: usize = 1;
+/// The validity bitmap for the compressed codes.
 pub(crate) const CODES_VALIDITY_SLOT: usize = 2;
 pub(crate) const NUM_SLOTS: usize = 3;
 pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =

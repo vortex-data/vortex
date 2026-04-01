@@ -26,9 +26,13 @@ use crate::bitpack_compress::bitpack_encode;
 use crate::unpack_iter::BitPacked;
 use crate::unpack_iter::BitUnpackedChunks;
 
+/// The indices of exception values that don't fit in the bit-packed representation.
 pub(super) const PATCH_INDICES_SLOT: usize = 0;
+/// The exception values that don't fit in the bit-packed representation.
 pub(super) const PATCH_VALUES_SLOT: usize = 1;
+/// Chunk offsets for the patch indices/values.
 pub(super) const PATCH_CHUNK_OFFSETS_SLOT: usize = 2;
+/// The validity bitmap indicating which elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 3;
 pub(super) const NUM_SLOTS: usize = 4;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [

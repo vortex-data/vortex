@@ -9,6 +9,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::stats::ArrayStats;
 
+/// The source array being filtered.
 pub(super) const CHILD_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];

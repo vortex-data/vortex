@@ -24,9 +24,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
+/// The validity bitmap indicating which elements are non-null.
 pub(crate) const VALIDITY_SLOT: usize = 0;
+/// The metadata array for the Parquet variant values.
 pub(crate) const METADATA_SLOT: usize = 1;
+/// The value array containing the Parquet variant data.
 pub(crate) const VALUE_SLOT: usize = 2;
+/// The typed value array for strongly-typed Parquet variant data.
 pub(crate) const TYPED_VALUE_SLOT: usize = 3;
 pub(crate) const NUM_SLOTS: usize = 4;
 pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity", "metadata", "value", "typed_value"];

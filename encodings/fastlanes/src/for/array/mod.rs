@@ -12,6 +12,7 @@ use vortex_error::vortex_bail;
 pub mod for_compress;
 pub mod for_decompress;
 
+/// The encoded array with the frame-of-reference (minimum value) subtracted.
 pub(super) const ENCODED_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
