@@ -130,6 +130,15 @@ fn get_tensor_element_ptype_and_length(dtype: &DType) -> VortexResult<(PType, u3
         ),
     };
 
+    // TurboQuant requires dimension >= 3: the marginal coordinate distribution
+    // (1 - x^2)^((d-3)/2) has a singularity at d=2 (arcsine distribution) that
+    // causes NaN in the Max-Lloyd centroid computation.
+    vortex_ensure!(
+        *fsl_len >= 3,
+        "TurboQuant requires dimension >= 3, got {}",
+        fsl_len
+    );
+
     if let &DType::Primitive(ptype, Nullability::NonNullable) = element_dtype.as_ref() {
         Ok((ptype, *fsl_len))
     } else {

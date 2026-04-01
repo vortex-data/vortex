@@ -36,8 +36,8 @@ pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
     if !(1..=8).contains(&bit_width) {
         vortex_bail!("TurboQuant bit_width must be 1-8, got {bit_width}");
     }
-    if dimension < 2 {
-        vortex_bail!("TurboQuant dimension must be >= 2, got {dimension}");
+    if dimension < 3 {
+        vortex_bail!("TurboQuant dimension must be >= 3, got {dimension}");
     }
 
     if let Some(centroids) = CENTROID_CACHE.get(&(dimension, bit_width)) {
@@ -306,5 +306,6 @@ mod tests {
         assert!(get_centroids(128, 0).is_err());
         assert!(get_centroids(128, 9).is_err());
         assert!(get_centroids(1, 2).is_err());
+        assert!(get_centroids(2, 2).is_err());
     }
 }

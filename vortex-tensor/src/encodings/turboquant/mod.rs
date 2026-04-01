@@ -468,9 +468,11 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn mse_rejects_dimension_below_2() {
-        let fsl = make_fsl_dim1();
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    fn mse_rejects_dimension_below_3(#[case] dim: usize) {
+        let fsl = make_fsl_small(dim);
         let config = TurboQuantConfig {
             bit_width: 2,
             seed: Some(0),
@@ -478,9 +480,11 @@ mod tests {
         assert!(turboquant_encode_mse(&fsl, &config).is_err());
     }
 
-    #[test]
-    fn qjl_rejects_dimension_below_2() {
-        let fsl = make_fsl_dim1();
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    fn qjl_rejects_dimension_below_3(#[case] dim: usize) {
+        let fsl = make_fsl_small(dim);
         let config = TurboQuantConfig {
             bit_width: 3,
             seed: Some(0),
@@ -488,11 +492,14 @@ mod tests {
         assert!(turboquant_encode_qjl(&fsl, &config).is_err());
     }
 
-    fn make_fsl_dim1() -> FixedSizeListArray {
-        let mut buf = BufferMut::<f32>::with_capacity(1);
-        buf.push(1.0);
+    fn make_fsl_small(dim: usize) -> FixedSizeListArray {
+        let mut buf = BufferMut::<f32>::with_capacity(dim);
+        for i in 0..dim {
+            buf.push(i as f32 + 1.0);
+        }
         let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
-        FixedSizeListArray::try_new(elements.into_array(), 1, Validity::NonNullable, 1).unwrap()
+        FixedSizeListArray::try_new(elements.into_array(), dim as u32, Validity::NonNullable, 1)
+            .unwrap()
     }
 
     // -----------------------------------------------------------------------

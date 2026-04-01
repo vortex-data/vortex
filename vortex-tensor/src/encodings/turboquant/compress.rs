@@ -198,8 +198,8 @@ pub fn turboquant_encode_mse(
     );
     let dimension = fsl.list_size();
     vortex_ensure!(
-        dimension >= 2,
-        "TurboQuant requires dimension >= 2, got {dimension}"
+        dimension >= 3,
+        "TurboQuant requires dimension >= 3, got {dimension}"
     );
 
     if fsl.is_empty() {
@@ -233,8 +233,8 @@ pub fn turboquant_encode_qjl(
     );
     let dimension = fsl.list_size();
     vortex_ensure!(
-        dimension >= 2,
-        "TurboQuant requires dimension >= 2, got {dimension}"
+        dimension >= 3,
+        "TurboQuant requires dimension >= 3, got {dimension}"
     );
 
     if fsl.is_empty() {
