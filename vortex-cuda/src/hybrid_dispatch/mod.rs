@@ -25,6 +25,10 @@
 //!    variant are executed first (sequentially, same stream), their device buffers
 //!    become `LOAD` ops in a fused plan via `FusedPlan::materialize_with_subtrees`.
 //!    Each subtree re-enters [`try_gpu_dispatch`] and may itself fuse.
+//!    When a subtree's ptype differs from the output ptype (e.g. `u8` dict
+//!    codes in a `u32` Dict), widening from the subtree's native width to `T`
+//!    happens in-kernel via `load_element<T>()` in the LOAD source op — no
+//!    separate widen pass is needed.
 //!
 //! 3. Fallback — root is not fusable. Delegate to its registered
 //!    `CudaExecute` kernel; its children re-enter [`try_gpu_dispatch`].
@@ -87,7 +91,8 @@ pub async fn try_gpu_dispatch(
             // TODO(0ax1): execute subtrees concurrently using separate CUDA streams.
             for subtree in &pending_subtrees {
                 let canonical = subtree.clone().execute_cuda(ctx).await?;
-                subtree_buffers.push(canonical.into_primitive().into_data_parts().buffer);
+                let buffer = canonical.into_primitive().into_data_parts().buffer;
+                subtree_buffers.push(buffer);
             }
 
             let num_subtrees = subtree_buffers.len();
