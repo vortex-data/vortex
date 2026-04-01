@@ -35,6 +35,7 @@ use crate::buffer::BufferHandle;
 use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
+/// The validity bitmap indicating which elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
@@ -55,7 +56,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::PrimitiveArray;
-/// use vortex_array::compute::sum;
 ///
 /// // Create from iterator using FromIterator impl
 /// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
@@ -67,10 +67,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// let value = sliced.scalar_at(0).unwrap();
 /// assert_eq!(value, 2i32.into());
 ///
-/// // Convert into a type-erased array that can be passed to compute functions.
-/// use vortex_array::IntoArray;
-/// let summed = sum(&sliced.into_array()).unwrap().as_primitive().typed_value::<i64>().unwrap();
-/// assert_eq!(summed, 5i64);
 /// # Ok(())
 /// # }
 /// ```

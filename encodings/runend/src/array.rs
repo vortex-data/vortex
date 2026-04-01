@@ -192,7 +192,9 @@ impl VTable for RunEnd {
     }
 }
 
+/// The run-end positions marking where each run terminates.
 pub(super) const ENDS_SLOT: usize = 0;
+/// The values for each run.
 pub(super) const VALUES_SLOT: usize = 1;
 pub(super) const NUM_SLOTS: usize = 2;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["ends", "values"];

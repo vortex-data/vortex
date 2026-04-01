@@ -477,6 +477,77 @@ macro_rules! require_child {
     }};
 }
 
+/// Like [`require_child!`], but for optional children. If the child is `None`, this is a no-op.
+/// If the child is `Some` but does not match `$M`, early-returns an [`ExecutionResult`] requesting
+/// execution of child `$idx`.
+///
+/// Unlike `require_child!`, this is a statement macro (no value produced) and does not clone
+/// `$parent` — it is moved into the early-return path.
+///
+/// ```ignore
+/// require_opt_child!(array, array.patches().map(|p| p.indices()), 1 => Primitive);
+/// ```
+#[macro_export]
+macro_rules! require_opt_child {
+    ($parent:expr, $child_opt:expr, $idx:expr => $M:ty) => {
+        if $child_opt.is_some_and(|child| !child.is::<$M>()) {
+            return Ok($crate::ExecutionResult::execute_slot::<$M>($parent, $idx));
+        }
+    };
+}
+
+/// Require that all children of a [`Patches`](crate::patches::Patches) (indices, values, and
+/// optionally chunk_offsets) are `Primitive`. If no patches are present, this is a no-op.
+///
+/// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
+///
+/// ```ignore
+/// require_patches!(array, array.patches(), PATCH_INDICES_SLOT, PATCH_VALUES_SLOT, PATCH_CHUNK_OFFSETS_SLOT);
+/// ```
+#[macro_export]
+macro_rules! require_patches {
+    ($parent:expr, $patches:expr, $indices_slot:expr, $values_slot:expr, $chunk_offsets_slot:expr) => {
+        let __patches = $patches;
+        $crate::require_opt_child!(
+            $parent,
+            __patches.as_ref().map(|p| p.indices()),
+            $indices_slot => $crate::arrays::Primitive
+        );
+        let __patches = $patches;
+        $crate::require_opt_child!(
+            $parent,
+            __patches.as_ref().map(|p| p.values()),
+            $values_slot => $crate::arrays::Primitive
+        );
+        let __patches = $patches;
+        $crate::require_opt_child!(
+            $parent,
+            __patches.as_ref().and_then(|p| p.chunk_offsets().as_ref()),
+            $chunk_offsets_slot => $crate::arrays::Primitive
+        );
+    };
+}
+
+/// Require that a [`Validity::Array`](crate::validity::Validity::Array) child matches `$M`. If validity is not array-backed
+/// (e.g. `NonNullable` or `AllValid`), this is a no-op. If it is array-backed but does not
+/// match `$M`, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
+///
+/// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
+///
+/// ```ignore
+/// require_validity!(array, &array.validity, VALIDITY_SLOT => AnyCanonical);
+/// ```
+#[macro_export]
+macro_rules! require_validity {
+    ($parent:expr, $validity:expr, $idx:expr => $M:ty) => {
+        if let $crate::validity::Validity::Array(v) = $validity {
+            if !v.is::<$M>() {
+                return Ok($crate::ExecutionResult::execute_slot::<$M>($parent, $idx));
+            }
+        }
+    };
+}
+
 /// Extension trait for creating an execution context from a session.
 pub trait VortexSessionExecute {
     /// Create a new execution context from this session.

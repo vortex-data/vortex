@@ -16,11 +16,14 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_child;
+use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -177,6 +180,15 @@ impl VTable for ALP {
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.encoded(), ENCODED_SLOT => Primitive);
+        require_patches!(
+            array,
+            array.patches(),
+            PATCH_INDICES_SLOT,
+            PATCH_VALUES_SLOT,
+            PATCH_CHUNK_OFFSETS_SLOT
+        );
+
         Ok(ExecutionResult::done(
             execute_decompress(Arc::unwrap_or_clone(array).into_inner(), ctx)?.into_array(),
         ))
@@ -200,9 +212,13 @@ impl VTable for ALP {
     }
 }
 
+/// The ALP-encoded values array.
 pub(super) const ENCODED_SLOT: usize = 0;
+/// The indices of exception values that could not be ALP-encoded.
 pub(super) const PATCH_INDICES_SLOT: usize = 1;
+/// The exception values that could not be ALP-encoded.
 pub(super) const PATCH_VALUES_SLOT: usize = 2;
+/// Chunk offsets for the patch indices/values.
 pub(super) const PATCH_CHUNK_OFFSETS_SLOT: usize = 3;
 pub(super) const NUM_SLOTS: usize = 4;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [

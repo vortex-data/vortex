@@ -226,8 +226,11 @@ impl VTable for DateTimeParts {
     }
 }
 
+/// The days component of the datetime, stored as an integer array.
 pub(super) const DAYS_SLOT: usize = 0;
+/// The seconds component of the datetime (within the day).
 pub(super) const SECONDS_SLOT: usize = 1;
+/// The sub-second component of the datetime.
 pub(super) const SUBSECONDS_SLOT: usize = 2;
 pub(super) const NUM_SLOTS: usize = 3;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["days", "seconds", "subseconds"];

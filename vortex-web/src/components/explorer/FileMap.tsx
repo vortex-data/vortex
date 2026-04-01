@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import { useRef, useEffect, useMemo, useState, useCallback } from 'react';
-import { collectSubtreeSegments } from '../swimlane/utils';
+import { collectSubtreeSegments, formatBytes } from '../swimlane/utils';
 import { useVortexFile } from '../../contexts/VortexFileContext';
 import { useSelection } from '../../contexts/SelectionContext';
 import type { SegmentMapEntry } from '../swimlane/types';
@@ -17,10 +17,12 @@ import type { SegmentMapEntry } from '../swimlane/types';
  */
 export function FileMap() {
   const file = useVortexFile();
-  const { state: selection } = useSelection();
+  const { state: selection, hoverNode, selectNode } = useSelection();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [crosshair, setCrosshair] = useState<number | null>(null);
+  const [byteOffset, setByteOffset] = useState<number | null>(null);
+  const [hoveredSeg, setHoveredSeg] = useState<SegmentMapEntry | null>(null);
 
   // Segments belonging to the selected subtree, sorted by byte offset
   const subtreeSegments = useMemo((): SegmentMapEntry[] => {
@@ -199,6 +201,33 @@ export function FileMap() {
     ctx.putImageData(imgData, 0, 0);
   }, [file, subtreeSegments, focusedSegment, hoverSegments]);
 
+  // All segments sorted by byte offset for hit-testing
+  const sortedSegments = useMemo(
+    () => [...file.segments].sort((a, b) => a.byteOffset - b.byteOffset),
+    [file.segments],
+  );
+
+  // Find the segment at a given byte offset using binary search
+  const findSegmentAtByte = useCallback(
+    (byte: number): SegmentMapEntry | null => {
+      let lo = 0;
+      let hi = sortedSegments.length - 1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >>> 1;
+        const seg = sortedSegments[mid];
+        if (byte < seg.byteOffset) {
+          hi = mid - 1;
+        } else if (byte >= seg.byteOffset + seg.byteLength) {
+          lo = mid + 1;
+        } else {
+          return seg;
+        }
+      }
+      return null;
+    },
+    [sortedSegments],
+  );
+
   // Resize observer
   useEffect(() => {
     const container = containerRef.current;
@@ -211,14 +240,47 @@ export function FileMap() {
     return () => observer.disconnect();
   }, []);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    setCrosshair(e.clientX - rect.left);
-  }, []);
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      setCrosshair(x);
 
-  const handleMouseLeave = useCallback(() => setCrosshair(null), []);
+      const fileSize = file.fileStructure.fileSize;
+      const byte = (x / container.clientWidth) * fileSize;
+      setByteOffset(Math.floor(byte));
+
+      const seg = findSegmentAtByte(byte);
+      setHoveredSeg(seg);
+      hoverNode(seg ? seg.layoutPath : null);
+    },
+    [file.fileStructure.fileSize, findSegmentAtByte, hoverNode],
+  );
+
+  const handleMouseLeave = useCallback(() => {
+    setCrosshair(null);
+    setByteOffset(null);
+    setHoveredSeg(null);
+    hoverNode(null);
+  }, [hoverNode]);
+
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const fileSize = file.fileStructure.fileSize;
+      const byte = (x / container.clientWidth) * fileSize;
+      const seg = findSegmentAtByte(byte);
+      if (seg) {
+        selectNode(seg.layoutPath);
+      }
+    },
+    [file.fileStructure.fileSize, findSegmentAtByte, selectNode],
+  );
 
   return (
     <div
@@ -226,13 +288,34 @@ export function FileMap() {
       className="relative cursor-crosshair flex-shrink-0 h-[1lh] text-[10px] leading-none"
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
+      onClick={handleClick}
     >
       <canvas ref={canvasRef} className="block" />
       {crosshair !== null && (
-        <div
-          className="absolute top-0 bottom-0 w-px bg-vortex-black dark:bg-vortex-white opacity-50 pointer-events-none"
-          style={{ left: crosshair }}
-        />
+        <>
+          <div
+            className="absolute top-0 bottom-0 w-px bg-vortex-black dark:bg-vortex-white opacity-50 pointer-events-none"
+            style={{ left: crosshair }}
+          />
+          {byteOffset !== null && (
+            <div
+              className="absolute bottom-full mb-1 -translate-x-1/2 px-1.5 py-1 rounded text-[9px] bg-vortex-black/90 dark:bg-white/90 text-white dark:text-vortex-black whitespace-nowrap pointer-events-none leading-normal"
+              style={{ left: crosshair }}
+            >
+              {hoveredSeg ? (
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-medium">{hoveredSeg.layoutPath}</span>
+                  <span className="opacity-70">
+                    segment {hoveredSeg.index} &middot; {formatBytes(hoveredSeg.byteLength)} @{' '}
+                    {formatBytes(hoveredSeg.byteOffset)}
+                  </span>
+                </div>
+              ) : (
+                <span className="opacity-70">{formatBytes(byteOffset)}</span>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

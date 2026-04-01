@@ -16,6 +16,7 @@ use crate::IntoArray;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 
+/// The source array that is shared and lazily computed.
 pub(super) const SOURCE_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["source"];

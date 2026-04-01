@@ -30,8 +30,11 @@ use crate::validity::Validity;
 use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
+/// The elements data array containing all list elements concatenated together.
 pub(super) const ELEMENTS_SLOT: usize = 0;
+/// The offsets array defining the start/end of each list within the elements array.
 pub(super) const OFFSETS_SLOT: usize = 1;
+/// The validity bitmap indicating which list elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 2;
 pub(super) const NUM_SLOTS: usize = 3;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "validity"];

@@ -100,12 +100,14 @@ jobs:
       deployments: write
     environment:
       name: github-pages
+      url: ${{ steps.deploy.outputs.deployment-url }}
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: vortex-explorer
           path: dist
       - name: Deploy to Cloudflare Pages
+        id: deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

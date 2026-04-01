@@ -26,6 +26,7 @@ use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
+use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -244,6 +245,13 @@ impl VTable for ALPRD {
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.left_parts(), 0 => Primitive);
         let array = require_child!(array, array.right_parts(), 1 => Primitive);
+        require_patches!(
+            array,
+            array.left_parts_patches(),
+            LP_PATCH_INDICES_SLOT,
+            LP_PATCH_VALUES_SLOT,
+            LP_PATCH_CHUNK_OFFSETS_SLOT
+        );
 
         let right_bit_width = array.right_bit_width();
         let ALPRDArrayParts {
@@ -270,7 +278,6 @@ impl VTable for ALPRD {
         let validity = left_parts.validity_mask()?;
 
         let decoded_array = if ptype == PType::F32 {
-            // TODO(joe): use iterative execution for the patches.
             PrimitiveArray::new(
                 alp_rd_decode::<f32>(
                     left_parts.into_buffer::<u16>(),
@@ -317,10 +324,15 @@ impl VTable for ALPRD {
     }
 }
 
+/// The left (most significant) parts of the real-double encoded values.
 pub(super) const LEFT_PARTS_SLOT: usize = 0;
+/// The right (least significant) parts of the real-double encoded values.
 pub(super) const RIGHT_PARTS_SLOT: usize = 1;
+/// The indices of left-parts exception values that could not be dictionary-encoded.
 pub(super) const LP_PATCH_INDICES_SLOT: usize = 2;
+/// The exception values for left-parts that could not be dictionary-encoded.
 pub(super) const LP_PATCH_VALUES_SLOT: usize = 3;
+/// Chunk offsets for the left-parts patch indices/values.
 pub(super) const LP_PATCH_CHUNK_OFFSETS_SLOT: usize = 4;
 pub(super) const NUM_SLOTS: usize = 5;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
