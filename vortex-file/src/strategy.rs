@@ -210,7 +210,9 @@ impl WriteStrategyBuilder {
     #[cfg(feature = "zstd")]
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
         if self.compressor.is_some() {
-            vortex_panic!("Cannot configure both a custom compressor and CUDA compatible encodings");
+            vortex_panic!(
+                "Cannot configure both a custom compressor and CUDA compatible encodings"
+            );
         }
         let b = self.builder.take().unwrap_or_default().exclude([
             integer::SparseScheme.id(),
@@ -296,7 +298,10 @@ impl WriteStrategyBuilder {
 
         // 5. compress each chunk
         let data_compressor = if let Some(compressor) = self.compressor {
-            assert!(self.builder.is_none(), "Cannot configure both a custom compressor and custom builder schemes");
+            assert!(
+                self.builder.is_none(),
+                "Cannot configure both a custom compressor and custom builder schemes"
+            );
             compressor.clone()
         } else {
             Arc::new(
