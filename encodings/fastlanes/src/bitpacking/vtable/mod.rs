@@ -4,6 +4,7 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
+use vortex_array::AnyCanonical;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -21,6 +22,8 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_patches;
+use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
@@ -40,9 +43,11 @@ use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::NUM_SLOTS;
+use crate::bitpacking::array::PATCH_CHUNK_OFFSETS_SLOT;
 use crate::bitpacking::array::PATCH_INDICES_SLOT;
 use crate::bitpacking::array::PATCH_VALUES_SLOT;
 use crate::bitpacking::array::SLOT_NAMES;
+use crate::bitpacking::array::VALIDITY_SLOT;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
@@ -286,6 +291,15 @@ impl VTable for BitPacked {
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        require_patches!(
+            array,
+            array.patches(),
+            PATCH_INDICES_SLOT,
+            PATCH_VALUES_SLOT,
+            PATCH_CHUNK_OFFSETS_SLOT
+        );
+        require_validity!(array, &array.validity(), VALIDITY_SLOT => AnyCanonical);
+
         Ok(ExecutionResult::done(
             unpack_array(&array, ctx)?.into_array(),
         ))
