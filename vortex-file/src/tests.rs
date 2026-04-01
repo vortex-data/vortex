@@ -62,6 +62,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
+use vortex_layout::Layout;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -71,6 +72,7 @@ use crate::V1_FOOTER_FBS_SIZE;
 use crate::VERSION;
 use crate::VortexFile;
 use crate::WriteOptionsSessionExt;
+use crate::footer::SegmentSpec;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let mut session = VortexSession::empty()
@@ -1692,6 +1694,179 @@ async fn timestamp_unit_mismatch_errors_with_constant_children()
          This indicates the scanner silently applied the filter incorrectly when \
          DateTimePartsArray children use ConstantArray encoding.",
         results.unwrap().len()
+    );
+
+    Ok(())
+}
+
+/// Collect all segment byte offsets reachable from a layout node.
+fn collect_segment_offsets(layout: &dyn Layout, segment_specs: &[SegmentSpec]) -> Vec<u64> {
+    let mut result = Vec::new();
+    collect_segment_offsets_inner(layout, segment_specs, &mut result);
+    result
+}
+
+fn collect_segment_offsets_inner(
+    layout: &dyn Layout,
+    segment_specs: &[SegmentSpec],
+    result: &mut Vec<u64>,
+) {
+    for seg_id in layout.segment_ids() {
+        result.push(segment_specs[*seg_id as usize].offset);
+    }
+    for child in layout.children().unwrap() {
+        collect_segment_offsets_inner(child.as_ref(), segment_specs, result);
+    }
+}
+
+/// Assert that all offsets in `before` are less than all offsets in `after`.
+fn assert_offsets_ordered(before: &[u64], after: &[u64], context: &str) {
+    if let (Some(&max_before), Some(&min_after)) = (before.iter().max(), after.iter().min()) {
+        assert!(
+            max_before < min_after,
+            "{context}: expected all 'before' offsets < all 'after' offsets, \
+             but max before = {max_before} >= min after = {min_after}"
+        );
+    }
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
+    // Create low-cardinality strings to trigger dict encoding, plus an integer column.
+    let n = 100_000;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+    let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)]).unwrap();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+
+    let footer = summary.footer();
+    let segment_specs = footer.segment_map();
+    let root = footer.layout();
+
+    // Walk the layout tree and find all dict layouts.
+    // Verify codes segments come before values segments in byte order within each run.
+    fn check_dict_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
+        if layout.encoding_id().as_ref() == "vortex.dict" {
+            // child 0 = values, child 1 = codes
+            let values_offsets =
+                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+            let codes_offsets =
+                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+
+            assert_offsets_ordered(
+                &codes_offsets,
+                &values_offsets,
+                "dict: codes should come before values",
+            );
+        }
+
+        for child in layout.children().unwrap() {
+            check_dict_ordering(child.as_ref(), segment_specs);
+        }
+    }
+
+    check_dict_ordering(root.as_ref(), segment_specs);
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
+    // Create a multi-column struct with enough rows to produce zone maps.
+    let n = 100_000;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+    let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
+    let floats = PrimitiveArray::from_iter((0..n).map(|i| i as f64 * 0.1)).into_array();
+
+    let st = StructArray::from_fields(&[
+        ("strings", strings),
+        ("numbers", numbers),
+        ("floats", floats),
+    ])
+    .unwrap();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+
+    let footer = summary.footer();
+    let segment_specs = footer.segment_map();
+    let root = footer.layout();
+
+    // Find all zoned layouts and verify data segments come before zone map segments.
+    fn check_zoned_ordering(layout: &dyn Layout, segment_specs: &[SegmentSpec]) {
+        if layout.encoding_id().as_ref() == "vortex.stats" {
+            // child 0 = data, child 1 = zones
+            let data_offsets =
+                collect_segment_offsets(layout.child(0).unwrap().as_ref(), segment_specs);
+            let zones_offsets =
+                collect_segment_offsets(layout.child(1).unwrap().as_ref(), segment_specs);
+
+            assert_offsets_ordered(
+                &data_offsets,
+                &zones_offsets,
+                "zoned: data should come before zones",
+            );
+        }
+
+        for child in layout.children().unwrap() {
+            check_zoned_ordering(child.as_ref(), segment_specs);
+        }
+    }
+
+    check_zoned_ordering(root.as_ref(), segment_specs);
+
+    // Additionally: all zone map segments across all columns should appear after
+    // all data segments across all columns.
+    let mut all_data_offsets = Vec::new();
+    let mut all_zones_offsets = Vec::new();
+
+    fn collect_all_zoned(
+        layout: &dyn Layout,
+        segment_specs: &[SegmentSpec],
+        all_data: &mut Vec<u64>,
+        all_zones: &mut Vec<u64>,
+    ) {
+        if layout.encoding_id().as_ref() == "vortex.stats" {
+            // child 0 = data, child 1 = zones
+            all_data.extend(collect_segment_offsets(
+                layout.child(0).unwrap().as_ref(),
+                segment_specs,
+            ));
+            all_zones.extend(collect_segment_offsets(
+                layout.child(1).unwrap().as_ref(),
+                segment_specs,
+            ));
+            return;
+        }
+        for child in layout.children().unwrap() {
+            collect_all_zoned(child.as_ref(), segment_specs, all_data, all_zones);
+        }
+    }
+
+    collect_all_zoned(
+        root.as_ref(),
+        segment_specs,
+        &mut all_data_offsets,
+        &mut all_zones_offsets,
+    );
+
+    assert_offsets_ordered(
+        &all_data_offsets,
+        &all_zones_offsets,
+        "global: all data segments should come before all zone map segments",
     );
 
     Ok(())
