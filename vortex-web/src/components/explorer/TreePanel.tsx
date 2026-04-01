@@ -83,6 +83,16 @@ export function TreePanel() {
     [allRows, searchQuery, file.layoutTree],
   );
 
+  // Compute the set of ancestor node IDs for the hovered node (for dim highlighting in tree)
+  const hoveredAncestorIds = useMemo(() => {
+    if (!selection.hoveredNodeId) return new Set<string>();
+    const path = findPathToNode(file.layoutTree, selection.hoveredNodeId);
+    // Exclude the hovered node itself — it gets full highlight
+    const ids = new Set(path.map((n) => n.id));
+    ids.delete(selection.hoveredNodeId);
+    return ids;
+  }, [selection.hoveredNodeId, file.layoutTree]);
+
   // When a flat layout node is expanded, lazily attach array encoding children.
   // Track which nodes we've already requested to avoid re-triggering on tree updates.
   const expandedArrayRequests = useRef(new Set<string>());
@@ -131,6 +141,8 @@ export function TreePanel() {
             row={row}
             isExpanded={expanded.has(row.node.id)}
             isSelected={selection.selectedNodeId === row.node.id}
+            isHovered={selection.hoveredNodeId === row.node.id}
+            isHoveredAncestor={hoveredAncestorIds.has(row.node.id)}
             mode={mode}
             onToggle={() => toggleExpanded(row.node.id)}
             onSelect={() => handleNodeClick(row.node.id)}
