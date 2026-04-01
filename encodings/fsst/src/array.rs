@@ -39,6 +39,7 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
+use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
@@ -459,10 +460,8 @@ impl FSSTArray {
         let offsets = self.slots[CODES_OFFSETS_SLOT]
             .clone()
             .vortex_expect("FSSTArray codes_offsets slot must be present");
-        let validity = match &self.slots[CODES_VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(self.dtype.nullability()),
-        };
+        let validity =
+            child_to_validity(&self.slots[CODES_VALIDITY_SLOT], self.dtype.nullability());
         // SAFETY: components were validated at FSSTArray construction time and bytes are
         // immutable; only offsets/validity slots can change, but the executor preserves
         // their invariants.
@@ -509,7 +508,10 @@ impl FSSTArray {
 
 impl ValidityVTable<FSST> for FSST {
     fn validity(array: &FSSTArray) -> VortexResult<Validity> {
-        Ok(array.codes().validity())
+        Ok(child_to_validity(
+            &array.slots[CODES_VALIDITY_SLOT],
+            array.dtype.nullability(),
+        ))
     }
 }
 
