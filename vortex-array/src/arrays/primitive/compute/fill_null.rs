@@ -16,7 +16,6 @@ use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl FillNullKernel for Primitive {
     fn fill_null(

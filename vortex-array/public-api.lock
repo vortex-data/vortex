@@ -898,7 +898,7 @@ pub type vortex_array::arrays::Bool::Metadata = vortex_array::ProstMetadata<vort
 
 pub type vortex_array::arrays::Bool::OperationsVTable = vortex_array::arrays::Bool
 
-pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -950,6 +950,10 @@ pub fn vortex_array::arrays::Bool::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::Bool::with_slots(array: &mut vortex_array::arrays::BoolArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Bool> for vortex_array::arrays::Bool
+
+pub fn vortex_array::arrays::Bool::validity(array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::bool::BoolArray
 
 impl vortex_array::arrays::BoolArray
@@ -979,6 +983,8 @@ pub fn vortex_array::arrays::BoolArray::try_new(bits: vortex_buffer::bit::buf::B
 pub fn vortex_array::arrays::BoolArray::try_new_from_handle(bits: vortex_array::buffer::BufferHandle, offset: usize, len: usize, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::BoolArray::validate(bits: &vortex_buffer::bit::buf::BitBuffer, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::BoolArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::BoolArray
 
@@ -1029,10 +1035,6 @@ pub fn vortex_array::arrays::BoolArray::execute(array: vortex_array::ArrayRef, c
 impl vortex_array::IntoArray for vortex_array::arrays::BoolArray
 
 pub fn vortex_array::arrays::BoolArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::BoolArray
-
-pub fn vortex_array::arrays::BoolArray::validity(&self) -> &vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::bool::BoolArrayParts
 
@@ -1510,7 +1512,7 @@ pub type vortex_array::arrays::Decimal::Metadata = vortex_array::ProstMetadata<v
 
 pub type vortex_array::arrays::Decimal::OperationsVTable = vortex_array::arrays::Decimal
 
-pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -1562,6 +1564,10 @@ pub fn vortex_array::arrays::Decimal::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::Decimal::with_slots(array: &mut vortex_array::arrays::DecimalArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Decimal> for vortex_array::arrays::Decimal
+
+pub fn vortex_array::arrays::Decimal::validity(array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::decimal::DecimalArray
 
 impl vortex_array::arrays::DecimalArray
@@ -1598,6 +1604,8 @@ pub fn vortex_array::arrays::DecimalArray::try_new<T: vortex_array::dtype::Nativ
 
 pub fn vortex_array::arrays::DecimalArray::try_new_handle(values: vortex_array::buffer::BufferHandle, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::arrays::DecimalArray::validity(&self) -> vortex_array::validity::Validity
+
 pub fn vortex_array::arrays::DecimalArray::values_type(&self) -> vortex_array::dtype::DecimalType
 
 impl vortex_array::arrays::DecimalArray
@@ -1633,10 +1641,6 @@ pub fn vortex_array::arrays::DecimalArray::execute(array: vortex_array::ArrayRef
 impl vortex_array::IntoArray for vortex_array::arrays::DecimalArray
 
 pub fn vortex_array::arrays::DecimalArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::DecimalArray
-
-pub fn vortex_array::arrays::DecimalArray::validity(&self) -> &vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::decimal::DecimalArrayParts
 
@@ -2636,7 +2640,7 @@ pub fn vortex_array::arrays::FixedSizeListArray::into_array(self) -> vortex_arra
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::FixedSizeListArray
 
-pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> vortex_array::validity::Validity
 
 pub mod vortex_array::arrays::list
 
@@ -2798,7 +2802,7 @@ pub fn vortex_array::arrays::ListArray::into_array(self) -> vortex_array::ArrayR
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListArray
 
-pub fn vortex_array::arrays::ListArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_array::arrays::ListArray::validity(&self) -> vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::list::ListArrayParts
 
@@ -2988,7 +2992,7 @@ pub fn vortex_array::arrays::ListViewArray::into_array(self) -> vortex_array::Ar
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListViewArray
 
-pub fn vortex_array::arrays::ListViewArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_array::arrays::ListViewArray::validity(&self) -> vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::listview::ListViewArrayParts
 
@@ -3052,7 +3056,7 @@ pub type vortex_array::arrays::Masked::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Masked::OperationsVTable = vortex_array::arrays::Masked
 
-pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -3104,6 +3108,10 @@ pub fn vortex_array::arrays::Masked::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::Masked::with_slots(array: &mut vortex_array::arrays::MaskedArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Masked> for vortex_array::arrays::Masked
+
+pub fn vortex_array::arrays::Masked::validity(array: &vortex_array::arrays::MaskedArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::masked::MaskedArray
 
 impl vortex_array::arrays::MaskedArray
@@ -3111,6 +3119,8 @@ impl vortex_array::arrays::MaskedArray
 pub fn vortex_array::arrays::MaskedArray::child(&self) -> &vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::MaskedArray::try_new(child: vortex_array::ArrayRef, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::arrays::MaskedArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::MaskedArray
 
@@ -3141,10 +3151,6 @@ pub fn vortex_array::arrays::MaskedArray::deref(&self) -> &Self::Target
 impl vortex_array::IntoArray for vortex_array::arrays::MaskedArray
 
 pub fn vortex_array::arrays::MaskedArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::MaskedArray
-
-pub fn vortex_array::arrays::MaskedArray::validity(&self) -> &vortex_array::validity::Validity
 
 pub fn vortex_array::arrays::masked::mask_validity_canonical(canonical: vortex_array::Canonical, validity_mask: &vortex_mask::Mask, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::Canonical>
 
@@ -3582,7 +3588,7 @@ pub type vortex_array::arrays::Primitive::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Primitive::OperationsVTable = vortex_array::arrays::Primitive
 
-pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -3633,6 +3639,10 @@ pub fn vortex_array::arrays::Primitive::stats(array: &vortex_array::arrays::Prim
 pub fn vortex_array::arrays::Primitive::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::Primitive::with_slots(array: &mut vortex_array::arrays::PrimitiveArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
+
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Primitive> for vortex_array::arrays::Primitive
+
+pub fn vortex_array::arrays::Primitive::validity(array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub struct vortex_array::arrays::primitive::PrimitiveArray
 
@@ -3690,6 +3700,8 @@ impl vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::into_parts(self) -> vortex_array::arrays::primitive::PrimitiveArrayParts
 
+pub fn vortex_array::arrays::PrimitiveArray::validity(&self) -> vortex_array::validity::Validity
+
 impl vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
@@ -3731,10 +3743,6 @@ pub fn vortex_array::arrays::PrimitiveArray::execute(array: vortex_array::ArrayR
 impl vortex_array::IntoArray for vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::PrimitiveArray
-
-pub fn vortex_array::arrays::PrimitiveArray::validity(&self) -> &vortex_array::validity::Validity
 
 impl<T: vortex_array::dtype::NativePType> core::iter::traits::collect::FromIterator<T> for vortex_array::arrays::PrimitiveArray
 
@@ -4386,7 +4394,7 @@ pub type vortex_array::arrays::Struct::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Struct::OperationsVTable = vortex_array::arrays::Struct
 
-pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -4438,6 +4446,10 @@ pub fn vortex_array::arrays::Struct::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::Struct::with_slots(array: &mut vortex_array::arrays::StructArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Struct> for vortex_array::arrays::Struct
+
+pub fn vortex_array::arrays::Struct::validity(array: &vortex_array::arrays::StructArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::struct_::StructArray
 
 impl vortex_array::arrays::StructArray
@@ -4482,6 +4494,8 @@ pub fn vortex_array::arrays::StructArray::unmasked_fields(&self) -> alloc::sync:
 
 pub fn vortex_array::arrays::StructArray::validate(fields: &[vortex_array::ArrayRef], dtype: &vortex_array::dtype::StructFields, length: usize, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
+pub fn vortex_array::arrays::StructArray::validity(&self) -> vortex_array::validity::Validity
+
 pub fn vortex_array::arrays::StructArray::with_column(&self, name: impl core::convert::Into<vortex_array::dtype::FieldName>, array: vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::StructArray
@@ -4521,10 +4535,6 @@ pub fn vortex_array::arrays::StructArray::execute(array: vortex_array::ArrayRef,
 impl vortex_array::IntoArray for vortex_array::arrays::StructArray
 
 pub fn vortex_array::arrays::StructArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::StructArray
-
-pub fn vortex_array::arrays::StructArray::validity(&self) -> &vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::struct_::StructArrayParts
 
@@ -4616,7 +4626,7 @@ pub type vortex_array::arrays::VarBin::Metadata = vortex_array::ProstMetadata<vo
 
 pub type vortex_array::arrays::VarBin::OperationsVTable = vortex_array::arrays::VarBin
 
-pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -4668,6 +4678,10 @@ pub fn vortex_array::arrays::VarBin::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::VarBin::with_slots(array: &mut vortex_array::arrays::VarBinArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::VarBin> for vortex_array::arrays::VarBin
+
+pub fn vortex_array::arrays::VarBin::validity(array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::varbin::VarBinArray
 
 impl vortex_array::arrays::VarBinArray
@@ -4705,6 +4719,8 @@ pub fn vortex_array::arrays::VarBinArray::try_new(offsets: vortex_array::ArrayRe
 pub fn vortex_array::arrays::VarBinArray::try_new_from_handle(offsets: vortex_array::ArrayRef, bytes: vortex_array::buffer::BufferHandle, dtype: vortex_array::dtype::DType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::VarBinArray::validate(offsets: &vortex_array::ArrayRef, bytes: &vortex_array::buffer::BufferHandle, dtype: &vortex_array::dtype::DType, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::VarBinArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::VarBinArray
 
@@ -4783,10 +4799,6 @@ pub fn &vortex_array::arrays::VarBinArray::with_iterator<F, R>(&self, f: F) -> R
 impl vortex_array::accessor::ArrayAccessor<[u8]> for vortex_array::arrays::VarBinArray
 
 pub fn vortex_array::arrays::VarBinArray::with_iterator<F, R>(&self, f: F) -> R where F: for<'a> core::ops::function::FnOnce(&mut dyn core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a [u8]>>) -> R
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::VarBinArray
-
-pub fn vortex_array::arrays::VarBinArray::validity(&self) -> &vortex_array::validity::Validity
 
 impl<'a> core::iter::traits::collect::FromIterator<core::option::Option<&'a [u8]>> for vortex_array::arrays::VarBinArray
 
@@ -5028,7 +5040,7 @@ pub type vortex_array::arrays::VarBinView::Metadata = vortex_array::EmptyMetadat
 
 pub type vortex_array::arrays::VarBinView::OperationsVTable = vortex_array::arrays::VarBinView
 
-pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::arrays::VarBinView
 
 pub fn vortex_array::arrays::VarBinView::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -5080,6 +5092,10 @@ pub fn vortex_array::arrays::VarBinView::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::VarBinView::with_slots(array: &mut vortex_array::arrays::VarBinViewArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::VarBinView> for vortex_array::arrays::VarBinView
+
+pub fn vortex_array::arrays::VarBinView::validity(array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::varbinview::VarBinViewArray
 
 impl vortex_array::arrays::VarBinViewArray
@@ -5117,6 +5133,8 @@ pub fn vortex_array::arrays::VarBinViewArray::try_new(views: vortex_buffer::buff
 pub fn vortex_array::arrays::VarBinViewArray::try_new_handle(views: vortex_array::buffer::BufferHandle, buffers: alloc::sync::Arc<[vortex_array::buffer::BufferHandle]>, dtype: vortex_array::dtype::DType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::VarBinViewArray::validate(views: &vortex_buffer::buffer::Buffer<vortex_array::arrays::varbinview::BinaryView>, buffers: &alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: &vortex_array::dtype::DType, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::VarBinViewArray::validity(&self) -> vortex_array::validity::Validity
 
 pub fn vortex_array::arrays::VarBinViewArray::views(&self) -> &[vortex_array::arrays::varbinview::BinaryView]
 
@@ -5177,10 +5195,6 @@ pub fn &vortex_array::arrays::VarBinViewArray::with_iterator<F, R>(&self, f: F) 
 impl vortex_array::accessor::ArrayAccessor<[u8]> for vortex_array::arrays::VarBinViewArray
 
 pub fn vortex_array::arrays::VarBinViewArray::with_iterator<F: for<'a> core::ops::function::FnOnce(&mut dyn core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a [u8]>>) -> R, R>(&self, f: F) -> R
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::VarBinViewArray
-
-pub fn vortex_array::arrays::VarBinViewArray::validity(&self) -> &vortex_array::validity::Validity
 
 impl<'a> core::iter::traits::collect::FromIterator<core::option::Option<&'a [u8]>> for vortex_array::arrays::VarBinViewArray
 
@@ -5378,7 +5392,7 @@ pub type vortex_array::arrays::Bool::Metadata = vortex_array::ProstMetadata<vort
 
 pub type vortex_array::arrays::Bool::OperationsVTable = vortex_array::arrays::Bool
 
-pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -5430,6 +5444,10 @@ pub fn vortex_array::arrays::Bool::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::Bool::with_slots(array: &mut vortex_array::arrays::BoolArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Bool> for vortex_array::arrays::Bool
+
+pub fn vortex_array::arrays::Bool::validity(array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::BoolArray
 
 impl vortex_array::arrays::BoolArray
@@ -5459,6 +5477,8 @@ pub fn vortex_array::arrays::BoolArray::try_new(bits: vortex_buffer::bit::buf::B
 pub fn vortex_array::arrays::BoolArray::try_new_from_handle(bits: vortex_array::buffer::BufferHandle, offset: usize, len: usize, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::BoolArray::validate(bits: &vortex_buffer::bit::buf::BitBuffer, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::BoolArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::BoolArray
 
@@ -5509,10 +5529,6 @@ pub fn vortex_array::arrays::BoolArray::execute(array: vortex_array::ArrayRef, c
 impl vortex_array::IntoArray for vortex_array::arrays::BoolArray
 
 pub fn vortex_array::arrays::BoolArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::BoolArray
-
-pub fn vortex_array::arrays::BoolArray::validity(&self) -> &vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::Chunked
 
@@ -5896,7 +5912,7 @@ pub type vortex_array::arrays::Decimal::Metadata = vortex_array::ProstMetadata<v
 
 pub type vortex_array::arrays::Decimal::OperationsVTable = vortex_array::arrays::Decimal
 
-pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -5948,6 +5964,10 @@ pub fn vortex_array::arrays::Decimal::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::Decimal::with_slots(array: &mut vortex_array::arrays::DecimalArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Decimal> for vortex_array::arrays::Decimal
+
+pub fn vortex_array::arrays::Decimal::validity(array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::DecimalArray
 
 impl vortex_array::arrays::DecimalArray
@@ -5984,6 +6004,8 @@ pub fn vortex_array::arrays::DecimalArray::try_new<T: vortex_array::dtype::Nativ
 
 pub fn vortex_array::arrays::DecimalArray::try_new_handle(values: vortex_array::buffer::BufferHandle, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_array::arrays::DecimalArray::validity(&self) -> vortex_array::validity::Validity
+
 pub fn vortex_array::arrays::DecimalArray::values_type(&self) -> vortex_array::dtype::DecimalType
 
 impl vortex_array::arrays::DecimalArray
@@ -6019,10 +6041,6 @@ pub fn vortex_array::arrays::DecimalArray::execute(array: vortex_array::ArrayRef
 impl vortex_array::IntoArray for vortex_array::arrays::DecimalArray
 
 pub fn vortex_array::arrays::DecimalArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::DecimalArray
-
-pub fn vortex_array::arrays::DecimalArray::validity(&self) -> &vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::Dict
 
@@ -6640,7 +6658,7 @@ pub fn vortex_array::arrays::FixedSizeListArray::into_array(self) -> vortex_arra
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::FixedSizeListArray
 
-pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::List
 
@@ -6800,7 +6818,7 @@ pub fn vortex_array::arrays::ListArray::into_array(self) -> vortex_array::ArrayR
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListArray
 
-pub fn vortex_array::arrays::ListArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_array::arrays::ListArray::validity(&self) -> vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::ListView
 
@@ -6968,7 +6986,7 @@ pub fn vortex_array::arrays::ListViewArray::into_array(self) -> vortex_array::Ar
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListViewArray
 
-pub fn vortex_array::arrays::ListViewArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_array::arrays::ListViewArray::validity(&self) -> vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::Masked
 
@@ -7012,7 +7030,7 @@ pub type vortex_array::arrays::Masked::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Masked::OperationsVTable = vortex_array::arrays::Masked
 
-pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -7064,6 +7082,10 @@ pub fn vortex_array::arrays::Masked::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::Masked::with_slots(array: &mut vortex_array::arrays::MaskedArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Masked> for vortex_array::arrays::Masked
+
+pub fn vortex_array::arrays::Masked::validity(array: &vortex_array::arrays::MaskedArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::MaskedArray
 
 impl vortex_array::arrays::MaskedArray
@@ -7071,6 +7093,8 @@ impl vortex_array::arrays::MaskedArray
 pub fn vortex_array::arrays::MaskedArray::child(&self) -> &vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::MaskedArray::try_new(child: vortex_array::ArrayRef, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::arrays::MaskedArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::MaskedArray
 
@@ -7101,10 +7125,6 @@ pub fn vortex_array::arrays::MaskedArray::deref(&self) -> &Self::Target
 impl vortex_array::IntoArray for vortex_array::arrays::MaskedArray
 
 pub fn vortex_array::arrays::MaskedArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::MaskedArray
-
-pub fn vortex_array::arrays::MaskedArray::validity(&self) -> &vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::Null
 
@@ -7448,7 +7468,7 @@ pub type vortex_array::arrays::Primitive::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Primitive::OperationsVTable = vortex_array::arrays::Primitive
 
-pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -7499,6 +7519,10 @@ pub fn vortex_array::arrays::Primitive::stats(array: &vortex_array::arrays::Prim
 pub fn vortex_array::arrays::Primitive::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::Primitive::with_slots(array: &mut vortex_array::arrays::PrimitiveArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
+
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Primitive> for vortex_array::arrays::Primitive
+
+pub fn vortex_array::arrays::Primitive::validity(array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub struct vortex_array::arrays::PrimitiveArray
 
@@ -7556,6 +7580,8 @@ impl vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::into_parts(self) -> vortex_array::arrays::primitive::PrimitiveArrayParts
 
+pub fn vortex_array::arrays::PrimitiveArray::validity(&self) -> vortex_array::validity::Validity
+
 impl vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
@@ -7597,10 +7623,6 @@ pub fn vortex_array::arrays::PrimitiveArray::execute(array: vortex_array::ArrayR
 impl vortex_array::IntoArray for vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::PrimitiveArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::PrimitiveArray
-
-pub fn vortex_array::arrays::PrimitiveArray::validity(&self) -> &vortex_array::validity::Validity
 
 impl<T: vortex_array::dtype::NativePType> core::iter::traits::collect::FromIterator<T> for vortex_array::arrays::PrimitiveArray
 
@@ -8044,7 +8066,7 @@ pub type vortex_array::arrays::Struct::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Struct::OperationsVTable = vortex_array::arrays::Struct
 
-pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -8096,6 +8118,10 @@ pub fn vortex_array::arrays::Struct::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::Struct::with_slots(array: &mut vortex_array::arrays::StructArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Struct> for vortex_array::arrays::Struct
+
+pub fn vortex_array::arrays::Struct::validity(array: &vortex_array::arrays::StructArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::StructArray
 
 impl vortex_array::arrays::StructArray
@@ -8140,6 +8166,8 @@ pub fn vortex_array::arrays::StructArray::unmasked_fields(&self) -> alloc::sync:
 
 pub fn vortex_array::arrays::StructArray::validate(fields: &[vortex_array::ArrayRef], dtype: &vortex_array::dtype::StructFields, length: usize, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
+pub fn vortex_array::arrays::StructArray::validity(&self) -> vortex_array::validity::Validity
+
 pub fn vortex_array::arrays::StructArray::with_column(&self, name: impl core::convert::Into<vortex_array::dtype::FieldName>, array: vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::arrays::StructArray
@@ -8179,10 +8207,6 @@ pub fn vortex_array::arrays::StructArray::execute(array: vortex_array::ArrayRef,
 impl vortex_array::IntoArray for vortex_array::arrays::StructArray
 
 pub fn vortex_array::arrays::StructArray::into_array(self) -> vortex_array::ArrayRef
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::StructArray
-
-pub fn vortex_array::arrays::StructArray::validity(&self) -> &vortex_array::validity::Validity
 
 pub struct vortex_array::arrays::TemporalArray
 
@@ -8298,7 +8322,7 @@ pub type vortex_array::arrays::VarBin::Metadata = vortex_array::ProstMetadata<vo
 
 pub type vortex_array::arrays::VarBin::OperationsVTable = vortex_array::arrays::VarBin
 
-pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -8350,6 +8374,10 @@ pub fn vortex_array::arrays::VarBin::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::VarBin::with_slots(array: &mut vortex_array::arrays::VarBinArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::VarBin> for vortex_array::arrays::VarBin
+
+pub fn vortex_array::arrays::VarBin::validity(array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::VarBinArray
 
 impl vortex_array::arrays::VarBinArray
@@ -8387,6 +8415,8 @@ pub fn vortex_array::arrays::VarBinArray::try_new(offsets: vortex_array::ArrayRe
 pub fn vortex_array::arrays::VarBinArray::try_new_from_handle(offsets: vortex_array::ArrayRef, bytes: vortex_array::buffer::BufferHandle, dtype: vortex_array::dtype::DType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::VarBinArray::validate(offsets: &vortex_array::ArrayRef, bytes: &vortex_array::buffer::BufferHandle, dtype: &vortex_array::dtype::DType, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::VarBinArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::VarBinArray
 
@@ -8466,10 +8496,6 @@ impl vortex_array::accessor::ArrayAccessor<[u8]> for vortex_array::arrays::VarBi
 
 pub fn vortex_array::arrays::VarBinArray::with_iterator<F, R>(&self, f: F) -> R where F: for<'a> core::ops::function::FnOnce(&mut dyn core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a [u8]>>) -> R
 
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::VarBinArray
-
-pub fn vortex_array::arrays::VarBinArray::validity(&self) -> &vortex_array::validity::Validity
-
 impl<'a> core::iter::traits::collect::FromIterator<core::option::Option<&'a [u8]>> for vortex_array::arrays::VarBinArray
 
 pub fn vortex_array::arrays::VarBinArray::from_iter<T: core::iter::traits::collect::IntoIterator<Item = core::option::Option<&'a [u8]>>>(iter: T) -> Self
@@ -8524,7 +8550,7 @@ pub type vortex_array::arrays::VarBinView::Metadata = vortex_array::EmptyMetadat
 
 pub type vortex_array::arrays::VarBinView::OperationsVTable = vortex_array::arrays::VarBinView
 
-pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::arrays::VarBinView
 
 pub fn vortex_array::arrays::VarBinView::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -8576,6 +8602,10 @@ pub fn vortex_array::arrays::VarBinView::vtable(_array: &Self::Array) -> &Self
 
 pub fn vortex_array::arrays::VarBinView::with_slots(array: &mut vortex_array::arrays::VarBinViewArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::VarBinView> for vortex_array::arrays::VarBinView
+
+pub fn vortex_array::arrays::VarBinView::validity(array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_array::arrays::VarBinViewArray
 
 impl vortex_array::arrays::VarBinViewArray
@@ -8613,6 +8643,8 @@ pub fn vortex_array::arrays::VarBinViewArray::try_new(views: vortex_buffer::buff
 pub fn vortex_array::arrays::VarBinViewArray::try_new_handle(views: vortex_array::buffer::BufferHandle, buffers: alloc::sync::Arc<[vortex_array::buffer::BufferHandle]>, dtype: vortex_array::dtype::DType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::VarBinViewArray::validate(views: &vortex_buffer::buffer::Buffer<vortex_array::arrays::varbinview::BinaryView>, buffers: &alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: &vortex_array::dtype::DType, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::VarBinViewArray::validity(&self) -> vortex_array::validity::Validity
 
 pub fn vortex_array::arrays::VarBinViewArray::views(&self) -> &[vortex_array::arrays::varbinview::BinaryView]
 
@@ -8673,10 +8705,6 @@ pub fn &vortex_array::arrays::VarBinViewArray::with_iterator<F, R>(&self, f: F) 
 impl vortex_array::accessor::ArrayAccessor<[u8]> for vortex_array::arrays::VarBinViewArray
 
 pub fn vortex_array::arrays::VarBinViewArray::with_iterator<F: for<'a> core::ops::function::FnOnce(&mut dyn core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a [u8]>>) -> R, R>(&self, f: F) -> R
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::VarBinViewArray
-
-pub fn vortex_array::arrays::VarBinViewArray::validity(&self) -> &vortex_array::validity::Validity
 
 impl<'a> core::iter::traits::collect::FromIterator<core::option::Option<&'a [u8]>> for vortex_array::arrays::VarBinViewArray
 
@@ -21474,7 +21502,7 @@ pub type vortex_array::arrays::Bool::Metadata = vortex_array::ProstMetadata<vort
 
 pub type vortex_array::arrays::Bool::OperationsVTable = vortex_array::arrays::Bool
 
-pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -21654,7 +21682,7 @@ pub type vortex_array::arrays::Decimal::Metadata = vortex_array::ProstMetadata<v
 
 pub type vortex_array::arrays::Decimal::OperationsVTable = vortex_array::arrays::Decimal
 
-pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -22014,7 +22042,7 @@ pub type vortex_array::arrays::Masked::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Masked::OperationsVTable = vortex_array::arrays::Masked
 
-pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -22074,7 +22102,7 @@ pub type vortex_array::arrays::Primitive::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Primitive::OperationsVTable = vortex_array::arrays::Primitive
 
-pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -22194,7 +22222,7 @@ pub type vortex_array::arrays::Struct::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Struct::OperationsVTable = vortex_array::arrays::Struct
 
-pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -22254,7 +22282,7 @@ pub type vortex_array::arrays::VarBin::Metadata = vortex_array::ProstMetadata<vo
 
 pub type vortex_array::arrays::VarBin::OperationsVTable = vortex_array::arrays::VarBin
 
-pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -22314,7 +22342,7 @@ pub type vortex_array::arrays::VarBinView::Metadata = vortex_array::EmptyMetadat
 
 pub type vortex_array::arrays::VarBinView::OperationsVTable = vortex_array::arrays::VarBinView
 
-pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::arrays::VarBinView
 
 pub fn vortex_array::arrays::VarBinView::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -22918,7 +22946,7 @@ pub type vortex_array::arrays::Bool::Metadata = vortex_array::ProstMetadata<vort
 
 pub type vortex_array::arrays::Bool::OperationsVTable = vortex_array::arrays::Bool
 
-pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -23098,7 +23126,7 @@ pub type vortex_array::arrays::Decimal::Metadata = vortex_array::ProstMetadata<v
 
 pub type vortex_array::arrays::Decimal::OperationsVTable = vortex_array::arrays::Decimal
 
-pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -23458,7 +23486,7 @@ pub type vortex_array::arrays::Masked::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Masked::OperationsVTable = vortex_array::arrays::Masked
 
-pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -23518,7 +23546,7 @@ pub type vortex_array::arrays::Primitive::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Primitive::OperationsVTable = vortex_array::arrays::Primitive
 
-pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -23638,7 +23666,7 @@ pub type vortex_array::arrays::Struct::Metadata = vortex_array::EmptyMetadata
 
 pub type vortex_array::arrays::Struct::OperationsVTable = vortex_array::arrays::Struct
 
-pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -23698,7 +23726,7 @@ pub type vortex_array::arrays::VarBin::Metadata = vortex_array::ProstMetadata<vo
 
 pub type vortex_array::arrays::VarBin::OperationsVTable = vortex_array::arrays::VarBin
 
-pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -23758,7 +23786,7 @@ pub type vortex_array::arrays::VarBinView::Metadata = vortex_array::EmptyMetadat
 
 pub type vortex_array::arrays::VarBinView::OperationsVTable = vortex_array::arrays::VarBinView
 
-pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::vtable::ValidityVTableFromValidityHelper
+pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::arrays::VarBinView
 
 pub fn vortex_array::arrays::VarBinView::append_to_builder(array: &Self::Array, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -24190,47 +24218,19 @@ pub fn vortex_array::vtable::ValidityChildSliceHelper::unsliced_child_and_slice(
 
 pub trait vortex_array::vtable::ValidityHelper
 
-pub fn vortex_array::vtable::ValidityHelper::validity(&self) -> &vortex_array::validity::Validity
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::BoolArray
-
-pub fn vortex_array::arrays::BoolArray::validity(&self) -> &vortex_array::validity::Validity
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::DecimalArray
-
-pub fn vortex_array::arrays::DecimalArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_array::vtable::ValidityHelper::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::FixedSizeListArray
 
-pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_array::arrays::FixedSizeListArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListArray
 
-pub fn vortex_array::arrays::ListArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_array::arrays::ListArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::ListViewArray
 
-pub fn vortex_array::arrays::ListViewArray::validity(&self) -> &vortex_array::validity::Validity
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::MaskedArray
-
-pub fn vortex_array::arrays::MaskedArray::validity(&self) -> &vortex_array::validity::Validity
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::PrimitiveArray
-
-pub fn vortex_array::arrays::PrimitiveArray::validity(&self) -> &vortex_array::validity::Validity
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::StructArray
-
-pub fn vortex_array::arrays::StructArray::validity(&self) -> &vortex_array::validity::Validity
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::VarBinArray
-
-pub fn vortex_array::arrays::VarBinArray::validity(&self) -> &vortex_array::validity::Validity
-
-impl vortex_array::vtable::ValidityHelper for vortex_array::arrays::VarBinViewArray
-
-pub fn vortex_array::arrays::VarBinViewArray::validity(&self) -> &vortex_array::validity::Validity
+pub fn vortex_array::arrays::ListViewArray::validity(&self) -> vortex_array::validity::Validity
 
 pub trait vortex_array::vtable::ValiditySliceHelper
 
@@ -24242,6 +24242,10 @@ pub trait vortex_array::vtable::ValidityVTable<V: vortex_array::vtable::VTable>
 
 pub fn vortex_array::vtable::ValidityVTable::validity(array: &<V as vortex_array::vtable::VTable>::Array) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Bool> for vortex_array::arrays::Bool
+
+pub fn vortex_array::arrays::Bool::validity(array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Chunked> for vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::validity(array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
@@ -24250,13 +24254,37 @@ impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Constant> for vo
 
 pub fn vortex_array::arrays::Constant::validity(array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Decimal> for vortex_array::arrays::Decimal
+
+pub fn vortex_array::arrays::Decimal::validity(array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Filter> for vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::validity(array: &vortex_array::arrays::FilterArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Masked> for vortex_array::arrays::Masked
+
+pub fn vortex_array::arrays::Masked::validity(array: &vortex_array::arrays::MaskedArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Primitive> for vortex_array::arrays::Primitive
+
+pub fn vortex_array::arrays::Primitive::validity(array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Shared> for vortex_array::arrays::Shared
 
 pub fn vortex_array::arrays::Shared::validity(array: &vortex_array::arrays::SharedArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Struct> for vortex_array::arrays::Struct
+
+pub fn vortex_array::arrays::Struct::validity(array: &vortex_array::arrays::StructArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::VarBin> for vortex_array::arrays::VarBin
+
+pub fn vortex_array::arrays::VarBin::validity(array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::VarBinView> for vortex_array::arrays::VarBinView
+
+pub fn vortex_array::arrays::VarBinView::validity(array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::Variant> for vortex_array::arrays::Variant
 
@@ -24293,6 +24321,8 @@ pub fn vortex_array::vtable::ValidityVTableFromValiditySliceHelper::validity(arr
 impl<V> vortex_array::vtable::ValidityVTable<V> for vortex_array::vtable::ValidityVTableFromChild where V: vortex_array::vtable::ValidityChild<V> + vortex_array::vtable::VTable
 
 pub fn vortex_array::vtable::ValidityVTableFromChild::validity(array: &<V as vortex_array::vtable::VTable>::Array) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+pub fn vortex_array::vtable::child_to_validity(child: &core::option::Option<vortex_array::ArrayRef>, nullability: vortex_array::dtype::Nullability) -> vortex_array::validity::Validity
 
 pub fn vortex_array::vtable::patches_child(patches: &vortex_array::patches::Patches, idx: usize) -> vortex_array::ArrayRef
 

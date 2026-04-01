@@ -24,7 +24,6 @@ use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&StructCastPushDownRule),
@@ -78,11 +77,10 @@ impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
         }
 
         let validity = if parent.options.is_nullable() {
-            array.validity().clone().into_nullable()
+            array.validity().into_nullable()
         } else {
             array
                 .validity()
-                .clone()
                 .into_non_nullable(array.len)
                 .ok_or_else(|| vortex_err!("Failed to cast nullable struct to non-nullable"))?
         };

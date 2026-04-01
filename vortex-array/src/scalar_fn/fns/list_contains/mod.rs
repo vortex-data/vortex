@@ -344,7 +344,7 @@ fn list_contains_scalar(
 
     Ok(BoolArray::new(
         list_matches,
-        list_array.validity().clone().union_nullability(nullability),
+        list_array.validity().union_nullability(nullability),
     )
     .into_array())
 }
@@ -434,11 +434,7 @@ fn list_is_not_empty(
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::new(
-        buffer,
-        list_array.validity().clone().union_nullability(nullability),
-    )
-    .into_array())
+    Ok(BoolArray::new(buffer, list_array.validity().union_nullability(nullability)).into_array())
 }
 
 #[cfg(test)]

@@ -154,7 +154,7 @@ pub type vortex_fastlanes::BitPacked::Metadata = vortex_array::metadata::ProstMe
 
 pub type vortex_fastlanes::BitPacked::OperationsVTable = vortex_fastlanes::BitPacked
 
-pub type vortex_fastlanes::BitPacked::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromValidityHelper
+pub type vortex_fastlanes::BitPacked::ValidityVTable = vortex_fastlanes::BitPacked
 
 pub fn vortex_fastlanes::BitPacked::append_to_builder(array: &vortex_fastlanes::BitPackedArray, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -202,6 +202,10 @@ impl vortex_array::vtable::operations::OperationsVTable<vortex_fastlanes::BitPac
 
 pub fn vortex_fastlanes::BitPacked::scalar_at(array: &vortex_fastlanes::BitPackedArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
+impl vortex_array::vtable::validity::ValidityVTable<vortex_fastlanes::BitPacked> for vortex_fastlanes::BitPacked
+
+pub fn vortex_fastlanes::BitPacked::validity(array: &vortex_fastlanes::BitPackedArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 pub struct vortex_fastlanes::BitPackedArray
 
 impl vortex_fastlanes::BitPackedArray
@@ -220,7 +224,7 @@ pub fn vortex_fastlanes::BitPackedArray::packed(&self) -> &vortex_array::buffer:
 
 pub fn vortex_fastlanes::BitPackedArray::packed_slice<T: vortex_array::dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(&self) -> &[T]
 
-pub fn vortex_fastlanes::BitPackedArray::patches(&self) -> core::option::Option<&vortex_array::patches::Patches>
+pub fn vortex_fastlanes::BitPackedArray::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
 pub fn vortex_fastlanes::BitPackedArray::ptype(&self) -> vortex_array::dtype::ptype::PType
 
@@ -229,6 +233,8 @@ pub fn vortex_fastlanes::BitPackedArray::replace_patches(&mut self, patches: cor
 pub fn vortex_fastlanes::BitPackedArray::try_new(packed: vortex_array::buffer::BufferHandle, ptype: vortex_array::dtype::ptype::PType, validity: vortex_array::validity::Validity, patches: core::option::Option<vortex_array::patches::Patches>, bit_width: u8, length: usize, offset: u16) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_fastlanes::BitPackedArray::unpacked_chunks<T: vortex_fastlanes::unpack_iter::BitPacked>(&self) -> vortex_fastlanes::unpack_iter::BitUnpackedChunks<T>
+
+pub fn vortex_fastlanes::BitPackedArray::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_fastlanes::BitPackedArray
 
@@ -259,10 +265,6 @@ pub fn vortex_fastlanes::BitPackedArray::deref(&self) -> &Self::Target
 impl vortex_array::array::IntoArray for vortex_fastlanes::BitPackedArray
 
 pub fn vortex_fastlanes::BitPackedArray::into_array(self) -> vortex_array::array::ArrayRef
-
-impl vortex_array::vtable::validity::ValidityHelper for vortex_fastlanes::BitPackedArray
-
-pub fn vortex_fastlanes::BitPackedArray::validity(&self) -> &vortex_array::validity::Validity
 
 pub struct vortex_fastlanes::BitPackedArrayParts
 

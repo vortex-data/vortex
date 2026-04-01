@@ -9,7 +9,6 @@ use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl MaskReduce for Struct {
     fn mask(array: &StructArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -17,10 +16,7 @@ impl MaskReduce for Struct {
             array.unmasked_fields().iter().cloned().collect::<Vec<_>>(),
             array.struct_fields().clone(),
             array.len(),
-            array
-                .validity()
-                .clone()
-                .and(Validity::Array(mask.clone()))?,
+            array.validity().and(Validity::Array(mask.clone()))?,
         )
         .map(|a| Some(a.into_array()))
     }

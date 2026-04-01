@@ -22,7 +22,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::masked::array::NUM_SLOTS;
 use crate::arrays::masked::array::SLOT_NAMES;
-use crate::arrays::masked::array::VALIDITY_SLOT;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
@@ -39,7 +38,6 @@ use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 vtable!(Masked);
 
 #[derive(Clone, Debug)]
@@ -54,7 +52,7 @@ impl VTable for Masked {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {
         &Masked
@@ -78,13 +76,13 @@ impl VTable for Masked {
 
     fn array_hash<H: std::hash::Hasher>(array: &MaskedArray, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
         array.dtype.hash(state);
     }
 
     fn array_eq(array: &MaskedArray, other: &MaskedArray, precision: Precision) -> bool {
         array.child().array_eq(other.child(), precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
             && array.dtype == other.dtype
     }
 
@@ -193,10 +191,6 @@ impl VTable for Masked {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }

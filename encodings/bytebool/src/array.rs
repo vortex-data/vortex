@@ -177,7 +177,7 @@ impl VTable for ByteBool {
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
-        let validity = array.validity().clone();
+        let validity = array.validity();
         Ok(ExecutionResult::done(
             BoolArray::new(boolean_buffer, validity).into_array(),
         ))
@@ -258,8 +258,8 @@ impl ByteBoolArray {
 }
 
 impl ValidityHelper for ByteBoolArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+    fn validity(&self) -> Validity {
+        self.validity.clone()
     }
 }
 

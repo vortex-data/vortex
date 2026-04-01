@@ -19,7 +19,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use crate::vtable::child_to_validity;
 use crate::vtable::validity_to_child;
 
 // StructArray has a variable number of slots: [validity?, field_0, ..., field_N]
@@ -149,7 +149,6 @@ pub struct StructArray {
     pub(super) len: usize,
     pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -211,6 +210,11 @@ impl StructArray {
             )
         };
         struct_dtype
+    }
+
+    /// Reconstructs the validity from the slots.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     /// Create a new `StructArray` with the given length, but without any fields.
@@ -310,7 +314,6 @@ impl StructArray {
             len: length,
             dtype: DType::Struct(dtype, validity.nullability()),
             slots,
-            validity,
             stats_set: Default::default(),
         }
     }
@@ -382,6 +385,7 @@ impl StructArray {
     }
 
     pub fn into_parts(self) -> StructArrayParts {
+        let validity = self.validity();
         let struct_fields = self.dtype.into_struct_fields();
         let fields: Arc<[ArrayRef]> = self
             .slots
@@ -392,7 +396,7 @@ impl StructArray {
         StructArrayParts {
             struct_fields,
             fields,
-            validity: self.validity,
+            validity,
         }
     }
 
@@ -461,7 +465,7 @@ impl StructArray {
             FieldNames::from(names.as_slice()),
             children,
             self.len(),
-            self.validity().clone(),
+            self.validity(),
         )
     }
 
@@ -513,6 +517,6 @@ impl StructArray {
             .chain(once(array))
             .collect();
 
-        Self::try_new_with_dtype(children, new_fields, self.len, self.validity.clone())
+        Self::try_new_with_dtype(children, new_fields, self.len, self.validity())
     }
 }

@@ -22,7 +22,7 @@ pub struct ValidityVTableFromValidityHelper;
 
 /// Expose validity held as a child array.
 pub trait ValidityHelper {
-    fn validity(&self) -> &Validity;
+    fn validity(&self) -> Validity;
 }
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValidityHelper
@@ -30,7 +30,7 @@ where
     V::Array: ValidityHelper,
 {
     fn validity(array: &V::Array) -> VortexResult<Validity> {
-        Ok(array.validity().clone())
+        Ok(array.validity())
     }
 }
 

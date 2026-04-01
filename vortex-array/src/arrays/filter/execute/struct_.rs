@@ -10,10 +10,9 @@ use crate::ArrayRef;
 use crate::arrays::StructArray;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
-use crate::vtable::ValidityHelper;
 
 pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray {
-    let filtered_validity = filter_validity(array.validity().clone(), mask);
+    let filtered_validity = filter_validity(array.validity(), mask);
 
     let mask_for_filter = values_to_mask(mask);
     let fields: Vec<ArrayRef> = array

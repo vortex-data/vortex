@@ -543,8 +543,8 @@ impl ALPRDArray {
     }
 
     /// Patches of left-most bits.
-    pub fn left_parts_patches(&self) -> Option<&Patches> {
-        self.left_parts_patches.as_ref()
+    pub fn left_parts_patches(&self) -> Option<Patches> {
+        self.left_parts_patches.clone()
     }
 
     /// The dictionary that maps the codes in `left_parts` into bit patterns.

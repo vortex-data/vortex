@@ -38,7 +38,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -302,7 +301,7 @@ fn to_canonical_decimal(
             DecimalArray::new_unchecked(
                 prim.to_buffer::<P>(),
                 *array.decimal_dtype(),
-                prim.validity().clone(),
+                prim.validity(),
             )
         }
         .into_array()

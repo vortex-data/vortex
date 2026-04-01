@@ -786,7 +786,8 @@ mod tests {
                 false, false, false, false, false, false, false, false, false, false, true,
             ]),
         );
-        let validity = array.validity()?;
+
+        let validity = array.validity();
 
         let btr = BtrBlocksCompressor::default();
         let compressed = btr.compress(&array.into_array())?;
