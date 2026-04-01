@@ -5,4 +5,5 @@ pub mod is_constant;
 pub mod is_sorted;
 pub mod min_max;
 pub mod nan_count;
+pub mod row_count;
 pub mod sum;
