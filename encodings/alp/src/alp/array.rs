@@ -16,11 +16,13 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_child;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -191,6 +193,37 @@ impl VTable for ALP {
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.encoded(), ENCODED_SLOT => Primitive);
+
+        if array
+            .patches()
+            .is_some_and(|p| !p.indices().is::<Primitive>())
+        {
+            return Ok(ExecutionResult::execute_slot::<Primitive>(
+                array,
+                PATCH_INDICES_SLOT,
+            ));
+        }
+        if array
+            .patches()
+            .is_some_and(|p| !p.values().is::<Primitive>())
+        {
+            return Ok(ExecutionResult::execute_slot::<Primitive>(
+                array,
+                PATCH_VALUES_SLOT,
+            ));
+        }
+        if array.patches().is_some_and(|p| {
+            p.chunk_offsets()
+                .as_ref()
+                .is_some_and(|co| !co.is::<Primitive>())
+        }) {
+            return Ok(ExecutionResult::execute_slot::<Primitive>(
+                array,
+                PATCH_CHUNK_OFFSETS_SLOT,
+            ));
+        }
+
         Ok(ExecutionResult::done(
             execute_decompress(Arc::unwrap_or_clone(array).into_inner(), ctx)?.into_array(),
         ))
