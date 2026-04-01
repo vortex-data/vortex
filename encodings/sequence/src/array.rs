@@ -6,12 +6,12 @@ use std::sync::Arc;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayRef;
-use vortex_array::DeserializeMetadata;
+use vortex_array::DeserialiseMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
+use vortex_array::SerialiseMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -305,16 +305,16 @@ impl VTable for Sequence {
         })
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         let prost = ProstMetadata(ProstSequenceMetadata {
             base: Some((&metadata.base).into()),
             multiplier: Some((&metadata.multiplier).into()),
         });
 
-        Ok(Some(prost.serialize()))
+        Ok(Some(prost.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         dtype: &DType,
         _len: usize,
@@ -322,7 +322,7 @@ impl VTable for Sequence {
         session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         let prost =
-            <ProstMetadata<ProstSequenceMetadata> as DeserializeMetadata>::deserialize(bytes)?;
+            <ProstMetadata<ProstSequenceMetadata> as DeserialiseMetadata>::deserialise(bytes)?;
 
         let ptype = dtype.as_ptype();
 

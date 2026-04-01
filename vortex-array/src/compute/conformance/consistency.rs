@@ -15,7 +15,7 @@
 //!   the same result as applying a combined mask.
 //! - **Identity Operations**: Tests that operations with identity inputs (all-true masks,
 //!   sequential indices) preserve the original array.
-//! - **Null Handling**: Verifies consistent behavior when operations introduce or
+//! - **Null Handling**: Verifies consistent behaviour when operations introduce or
 //!   interact with null values.
 //! - **Edge Cases**: Tests empty arrays, single elements, and boundary conditions.
 

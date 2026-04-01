@@ -29,7 +29,7 @@ const VECTOR_SIZE: &[usize] = &[16, 256, 2048, 8192];
 // --- DictArray canonicalization benchmarks ---
 
 #[divan::bench(args = NUM_INDICES, consts = VECTOR_SIZE, sample_count = 100_000)]
-fn dict_canonicalize_uniform<const NUM_VALUES: usize>(bencher: Bencher, num_indices: usize) {
+fn dict_canonicalise_uniform<const NUM_VALUES: usize>(bencher: Bencher, num_indices: usize) {
     let values = PrimitiveArray::from_iter(0..NUM_VALUES as u32);
 
     let rng = StdRng::seed_from_u64(0);
@@ -44,7 +44,7 @@ fn dict_canonicalize_uniform<const NUM_VALUES: usize>(bencher: Bencher, num_indi
 }
 
 #[divan::bench(args = NUM_INDICES, consts = VECTOR_SIZE, sample_count = 100_000)]
-fn dict_canonicalize_zipfian<const NUM_VALUES: usize>(bencher: Bencher, num_indices: usize) {
+fn dict_canonicalise_zipfian<const NUM_VALUES: usize>(bencher: Bencher, num_indices: usize) {
     let values = PrimitiveArray::from_iter(0..NUM_VALUES as u32);
 
     let rng = StdRng::seed_from_u64(0);

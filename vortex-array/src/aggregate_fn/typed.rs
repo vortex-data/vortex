@@ -105,7 +105,7 @@ impl<V: AggregateFnVTable> DynAggregateFn for AggregateFnInner<V> {
     }
 
     fn options_serialize(&self) -> VortexResult<Option<Vec<u8>>> {
-        V::serialize(&self.vtable, &self.options)
+        V::serialise(&self.vtable, &self.options)
     }
 
     fn options_eq(&self, other_options: &dyn Any) -> bool {

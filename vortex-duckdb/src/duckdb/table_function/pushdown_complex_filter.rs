@@ -10,7 +10,7 @@ use crate::duckdb::Expression;
 use crate::duckdb::TableFunction;
 use crate::duckdb::try_or;
 
-/// Native callback for the global initialization of a table function.
+/// Native callback for the global initialisation of a table function.
 pub(crate) unsafe extern "C-unwind" fn pushdown_complex_filter_callback<T: TableFunction>(
     bind_data: *mut c_void,
     expr: cpp::duckdb_vx_expr,

@@ -23,7 +23,7 @@ extern "C" {
  *
  * This ensures DuckDB can find the symbols when loading the extension.
  *
- * The DuckDB extension ABI initialization function.
+ * The DuckDB extension ABI initialisation function.
  */
 void vortex_init_rust(duckdb_database db);
 

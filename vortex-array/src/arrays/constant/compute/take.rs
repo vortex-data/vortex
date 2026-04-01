@@ -12,7 +12,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::dict::TakeReduceAdaptor;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimiser::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 

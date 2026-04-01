@@ -193,7 +193,7 @@ impl ListViewArray {
         })
     }
 
-    /// Rebuilds elements list-by-list: canonicalize elements upfront, then for each list `slice`
+    /// Rebuilds elements list-by-list: canonicalise elements upfront, then for each list `slice`
     /// the relevant range and `extend_from_array` into a typed builder.
     fn rebuild_list_by_list<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
@@ -217,11 +217,11 @@ impl ListViewArray {
         // null lists to 0.
         let mut new_sizes = BufferMut::<S>::with_capacity(len);
 
-        // Canonicalize the elements up front as we will be slicing the elements quite a lot.
+        // Canonicalise the elements up front as we will be slicing the elements quite a lot.
         let elements_canonical = self
             .elements()
             .to_canonical()
-            .vortex_expect("canonicalize elements for rebuild")
+            .vortex_expect("canonicalise elements for rebuild")
             .into_array();
 
         // Note that we do not know what the exact capacity should be of the new elements since

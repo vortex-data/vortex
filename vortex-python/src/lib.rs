@@ -64,10 +64,10 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
             .filter(LevelFilter::Info)
             .install()
             .map(|_| ())
-            .map_err(|err| PyRuntimeError::new_err(format!("could not initialize logger {err}")))
+            .map_err(|err| PyRuntimeError::new_err(format!("could not initialise logger {err}")))
     })?;
 
-    // Initialize our submodules, living under vortex._lib
+    // Initialise our submodules, living under vortex._lib
     arrays::init(py, m)?;
     #[cfg(feature = "tui")]
     cli::init(py, m)?;
@@ -87,7 +87,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
-/// Initialize a module and add it to `sys.modules`.
+/// Initialise a module and add it to `sys.modules`.
 ///
 /// Without this, it's not possible to use native submodules as "packages". For example:
 ///

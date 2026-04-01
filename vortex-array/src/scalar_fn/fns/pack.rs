@@ -57,7 +57,7 @@ impl ScalarFnVTable for Pack {
         ScalarFnId::new_ref("vortex.pack")
     }
 
-    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::PackOpts {
                 paths: instance.names.iter().map(|n| n.to_string()).collect(),
@@ -67,7 +67,7 @@ impl ScalarFnVTable for Pack {
         ))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,

@@ -221,7 +221,7 @@ impl VortexWriteOptions {
             .into_serializer()
             .with_offset(position)
             .with_exclude_dtype(self.exclude_dtype)
-            .serialize()?;
+            .serialise()?;
 
         // Update the approx footer size in the footer object, so it can be used for caching and
         // memory management in the future.

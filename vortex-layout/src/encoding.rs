@@ -7,7 +7,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use arcref::ArcRef;
-use vortex_array::DeserializeMetadata;
+use vortex_array::DeserialiseMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -60,7 +60,7 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
         children: &dyn LayoutChildren,
         ctx: &ReadContext,
     ) -> VortexResult<LayoutRef> {
-        let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
+        let metadata = <V::Metadata as DeserialiseMetadata>::deserialise(metadata)?;
         let layout = V::build(
             &self.0,
             dtype,

@@ -20,7 +20,7 @@ use crate::Precision;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::array::NUM_SLOTS;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
-use crate::arrays::constant::vtable::canonical::constant_canonicalize;
+use crate::arrays::constant::vtable::canonical::constant_canonicalise;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::BoolBuilder;
@@ -137,13 +137,13 @@ impl VTable for Constant {
         Ok(array.scalar().clone())
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
         // metadata at all.
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
+    fn deserialise(
         _bytes: &[u8],
         dtype: &DType,
         _len: usize,
@@ -185,7 +185,7 @@ impl VTable for Constant {
 
     fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            constant_canonicalize(&array)?.into_array(),
+            constant_canonicalise(&array)?.into_array(),
         ))
     }
 
@@ -296,7 +296,7 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
-    use crate::arrays::constant::vtable::canonical::constant_canonicalize;
+    use crate::arrays::constant::vtable::canonical::constant_canonicalise;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
     use crate::dtype::DType;
@@ -309,9 +309,9 @@ mod tests {
         ExecutionCtx::new(VortexSession::empty())
     }
 
-    /// Appends `array` into a fresh builder and asserts the result matches `constant_canonicalize`.
+    /// Appends `array` into a fresh builder and asserts the result matches `constant_canonicalise`.
     fn assert_append_matches_canonical(array: ConstantArray) -> vortex_error::VortexResult<()> {
-        let expected = constant_canonicalize(&array)?.into_array();
+        let expected = constant_canonicalise(&array)?.into_array();
         let mut builder = builder_with_capacity(array.dtype(), array.len());
         array
             .into_array()

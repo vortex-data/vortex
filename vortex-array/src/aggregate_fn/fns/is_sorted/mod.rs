@@ -232,11 +232,11 @@ impl AggregateFnVTable for IsSorted {
         AggregateFnId::new_ref("vortex.is_sorted")
     }
 
-    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![u8::from(options.strict)]))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         metadata: &[u8],
         _session: &vortex_session::VortexSession,

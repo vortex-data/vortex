@@ -156,7 +156,7 @@ impl ErasedStats {
             ErasedStats::U16(x) => x.max.checked_ilog2(),
             ErasedStats::U32(x) => x.max.checked_ilog2(),
             ErasedStats::U64(x) => x.max.checked_ilog2(),
-            // Transmute signed to unsigned (bit pattern preserved) to match BitPacking behavior.
+            // Transmute signed to unsigned (bit pattern preserved) to match BitPacking behaviour.
             ErasedStats::I8(x) => (x.max as u8).checked_ilog2(),
             ErasedStats::I16(x) => (x.max as u16).checked_ilog2(),
             ErasedStats::I32(x) => (x.max as u32).checked_ilog2(),
@@ -355,7 +355,7 @@ where
     let null_count = validity.false_count();
     let value_count = validity.true_count();
 
-    // Initialize loop state.
+    // Initialise loop state.
     let head_idx = validity
         .first()
         .vortex_expect("All null masks have been handled before");

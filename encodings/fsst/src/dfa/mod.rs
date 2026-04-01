@@ -108,7 +108,7 @@
 //!
 //! ## State-Space Limits
 //!
-//! The public behavior is shaped by two implementation limits, both measured in
+//! The public behaviour is shaped by two implementation limits, both measured in
 //! pattern **bytes** rather than Unicode scalar values:
 //!
 //! - `prefix%` pushdown is limited to **253 bytes**. The flat prefix DFA uses

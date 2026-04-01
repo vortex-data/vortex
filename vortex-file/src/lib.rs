@@ -170,12 +170,12 @@ pub fn register_default_encodings(session: &mut VortexSession) {
         arrays.register(vortex_zstd::ZstdBuffers);
     }
 
-    // Eventually all encodings crates should expose an initialize function. For now it's only
+    // Eventually all encodings crates should expose an initialise function. For now it's only
     // a few of them.
-    vortex_alp::initialize(session);
-    vortex_datetime_parts::initialize(session);
-    vortex_decimal_byte_parts::initialize(session);
-    vortex_fastlanes::initialize(session);
-    vortex_runend::initialize(session);
-    vortex_sequence::initialize(session);
+    vortex_alp::initialise(session);
+    vortex_datetime_parts::initialise(session);
+    vortex_decimal_byte_parts::initialise(session);
+    vortex_fastlanes::initialise(session);
+    vortex_runend::initialise(session);
+    vortex_sequence::initialise(session);
 }

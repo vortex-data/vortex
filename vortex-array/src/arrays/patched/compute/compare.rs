@@ -170,7 +170,7 @@ mod tests {
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
-    use crate::optimizer::ArrayOptimizer;
+    use crate::optimiser::ArrayOptimiser;
     use crate::patches::Patches;
     use crate::scalar_fn::fns::binary::CompareKernel;
     use crate::scalar_fn::fns::operators::CompareOperator;
@@ -223,7 +223,7 @@ mod tests {
         let lhs = lhs
             .slice(10..lhs.len())
             .unwrap()
-            .optimize()
+            .optimise()
             .unwrap()
             .try_into::<Patched>()
             .unwrap();

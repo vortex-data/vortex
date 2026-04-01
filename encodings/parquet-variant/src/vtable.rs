@@ -175,7 +175,7 @@ impl VTable for ParquetVariant {
         })
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         let typed_value_dtype = metadata
             .typed_value_dtype
             .as_ref()
@@ -191,7 +191,7 @@ impl VTable for ParquetVariant {
         ))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -314,7 +314,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::serde::ArrayParts;
-    use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerialiseOptions;
     use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -331,7 +331,7 @@ mod tests {
         let len = array.len();
 
         let ctx = ArrayContext::empty();
-        let serialized = array.serialize(&ctx, &SerializeOptions::default()).unwrap();
+        let serialized = array.serialise(&ctx, &SerialiseOptions::default()).unwrap();
 
         let mut concat = ByteBufferMut::empty();
         for buf in serialized {

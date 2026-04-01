@@ -143,7 +143,7 @@ impl CascadingCompressor {
 
     /// Compresses an array using cascading adaptive compression.
     ///
-    /// First canonicalizes and compacts the array, then applies optimal compression schemes.
+    /// First canonicalises and compacts the array, then applies optimal compression schemes.
     ///
     /// # Errors
     ///

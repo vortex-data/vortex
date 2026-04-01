@@ -11,8 +11,8 @@ use crate::arrays::Filter;
 use crate::arrays::FilterArray;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
-use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimiser::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
@@ -71,7 +71,7 @@ mod tests {
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ExtVTable;
     use crate::extension::EmptyMetadata;
-    use crate::optimizer::ArrayOptimizer;
+    use crate::optimiser::ArrayOptimiser;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::scalar_fn::fns::binary::Binary;
@@ -127,7 +127,7 @@ mod tests {
         let filter_array = FilterArray::new(ext_array, mask).into_array();
 
         // Optimize should push the filter into the storage
-        let optimized = filter_array.optimize().unwrap();
+        let optimized = filter_array.optimise().unwrap();
 
         // The result should be an ExtensionArray, not a FilterArray
         assert!(
@@ -160,7 +160,7 @@ mod tests {
         let mask = Mask::from_iter([true, true, false, false, true]);
         let filter_array = FilterArray::new(ext_array, mask).into_array();
 
-        let optimized = filter_array.optimize().unwrap();
+        let optimized = filter_array.optimise().unwrap();
 
         assert!(optimized.as_opt::<Extension>().is_some());
         let ext_result = optimized.as_::<Extension>();
@@ -221,7 +221,7 @@ mod tests {
             .try_new_array(3, Operator::Lt, [ext_array.clone(), const_array])
             .unwrap();
 
-        let optimized = scalar_fn_array.optimize().unwrap();
+        let optimized = scalar_fn_array.optimise().unwrap();
 
         // The first child should still be an ExtensionArray (no pushdown happened)
         let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
@@ -246,7 +246,7 @@ mod tests {
             .try_new_array(3, Operator::Lt, [ext_array1.clone(), ext_array2])
             .unwrap();
 
-        let optimized = scalar_fn_array.optimize().unwrap();
+        let optimized = scalar_fn_array.optimise().unwrap();
 
         // No pushdown should happen because sibling is not a constant
         let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();
@@ -269,7 +269,7 @@ mod tests {
             .try_new_array(3, Operator::Lt, [ext_array.clone(), const_array])
             .unwrap();
 
-        let optimized = scalar_fn_array.optimize().unwrap();
+        let optimized = scalar_fn_array.optimise().unwrap();
 
         // No pushdown should happen because constant is not an extension scalar
         let scalar_fn = optimized.as_opt::<crate::arrays::ScalarFnVTable>().unwrap();

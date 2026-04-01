@@ -106,7 +106,7 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
 }
 
 #[divan::bench(args = BENCH_ARGS)]
-fn canonicalize_compare(
+fn canonicalise_compare(
     bencher: Bencher,
     (string_count, avg_len, unique_chars): (usize, usize, u8),
 ) {
@@ -150,7 +150,7 @@ const CHUNKED_BENCH_ARGS: &[(usize, usize, usize, u8)] = &[
 ];
 
 #[divan::bench(args = CHUNKED_BENCH_ARGS)]
-fn chunked_canonicalize_into(
+fn chunked_canonicalise_into(
     bencher: Bencher,
     (chunk_size, string_count, avg_len, unique_chars): (usize, usize, usize, u8),
 ) {

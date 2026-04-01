@@ -22,8 +22,8 @@ use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
-/// Initialize sequence encoding in the given session.
-pub fn initialize(session: &mut VortexSession) {
+/// Initialise sequence encoding in the given session.
+pub fn initialise(session: &mut VortexSession) {
     session.arrays().register(Sequence);
 
     // Register the Sequence-specific aggregate kernels.

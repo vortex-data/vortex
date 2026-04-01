@@ -17,7 +17,7 @@ use crate::RunEnd;
 /// RunEnd-specific is_sorted kernel.
 ///
 /// Non-strict: values array sorted implies the run-end array is sorted.
-/// Strict: must canonicalize since runs repeat values.
+/// Strict: must canonicalise since runs repeat values.
 #[derive(Debug)]
 pub(crate) struct RunEndIsSortedKernel;
 
@@ -37,7 +37,7 @@ impl DynAggregateKernel for RunEndIsSortedKernel {
         };
 
         let result = if options.strict {
-            // Strict sort with run-end encoding means we need to canonicalize
+            // Strict sort with run-end encoding means we need to canonicalise
             // since run-end encoding repeats values.
             is_strict_sorted(&array.to_canonical()?.into_array(), ctx)?
         } else {

@@ -14,19 +14,19 @@ use crate::aggregate_fn::AggregateFnVTable;
 /// Reference-counted pointer to an aggregate function plugin.
 pub type AggregateFnPluginRef = Arc<dyn AggregateFnPlugin>;
 
-/// Registry trait for ID-based deserialization of aggregate functions.
+/// Registry trait for ID-based deserialisation of aggregate functions, innit.
 ///
-/// Plugins are registered in the session by their [`AggregateFnId`]. When a serialized aggregate
-/// function is encountered, the session resolves the ID to the plugin and calls [`deserialize`]
+/// Plugins are registered in the session by their [`AggregateFnId`]. When a serialised aggregate
+/// function is encountered, the session resolves the ID to the plugin and calls [`deserialise`]
 /// to reconstruct the value as an [`AggregateFnRef`].
 ///
-/// [`deserialize`]: AggregateFnPlugin::deserialize
+/// [`deserialise`]: AggregateFnPlugin::deserialise
 pub trait AggregateFnPlugin: 'static + Send + Sync {
     /// Returns the ID for this aggregate function.
     fn id(&self) -> AggregateFnId;
 
     /// Deserialize an aggregate function from serialized metadata.
-    fn deserialize(&self, metadata: &[u8], session: &VortexSession)
+    fn deserialise(&self, metadata: &[u8], session: &VortexSession)
     -> VortexResult<AggregateFnRef>;
 }
 
@@ -43,12 +43,12 @@ impl<V: AggregateFnVTable> AggregateFnPlugin for V {
         AggregateFnVTable::id(self)
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         metadata: &[u8],
         session: &VortexSession,
     ) -> VortexResult<AggregateFnRef> {
-        let options = AggregateFnVTable::deserialize(self, metadata, session)?;
+        let options = AggregateFnVTable::deserialise(self, metadata, session)?;
         Ok(AggregateFn::new(self.clone(), options).erased())
     }
 }

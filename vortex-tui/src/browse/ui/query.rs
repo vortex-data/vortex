@@ -501,7 +501,7 @@ pub fn render_query(app: &mut AppState, area: Rect, buf: &mut Buffer) {
 fn render_sql_input(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let is_focused = app.query_state.focus == QueryFocus::SqlInput;
 
-    let border_color = if is_focused {
+    let border_colour = if is_focused {
         Color::Cyan
     } else {
         Color::DarkGray
@@ -511,7 +511,7 @@ fn render_sql_input(app: &mut AppState, area: Rect, buf: &mut Buffer) {
         .title("SQL Query (Enter to execute, Esc to switch focus)")
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(border_color));
+        .border_style(Style::default().fg(border_colour));
 
     let inner = block.inner(area);
     block.render(area, buf);
@@ -553,7 +553,7 @@ fn render_sql_input(app: &mut AppState, area: Rect, buf: &mut Buffer) {
 fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
     let is_focused = app.query_state.focus == QueryFocus::ResultsTable;
 
-    let border_color = if is_focused {
+    let border_colour = if is_focused {
         Color::Cyan
     } else {
         Color::DarkGray
@@ -581,7 +581,7 @@ fn render_results_table(app: &mut AppState, area: Rect, buf: &mut Buffer) {
         .title(title)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(border_color));
+        .border_style(Style::default().fg(border_colour));
 
     let inner = block.inner(area);
     block.render(area, buf);

@@ -5,8 +5,8 @@ use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use vortex_array::DeserializeMetadata;
-use vortex_array::SerializeMetadata;
+use vortex_array::DeserialiseMetadata;
+use vortex_array::SerialiseMetadata;
 use vortex_array::dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -28,7 +28,7 @@ use crate::segments::SegmentSource;
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
     type Encoding: 'static + Send + Sync + Deref<Target = dyn LayoutEncoding>;
-    type Metadata: SerializeMetadata + DeserializeMetadata + Debug;
+    type Metadata: SerialiseMetadata + DeserialiseMetadata + Debug;
 
     /// Returns the ID of the layout encoding.
     fn id(encoding: &Self::Encoding) -> LayoutId;
@@ -70,7 +70,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         encoding: &Self::Encoding,
         dtype: &DType,
         row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<Self::Metadata as DeserialiseMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         ctx: &ReadContext,

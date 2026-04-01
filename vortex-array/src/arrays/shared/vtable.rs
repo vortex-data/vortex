@@ -119,11 +119,11 @@ impl VTable for Shared {
         Ok(EmptyMetadata)
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         vortex_error::vortex_bail!("Shared array is not serializable")
     }
 
-    fn deserialize(
+    fn deserialise(
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,

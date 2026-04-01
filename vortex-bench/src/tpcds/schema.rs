@@ -152,7 +152,7 @@ pub static ITEM: LazyLock<Schema> = LazyLock::new(|| {
         Field::new("i_manufact", DataType::Utf8View, true),
         Field::new("i_size", DataType::Utf8View, true),
         Field::new("i_formulation", DataType::Utf8View, true),
-        Field::new("i_color", DataType::Utf8View, true),
+        Field::new("i_Colour", DataType::Utf8View, true),
         Field::new("i_units", DataType::Utf8View, true),
         Field::new("i_container", DataType::Utf8View, true),
         Field::new("i_manager_id", DataType::Int64, true),

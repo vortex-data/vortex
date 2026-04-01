@@ -26,7 +26,7 @@ impl DType {
         match value
             .dtype_type
             .as_ref()
-            .ok_or_else(|| vortex_err!(Serde: "Unrecognized DType"))?
+            .ok_or_else(|| vortex_err!(Serde: "Unrecognised DType"))?
         {
             DtypeType::Null(_) => Ok(Self::Null),
             DtypeType::Bool(b) => Ok(Self::Bool(b.nullable.into())),
@@ -96,7 +96,7 @@ impl DType {
                         .ok_or_else(|| vortex_err!("Extension DType missing storage proto"))?,
                     session,
                 )?;
-                let ext_dtype = vtable.deserialize(e.metadata(), storage_dtype)?;
+                let ext_dtype = vtable.deserialise(e.metadata(), storage_dtype)?;
                 Ok(Self::Extension(ext_dtype))
             }
             DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
@@ -447,7 +447,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Unrecognized DType")
+                .contains("Unrecognised DType")
         );
     }
 

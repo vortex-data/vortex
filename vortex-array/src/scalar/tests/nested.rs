@@ -924,7 +924,7 @@ mod tests {
 
     #[test]
     fn test_fixed_size_list_size_zero() {
-        // Test FixedSizeList[0] behavior.
+        // Test FixedSizeList[0] behaviour.
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let empty_fixed_list =
             Scalar::fixed_size_list(element_dtype.clone(), vec![], Nullability::NonNullable);

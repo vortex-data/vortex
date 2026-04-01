@@ -570,7 +570,7 @@ fn bitpack_10(values: &[u32]) -> Vec<u32> {
 
     let mut bitpacked = Vec::with_capacity(len * W / T);
     // SAFETY: We're setting the length to the exact capacity we just allocated.
-    // The memory will be immediately initialized by BitPacking::unchecked_pack.
+    // The memory will be immediately initialised by BitPacking::unchecked_pack.
     unsafe { bitpacked.set_len(len * W / T) };
 
     let mut input_offset = 0;

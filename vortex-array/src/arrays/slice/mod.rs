@@ -25,7 +25,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
-use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ArrayParentReduceRule;
 use crate::vtable::VTable;
 
 pub trait SliceReduce: VTable {

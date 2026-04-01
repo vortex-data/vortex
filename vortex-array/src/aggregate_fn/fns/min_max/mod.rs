@@ -176,11 +176,11 @@ impl AggregateFnVTable for MinMax {
         AggregateFnId::new_ref("vortex.min_max")
     }
 
-    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &vortex_session::VortexSession,

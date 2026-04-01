@@ -359,7 +359,7 @@ fn test_mask_expansion_threshold_boundary() {
     assert_arrays_eq!(filtered7, expected7);
 }
 
-// Test FSL-specific behavior with very large list sizes.
+// Test FSL-specific behaviour with very large list sizes.
 #[test]
 fn test_filter_large_list_size() {
     // Test with list_size=100, which is significantly larger than typical use cases.

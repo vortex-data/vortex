@@ -48,7 +48,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 /// To facilitate slicing, this array accepts an `offset` and `logical_len`. The offset must be
 /// strictly less than 1,024 and the sum of `offset` and `logical_len` must not exceed the length of
 /// the `deltas` array. These values permit logical slicing without modifying any chunk containing a
-/// kept value. In particular, we may defer decompresison until the array is canonicalized or
+/// kept value. In particular, we may defer decompresison until the array is canonicalised or
 /// indexed. The `offset` is a physical offset into the first chunk, which necessarily contains
 /// 1,024 values. The `logical_len` is the number of logical values following the `offset`, which
 /// may be less than the number of physically stored values.

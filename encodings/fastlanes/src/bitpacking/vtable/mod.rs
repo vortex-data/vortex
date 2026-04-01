@@ -7,13 +7,13 @@ use std::sync::Arc;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::DeserializeMetadata;
+use vortex_array::DeserialiseMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
+use vortex_array::SerialiseMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -201,18 +201,18 @@ impl VTable for BitPacked {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        let inner = <ProstMetadata<BitPackedMetadata> as DeserializeMetadata>::deserialize(bytes)?;
+        let inner = <ProstMetadata<BitPackedMetadata> as DeserialiseMetadata>::deserialise(bytes)?;
         Ok(ProstMetadata(inner))
     }
 
@@ -303,7 +303,7 @@ impl VTable for BitPacked {
                 builder
                     .as_any_mut()
                     .downcast_mut()
-                    .vortex_expect("bit packed array must canonicalize into a primitive array"),
+                    .vortex_expect("bit packed array must canonicalise into a primitive array"),
                 ctx,
             )
         })

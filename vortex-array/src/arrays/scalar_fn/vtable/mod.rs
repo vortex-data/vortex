@@ -128,12 +128,12 @@ impl VTable for ScalarFnVTable {
         })
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         // Not supported
         Ok(None)
     }
 
-    fn deserialize(
+    fn deserialise(
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,

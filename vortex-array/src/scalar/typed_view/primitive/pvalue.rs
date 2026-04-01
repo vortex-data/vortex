@@ -522,7 +522,7 @@ impl CoercePValue for f16 {
         reason = "truncation is intentional and checked where needed"
     )]
     fn coerce(value: PValue) -> VortexResult<Self> {
-        // F16 coercion behavior:
+        // F16 coercion behaviour:
         // - U8/U16/U32/U64: Interpreted as the bit representation of an f16 value.
         //   Only the lower 16 bits are used, allowing compact storage of f16 values
         //   as integers when the full type information is preserved externally.

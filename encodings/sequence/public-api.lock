@@ -58,7 +58,7 @@ pub fn vortex_sequence::Sequence::buffer_name(_array: &vortex_sequence::Sequence
 
 pub fn vortex_sequence::Sequence::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sequence::SequenceArray>
 
-pub fn vortex_sequence::Sequence::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_sequence::Sequence::deserialise(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_sequence::Sequence::dtype(array: &vortex_sequence::SequenceArray) -> &vortex_array::dtype::DType
 
@@ -76,7 +76,7 @@ pub fn vortex_sequence::Sequence::nbuffers(_array: &vortex_sequence::SequenceArr
 
 pub fn vortex_sequence::Sequence::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_sequence::Sequence::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_sequence::Sequence::serialise(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_sequence::Sequence::slot_name(_array: &vortex_sequence::SequenceArray, idx: usize) -> alloc::string::String
 
@@ -156,6 +156,6 @@ pub vortex_sequence::SequenceArrayParts::nullability: vortex_array::dtype::nulla
 
 pub vortex_sequence::SequenceArrayParts::ptype: vortex_array::dtype::ptype::PType
 
-pub fn vortex_sequence::initialize(session: &mut vortex_session::VortexSession)
+pub fn vortex_sequence::initialise(session: &mut vortex_session::VortexSession)
 
 pub fn vortex_sequence::sequence_encode(primitive_array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>

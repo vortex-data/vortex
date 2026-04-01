@@ -268,7 +268,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
                 offsets_range.set_value(i, new_offset);
             }
 
-            // SAFETY: We have initialized all `num_lists` values, and since the `offsets` array is
+            // SAFETY: We have initialised all `num_lists` values, and since the `offsets` array is
             // non-nullable, we are done.
             unsafe { offsets_range.finish() };
         }

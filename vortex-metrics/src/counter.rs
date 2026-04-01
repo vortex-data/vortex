@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
-/// A commutative value that can only be increased, and starts at 0 on initialization.
+/// A commutative value that can only be increased, and starts at 0 on initialisation.
 #[derive(Clone, Debug)]
 pub struct Counter(Arc<AtomicU64>);
 

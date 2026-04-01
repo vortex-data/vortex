@@ -16,7 +16,7 @@ use crate::ExportDeviceArray;
 use crate::arrow::CanonicalDeviceArrayExport;
 use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
-use crate::initialize_cuda;
+use crate::initialise_cuda;
 use crate::kernel::KernelLoader;
 use crate::stream::VortexCudaStream;
 use crate::stream_pool::VortexCudaStreamPool;
@@ -133,12 +133,12 @@ impl Default for CudaSession {
     ///
     /// # Panics
     ///
-    /// Panics if CUDA device 0 cannot be initialized.
+    /// Panics if CUDA device 0 cannot be initialised.
     fn default() -> Self {
         #[expect(clippy::expect_used)]
-        let context = CudaContext::new(0).expect("Failed to initialize CUDA device 0");
+        let context = CudaContext::new(0).expect("Failed to initialise CUDA device 0");
         let this = Self::new(context);
-        initialize_cuda(&this);
+        initialise_cuda(&this);
         this
     }
 }

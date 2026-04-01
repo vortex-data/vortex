@@ -204,7 +204,7 @@ impl Patches {
             indices,
             values,
             chunk_offsets: chunk_offsets.clone(),
-            // Initialize with `Some(0)` only if `chunk_offsets` are set.
+            // Initialise with `Some(0)` only if `chunk_offsets` are set.
             offset_within_chunk: chunk_offsets.map(|_| 0),
         })
     }

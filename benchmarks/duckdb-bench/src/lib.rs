@@ -88,7 +88,7 @@ impl DuckClient {
         }?;
 
         let connection = db.connect()?;
-        vortex_duckdb::initialize(&db)?;
+        vortex_duckdb::initialise(&db)?;
 
         // Enable Parquet metadata cache for all benchmark runs.
         //
@@ -97,7 +97,7 @@ impl DuckClient {
         // extension is loaded after the connection is established.
         //
         // Passing the option to `open_with_config` before leads to
-        // "Invalid Input Error: The following options were not recognized:
+        // "Invalid Input Error: The following options were not recognised:
         // parquet_metadata_cache" when running DuckDB in debug mode.
         connection.query("SET parquet_metadata_cache = true")?;
 

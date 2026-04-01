@@ -14,8 +14,8 @@ use crate::arrays::MaskedArray;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
-use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimiser::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::vtable::ValidityHelper;
 

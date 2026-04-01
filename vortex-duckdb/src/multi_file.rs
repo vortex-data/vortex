@@ -39,17 +39,17 @@ fn parse_glob_url(glob_url_str: &str) -> VortexResult<Url> {
 /// Normalize a path by resolving `.` and `..` components without accessing the filesystem.
 fn normalize_path(path: std::path::PathBuf) -> std::path::PathBuf {
     use std::path::Component;
-    let mut normalized = std::path::PathBuf::new();
+    let mut normalised = std::path::PathBuf::new();
     for component in path.components() {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                normalized.pop();
+                normalised.pop();
             }
-            c => normalized.push(c),
+            c => normalised.push(c),
         }
     }
-    normalized
+    normalised
 }
 
 /// Vortex multi-file scan table function (`vortex_scan` / `read_vortex`).

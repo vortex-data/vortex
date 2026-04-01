@@ -500,7 +500,7 @@ where
 
     assert_eq!(offset, indices_len);
 
-    // SAFETY: All elements have been initialized.
+    // SAFETY: All elements have been initialised.
     unsafe { buffer.set_len(indices_len) };
 
     // Reset the buffer alignment to the Value type.

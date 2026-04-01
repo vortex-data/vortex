@@ -89,7 +89,7 @@ fn build_sizes_from_offsets<O: IntegerPType>(
         sizes_range.set_value(i, size);
     }
 
-    // SAFETY: We have initialized all values in the range.
+    // SAFETY: We have initialised all values in the range.
     unsafe {
         sizes_range.finish();
     }
@@ -170,7 +170,7 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
 
     offsets_range.set_value(len, final_offset);
 
-    // SAFETY: We have initialized all values in the range.
+    // SAFETY: We have initialised all values in the range.
     unsafe {
         offsets_range.finish();
     }

@@ -185,7 +185,7 @@ fn between_canonical(
 ///
 /// The comparison strictness is controlled by the metadata.
 ///
-/// NOTE: this expression will shortly be removed in favor of pipelined computation of two
+/// NOTE: this expression will shortly be removed in favour of pipelined computation of two
 /// separate comparisons combined with a logical AND.
 #[derive(Clone)]
 pub struct Between;
@@ -197,7 +197,7 @@ impl ScalarFnVTable for Between {
         ScalarFnId::from("vortex.between")
     }
 
-    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::BetweenOpts {
                 lower_strict: instance.lower_strict.is_strict(),
@@ -207,7 +207,7 @@ impl ScalarFnVTable for Between {
         ))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,
@@ -302,7 +302,7 @@ impl ScalarFnVTable for Between {
         let lower = args.get(1)?;
         let upper = args.get(2)?;
 
-        // canonicalize the arr and we might be able to run a between kernels over that.
+        // canonicalise the arr and we might be able to run a between kernels over that.
         if !arr.is_canonical() {
             return arr.execute::<Canonical>(ctx)?.into_array().between(
                 lower,

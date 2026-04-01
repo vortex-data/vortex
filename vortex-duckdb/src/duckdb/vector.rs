@@ -72,7 +72,7 @@ impl VectorRef {
     ///
     /// A dictionary holds a strong reference to all memory it uses.
     ///
-    /// `dictionary` differs from `slice_to_dictionary` in that it initializes hash caching.
+    /// `dictionary` differs from `slice_to_dictionary` in that it initialises hash caching.
     pub fn dictionary(
         &self,
         dict: &VectorRef,
@@ -101,7 +101,7 @@ impl VectorRef {
         unsafe { cpp::duckdb_vx_sequence_vector(self.as_ptr(), start, stop, capacity) }
     }
 
-    /// Converts a vector into a flat uncompressed vector vortex call this `canonicalize`.
+    /// Converts a vector into a flat uncompressed vector vortex call this `canonicalise`.
     pub fn flatten(&self, length: u64) {
         unsafe { cpp::duckdb_vector_flatten(self.as_ptr(), length) }
     }

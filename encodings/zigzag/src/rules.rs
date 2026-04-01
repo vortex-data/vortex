@@ -3,7 +3,7 @@
 
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
-use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::optimiser::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 

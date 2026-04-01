@@ -9,13 +9,13 @@ use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
-use vortex_array::normalize::NormalizeOptions;
-use vortex_array::normalize::Operation;
+use vortex_array::normalise::NormaliseOptions;
+use vortex_array::normalise::Operation;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
 use vortex_array::scalar::upper_bound;
-use vortex_array::serde::SerializeOptions;
+use vortex_array::serde::SerialiseOptions;
 use vortex_array::session::ArrayRegistry;
 use vortex_array::stats::StatsSetRef;
 use vortex_buffer::BufferString;
@@ -151,7 +151,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         }
 
         let chunk = if let Some(allowed) = &self.allowed_encodings {
-            chunk.normalize(&mut NormalizeOptions {
+            chunk.normalise(&mut NormaliseOptions {
                 allowed,
                 operation: Operation::Error,
             })?
@@ -159,9 +159,9 @@ impl LayoutStrategy for FlatLayoutStrategy {
             chunk
         };
 
-        let buffers = chunk.serialize(
+        let buffers = chunk.serialise(
             &ctx,
-            &SerializeOptions {
+            &SerialiseOptions {
                 offset: 0,
                 include_padding: self.include_padding,
             },

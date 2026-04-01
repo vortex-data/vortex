@@ -58,7 +58,7 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::buffer_name(_array: &vortex_
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_decimal_byte_parts::DecimalBytePartsArray>
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_decimal_byte_parts::DecimalByteParts::deserialise(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::dtype(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> &vortex_array::dtype::DType
 
@@ -76,7 +76,7 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::nbuffers(_array: &vortex_dec
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_decimal_byte_parts::DecimalByteParts::serialise(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::slot_name(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray, idx: usize) -> alloc::string::String
 
@@ -168,4 +168,4 @@ pub fn vortex_decimal_byte_parts::DecimalBytesPartsMetadata::clear(&mut self)
 
 pub fn vortex_decimal_byte_parts::DecimalBytesPartsMetadata::encoded_len(&self) -> usize
 
-pub fn vortex_decimal_byte_parts::initialize(session: &mut vortex_session::VortexSession)
+pub fn vortex_decimal_byte_parts::initialise(session: &mut vortex_session::VortexSession)

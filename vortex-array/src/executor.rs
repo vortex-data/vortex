@@ -2,17 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! The execution engine: iteratively transforms arrays toward canonical form.
+//! Proper clever bit of kit, this one. Does all the heavy lifting, innit?
 //!
 //! Execution proceeds through four layers tried in order on each iteration:
 //!
-//! 1. **`reduce`** -- metadata-only self-rewrite (cheapest).
+//! 1. **`reduce`** -- metadata-only self-rewrite (cheapest, like a cheeky shortcut).
 //! 2. **`reduce_parent`** -- metadata-only child-driven parent rewrite.
 //! 3. **`execute_parent`** -- child-driven fused execution (may read buffers).
-//! 4. **`execute`** -- the encoding's own decode step (most expensive).
+//! 4. **`execute`** -- the encoding's own decode step (most expensive, proper hard graft).
 //!
 //! The main entry point is [`DynArray::execute_until`], which uses an explicit work stack
-//! to drive execution iteratively without recursion. Between steps, the optimizer runs
-//! reduce/reduce_parent rules to fixpoint.
+//! to drive execution iteratively without recursion. Between steps, the optimiser runs
+//! reduce/reduce_parent rules to fixpoint. Sorted.
 //!
 //! See <https://docs.vortex.dev/developer-guide/internals/execution> for a full description
 //! of the model.
@@ -36,7 +37,7 @@ use crate::Canonical;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::matcher::Matcher;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimiser::ArrayOptimiser;
 
 /// Maximum number of iterations to attempt when executing an array before giving up and returning
 /// an error.
@@ -108,7 +109,7 @@ impl dyn DynArray + '_ {
                 }
             });
 
-        let mut current = self.optimize()?;
+        let mut current = self.optimise()?;
         // Stack frames: (parent, slot_idx, done_predicate_for_slot)
         let mut stack: Vec<(ArrayRef, usize, DonePredicate)> = Vec::new();
 
@@ -125,7 +126,7 @@ impl dyn DynArray + '_ {
                     }
                     Some((parent, slot_idx, _)) => {
                         current = parent.with_slot(slot_idx, current)?;
-                        current = current.optimize()?;
+                        current = current.optimise()?;
                         continue;
                     }
                 }
@@ -141,7 +142,7 @@ impl dyn DynArray + '_ {
                     }
                     Some((parent, slot_idx, _)) => {
                         current = parent.with_slot(slot_idx, current)?;
-                        current = current.optimize()?;
+                        current = current.optimise()?;
                         continue;
                     }
                 }
@@ -153,7 +154,7 @@ impl dyn DynArray + '_ {
                     "execute_parent rewrote {} -> {}",
                     current, rewritten
                 ));
-                current = rewritten.optimize()?;
+                current = rewritten.optimise()?;
                 continue;
             }
 
@@ -170,7 +171,7 @@ impl dyn DynArray + '_ {
                         array, child
                     ));
                     stack.push((array, i, done));
-                    current = child.optimize()?;
+                    current = child.optimise()?;
                 }
                 ExecutionStep::Done => {
                     ctx.log(format_args!("Done: {}", array));

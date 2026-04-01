@@ -61,7 +61,7 @@ impl FooterSerializer {
 
     /// Serialize the footer into a byte buffer that can later be deserialized as a [`Footer`].
     /// This can be helpful for storing some footer data out-of-band to accelerate opening a file.
-    pub fn serialize(mut self) -> VortexResult<Vec<ByteBuffer>> {
+    pub fn serialise(mut self) -> VortexResult<Vec<ByteBuffer>> {
         let mut buffers = vec![];
 
         let dtype_segment = if self.exclude_dtype {

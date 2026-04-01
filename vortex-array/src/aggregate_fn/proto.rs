@@ -15,14 +15,16 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 
 impl AggregateFnRef {
-    /// Serialize this aggregate function to its protobuf representation.
+    /// Serialise this aggregate function to its protobuf representation.
     ///
-    /// Note: the serialization format is not stable and may change between versions.
-    pub fn serialize_proto(&self) -> VortexResult<pb::AggregateFn> {
-        let metadata = self
-            .options()
-            .serialize()?
-            .ok_or_else(|| vortex_err!("Aggregate function '{}' is not serializable", self.id()))?;
+    /// Note: the serialisation format is not stable and may change between versions.
+    pub fn serialise_proto(&self) -> VortexResult<pb::AggregateFn> {
+        let metadata = self.options().serialise()?.ok_or_else(|| {
+            vortex_err!(
+                "Aggregate function '{}' is not serialisable, mate",
+                self.id()
+            )
+        })?;
 
         Ok(pb::AggregateFn {
             id: self.id().to_string(),
@@ -43,7 +45,7 @@ impl AggregateFnRef {
             .registry()
             .find(&agg_fn_id)
             .ok_or_else(|| vortex_err!("unknown aggregate function id: {}", proto.id))?;
-        let agg_fn = plugin.deserialize(proto.metadata(), session)?;
+        let agg_fn = plugin.deserialise(proto.metadata(), session)?;
 
         if agg_fn.id() != agg_fn_id {
             vortex_bail!(
@@ -77,7 +79,7 @@ mod tests {
 
         let agg_fn = Sum.bind(EmptyOptions);
 
-        let serialized = agg_fn.serialize_proto().unwrap();
+        let serialized = agg_fn.serialise_proto().unwrap();
         let buf = serialized.encode_to_vec();
         let deserialized_proto = pb::AggregateFn::decode(buf.as_slice()).unwrap();
         let deserialized = AggregateFnRef::from_proto(&deserialized_proto, &session).unwrap();

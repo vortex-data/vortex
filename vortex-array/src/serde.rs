@@ -40,7 +40,7 @@ use crate::stats::StatsSet;
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
-pub struct SerializeOptions {
+pub struct SerialiseOptions {
     /// The starting position within an external stream or file. This offset is used to compute
     /// appropriate padding to enable zero-copy reads.
     pub offset: usize,
@@ -59,10 +59,10 @@ impl dyn DynArray + '_ {
     /// The format of this blob is a sequence of data buffers, possible with prefixed padding,
     /// followed by a flatbuffer containing an [`fba::Array`] message, and ending with a
     /// little-endian u32 describing the length of the flatbuffer message.
-    pub fn serialize(
+    pub fn serialise(
         &self,
         ctx: &ArrayContext,
-        options: &SerializeOptions,
+        options: &SerialiseOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
         // Collect all array buffers
         let array_buffers = self

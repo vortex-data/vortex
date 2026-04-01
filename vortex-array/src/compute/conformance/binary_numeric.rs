@@ -67,7 +67,7 @@ fn to_vec_of_scalar(array: &ArrayRef) -> Vec<Scalar> {
 /// # Test Details
 ///
 /// This function:
-/// 1. Canonicalizes the input array to primitive form to get expected values
+/// 1. Canonicalises the input array to primitive form to get expected values
 /// 2. Tests all binary numeric operators against a constant value of 1
 /// 3. Verifies results match the expected primitive array computation
 /// 4. Tests both array-operator-scalar and scalar-operator-array forms
@@ -93,8 +93,8 @@ fn test_standard_binary_numeric<T: NativePType + Num + Copy>(array: ArrayRef)
 where
     Scalar: From<T>,
 {
-    let canonicalized_array = array.to_primitive();
-    let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
+    let canonicalised_array = array.to_primitive();
+    let original_values = to_vec_of_scalar(&canonicalised_array.into_array());
 
     let one = T::from(1)
         .ok_or_else(|| vortex_err!("could not convert 1 into array native type"))
@@ -243,8 +243,8 @@ pub fn test_binary_numeric_array(array: ArrayRef) {
 /// This function tests operations with scalar values:
 /// - Zero (identity for addition/subtraction, absorbing for multiplication)
 /// - Negative one (tests signed arithmetic)
-/// - Maximum value (tests overflow behavior)
-/// - Minimum value (tests underflow behavior)
+/// - Maximum value (tests overflow behaviour)
+/// - Minimum value (tests underflow behaviour)
 fn test_binary_numeric_edge_cases(array: ArrayRef) {
     match array.dtype() {
         DType::Primitive(ptype, _) => match ptype {
@@ -332,8 +332,8 @@ where
     T: NativePType + Num + Copy + std::fmt::Debug,
     Scalar: From<T>,
 {
-    let canonicalized_array = array.to_primitive();
-    let original_values = to_vec_of_scalar(&canonicalized_array.into_array());
+    let canonicalised_array = array.to_primitive();
+    let original_values = to_vec_of_scalar(&canonicalised_array.into_array());
 
     let scalar = Scalar::from(scalar_value)
         .cast(array.dtype())

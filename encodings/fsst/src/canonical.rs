@@ -20,7 +20,7 @@ use vortex_error::VortexResult;
 
 use crate::FSSTArray;
 
-pub(super) fn canonicalize_fsst(
+pub(super) fn canonicalise_fsst(
     array: &FSSTArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {

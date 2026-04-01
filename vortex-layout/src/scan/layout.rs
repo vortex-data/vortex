@@ -54,7 +54,7 @@ impl LayoutReaderDataSource {
     /// Creates a new [`LayoutReaderDataSource`].
     ///
     /// By default, the entire scan is returned as a single split. This best preserves V1
-    /// `ScanBuilder` behavior where one scan covers the full row range, allowing the internal
+    /// `ScanBuilder` behaviour where one scan covers the full row range, allowing the internal
     /// I/O pipeline and `SplitBy::Layout` chunking to operate without per-split overhead from
     /// redundant expression resolution and layout tree traversal.
     pub fn new(reader: LayoutReaderRef, session: VortexSession) -> Self {

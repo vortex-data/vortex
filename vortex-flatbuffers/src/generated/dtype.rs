@@ -1856,7 +1856,7 @@ impl core::fmt::Debug for DType<'_> {
 /// and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_dtype_unchecked`.
 pub fn root_as_dtype(buf: &[u8]) -> Result<DType, flatbuffers::InvalidFlatbuffer> {
   flatbuffers::root::<DType>(buf)
@@ -1866,7 +1866,7 @@ pub fn root_as_dtype(buf: &[u8]) -> Result<DType, flatbuffers::InvalidFlatbuffer
 /// `DType` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `size_prefixed_root_as_dtype_unchecked`.
 pub fn size_prefixed_root_as_dtype(buf: &[u8]) -> Result<DType, flatbuffers::InvalidFlatbuffer> {
   flatbuffers::size_prefixed_root::<DType>(buf)
@@ -1876,7 +1876,7 @@ pub fn size_prefixed_root_as_dtype(buf: &[u8]) -> Result<DType, flatbuffers::Inv
 /// contains a `DType` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_dtype_unchecked`.
 pub fn root_as_dtype_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,
@@ -1889,7 +1889,7 @@ pub fn root_as_dtype_with_opts<'b, 'o>(
 /// bytes contains a size prefixed `DType` and returns
 /// it. Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_dtype_unchecked`.
 pub fn size_prefixed_root_as_dtype_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,

@@ -15,9 +15,9 @@ use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::Timestamp;
-use vortex_array::optimizer::ArrayOptimizer;
-use vortex_array::optimizer::rules::ArrayParentReduceRule;
-use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::optimiser::ArrayOptimiser;
+use vortex_array::optimiser::rules::ArrayParentReduceRule;
+use vortex_array::optimiser::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::binary::Binary;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
@@ -136,7 +136,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
         let result =
             ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, parent.len())?
                 .into_array()
-                .optimize()?;
+                .optimise()?;
 
         Ok(Some(result))
     }
@@ -184,7 +184,7 @@ mod tests {
     use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::TimestampOptions;
-    use vortex_array::optimizer::ArrayOptimizer;
+    use vortex_array::optimiser::ArrayOptimiser;
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
     use vortex_array::scalar_fn::fns::between::StrictComparison;
@@ -271,7 +271,7 @@ mod tests {
             .unwrap();
 
         // Optimize should push down to days
-        let optimized = comparison.optimize().unwrap();
+        let optimized = comparison.optimise().unwrap();
 
         // The result should be a ScalarFn over primitive days, not over DTP
         assert!(
@@ -305,7 +305,7 @@ mod tests {
             .unwrap();
 
         // Optimize should push down to days
-        let optimized = between.optimize().unwrap();
+        let optimized = between.optimise().unwrap();
 
         // Verify correctness: days [0, 1, 2, 3, 4] between 1 and 3 should give [false, true, true, true, false]
         assert_eq!(optimized.as_bool_typed().true_count().unwrap(), 3);
@@ -324,7 +324,7 @@ mod tests {
             .unwrap();
 
         // Optimize should NOT push down (constant has non-zero seconds)
-        let optimized = comparison.optimize().unwrap();
+        let optimized = comparison.optimise().unwrap();
 
         // The DTP should still be in the expression tree
         // (optimization doesn't apply, so we keep the original structure)
@@ -357,7 +357,7 @@ mod tests {
             .unwrap();
 
         // Should still compute correctly (just not optimized via pushdown)
-        let optimized = comparison.optimize().unwrap();
+        let optimized = comparison.optimise().unwrap();
         // timestamps at 1am on days [0, 1, 2] <= day 1 midnight: [true, false, false]
         assert_eq!(optimized.as_bool_typed().true_count().unwrap(), 1);
     }

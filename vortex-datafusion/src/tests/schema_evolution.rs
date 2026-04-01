@@ -167,7 +167,7 @@ async fn test_filter_schema_evolution_order(
     Ok(())
 }
 
-/// Test for correct schema evolution behavior in the presence of nested struct fields.
+/// Test for correct schema evolution behaviour in the presence of nested struct fields.
 /// We use a hypothetical schema of some observability data with "wide records", struct columns
 /// with nullable payloads that may or may not be present for every file.
 #[rstest]

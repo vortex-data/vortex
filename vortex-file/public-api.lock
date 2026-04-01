@@ -92,21 +92,21 @@ pub fn vortex_file::v2::FileStatsLayoutReader::register_splits(&self, field_mask
 
 pub fn vortex_file::v2::FileStatsLayoutReader::row_count(&self) -> u64
 
-pub enum vortex_file::DeserializeStep
+pub enum vortex_file::DeserialiseStep
 
-pub vortex_file::DeserializeStep::Done(vortex_file::Footer)
+pub vortex_file::DeserialiseStep::Done(vortex_file::Footer)
 
-pub vortex_file::DeserializeStep::NeedFileSize
+pub vortex_file::DeserialiseStep::NeedFileSize
 
-pub vortex_file::DeserializeStep::NeedMoreData
+pub vortex_file::DeserialiseStep::NeedMoreData
 
-pub vortex_file::DeserializeStep::NeedMoreData::len: usize
+pub vortex_file::DeserialiseStep::NeedMoreData::len: usize
 
-pub vortex_file::DeserializeStep::NeedMoreData::offset: u64
+pub vortex_file::DeserialiseStep::NeedMoreData::offset: u64
 
-impl core::fmt::Debug for vortex_file::DeserializeStep
+impl core::fmt::Debug for vortex_file::DeserialiseStep
 
-pub fn vortex_file::DeserializeStep::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_file::DeserialiseStep::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_file::BlockingWrite<'rt, B: vortex_io::runtime::blocking::BlockingRuntime>
 
@@ -202,7 +202,7 @@ impl vortex_file::FooterDeserializer
 
 pub fn vortex_file::FooterDeserializer::buffer(&self) -> &vortex_buffer::ByteBuffer
 
-pub fn vortex_file::FooterDeserializer::deserialize(&mut self) -> vortex_error::VortexResult<vortex_file::DeserializeStep>
+pub fn vortex_file::FooterDeserializer::deserialise(&mut self) -> vortex_error::VortexResult<vortex_file::DeserialiseStep>
 
 pub fn vortex_file::FooterDeserializer::prefix_data(&mut self, more_data: vortex_buffer::ByteBuffer)
 
@@ -220,7 +220,7 @@ impl vortex_file::FooterSerializer
 
 pub fn vortex_file::FooterSerializer::exclude_dtype(self) -> Self
 
-pub fn vortex_file::FooterSerializer::serialize(self) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_buffer::ByteBuffer>>
+pub fn vortex_file::FooterSerializer::serialise(self) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_buffer::ByteBuffer>>
 
 pub fn vortex_file::FooterSerializer::with_exclude_dtype(self, exclude_dtype: bool) -> Self
 

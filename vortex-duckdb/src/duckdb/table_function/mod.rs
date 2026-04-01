@@ -93,13 +93,13 @@ pub trait TableFunction: Sized + Debug {
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()>;
 
-    /// Initialize the global operator state of the function.
+    /// Initialise the global operator state of the function.
     ///
     /// The global operator state is used to keep track of the progress in the table function and
     /// is shared between all threads working on the table function.
     fn init_global(input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState>;
 
-    /// Initialize the local operator state of the function.
+    /// Initialise the local operator state of the function.
     ///
     /// The local operator state is used to keep track of the progress in the table function and
     /// is thread-local.

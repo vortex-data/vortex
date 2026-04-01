@@ -133,12 +133,12 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Exports metadata for an array.
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata>;
 
-    /// Serialize metadata into a byte buffer for IPC or file storage.
-    /// Return `None` if the array cannot be serialized.
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>>;
+    /// Serialise metadata into a byte buffer for IPC or file storage.
+    /// Return `None` if the array cannot be serialised, mate.
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>>;
 
-    /// Deserialize array metadata from a byte buffer.
-    fn deserialize(
+    /// Deserialise array metadata from a byte buffer.
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -193,7 +193,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// ensure they make progress towards that goal.
     ///
     /// The returned array (in `Done`) must be logically equivalent to the input array. In other
-    /// words, the recursively canonicalized forms of both arrays must be equal.
+    /// words, the recursively canonicalised forms of both arrays must be equal.
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.

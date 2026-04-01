@@ -46,7 +46,7 @@ use vortex::session::registry::ReadContext;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
-/// Initialize the WASM module (sets up panic hook for better error messages).
+/// Initialise the WASM module (sets up panic hook for better error messages).
 #[wasm_bindgen(start)]
 pub fn init() {
     console_error_panic_hook::set_once();

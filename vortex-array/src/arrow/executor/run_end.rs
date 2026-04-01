@@ -65,7 +65,7 @@ pub(super) fn to_arrow_run_end(
         return run_end_to_arrow(array, ends_type, values_type, ctx);
     }
 
-    // Fallback: canonicalize to flat Arrow, then cast to REE.
+    // Fallback: canonicalise to flat Arrow, then cast to REE.
     let flat = array.execute_arrow(Some(values_type.data_type()), ctx)?;
     let ree_type = DataType::RunEndEncoded(
         Arc::new(Field::new("run_ends", ends_type.clone(), false)),

@@ -80,7 +80,7 @@ impl FooterDeserializer {
         self.buffer = buffer.freeze();
     }
 
-    pub fn deserialize(&mut self) -> VortexResult<DeserializeStep> {
+    pub fn deserialise(&mut self) -> VortexResult<DeserialiseStep> {
         let postscript = if let Some(ref postscript) = self.postscript {
             postscript
         } else {
@@ -108,7 +108,7 @@ impl FooterDeserializer {
 
         // The initial offset is the file size - the size of our initial read.
         let Some(file_size) = self.file_size else {
-            return Ok(DeserializeStep::NeedFileSize);
+            return Ok(DeserialiseStep::NeedFileSize);
         };
         let initial_offset = file_size - (self.buffer.len() as u64);
 
@@ -127,7 +127,7 @@ impl FooterDeserializer {
             tracing::debug!(
                 "Initial read from {initial_offset} did not cover all footer segments, reading from {read_more_offset}"
             );
-            return Ok(DeserializeStep::NeedMoreData {
+            return Ok(DeserialiseStep::NeedMoreData {
                 offset: read_more_offset,
                 len: usize::try_from(initial_offset - read_more_offset)?,
             });
@@ -152,7 +152,7 @@ impl FooterDeserializer {
             })
             .transpose()?;
 
-        Ok(DeserializeStep::Done(self.parse_footer(
+        Ok(DeserialiseStep::Done(self.parse_footer(
             initial_offset,
             &self.buffer,
             &postscript.footer,
@@ -263,7 +263,7 @@ impl FooterDeserializer {
 }
 
 #[derive(Debug)]
-pub enum DeserializeStep {
+pub enum DeserialiseStep {
     // The offset and length of additional data needed to continue deserialization.
     NeedMoreData { offset: u64, len: usize },
     NeedFileSize,

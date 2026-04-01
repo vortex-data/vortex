@@ -9,7 +9,7 @@ use tracing_perfetto::PerfettoLayer;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::prelude::*;
 
-/// Initialize logging/tracing for a benchmark
+/// Initialise logging/tracing for a benchmark
 pub fn setup_logging_and_tracing(verbose: bool, tracing: bool) -> anyhow::Result<()> {
     let filter = default_env_filter(verbose);
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+//! Mutable buffers, mate. Dead handy for when you need to change your data on the fly, innit?
 
 use core::mem::MaybeUninit;
 use std::any::type_name;
@@ -175,7 +176,7 @@ impl<T> BufferMut<T> {
     #[inline]
     pub fn truncate(&mut self, len: usize) {
         if len <= self.len() {
-            // SAFETY: Shrinking the buffer cannot expose uninitialized bytes.
+            // SAFETY: Shrinking the buffer cannot expose uninitialised bytes.
             unsafe { self.set_len(len) };
         }
     }
@@ -210,7 +211,7 @@ impl<T> BufferMut<T> {
     /// Has identical semantics to [`Vec::spare_capacity_mut`].
     ///
     /// The returned slice can be used to fill the buffer with data (e.g. by
-    /// reading from a file) before marking the data as initialized using the
+    /// reading from a file) before marking the data as initialised using the
     /// [`set_len`] method.
     ///
     /// [`set_len`]: BufferMut::set_len
@@ -230,7 +231,7 @@ impl<T> BufferMut<T> {
     /// uninit[1].write(1);
     /// uninit[2].write(2);
     ///
-    /// // Mark the first 3 elements of the vector as being initialized.
+    /// // Mark the first 3 elements of the vector as being initialised.
     /// unsafe {
     ///     b.set_len(3);
     /// }
@@ -253,7 +254,7 @@ impl<T> BufferMut<T> {
     /// # Safety
     ///
     /// - `new_len` must be less than or equal to [`capacity()`].
-    /// - The elements at `old_len..new_len` must be initialized.
+    /// - The elements at `old_len..new_len` must be initialised.
     ///
     /// [`capacity()`]: Self::capacity
     #[inline]

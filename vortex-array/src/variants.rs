@@ -26,63 +26,63 @@ use crate::scalar::Scalar;
 use crate::search_sorted::IndexOrd;
 
 impl dyn DynArray + '_ {
-    /// Downcasts the array for null-specific behavior.
+    /// Downcasts the array for null-specific behaviour.
     pub fn as_null_typed(&self) -> NullTyped<'_> {
         matches!(self.dtype(), DType::Null)
             .then(|| NullTyped(self))
             .vortex_expect("Array does not have DType::Null")
     }
 
-    /// Downcasts the array for bool-specific behavior.
+    /// Downcasts the array for bool-specific behaviour.
     pub fn as_bool_typed(&self) -> BoolTyped<'_> {
         matches!(self.dtype(), DType::Bool(..))
             .then(|| BoolTyped(self))
             .vortex_expect("Array does not have DType::Bool")
     }
 
-    /// Downcasts the array for primitive-specific behavior.
+    /// Downcasts the array for primitive-specific behaviour.
     pub fn as_primitive_typed(&self) -> PrimitiveTyped<'_> {
         matches!(self.dtype(), DType::Primitive(..))
             .then(|| PrimitiveTyped(self))
             .vortex_expect("Array does not have DType::Primitive")
     }
 
-    /// Downcasts the array for decimal-specific behavior.
+    /// Downcasts the array for decimal-specific behaviour.
     pub fn as_decimal_typed(&self) -> DecimalTyped<'_> {
         matches!(self.dtype(), DType::Decimal(..))
             .then(|| DecimalTyped(self))
             .vortex_expect("Array does not have DType::Decimal")
     }
 
-    /// Downcasts the array for utf8-specific behavior.
+    /// Downcasts the array for utf8-specific behaviour.
     pub fn as_utf8_typed(&self) -> Utf8Typed<'_> {
         matches!(self.dtype(), DType::Utf8(..))
             .then(|| Utf8Typed(self))
             .vortex_expect("Array does not have DType::Utf8")
     }
 
-    /// Downcasts the array for binary-specific behavior.
+    /// Downcasts the array for binary-specific behaviour.
     pub fn as_binary_typed(&self) -> BinaryTyped<'_> {
         matches!(self.dtype(), DType::Binary(..))
             .then(|| BinaryTyped(self))
             .vortex_expect("Array does not have DType::Binary")
     }
 
-    /// Downcasts the array for struct-specific behavior.
+    /// Downcasts the array for struct-specific behaviour.
     pub fn as_struct_typed(&self) -> StructTyped<'_> {
         matches!(self.dtype(), DType::Struct(..))
             .then(|| StructTyped(self))
             .vortex_expect("Array does not have DType::Struct")
     }
 
-    /// Downcasts the array for list-specific behavior.
+    /// Downcasts the array for list-specific behaviour.
     pub fn as_list_typed(&self) -> ListTyped<'_> {
         matches!(self.dtype(), DType::List(..))
             .then(|| ListTyped(self))
             .vortex_expect("Array does not have DType::List")
     }
 
-    /// Downcasts the array for extension-specific behavior.
+    /// Downcasts the array for extension-specific behaviour.
     pub fn as_extension_typed(&self) -> ExtensionTyped<'_> {
         matches!(self.dtype(), DType::Extension(..))
             .then(|| ExtensionTyped(self))

@@ -221,7 +221,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::serde::ArrayParts;
-    use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerialiseOptions;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
@@ -448,7 +448,7 @@ mod tests {
         let ctx = ArrayContext::empty();
         let serialized = rle_array
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialise(&ctx, &SerialiseOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();
@@ -491,7 +491,7 @@ mod tests {
         let serialized = sliced
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialise(&ctx, &SerialiseOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();

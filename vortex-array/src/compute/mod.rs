@@ -147,7 +147,7 @@ pub trait ComputeFnVTable: 'static + Send + Sync {
     /// Invokes the compute function entry-point with the given input arguments and options.
     ///
     /// The entry-point logic can short-circuit compute using statistics, update result array
-    /// statistics, search for relevant compute kernels, and canonicalize the inputs in order
+    /// statistics, search for relevant compute kernels, and canonicalise the inputs in order
     /// to successfully compute a result.
     fn invoke(&self, args: &InvocationArgs, kernels: &[ArcRef<dyn Kernel>])
     -> VortexResult<Output>;

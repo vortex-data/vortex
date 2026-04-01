@@ -17,7 +17,7 @@ use crate::expr::stats::StatsProvider;
 use crate::expr::stats::StatsProviderExt;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
-use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::stats::StatsSet;
 use crate::vtable::VTable;

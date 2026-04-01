@@ -7,7 +7,7 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::DictReader;
-use vortex_array::DeserializeMetadata;
+use vortex_array::DeserialiseMetadata;
 use vortex_array::ProstMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -105,7 +105,7 @@ impl VTable for Dict {
         _encoding: &Self::Encoding,
         dtype: &DType,
         _row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<Self::Metadata as DeserialiseMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: &ReadContext,

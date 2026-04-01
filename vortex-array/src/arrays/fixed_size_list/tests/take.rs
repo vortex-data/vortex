@@ -89,7 +89,7 @@ fn test_take_degenerate_lists(
 
     test_take_conformance(&fsl.clone().into_array());
 
-    // Also test the specific behavior.
+    // Also test the specific behaviour.
     let indices_array = PrimitiveArray::from_option_iter(indices);
     let result = fsl.take(indices_array.into_array()).unwrap();
 

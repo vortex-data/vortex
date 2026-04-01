@@ -53,14 +53,14 @@ impl ScalarFnVTable for Merge {
         ScalarFnId::new_ref("vortex.merge")
     }
 
-    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(match instance {
             DuplicateHandling::RightMost => vec![0x00],
             DuplicateHandling::Error => vec![0x01],
         }))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,

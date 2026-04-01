@@ -55,7 +55,7 @@ impl ScalarFnVTable for Binary {
         ScalarFnId::from("vortex.binary")
     }
 
-    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::BinaryOpts {
                 op: (*instance).into(),
@@ -64,7 +64,7 @@ impl ScalarFnVTable for Binary {
         ))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,

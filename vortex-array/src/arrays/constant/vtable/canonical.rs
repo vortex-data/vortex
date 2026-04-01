@@ -33,8 +33,8 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
-/// Shared implementation for both `canonicalize` and `execute` methods.
-pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
+/// Shared implementation for both `canonicalise` and `execute` methods.
+pub(crate) fn constant_canonicalise(array: &ConstantArray) -> VortexResult<Canonical> {
     let scalar = array.scalar();
 
     let validity = match array.dtype().nullability() {
@@ -223,7 +223,7 @@ fn constant_canonical_byte_view(
 fn constant_canonical_list_array(scalar: &Scalar, len: usize) -> ListViewArray {
     let list = scalar.as_list();
 
-    // Since "canonicalize" only applies to the top level array, we can simply have 1 scalar in our
+    // Since "canonicalise" only applies to the top level array, we can simply have 1 scalar in our
     // child `elements` and have all list views point to that scalar.
     let elements = if let Some(elements) = list.elements() {
         // Extract the list elements out of the scalar into a new array.
@@ -338,7 +338,7 @@ mod tests {
     use crate::vtable::ValidityHelper;
 
     #[test]
-    fn test_canonicalize_null() {
+    fn test_canonicalise_null() {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
         let actual = const_null.to_null();
         assert_eq!(actual.len(), 42);
@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_const_str() {
+    fn test_canonicalise_const_str() {
         let const_array = ConstantArray::new("four".to_string(), 4);
 
         let expected = VarBinArray::from(vec!["four", "four", "four", "four"]);
@@ -354,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_propagates_stats() -> VortexResult<()> {
+    fn test_canonicalise_propagates_stats() -> VortexResult<()> {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
         let const_array = ConstantArray::new(scalar, 4).into_array();
         let stats = const_array
@@ -380,7 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_scalar_values() {
+    fn test_canonicalise_scalar_values() {
         let f16_value = f16::from_f32(5.722046e-6);
         let f16_scalar = Scalar::primitive(f16_value, Nullability::NonNullable);
 
@@ -393,7 +393,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_lists() -> VortexResult<()> {
+    fn test_canonicalise_lists() -> VortexResult<()> {
         let list_scalar = Scalar::list(
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
             vec![1u64.into(), 2u64.into()],
@@ -418,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_empty_list() {
+    fn test_canonicalise_empty_list() {
         let list_scalar = Scalar::list(
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
             vec![],
@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_null_list() {
+    fn test_canonicalise_null_list() {
         let list_scalar = Scalar::null(DType::List(
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
             Nullability::Nullable,
@@ -457,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_nullable_struct() {
+    fn test_canonicalise_nullable_struct() {
         let array = ConstantArray::new(
             Scalar::null(DType::struct_(
                 [(
@@ -484,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_non_null() {
+    fn test_canonicalise_fixed_size_list_non_null() {
         // Test with a non-null fixed-size list constant.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
@@ -512,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_nullable() {
+    fn test_canonicalise_fixed_size_list_nullable() {
         // Test with a nullable but non-null fixed-size list constant.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::F64, Nullability::NonNullable)),
@@ -539,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_null() {
+    fn test_canonicalise_fixed_size_list_null() {
         // Test with a null fixed-size list constant.
         let fsl_scalar = Scalar::null(DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
@@ -561,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_empty() {
+    fn test_canonicalise_fixed_size_list_empty() {
         // Test with size-0 lists (edge case).
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I8, Nullability::NonNullable)),
@@ -581,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_nested() {
+    fn test_canonicalise_fixed_size_list_nested() {
         // Test with nested data types (list of strings).
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Utf8(Nullability::NonNullable)),
@@ -604,7 +604,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_single_element() {
+    fn test_canonicalise_fixed_size_list_single_element() {
         // Test with a single-element list.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I16, Nullability::NonNullable)),
@@ -623,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_with_null_elements() {
+    fn test_canonicalise_fixed_size_list_with_null_elements() {
         // Test FSL with nullable element type where some elements are null.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
@@ -664,7 +664,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_fixed_size_list_large() {
+    fn test_canonicalise_fixed_size_list_large() {
         // Test with a large constant array.
         let fsl_scalar = Scalar::fixed_size_list(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),

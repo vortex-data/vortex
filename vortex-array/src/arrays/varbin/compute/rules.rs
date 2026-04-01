@@ -3,7 +3,7 @@
 
 use crate::arrays::VarBin;
 use crate::arrays::slice::SliceReduceAdaptor;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimiser::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 

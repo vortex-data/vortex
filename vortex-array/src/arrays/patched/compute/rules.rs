@@ -4,7 +4,7 @@
 use crate::arrays::Patched;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimiser::rules::ParentRuleSet;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Patched> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&FilterReduceAdaptor(Patched)),

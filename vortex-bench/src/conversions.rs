@@ -93,7 +93,7 @@ pub fn parquet_to_vortex_stream(
             let chunk = ArrayRef::from_arrow(rb, false)?;
             let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
 
-            // Canonicalize the chunk.
+            // Canonicalise the chunk.
             chunk.append_to_builder(
                 builder.as_mut(),
                 &mut VortexSession::default().create_execution_ctx(),

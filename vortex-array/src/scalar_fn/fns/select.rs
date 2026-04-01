@@ -50,7 +50,7 @@ impl ScalarFnVTable for Select {
         ScalarFnId::new_ref("vortex.select")
     }
 
-    fn serialize(&self, instance: &FieldSelection) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, instance: &FieldSelection) -> VortexResult<Option<Vec<u8>>> {
         let opts = match instance {
             FieldSelection::Include(fields) => Opts::Include(ProtoFieldNames {
                 names: fields.iter().map(|f| f.to_string()).collect(),
@@ -64,7 +64,7 @@ impl ScalarFnVTable for Select {
         Ok(Some(select_opts.encode_to_vec()))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,

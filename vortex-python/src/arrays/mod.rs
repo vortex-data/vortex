@@ -712,11 +712,11 @@ impl PyArray {
             .to_string())
     }
 
-    fn serialize(slf: &Bound<Self>, ctx: &PyArrayContext) -> PyVortexResult<Vec<Vec<u8>>> {
+    fn serialise(slf: &Bound<Self>, ctx: &PyArrayContext) -> PyVortexResult<Vec<Vec<u8>>> {
         // FIXME(ngates): do not copy to vec, use buffer protocol
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?;
         Ok(array
-            .serialize(ctx, &Default::default())?
+            .serialise(ctx, &Default::default())?
             .into_iter()
             .map(|buffer| buffer.to_vec())
             .collect())

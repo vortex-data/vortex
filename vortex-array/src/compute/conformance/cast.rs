@@ -36,7 +36,7 @@ fn cast_and_execute(array: &ArrayRef, dtype: DType) -> VortexResult<ArrayRef> {
 /// - Casting between integral and floating-point types
 /// - Casting with nullability changes
 /// - Casting between string types (Utf8/Binary)
-/// - Edge cases like overflow behavior
+/// - Edge cases like overflow behaviour
 pub fn test_cast_conformance(array: &ArrayRef) {
     let dtype = array.dtype();
 

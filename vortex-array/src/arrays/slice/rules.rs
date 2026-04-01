@@ -3,7 +3,7 @@
 
 use crate::arrays::Slice;
 use crate::arrays::slice::SliceReduceAdaptor;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimiser::rules::ParentRuleSet;
 
 pub(super) const PARENT_RULES: ParentRuleSet<Slice> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&SliceReduceAdaptor(Slice))]);

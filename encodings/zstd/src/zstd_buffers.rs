@@ -212,7 +212,7 @@ impl ZstdBuffersArray {
                     spare.len()
                 ));
             }
-            // SAFETY: we only expose the first `size` bytes and mark them initialized via
+            // SAFETY: we only expose the first `size` bytes and mark them initialised via
             // `set_len(size)` after zstd reports how many bytes were written.
             let dst =
                 unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), size) };
@@ -225,7 +225,7 @@ impl ZstdBuffersArray {
                     written
                 ));
             }
-            // SAFETY: zstd wrote exactly `size` initialized bytes into `dst`.
+            // SAFETY: zstd wrote exactly `size` initialised bytes into `dst`.
             unsafe { output.set_len(size) };
             result.push(BufferHandle::new_host(output.freeze()));
         }
@@ -426,11 +426,11 @@ impl VTable for ZstdBuffers {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(metadata.0.encode_to_vec()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,

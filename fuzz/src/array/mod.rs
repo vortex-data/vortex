@@ -325,7 +325,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     (Action::Cast(to), ExpectedValue::Array(result))
                 }
                 ActionType::Sum => {
-                    // Do not try to fuzz float operations, they have unpredictable error behavior
+                    // Do not try to fuzz float operations, they have unpredictable error behaviour
                     if current_array.dtype().is_float() {
                         return Err(EmptyChoose);
                     }

@@ -96,7 +96,7 @@ impl ArrayExporter {
 
         // DuckDB asked us for zero columns. This may happen with aggregation
         // functions like count(*). In such case we can leave chunk contents
-        // uninitialized. See EMPTY_COLUMN_IDX comment why this works.
+        // uninitialised. See EMPTY_COLUMN_IDX comment why this works.
         if zero_projection {
             return Ok(true);
         }

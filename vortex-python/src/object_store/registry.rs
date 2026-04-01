@@ -84,9 +84,9 @@ impl ObjectStoreRegistry for Registry {
             }
         }
 
-        let normalized_env = std::env::vars().map(|(k, v)| (k.to_ascii_lowercase(), v));
+        let normalised_env = std::env::vars().map(|(k, v)| (k.to_ascii_lowercase(), v));
 
-        if let Ok((store, path)) = parse_url_opts(to_resolve, normalized_env) {
+        if let Ok((store, path)) = parse_url_opts(to_resolve, normalised_env) {
             let depth = num_segments(to_resolve.path()) - num_segments(path.as_ref());
 
             let mut map = self.map.write();

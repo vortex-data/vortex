@@ -82,7 +82,9 @@ pub struct TimeGuard<'a> {
     start: Instant,
 }
 
+/// When this guard gets binned, it records how long it was alive. Cheers, mate!
 impl Drop for TimeGuard<'_> {
+    /// Bin it and record the elapsed time, sorted.
     fn drop(&mut self) {
         let elapsed = self.start.elapsed();
         self.source.update(elapsed);

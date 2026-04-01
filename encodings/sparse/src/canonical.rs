@@ -215,7 +215,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
     builder.finish()
 }
 
-/// Canonicalize a sparse [`FixedSizeListArray`] by expanding it into a dense representation.
+/// Canonicalise a sparse [`FixedSizeListArray`] by expanding it into a dense representation.
 fn execute_sparse_fixed_size_list(
     array: &SparseArray,
     nullability: Nullability,

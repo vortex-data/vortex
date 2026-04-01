@@ -12,7 +12,7 @@ use crate::arrays::NullArray;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::match_each_integer_ptype;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimiser::rules::ParentRuleSet;
 
 impl TakeReduce for Null {
     #[allow(clippy::cast_possible_truncation)]

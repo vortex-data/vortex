@@ -312,7 +312,7 @@ mod tests {
             let _large_size = (u32::MAX as usize) + 1;
             // This should panic with current implementation
             // We're documenting the issue rather than testing the panic
-            // as the behavior may change
+            // as the behaviour may change
         }
 
         // Test with reasonable size

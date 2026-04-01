@@ -177,11 +177,11 @@ impl VTable for Pco {
         Ok(ProstMetadata(array.metadata.clone()))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(metadata.0.encode_to_vec()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -482,7 +482,7 @@ impl PcoArray {
         let mut page_value_start = 0;
         let mut n_skipped_values = 0;
         for (chunk_info, chunk_meta) in self.metadata.chunks.iter().zip(&self.chunk_metas) {
-            // lazily initialize chunk decompressor
+            // lazily initialise chunk decompressor
             let mut chunk_decompressor: Option<ChunkDecompressor<T>> = None;
             for page_info in &chunk_info.pages {
                 let page_n_values = page_info.n_values as usize;

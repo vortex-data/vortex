@@ -130,7 +130,7 @@ pub fn fetch_schemas_and_queries() -> anyhow::Result<PathBuf> {
         bail!("public_bi fetch failed: stdout=\"{stdout}\", stderr=\"{stderr}\"");
     }
 
-    // Return the public_bi directory where the git repo is initialized.
+    // Return the public_bi directory where the git repo is initialised.
     Ok(Path::new(env!("CARGO_MANIFEST_DIR")).join("public_bi"))
 }
 

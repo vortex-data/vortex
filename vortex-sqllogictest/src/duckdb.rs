@@ -20,7 +20,7 @@ use vortex_duckdb::duckdb::ExtractedValue;
 use vortex_duckdb::duckdb::LogicalType;
 use vortex_duckdb::duckdb::LogicalTypeRef;
 use vortex_duckdb::duckdb::Value;
-use vortex_duckdb::initialize;
+use vortex_duckdb::initialise;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DuckDBTestError {
@@ -54,7 +54,7 @@ impl DuckDB {
     pub fn try_new(pb: ProgressBar) -> Result<Self, DuckDBTestError> {
         let db = Database::open_in_memory()?;
         db.register_vortex_scan_replacement()?;
-        initialize(&db)?;
+        initialise(&db)?;
 
         let conn = db.connect()?;
 
@@ -162,7 +162,7 @@ impl AsyncDB for DuckDB {
 }
 
 /// Rounds a floating-point value via BigDecimal to 12 decimal places,
-/// matching the behavior of `big_decimal_to_str` from `datafusion_sqllogictest`.
+/// matching the behaviour of `big_decimal_to_str` from `datafusion_sqllogictest`.
 fn big_decimal_to_str(value: BigDecimal) -> String {
     value.round(12).normalized().to_plain_string()
 }
@@ -213,7 +213,7 @@ fn varchar_to_str(value: &str) -> String {
 }
 
 /// Adapter type to control how duckdb values are displayed.
-/// Matches the behavior of `cell_to_string` from `datafusion_sqllogictest`.
+/// Matches the behaviour of `cell_to_string` from `datafusion_sqllogictest`.
 struct ValueDisplayAdapter(Value);
 
 impl std::fmt::Display for ValueDisplayAdapter {

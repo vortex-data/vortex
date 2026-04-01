@@ -114,9 +114,9 @@ impl ZonedReader {
             .clone()
     }
 
-    /// Get or initialize the zone map.
+    /// Get or initialise the zone map.
     ///
-    /// Only the first successful caller will initialize the zone map, all other callers will
+    /// Only the first successful caller will initialise the zone map, all other callers will
     /// resolve to the same result.
     fn zone_map(&self) -> SharedZoneMap {
         self.zone_map

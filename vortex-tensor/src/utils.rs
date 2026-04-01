@@ -99,7 +99,7 @@ pub fn extract_flat_elements(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<FlatElements> {
     if let Some(constant) = storage.as_opt::<Constant>() {
-        // Rewrite the array as a length 1 array so when we canonicalize, we do not duplicate a huge
+        // Rewrite the array as a length 1 array so when we canonicalise, we do not duplicate a huge
         // amount of data.
         let single = ConstantArray::new(constant.scalar().clone(), 1).into_array();
         let fsl: FixedSizeListArray = single.execute(ctx)?;

@@ -63,11 +63,11 @@ impl ScalarFnVTable for ListContains {
         ScalarFnId::from("vortex.list.contains")
     }
 
-    fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,

@@ -712,7 +712,7 @@ impl core::fmt::Debug for Message<'_> {
 /// and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_message_unchecked`.
 pub fn root_as_message(buf: &[u8]) -> Result<Message, flatbuffers::InvalidFlatbuffer> {
   flatbuffers::root::<Message>(buf)
@@ -722,7 +722,7 @@ pub fn root_as_message(buf: &[u8]) -> Result<Message, flatbuffers::InvalidFlatbu
 /// `Message` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `size_prefixed_root_as_message_unchecked`.
 pub fn size_prefixed_root_as_message(buf: &[u8]) -> Result<Message, flatbuffers::InvalidFlatbuffer> {
   flatbuffers::size_prefixed_root::<Message>(buf)
@@ -732,7 +732,7 @@ pub fn size_prefixed_root_as_message(buf: &[u8]) -> Result<Message, flatbuffers:
 /// contains a `Message` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_message_unchecked`.
 pub fn root_as_message_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,
@@ -745,7 +745,7 @@ pub fn root_as_message_with_opts<'b, 'o>(
 /// bytes contains a size prefixed `Message` and returns
 /// it. Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_message_unchecked`.
 pub fn size_prefixed_root_as_message_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,

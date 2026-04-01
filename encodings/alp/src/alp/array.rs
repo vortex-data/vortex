@@ -8,14 +8,14 @@ use std::sync::Arc;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::DeserializeMetadata;
+use vortex_array::DeserialiseMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
+use vortex_array::SerialiseMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
@@ -147,11 +147,11 @@ impl VTable for ALP {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -159,7 +159,7 @@ impl VTable for ALP {
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
-            <ProstMetadata<ALPMetadata> as DeserializeMetadata>::deserialize(bytes)?,
+            <ProstMetadata<ALPMetadata> as DeserialiseMetadata>::deserialise(bytes)?,
         ))
     }
 

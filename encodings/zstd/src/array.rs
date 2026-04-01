@@ -187,11 +187,11 @@ impl VTable for Zstd {
         Ok(ProstMetadata(array.metadata.clone()))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(metadata.0.encode_to_vec()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -812,7 +812,7 @@ impl ZstdArray {
         // NOTE: this block handles setting the output type when the validity and DType disagree.
         //
         // ZSTD is a compact block compressor, meaning that null values are not stored inline in
-        // the data frames. A ZSTD Array that was initialized must always hold onto its full
+        // the data frames. A ZSTD Array that was initialised must always hold onto its full
         // validity bitmap, even if sliced to only include non-null values.
         //
         // We ensure that the validity of the decompressed array ALWAYS matches the validity

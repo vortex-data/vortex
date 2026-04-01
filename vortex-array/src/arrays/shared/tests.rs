@@ -16,7 +16,7 @@ use crate::session::ArraySession;
 use crate::validity::Validity;
 
 #[test]
-fn shared_array_caches_on_canonicalize() -> VortexResult<()> {
+fn shared_array_caches_on_canonicalise() -> VortexResult<()> {
     let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable).into_array();
     let shared = SharedArray::new(array);
 

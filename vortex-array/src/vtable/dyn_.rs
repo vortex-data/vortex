@@ -90,7 +90,7 @@ impl<V: VTable> DynVTable for V {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let metadata = V::deserialize(metadata, dtype, len, buffers, session)?;
+        let metadata = V::deserialise(metadata, dtype, len, buffers, session)?;
         let inner = V::build(dtype, len, &metadata, buffers, children)?;
         // Validate the inner array's properties before wrapping.
         assert_eq!(V::len(&inner), len, "Array length mismatch after building");

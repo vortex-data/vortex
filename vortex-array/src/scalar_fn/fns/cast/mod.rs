@@ -56,7 +56,7 @@ impl ScalarFnVTable for Cast {
         ScalarFnId::from("vortex.cast")
     }
 
-    fn serialize(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::CastOpts {
                 target: Some(dtype.try_into()?),
@@ -65,7 +65,7 @@ impl ScalarFnVTable for Cast {
         ))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         session: &VortexSession,

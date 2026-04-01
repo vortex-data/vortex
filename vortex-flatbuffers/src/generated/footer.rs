@@ -1319,7 +1319,7 @@ impl core::fmt::Debug for EncryptionSpec<'_> {
 /// and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_postscript_unchecked`.
 pub fn root_as_postscript(buf: &[u8]) -> Result<Postscript, flatbuffers::InvalidFlatbuffer> {
   flatbuffers::root::<Postscript>(buf)
@@ -1329,7 +1329,7 @@ pub fn root_as_postscript(buf: &[u8]) -> Result<Postscript, flatbuffers::Invalid
 /// `Postscript` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `size_prefixed_root_as_postscript_unchecked`.
 pub fn size_prefixed_root_as_postscript(buf: &[u8]) -> Result<Postscript, flatbuffers::InvalidFlatbuffer> {
   flatbuffers::size_prefixed_root::<Postscript>(buf)
@@ -1339,7 +1339,7 @@ pub fn size_prefixed_root_as_postscript(buf: &[u8]) -> Result<Postscript, flatbu
 /// contains a `Postscript` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_postscript_unchecked`.
 pub fn root_as_postscript_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,
@@ -1352,7 +1352,7 @@ pub fn root_as_postscript_with_opts<'b, 'o>(
 /// bytes contains a size prefixed `Postscript` and returns
 /// it. Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_postscript_unchecked`.
 pub fn size_prefixed_root_as_postscript_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,

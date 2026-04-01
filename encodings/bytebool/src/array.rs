@@ -106,11 +106,11 @@ impl VTable for ByteBool {
         Ok(EmptyMetadata)
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
+    fn deserialise(
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -299,7 +299,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::ArrayParts;
-    use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerialiseOptions;
     use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::ByteBufferMut;
@@ -351,7 +351,7 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialise(&ctx, &SerialiseOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();

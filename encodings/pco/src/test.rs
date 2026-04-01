@@ -18,7 +18,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayParts;
-use vortex_array::serde::SerializeOptions;
+use vortex_array::serde::SerialiseOptions;
 use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
@@ -162,9 +162,9 @@ fn test_serde() -> VortexResult<()> {
     let context = ArrayContext::empty();
 
     let bytes = pco
-        .serialize(
+        .serialise(
             &context,
-            &SerializeOptions {
+            &SerialiseOptions {
                 offset: 0,
                 include_padding: true,
             },

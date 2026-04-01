@@ -81,14 +81,14 @@ impl ScalarFnVTable for CaseWhen {
         ScalarFnId::from("vortex.case_when")
     }
 
-    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         // let num_children = options.num_when_then_pairs * 2 + u32::from(options.has_else);
         // Ok(Some(pb::CaseWhenOpts { num_children }.encode_to_vec()))
         // stabilize the expr
         vortex_bail!("cannot serialize")
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         metadata: &[u8],
         _session: &VortexSession,
@@ -422,9 +422,9 @@ mod tests {
             num_when_then_pairs: 1,
             has_else: true,
         };
-        let serialized = CaseWhen.serialize(&options).unwrap().unwrap();
+        let serialized = CaseWhen.serialise(&options).unwrap().unwrap();
         let deserialized = CaseWhen
-            .deserialize(&serialized, &VortexSession::empty())
+            .deserialise(&serialized, &VortexSession::empty())
             .unwrap();
         assert_eq!(options, deserialized);
     }
@@ -436,9 +436,9 @@ mod tests {
             num_when_then_pairs: 1,
             has_else: false,
         };
-        let serialized = CaseWhen.serialize(&options).unwrap().unwrap();
+        let serialized = CaseWhen.serialise(&options).unwrap().unwrap();
         let deserialized = CaseWhen
-            .deserialize(&serialized, &VortexSession::empty())
+            .deserialise(&serialized, &VortexSession::empty())
             .unwrap();
         assert_eq!(options, deserialized);
     }
@@ -593,9 +593,9 @@ mod tests {
             num_when_then_pairs: 3,
             has_else: true,
         };
-        let serialized = CaseWhen.serialize(&options).unwrap().unwrap();
+        let serialized = CaseWhen.serialise(&options).unwrap().unwrap();
         let deserialized = CaseWhen
-            .deserialize(&serialized, &VortexSession::empty())
+            .deserialise(&serialized, &VortexSession::empty())
             .unwrap();
         assert_eq!(options, deserialized);
     }
@@ -607,9 +607,9 @@ mod tests {
             num_when_then_pairs: 4,
             has_else: false,
         };
-        let serialized = CaseWhen.serialize(&options).unwrap().unwrap();
+        let serialized = CaseWhen.serialise(&options).unwrap().unwrap();
         let deserialized = CaseWhen
-            .deserialize(&serialized, &VortexSession::empty())
+            .deserialise(&serialized, &VortexSession::empty())
             .unwrap();
         assert_eq!(options, deserialized);
     }

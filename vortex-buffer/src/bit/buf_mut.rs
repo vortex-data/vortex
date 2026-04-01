@@ -377,7 +377,7 @@ impl BitBufferMut {
     /// # Safety
     ///
     /// - `new_len` must be less than or equal to [`capacity()`](Self::capacity)
-    /// - The elements at `old_len..new_len` must be initialized
+    /// - The elements at `old_len..new_len` must be initialised
     #[inline(always)]
     pub unsafe fn set_len(&mut self, new_len: usize) {
         debug_assert!(
@@ -676,7 +676,7 @@ impl FromIterator<bool> for BitBufferMut {
 
         // We choose not to use the optional upper bound size hint to match the standard library.
 
-        // Initialize all bits to 0 with the given length. By doing this, we only need to set bits
+        // Initialise all bits to 0 with the given length. By doing this, we only need to set bits
         // that are true (and this is faster from benchmarks).
         let mut buf = BitBufferMut::new_unset(lower_bound);
         assert_eq!(buf.offset, 0);
@@ -686,7 +686,7 @@ impl FromIterator<bool> for BitBufferMut {
         for i in 0..lower_bound {
             let Some(v) = iter.next() else {
                 // SAFETY: We are definitely under the capacity and all values are already
-                // initialized from `new_unset`.
+                // initialised from `new_unset`.
                 unsafe { buf.set_len(i) };
                 return buf;
             };

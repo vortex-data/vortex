@@ -18,7 +18,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
+use vortex_array::SerialiseMetadata;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -123,11 +123,11 @@ impl VTable for DecimalByteParts {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -217,7 +217,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["msp"];
 pub struct DecimalBytePartsArray {
     pub(super) slots: Vec<Option<ArrayRef>>,
     // NOTE: the lower_parts is currently unused, we reserve this field so that it is properly
-    //  read/written during serde, but provide no constructor to initialize this to anything
+    //  read/written during serde, but provide no constructor to initialise this to anything
     //  other than the empty Vec.
     // Must update `DecimalBytePartsArrayParts` too.
     _lower_parts: Vec<ArrayRef>,

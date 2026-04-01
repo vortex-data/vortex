@@ -24,7 +24,7 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::compute::kernel::PARENT_KERNELS;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
-use crate::arrays::chunked::vtable::canonical::_canonicalize;
+use crate::arrays::chunked::vtable::canonical::_canonicalise;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -119,11 +119,11 @@ impl VTable for Chunked {
         Ok(EmptyMetadata)
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
+    fn deserialise(
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -203,7 +203,7 @@ impl VTable for Chunked {
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            _canonicalize(&array, ctx)?.into_array(),
+            _canonicalise(&array, ctx)?.into_array(),
         ))
     }
 

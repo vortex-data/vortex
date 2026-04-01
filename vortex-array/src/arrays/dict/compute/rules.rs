@@ -17,9 +17,9 @@ use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
-use crate::optimizer::ArrayOptimizer;
-use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimiser::ArrayOptimiser;
+use crate::optimiser::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::like::LikeReduceAdaptor;
@@ -121,7 +121,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
         let new_values =
             ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, values_len)?
                 .into_array()
-                .optimize()?;
+                .optimise()?;
 
         // We can only push down null-sensitive functions when we have all-valid codes.
         // In these cases, we cannot have the codes influence the nullability of the output DType.
@@ -191,7 +191,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
             array.values().len(),
         )?
         .into_array()
-        .optimize()?;
+        .optimise()?;
 
         let new_dict =
             unsafe { DictArray::new_unchecked(array.codes().clone(), new_values) }.into_array();

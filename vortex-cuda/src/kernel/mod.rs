@@ -39,9 +39,9 @@ pub(crate) use slice::SliceExecutor;
 
 use crate::CudaKernelEvents;
 
-/// Trait for customizing kernel launch behavior.
+/// Trait for customizing kernel launch behaviour.
 ///
-/// Implementations can add tracing, async callbacks, or other behavior
+/// Implementations can add tracing, async callbacks, or other behaviour
 /// around kernel launches.
 pub trait LaunchStrategy: Debug + Send + Sync + 'static {
     /// Returns the event flags to use for this launch.
@@ -306,7 +306,7 @@ mod tests {
         let stream = ctx.new_stream().expect("failed to create CUDA stream");
 
         // Allocate output buffer for 3 u32 values
-        // SAFETY: Allocating uninitialized memory that will be written by kernel
+        // SAFETY: Allocating uninitialised memory that will be written by kernel
         let output = unsafe {
             stream
                 .alloc::<u32>(3)

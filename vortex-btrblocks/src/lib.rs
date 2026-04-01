@@ -6,7 +6,7 @@
 //! Vortex's [BtrBlocks]-inspired adaptive compression framework.
 //!
 //! This crate provides a sophisticated multi-level compression system that adaptively selects
-//! optimal compression schemes based on data characteristics. The compressor analyzes arrays
+//! optimal compression schemes based on data characteristics. The compressor analyses arrays
 //! to determine the best encoding strategy, supporting cascaded compression with multiple
 //! encoding layers for maximum efficiency.
 //!
@@ -23,7 +23,7 @@
 //! # How It Works
 //!
 //! [`BtrBlocksCompressor::compress()`] takes an `&ArrayRef` and returns an `ArrayRef` that may
-//! use a different encoding. It first canonicalizes the input, then dispatches by type.
+//! use a different encoding. It first canonicalises the input, then dispatches by type.
 //! Primitives and strings go through `choose_and_compress`, which evaluates every enabled
 //! [`Scheme`] and picks the one with the best compression ratio. Compound types like structs
 //! and lists recurse into their fields and elements.

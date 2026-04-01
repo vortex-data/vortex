@@ -10,12 +10,12 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::DeserializeMetadata;
+use crate::DeserialiseMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::ProstMetadata;
-use crate::SerializeMetadata;
+use crate::SerialiseMetadata;
 use crate::arrays::VarBinArray;
 use crate::arrays::varbin::array::NUM_SLOTS;
 use crate::arrays::varbin::array::SLOT_NAMES;
@@ -120,18 +120,18 @@ impl VTable for VarBin {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ProstMetadata::<VarBinMetadata>::deserialize(
+        Ok(ProstMetadata(ProstMetadata::<VarBinMetadata>::deserialise(
             bytes,
         )?))
     }

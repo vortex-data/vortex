@@ -44,10 +44,10 @@ static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRunt
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
 
-/// Initialize the Vortex extension by registering the extension functions.
+/// Initialise the Vortex extension by registering the extension functions.
 /// Note: This also registers extension options. If you want to register options
 /// separately (e.g., before creating connections), call `register_extension_options` first.
-pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
+pub fn initialise(db: &DatabaseRef) -> VortexResult<()> {
     db.config().add_extension_options(
         "vortex_filesystem",
         "Whether to use Vortex's filesystem ('vortex') or DuckDB's filesystems ('duckdb').",
@@ -67,7 +67,7 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
 ///
 /// This ensures DuckDB can find the symbols when loading the extension.
 ///
-/// The DuckDB extension ABI initialization function.
+/// The DuckDB extension ABI initialisation function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
     let database = unsafe { Database::borrow(db) };
@@ -75,7 +75,7 @@ pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
     database
         .register_vortex_scan_replacement()
         .vortex_expect("failed to register vortex scan replacement");
-    initialize(database).vortex_expect("Failed to initialize Vortex extension");
+    initialise(database).vortex_expect("Failed to initialise Vortex extension");
 }
 
 /// The DuckDB extension ABI version function.

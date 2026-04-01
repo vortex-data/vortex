@@ -46,13 +46,13 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// Should return `Ok(None)` if the function is not serializable, and `Ok(vec![])` if it is
     /// serializable but has no metadata.
-    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         _ = options;
         Ok(None)
     }
 
     /// Deserialize the options of this aggregate function.
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,

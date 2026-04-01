@@ -10,7 +10,7 @@ use jni::sys::jint;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
-// Ensure the logger is initialized only once
+// Ensure the logger is initialised only once
 static LOGGER_INIT: AtomicBool = AtomicBool::new(false);
 
 #[unsafe(no_mangle)]

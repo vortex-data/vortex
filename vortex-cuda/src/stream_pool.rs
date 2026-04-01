@@ -85,7 +85,7 @@ impl VortexCudaStreamPool {
         Ok(VortexCudaStream(new_stream))
     }
 
-    /// Returns the current number of initialized streams in the pool.
+    /// Returns the current number of initialised streams in the pool.
     pub fn live_stream_count(&self) -> usize {
         self.slots
             .iter()

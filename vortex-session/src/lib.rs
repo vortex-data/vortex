@@ -21,7 +21,7 @@ use vortex_error::vortex_panic;
 /// A Vortex session encapsulates the set of extensible arrays, layouts, compute functions, dtypes,
 /// etc. that are available for use in a given context.
 ///
-/// It is also the entry-point passed to dynamic libraries to initialize Vortex plugins.
+/// It is also the entry-point passed to dynamic libraries to initialise Vortex plugins.
 #[derive(Clone, Debug)]
 pub struct VortexSession(Arc<SessionVars>);
 

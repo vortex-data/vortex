@@ -7,7 +7,7 @@ pub mod writer;
 use std::env;
 use std::sync::Arc;
 
-use vortex_array::DeserializeMetadata;
+use vortex_array::DeserialiseMetadata;
 use vortex_array::ProstMetadata;
 use vortex_array::dtype::DType;
 use vortex_buffer::ByteBuffer;
@@ -30,7 +30,7 @@ use crate::segments::SegmentSource;
 use crate::vtable;
 
 /// Check if inline array node is enabled.
-/// This checks the env var each time to allow tests to toggle the behavior.
+/// This checks the env var each time to allow tests to toggle the behaviour.
 pub(super) fn flat_layout_inline_array_node() -> bool {
     env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok()
 }
@@ -98,7 +98,7 @@ impl VTable for Flat {
         _encoding: &Self::Encoding,
         dtype: &DType,
         row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<Self::Metadata as DeserialiseMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
         ctx: &ReadContext,

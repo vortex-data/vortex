@@ -67,7 +67,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.values.as_mut()
     }
 
-    /// Create a new handle to the next `len` uninitialized values in the builder.
+    /// Create a new handle to the next `len` uninitialised values in the builder.
     ///
     /// All reads/writes through the handle to the values buffer or the validity buffer will operate
     /// on indices relative to the start of the range.
@@ -92,7 +92,7 @@ impl<T: NativePType> PrimitiveBuilder<T> {
     /// let mut uninit_range = builder.uninit_range(5);
     /// uninit_range.copy_from_slice(0, &[0, 1, 2, 3, 4]);
     ///
-    /// // SAFETY: We have initialized all 5 values in the range, and since the array builder is
+    /// // SAFETY: We have initialised all 5 values in the range, and since the array builder is
     /// // non-nullable, we don't need to set any null bits.
     /// unsafe { uninit_range.finish(); }
     ///
@@ -211,9 +211,9 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     }
 }
 
-/// A range of uninitialized values in the primitive builder that can be filled.
+/// A range of uninitialised values in the primitive builder that can be filled.
 pub struct UninitRange<'a, T> {
-    /// The length of the uninitialized range.
+    /// The length of the uninitialised range.
     ///
     /// This is guaranteed to be within the memory capacity of the builder.
     len: usize,
@@ -226,7 +226,7 @@ pub struct UninitRange<'a, T> {
 }
 
 impl<T> UninitRange<'_, T> {
-    /// Returns the length of this uninitialized range.
+    /// Returns the length of this uninitialised range.
     #[inline]
     pub fn len(&self) -> usize {
         self.len
@@ -258,7 +258,7 @@ impl<T> UninitRange<'_, T> {
     ///
     /// # Safety
     ///
-    /// - The caller must ensure that they safely initialize `mask.len()` primitive values via
+    /// - The caller must ensure that they safely initialise `mask.len()` primitive values via
     ///   [`UninitRange::copy_from_slice`].
     /// - The caller must also ensure that they only call this method once.
     pub unsafe fn append_mask(&mut self, mask: Mask) {
@@ -289,7 +289,7 @@ impl<T> UninitRange<'_, T> {
         self.builder.nulls.set_bit(absolute_index, v);
     }
 
-    /// Set values from an initialized range.
+    /// Set values from an initialised range.
     ///
     /// Note that the input `offset` should be an offset relative to the local `UninitRange`, not
     /// the entire `PrimitiveBuilder`.
@@ -312,14 +312,14 @@ impl<T> UninitRange<'_, T> {
         dst.copy_from_slice(uninit_src);
     }
 
-    /// Get a mutable slice of uninitialized memory at the specified offset within this range.
+    /// Get a mutable slice of uninitialised memory at the specified offset within this range.
     ///
     /// Note that the offsets are relative to this local range, not to the values already in the
     /// builder.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that they properly initialize the returned memory before calling
+    /// The caller must ensure that they properly initialise the returned memory before calling
     /// `finish()` on this range.
     ///
     /// # Panics
@@ -336,12 +336,12 @@ impl<T> UninitRange<'_, T> {
         &mut self.builder.values.spare_capacity_mut()[offset..offset + len]
     }
 
-    /// Finish building this range, marking it as initialized and advancing the length of the
+    /// Finish building this range, marking it as initialised and advancing the length of the
     /// underlying values buffer.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that they have safely initialized all `len` values via
+    /// The caller must ensure that they have safely initialised all `len` values via
     /// [`copy_from_slice()`] or [`set_value()`], as well as correctly set all of the null bits via
     /// [`set_validity_bit()`] or [`append_mask()`] if the builder is nullable.
     ///
@@ -373,7 +373,7 @@ mod tests {
         let mut range1 = builder.uninit_range(3);
         range1.copy_from_slice(0, &[1, 2, 3]);
 
-        // SAFETY: We initialized all 3 values.
+        // SAFETY: We initialised all 3 values.
         unsafe {
             range1.finish();
         }
@@ -387,7 +387,7 @@ mod tests {
         // Set values using copy_from_slice.
         range2.copy_from_slice(0, &[4, 5]);
 
-        // SAFETY: We initialized both values.
+        // SAFETY: We initialised both values.
         unsafe {
             range2.finish();
         }
@@ -412,15 +412,15 @@ mod tests {
         // Create a mask for 3 values.
         let mask = Mask::from_iter([true, false, true]);
 
-        // SAFETY: We're about to initialize the values.
+        // SAFETY: We're about to initialise the values.
         unsafe {
             range.append_mask(mask);
         }
 
-        // Initialize the values.
+        // Initialise the values.
         range.copy_from_slice(0, &[10, 20, 30]);
 
-        // SAFETY: We've initialized all values and set the mask.
+        // SAFETY: We've initialised all values and set the mask.
         unsafe {
             range.finish();
         }
@@ -466,7 +466,7 @@ mod tests {
         range.copy_from_slice(2, &[3, 4]);
         range.copy_from_slice(4, &[5, 6]);
 
-        // SAFETY: We've initialized all 6 values.
+        // SAFETY: We've initialised all 6 values.
         unsafe {
             range.finish();
         }
@@ -477,7 +477,7 @@ mod tests {
 
     /// Test that `set_bit` uses relative indexing within the range.
     ///
-    /// Note: `set_bit` requires the null buffer to already be initialized, so we first
+    /// Note: `set_bit` requires the null buffer to already be initialised, so we first
     /// use `append_mask` to set up the buffer, then demonstrate that `set_bit` can
     /// modify individual bits with relative indexing.
     #[test]
@@ -491,9 +491,9 @@ mod tests {
         // Create a range for new values.
         let mut range = builder.uninit_range(3);
 
-        // Use append_mask to initialize the validity buffer for this range.
+        // Use append_mask to initialise the validity buffer for this range.
         let initial_mask = Mask::from_iter([false, false, false]);
-        // SAFETY: We're about to initialize the values.
+        // SAFETY: We're about to initialise the values.
         unsafe {
             range.append_mask(initial_mask);
         }
@@ -503,10 +503,10 @@ mod tests {
         range.set_validity_bit(2, true); // Change third bit to valid
         // Leave middle bit as false (null)
 
-        // Initialize the values.
+        // Initialise the values.
         range.copy_from_slice(0, &[10, 20, 30]);
 
-        // SAFETY: We've initialized all 3 values and set their validity.
+        // SAFETY: We've initialised all 3 values and set their validity.
         unsafe {
             range.finish();
         }
@@ -569,15 +569,15 @@ mod tests {
 
         // Set validity mask.
         let mask = Mask::from_iter([true, true, false]);
-        // SAFETY: We're about to initialize the matching number of values.
+        // SAFETY: We're about to initialise the matching number of values.
         unsafe {
             range.append_mask(mask);
         }
 
-        // Initialize all values.
+        // Initialise all values.
         range.copy_from_slice(0, &[10, 20, 30]);
 
-        // SAFETY: We have initialized all 3 values and set their validity.
+        // SAFETY: We have initialised all 3 values and set their validity.
         unsafe {
             range.finish();
         }

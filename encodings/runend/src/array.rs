@@ -8,14 +8,14 @@ use std::sync::Arc;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::DeserializeMetadata;
+use vortex_array::DeserialiseMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
+use vortex_array::SerialiseMetadata;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
@@ -122,18 +122,18 @@ impl VTable for RunEnd {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        let inner = <ProstMetadata<RunEndMetadata> as DeserializeMetadata>::deserialize(bytes)?;
+        let inner = <ProstMetadata<RunEndMetadata> as DeserialiseMetadata>::deserialise(bytes)?;
         Ok(ProstMetadata(inner))
     }
 
@@ -195,7 +195,7 @@ impl VTable for RunEnd {
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        run_end_canonicalize(&array, ctx).map(ExecutionResult::done)
+        run_end_canonicalise(&array, ctx).map(ExecutionResult::done)
     }
 }
 
@@ -478,7 +478,7 @@ impl ValidityVTable<RunEnd> for RunEnd {
     }
 }
 
-pub(super) fn run_end_canonicalize(
+pub(super) fn run_end_canonicalise(
     array: &RunEndArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {

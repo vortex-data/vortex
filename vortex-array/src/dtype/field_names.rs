@@ -456,7 +456,7 @@ mod tests {
 
     /// Verify hashing is unchanged and behaves as expected
     #[test]
-    fn test_hash_behavior() {
+    fn test_hash_behaviour() {
         use std::hash::BuildHasher;
 
         let rs = std::hash::RandomState::new();

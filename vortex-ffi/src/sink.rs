@@ -36,7 +36,7 @@ use crate::session::vx_session;
 /// This struct is **not** thread-safe for concurrent operations. While the underlying
 /// `Sender` is thread-safe, the FFI wrapper should only be accessed from a single thread
 /// to avoid race conditions between `push` and `close` operations. The `close` operation
-/// consumes the sink, making any subsequent operations undefined behavior.
+/// consumes the sink, making any subsequent operations undefined behaviour.
 ///
 /// Multiple threads may safely hold pointers to the same sink, but only one thread should
 /// perform operations on it at a time, and coordination is required to ensure `close` is

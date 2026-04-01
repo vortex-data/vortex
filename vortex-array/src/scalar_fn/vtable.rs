@@ -48,13 +48,13 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// Should return `Ok(None)` if the expression is not serializable, and `Ok(vec![])` if it is
     /// serializable but has no metadata.
-    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         _ = options;
         Ok(None)
     }
 
     /// Deserialize the options of this expression.
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,
@@ -231,7 +231,7 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
     /// `true`.
     ///
     /// An expression is semantically fallible if there exists a set of well-typed inputs that
-    /// causes the expression to produce an error as part of its _defined behavior_. For example,
+    /// causes the expression to produce an error as part of its _defined behaviour_. For example,
     /// `checked_add` is fallible because integer overflow is a domain error, and division is
     /// fallible because of division by zero.
     ///

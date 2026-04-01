@@ -115,7 +115,7 @@ impl<'a> ExtScalar<'a> {
     }
 }
 
-// TODO(connor): In the future we may want to allow implementors to customize this behavior.
+// TODO(connor): In the future we may want to allow implementors to customize this behaviour.
 
 impl PartialEq for ExtScalar<'_> {
     fn eq(&self, other: &Self) -> bool {

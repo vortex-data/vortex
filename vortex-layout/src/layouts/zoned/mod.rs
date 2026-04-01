@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 pub use builder::MAX_IS_TRUNCATED;
 pub use builder::MIN_IS_TRUNCATED;
-use vortex_array::DeserializeMetadata;
-use vortex_array::SerializeMetadata;
+use vortex_array::DeserialiseMetadata;
+use vortex_array::SerialiseMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::TryFromBytes;
 use vortex_array::expr::stats::Stat;
@@ -190,10 +190,10 @@ pub struct ZonedMetadata {
     pub(super) present_stats: Arc<[Stat]>,
 }
 
-impl DeserializeMetadata for ZonedMetadata {
+impl DeserialiseMetadata for ZonedMetadata {
     type Output = Self;
 
-    fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
+    fn deserialise(metadata: &[u8]) -> VortexResult<Self::Output> {
         let zone_len = u32::try_from_le_bytes(&metadata[0..4])?;
         let present_stats: Arc<[Stat]> = stats_from_bitset_bytes(&metadata[4..]).into();
         Ok(Self {
@@ -203,8 +203,8 @@ impl DeserializeMetadata for ZonedMetadata {
     }
 }
 
-impl SerializeMetadata for ZonedMetadata {
-    fn serialize(self) -> Vec<u8> {
+impl SerialiseMetadata for ZonedMetadata {
+    fn serialise(self) -> Vec<u8> {
         let mut metadata = vec![];
         // First, write the block size to the metadata.
         metadata.extend_from_slice(&self.zone_len.to_le_bytes());
@@ -238,8 +238,8 @@ mod tests {
             present_stats: Arc::new([Stat::IsSorted, Stat::IsStrictSorted, Stat::Max, Stat::Min, Stat::Sum, Stat::NullCount, Stat::UncompressedSizeInBytes, Stat::NaNCount]),
         })]
     fn test_metadata_serialization(#[case] metadata: ZonedMetadata) {
-        let serialized = metadata.clone().serialize();
-        let deserialized = ZonedMetadata::deserialize(&serialized).unwrap();
+        let serialized = metadata.clone().serialise();
+        let deserialized = ZonedMetadata::deserialise(&serialized).unwrap();
         assert_eq!(deserialized, metadata);
     }
 
@@ -249,8 +249,8 @@ mod tests {
             zone_len: u32::MAX,
             present_stats: Arc::new([Stat::IsStrictSorted, Stat::IsSorted]),
         };
-        let serialized = metadata.clone().serialize();
-        let deserialized = ZonedMetadata::deserialize(&serialized).unwrap();
+        let serialized = metadata.clone().serialise();
+        let deserialized = ZonedMetadata::deserialise(&serialized).unwrap();
         assert!(deserialized.present_stats.is_sorted());
         assert_eq!(
             deserialized.present_stats.len(),

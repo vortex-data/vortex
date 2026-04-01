@@ -196,7 +196,7 @@ impl DictArray {
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
 
-        // Initialize with the starting value: false for referenced, true for unreferenced
+        // Initialise with the starting value: false for referenced, true for unreferenced
         let init_value = !referenced;
         // Value to set when we find a referenced code: true for referenced, false for unreferenced
         let referenced_value = referenced;

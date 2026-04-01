@@ -51,7 +51,7 @@ pub struct FloatRLEConfig;
 
 /// Configuration trait for RLE schemes.
 ///
-/// Implement this trait to define the behavior of an RLE scheme for a specific
+/// Implement this trait to define the behaviour of an RLE scheme for a specific
 /// stats type.
 pub trait RLEConfig: Debug + Send + Sync + 'static {
     /// The statistics type used by this RLE scheme.
@@ -135,7 +135,7 @@ impl RLEStats for FloatStats {
 
 /// RLE scheme that is generic over a configuration type.
 ///
-/// This is a ZST (zero-sized type) - all behavior is defined by the `RLEConfig` trait.
+/// This is a ZST (zero-sized type) - all behaviour is defined by the `RLEConfig` trait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RLEScheme<C: RLEConfig>(PhantomData<C>);
 

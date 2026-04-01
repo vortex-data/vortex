@@ -62,7 +62,7 @@ impl CompareKernel for DecimalByteParts {
                 // If the MSP and the constant are non-null, we know that failing to coerce the
                 // constant into the MSP bit-width means that it is larger/smaller
                 // (depending on the `sign`) than all values in MSP.
-                // If the LHS or the RHS contain nulls, then we must fallback to the canonicalized
+                // If the LHS or the RHS contain nulls, then we must fallback to the canonicalised
                 // implementation which does null-checking instead.
                 if lhs.all_valid()? && rhs.all_valid()? {
                     Ok(Some(

@@ -18,7 +18,7 @@ pub unsafe trait IoBuf: Unpin + Send + 'static {
     /// Returns a raw pointer to the vector’s buffer.
     fn read_ptr(&self) -> *const u8;
 
-    /// Number of initialized bytes.
+    /// Number of initialised bytes.
     fn bytes_init(&self) -> usize;
 
     /// Access the buffer as a byte slice

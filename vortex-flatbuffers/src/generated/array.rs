@@ -933,7 +933,7 @@ impl core::fmt::Debug for ArrayStats<'_> {
 /// and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_array_unchecked`.
 pub fn root_as_array(buf: &[u8]) -> Result<Array, flatbuffers::InvalidFlatbuffer> {
   flatbuffers::root::<Array>(buf)
@@ -943,7 +943,7 @@ pub fn root_as_array(buf: &[u8]) -> Result<Array, flatbuffers::InvalidFlatbuffer
 /// `Array` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `size_prefixed_root_as_array_unchecked`.
 pub fn size_prefixed_root_as_array(buf: &[u8]) -> Result<Array, flatbuffers::InvalidFlatbuffer> {
   flatbuffers::size_prefixed_root::<Array>(buf)
@@ -953,7 +953,7 @@ pub fn size_prefixed_root_as_array(buf: &[u8]) -> Result<Array, flatbuffers::Inv
 /// contains a `Array` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_array_unchecked`.
 pub fn root_as_array_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,
@@ -966,7 +966,7 @@ pub fn root_as_array_with_opts<'b, 'o>(
 /// bytes contains a size prefixed `Array` and returns
 /// it. Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_array_unchecked`.
 pub fn size_prefixed_root_as_array_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,

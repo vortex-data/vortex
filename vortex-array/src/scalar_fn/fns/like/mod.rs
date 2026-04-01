@@ -66,7 +66,7 @@ impl ScalarFnVTable for Like {
         ScalarFnId::from("vortex.like")
     }
 
-    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::LikeOpts {
                 negated: instance.negated,
@@ -76,7 +76,7 @@ impl ScalarFnVTable for Like {
         ))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,

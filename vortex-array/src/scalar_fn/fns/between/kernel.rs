@@ -14,7 +14,7 @@ use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
-use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ArrayParentReduceRule;
 use crate::vtable::VTable;
 
 /// Reduce rule for between: restructure the array without reading buffers.

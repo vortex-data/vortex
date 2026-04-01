@@ -42,7 +42,7 @@ impl CompareKernel for Dict {
                     .into_array()
             };
 
-            // We canonicalize the result because dictionary-encoded bools is dumb.
+            // We canonicalise the result because dictionary-encoded bools is dumb.
             return Ok(Some(result.execute::<Canonical>(ctx)?.into_array()));
         }
 

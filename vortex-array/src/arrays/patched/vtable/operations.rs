@@ -8,7 +8,7 @@ use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::Patched;
 use crate::arrays::patched::PatchedArray;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimiser::ArrayOptimiser;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
@@ -35,7 +35,7 @@ impl OperationsVTable<Patched> for Patched {
         let patch_indices = array
             .patch_indices()
             .slice(range.clone())?
-            .optimize()?
+            .optimise()?
             .execute::<PrimitiveArray>(ctx)?;
 
         // NOTE: we do linear scan as lane has <= 32 patches, binary search would likely
@@ -62,7 +62,7 @@ mod tests {
     use crate::arrays::Patched;
     use crate::arrays::PatchedArray;
     use crate::dtype::Nullability;
-    use crate::optimizer::ArrayOptimizer;
+    use crate::optimiser::ArrayOptimiser;
     use crate::patches::Patches;
     use crate::scalar::Scalar;
 
@@ -153,7 +153,7 @@ mod tests {
             .into_array()
             .slice(3..4096)
             .unwrap()
-            .optimize()
+            .optimise()
             .unwrap();
 
         assert!(array.is::<Patched>());

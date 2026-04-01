@@ -19,7 +19,7 @@ use crate::arrays::Filter;
 use crate::arrays::FilterArray;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
-use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ArrayParentReduceRule;
 use crate::vtable::VTable;
 
 pub trait FilterReduce: VTable {

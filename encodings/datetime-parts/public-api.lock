@@ -58,7 +58,7 @@ pub fn vortex_datetime_parts::DateTimeParts::buffer_name(_array: &vortex_datetim
 
 pub fn vortex_datetime_parts::DateTimeParts::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_datetime_parts::DateTimePartsArray>
 
-pub fn vortex_datetime_parts::DateTimeParts::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_datetime_parts::DateTimeParts::deserialise(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_datetime_parts::DateTimeParts::dtype(array: &vortex_datetime_parts::DateTimePartsArray) -> &vortex_array::dtype::DType
 
@@ -76,7 +76,7 @@ pub fn vortex_datetime_parts::DateTimeParts::nbuffers(_array: &vortex_datetime_p
 
 pub fn vortex_datetime_parts::DateTimeParts::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_datetime_parts::DateTimeParts::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_datetime_parts::DateTimeParts::serialise(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_datetime_parts::DateTimeParts::slot_name(_array: &vortex_datetime_parts::DateTimePartsArray, idx: usize) -> alloc::string::String
 
@@ -220,6 +220,6 @@ pub vortex_datetime_parts::TemporalParts::seconds: vortex_array::array::ArrayRef
 
 pub vortex_datetime_parts::TemporalParts::subseconds: vortex_array::array::ArrayRef
 
-pub fn vortex_datetime_parts::initialize(session: &mut vortex_session::VortexSession)
+pub fn vortex_datetime_parts::initialise(session: &mut vortex_session::VortexSession)
 
 pub fn vortex_datetime_parts::split_temporal(array: vortex_array::arrays::datetime::TemporalArray) -> vortex_error::VortexResult<vortex_datetime_parts::TemporalParts>

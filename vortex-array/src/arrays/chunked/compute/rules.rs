@@ -12,9 +12,9 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::scalar_fn::AnyScalarFn;
-use crate::optimizer::ArrayOptimizer;
-use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimiser::ArrayOptimiser;
+use crate::optimiser::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 
@@ -50,7 +50,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
                     chunk.len(),
                 )?
                 .into_array()
-                .optimize()
+                .optimise()
             })
             .try_collect()?;
 
@@ -102,7 +102,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
 
                 ScalarFnArray::try_new(parent.scalar_fn().clone(), new_children, chunk.len())?
                     .into_array()
-                    .optimize()
+                    .optimise()
             })
             .try_collect()?;
 

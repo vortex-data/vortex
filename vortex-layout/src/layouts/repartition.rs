@@ -45,7 +45,7 @@ pub struct RepartitionWriterOptions {
     ///
     /// 3. View types are expensive to pack due to each view sharing an arbitrary slice of data.
     pub block_size_target: Option<u64>,
-    pub canonicalize: bool,
+    pub canonicalise: bool,
 }
 
 impl RepartitionWriterOptions {
@@ -103,7 +103,7 @@ impl LayoutStrategy for RepartitionStrategy {
         // TODO(os): spawn stream below like:
         // canon_stream = stream.map(async {to_canonical}).map(spawn).buffered(parallelism)
         let dtype = stream.dtype().clone();
-        let stream = if self.options.canonicalize {
+        let stream = if self.options.canonicalise {
             SequentialStreamAdapter::new(
                 dtype.clone(),
                 stream.map(|chunk| {
@@ -298,7 +298,7 @@ mod tests {
             block_size_minimum: 0,
             block_len_multiple: 8192,
             block_size_target: Some(ONE_MEG),
-            canonicalize: false,
+            canonicalise: false,
         };
         assert_eq!(options.effective_block_len(&dtype), 8192);
     }
@@ -316,7 +316,7 @@ mod tests {
             block_size_minimum: 0,
             block_len_multiple: 8192,
             block_size_target: Some(ONE_MEG),
-            canonicalize: false,
+            canonicalise: false,
         };
         assert_eq!(options.effective_block_len(&dtype), 132);
     }
@@ -329,7 +329,7 @@ mod tests {
             block_size_minimum: 0,
             block_len_multiple: 8192,
             block_size_target: Some(ONE_MEG),
-            canonicalize: false,
+            canonicalise: false,
         };
         assert_eq!(options.effective_block_len(&dtype), 8192);
     }
@@ -347,7 +347,7 @@ mod tests {
             block_size_minimum: 0,
             block_len_multiple: 8192,
             block_size_target: Some(ONE_MEG),
-            canonicalize: false,
+            canonicalise: false,
         };
         assert_eq!(options.effective_block_len(&dtype), 1);
     }
@@ -381,7 +381,7 @@ mod tests {
                 block_size_minimum: 0,
                 block_len_multiple: 8192,
                 block_size_target: Some(ONE_MEG),
-                canonicalize: false,
+                canonicalise: false,
             },
         );
 
@@ -436,7 +436,7 @@ mod tests {
                 block_size_minimum: 0,
                 block_len_multiple: 8192,
                 block_size_target: Some(ONE_MEG),
-                canonicalize: false,
+                canonicalise: false,
             },
         );
 
@@ -453,7 +453,7 @@ mod tests {
     }
 
     /// Regression test: `SharedArray` slices sharing an `Arc<Mutex<SharedState>>` can
-    /// transition from Source to Cached when any one of them is canonicalized. This caused
+    /// transition from Source to Cached when any one of them is canonicalised. This caused
     /// `pop_front` to panic with `attempt to subtract with overflow` because the buffer's
     /// running `nbytes` total was accumulated with the smaller Source-era values while
     /// `pop_front` subtracted the larger Cached-era values.

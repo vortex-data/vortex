@@ -258,7 +258,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
             .map_err(|e| vortex_err!("Failed to bind CUDA context: {}", e))?;
 
         // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
-        // `cuMemcpyDtoHAsync_v2` fully initializes the memory.
+        // `cuMemcpyDtoHAsync_v2` fully initialises the memory.
         unsafe {
             sys::cuMemcpyDtoHAsync_v2(
                 host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
@@ -278,7 +278,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
             // Keep device memory alive until copy completes.
             let _keep_alive = cuda_slice;
 
-            // SAFETY: `cuMemcpyDtoHAsync_v2` fully initialized the buffer.
+            // SAFETY: `cuMemcpyDtoHAsync_v2` fully initialised the buffer.
             unsafe {
                 host_buffer.set_len(len);
             }

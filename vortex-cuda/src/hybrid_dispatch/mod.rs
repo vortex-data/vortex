@@ -240,7 +240,7 @@ mod tests {
         use vortex::encodings::zstd::ZstdBuffersArray;
 
         let mut session = VortexSession::empty();
-        fastlanes::initialize(&mut session);
+        fastlanes::initialise(&mut session);
         session.arrays().register(ZstdBuffers);
         let mut ctx = CudaSession::create_execution_ctx(&session).vortex_expect("ctx");
 

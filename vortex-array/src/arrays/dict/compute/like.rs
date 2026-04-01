@@ -10,7 +10,7 @@ use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimiser::ArrayOptimiser;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
 use crate::scalar_fn::fns::like::LikeReduce;
@@ -21,7 +21,7 @@ impl LikeReduce for Dict {
         pattern: &ArrayRef,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {
-        // If we have more values than codes, it is faster to canonicalize first.
+        // If we have more values than codes, it is faster to canonicalise first.
         if array.values().len() > array.codes().len() {
             return Ok(None);
         }
@@ -30,7 +30,7 @@ impl LikeReduce for Dict {
 
             let values = Like
                 .try_new_array(pattern.len(), options, [array.values().clone(), pattern])?
-                .optimize()?;
+                .optimise()?;
 
             // SAFETY: LIKE preserves the len of the values, so codes are still pointing at
             //  valid positions.
@@ -60,7 +60,7 @@ mod tests {
     use crate::arrays::dict::compute::like::ConstantArray;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
     use crate::assert_arrays_eq;
-    use crate::optimizer::ArrayOptimizer;
+    use crate::optimiser::ArrayOptimiser;
     use crate::scalar_fn::fns::like::Like;
     use crate::scalar_fn::fns::like::LikeOptions;
 
@@ -75,7 +75,7 @@ mod tests {
         let pattern = ConstantArray::new("hello%", 4).into_array();
         let result = Like
             .try_new_array(4, LikeOptions::default(), [dict, pattern])?
-            .optimize()?;
+            .optimise()?;
 
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, true, false]));
         Ok(())

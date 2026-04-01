@@ -26,11 +26,11 @@ impl ExtVTable for FixedShapeTensor {
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
-        Ok(proto::serialize(metadata))
+        Ok(proto::serialise(metadata))
     }
 
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
-        proto::deserialize(metadata)
+        proto::deserialise(metadata)
     }
 
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {

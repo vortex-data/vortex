@@ -31,7 +31,7 @@ impl CompareKernel for FSST {
     ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
             Some(constant) => compare_fsst_constant(lhs, &constant, operator, ctx),
-            // Otherwise, fall back to the default comparison behavior.
+            // Otherwise, fall back to the default comparison behaviour.
             _ => Ok(None),
         }
     }

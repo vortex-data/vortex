@@ -37,11 +37,11 @@ impl ScalarFnVTable for IsNull {
         ScalarFnId::new_ref("is_null")
     }
 
-    fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,

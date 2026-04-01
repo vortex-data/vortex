@@ -51,7 +51,7 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::hash;
 use crate::matcher::Matcher;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimiser::ArrayOptimiser;
 use crate::scalar::Scalar;
 use crate::scalar_fn::ReduceNode;
 use crate::scalar_fn::ReduceNodeRef;
@@ -452,7 +452,7 @@ impl<V: VTable> DynArray for Array<V> {
 
         let sliced = SliceArray::try_new(self.to_array(), range)?
             .into_array()
-            .optimize()?;
+            .optimise()?;
 
         // Propagate some stats from the original array to the sliced array.
         if !sliced.is::<Constant>() {
@@ -478,13 +478,13 @@ impl<V: VTable> DynArray for Array<V> {
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
         FilterArray::try_new(self.to_array(), mask)?
             .into_array()
-            .optimize()
+            .optimise()
     }
 
     fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
         DictArray::try_new(indices, self.to_array())?
             .into_array()
-            .optimize()
+            .optimise()
     }
 
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
@@ -700,7 +700,7 @@ impl<V: VTable> ArrayVisitor for Array<V> {
     }
 
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
-        V::serialize(V::metadata(&self.array)?)
+        V::serialise(V::metadata(&self.array)?)
     }
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -856,7 +856,7 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
 
         let sliced = SliceArray::try_new(self.to_array(), range)?
             .into_array()
-            .optimize()?;
+            .optimise()?;
 
         // Propagate some stats from the original array to the sliced array.
         if !sliced.is::<Constant>() {
@@ -882,13 +882,13 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
         FilterArray::try_new(self.to_array(), mask)?
             .into_array()
-            .optimize()
+            .optimise()
     }
 
     fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
         DictArray::try_new(indices, self.to_array())?
             .into_array()
-            .optimize()
+            .optimise()
     }
 
     fn scalar_at(&self, index: usize) -> VortexResult<Scalar> {
@@ -1101,7 +1101,7 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
     }
 
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
-        V::serialize(V::metadata(&self.0)?)
+        V::serialise(V::metadata(&self.0)?)
     }
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

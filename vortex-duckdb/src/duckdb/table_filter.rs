@@ -278,7 +278,7 @@ unsafe impl Send for DynamicFilterData {}
 unsafe impl Sync for DynamicFilterData {}
 
 impl DynamicFilterDataRef {
-    /// Fetches the latest value from the dynamic filter data, if it has been initialized.
+    /// Fetches the latest value from the dynamic filter data, if it has been initialised.
     pub fn latest(&self) -> Option<Value> {
         let ptr = unsafe { cpp::duckdb_vx_dynamic_filter_data_get_value(self.as_ptr()) };
         if ptr.is_null() {

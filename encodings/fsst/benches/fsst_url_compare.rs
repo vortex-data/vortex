@@ -38,7 +38,7 @@ const NUM_URLS: usize = NUM_STRINGS;
 static URL_DATA: LazyLock<VarBinArray> = LazyLock::new(generate_url_data);
 
 // ---------------------------------------------------------------------------
-// Eq compare benchmarks (FSST pushdown vs canonicalize)
+// Eq compare benchmarks (FSST pushdown vs canonicalise)
 // ---------------------------------------------------------------------------
 
 /// Pick a concrete URL from the dataset that uses the given domain.
@@ -95,7 +95,7 @@ fn eq_pushdown_low_match(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn eq_canonicalize_high_match(bencher: Bencher) {
+fn eq_canonicalise_high_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
     let fsst_array = fsst_compress(data, &compressor);
@@ -118,7 +118,7 @@ fn eq_canonicalize_high_match(bencher: Bencher) {
 }
 
 #[divan::bench]
-fn eq_canonicalize_low_match(bencher: Bencher) {
+fn eq_canonicalise_low_match(bencher: Bencher) {
     let data = &*URL_DATA;
     let compressor = fsst_train_compressor(data);
     let fsst_array = fsst_compress(data, &compressor);

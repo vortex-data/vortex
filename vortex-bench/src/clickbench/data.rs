@@ -102,7 +102,7 @@ pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
         Field::new("IsParameter", Int16, false),
         Field::new("DontCountHits", Int16, false),
         Field::new("WithHash", Int16, false),
-        Field::new("HitColor", Utf8View, false),
+        Field::new("HitColour", Utf8View, false),
         Field::new(
             "LocalEventTime",
             Timestamp(TimeUnit::Microsecond, None),

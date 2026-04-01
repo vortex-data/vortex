@@ -17,7 +17,7 @@ use vortex::array::ArrayContext;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVisitor;
 use vortex::array::ArrayVisitorExt;
-use vortex::array::DeserializeMetadata;
+use vortex::array::DeserialiseMetadata;
 use vortex::array::DynArray;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
@@ -27,10 +27,10 @@ use vortex::array::expr::Expression;
 use vortex::array::expr::stats::Precision;
 use vortex::array::expr::stats::Stat;
 use vortex::array::expr::stats::StatsProvider;
-use vortex::array::normalize::NormalizeOptions;
-use vortex::array::normalize::Operation;
+use vortex::array::normalise::NormaliseOptions;
+use vortex::array::normalise::Operation;
 use vortex::array::serde::ArrayParts;
-use vortex::array::serde::SerializeOptions;
+use vortex::array::serde::SerialiseOptions;
 use vortex::array::session::ArrayRegistry;
 use vortex::array::stats::StatsSetRef;
 use vortex::buffer::BufferString;
@@ -193,7 +193,7 @@ impl VTable for CudaFlat {
         _encoding: &Self::Encoding,
         dtype: &DType,
         row_count: u64,
-        metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        metadata: &<Self::Metadata as DeserialiseMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
         ctx: &ReadContext,
@@ -498,7 +498,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         }
 
         let chunk = if let Some(allowed) = &options.allowed_encodings {
-            chunk.normalize(&mut NormalizeOptions {
+            chunk.normalise(&mut NormaliseOptions {
                 allowed,
                 operation: Operation::Error,
             })?
@@ -509,9 +509,9 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         // Scan for constant array buffers before serialization (while data is still on host).
         let host_buffers = extract_constant_buffers(&chunk);
 
-        let buffers = chunk.serialize(
+        let buffers = chunk.serialise(
             &ctx,
-            &SerializeOptions {
+            &SerialiseOptions {
                 offset: 0,
                 include_padding: options.include_padding,
             },
@@ -569,7 +569,7 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
 
 /// Register the [`CudaFlatLayoutEncoding`] in the session's layout registry.
 ///
-/// Call this alongside [`crate::initialize_cuda`] when setting up a CUDA-enabled session.
+/// Call this alongside [`crate::initialise_cuda`] when setting up a CUDA-enabled session.
 pub fn register_cuda_layout(session: &VortexSession) {
     use vortex::layout::session::LayoutSessionExt;
     session

@@ -45,7 +45,7 @@ pub trait CopyFunction: Sized + Debug {
         init_global: &mut Self::GlobalState,
     ) -> VortexResult<()>;
 
-    /// Initialize the global operator state of the function.
+    /// Initialise the global operator state of the function.
     ///
     /// The global operator state is used to keep track of the progress in the copy function and
     /// is shared between all threads working on the copy function.
@@ -55,7 +55,7 @@ pub trait CopyFunction: Sized + Debug {
         file_path: String,
     ) -> VortexResult<Self::GlobalState>;
 
-    /// Initialize the local operator state of the function.
+    /// Initialise the local operator state of the function.
     ///
     /// The local operator state is used to keep track of the progress in the copy function and
     /// is thread-local.

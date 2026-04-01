@@ -41,7 +41,7 @@ impl ScalarFnVTable for Literal {
         ScalarFnId::new_ref("vortex.literal")
     }
 
-    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::LiteralOpts {
                 value: Some(instance.into()),
@@ -50,7 +50,7 @@ impl ScalarFnVTable for Literal {
         ))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         session: &VortexSession,

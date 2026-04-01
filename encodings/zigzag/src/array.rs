@@ -95,11 +95,11 @@ impl VTable for ZigZag {
         Ok(EmptyMetadata)
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
+    fn deserialise(
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,

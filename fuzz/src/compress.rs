@@ -71,7 +71,7 @@ pub fn run_compress_roundtrip(fuzz: FuzzCompressRoundtrip) -> crate::error::Vort
     let original_len = array.len();
     let original_dtype = array.dtype().clone();
 
-    // Try to canonicalize - this is the main thing we're testing
+    // Try to canonicalise - this is the main thing we're testing
     let canonical = match array.to_canonical() {
         Ok(c) => c,
         Err(e) => {

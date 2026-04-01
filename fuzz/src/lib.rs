@@ -32,7 +32,7 @@ pub use gpu::FuzzCompressGpu;
 #[cfg(feature = "cuda")]
 pub use gpu::run_compress_gpu;
 
-// Runtime initialization - platform-specific
+// Runtime initialisation - platform-specific
 #[cfg(not(target_arch = "wasm32"))]
 mod native_runtime {
     use std::sync::LazyLock;
@@ -53,7 +53,7 @@ mod native_runtime {
         if vortex_cuda::cuda_available() {
             use vortex_cuda::CudaSessionExt;
             session = session.with::<vortex_cuda::CudaSession>();
-            vortex_cuda::initialize_cuda(&session.cuda_session());
+            vortex_cuda::initialise_cuda(&session.cuda_session());
         }
         session
     });

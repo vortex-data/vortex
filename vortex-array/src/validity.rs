@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Array validity and nullability behavior, used by arrays and compute functions.
+//! Array validity and nullability behaviour, used by arrays and compute functions.
 
 use std::fmt::Debug;
 use std::ops::Range;
@@ -27,7 +27,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimiser::ArrayOptimiser;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
@@ -259,7 +259,7 @@ impl Validity {
             (Validity::Array(lhs), Validity::Array(rhs)) => Validity::Array(
                 Binary
                     .try_new_array(lhs.len(), Operator::And, [lhs, rhs])?
-                    .optimize()?,
+                    .optimise()?,
             ),
         })
     }

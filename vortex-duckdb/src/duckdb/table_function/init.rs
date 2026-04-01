@@ -18,7 +18,7 @@ use crate::duckdb::TableFilterSet;
 use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableFunction;
 
-/// Native callback for the global initialization of a table function.
+/// Native callback for the global initialisation of a table function.
 pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
     init_input: *const cpp::duckdb_vx_tfunc_init_input,
     error_out: *mut cpp::duckdb_vx_error,
@@ -38,7 +38,7 @@ pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
     }
 }
 
-/// Native callback for the local initialization of a table function.
+/// Native callback for the local initialisation of a table function.
 #[allow(deref_nullptr)]
 pub(crate) unsafe extern "C-unwind" fn init_local_callback<T: TableFunction>(
     init_input: *const cpp::duckdb_vx_tfunc_init_input,
@@ -63,7 +63,7 @@ pub(crate) unsafe extern "C-unwind" fn init_local_callback<T: TableFunction>(
     }
 }
 
-/// A typed wrapper for the input to a table function's initialization.
+/// A typed wrapper for the input to a table function's initialisation.
 pub struct TableInitInput<'a, T: TableFunction> {
     input: &'a cpp::duckdb_vx_tfunc_init_input,
     phantom: std::marker::PhantomData<T>,

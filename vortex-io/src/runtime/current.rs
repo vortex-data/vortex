@@ -17,7 +17,7 @@ pub use crate::runtime::pool::CurrentThreadWorkerPool;
 /// a Tokio runtime.
 ///
 /// The current thread runtime will do no work unless `block_on` is called. In other words, the
-/// default behavior is single-threaded with code running on the thread that called `block_on`.
+/// default behaviour is single-threaded with code running on the thread that called `block_on`.
 ///
 /// It's also possible to clone the runtime onto other threads, each of which can call `block_on`
 /// to drive work on that thread. Each thread shares the same underlying executor with the same

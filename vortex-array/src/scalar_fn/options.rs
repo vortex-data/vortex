@@ -44,7 +44,7 @@ impl Hash for ScalarFnOptions<'_> {
 
 impl ScalarFnOptions<'_> {
     /// Serialize the options to a byte vector.
-    pub fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
+    pub fn serialise(&self) -> VortexResult<Option<Vec<u8>>> {
         self.inner.options_serialize()
     }
 }

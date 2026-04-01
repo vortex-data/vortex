@@ -41,8 +41,8 @@ pub enum Cost {
     Negligible,
     /// Allow the encoding to do a linear amount of work to determine is constant.
     Specialized,
-    /// Same as linear, but when necessary canonicalize the array and check is constant.
-    Canonicalize,
+    /// Same as linear, but when necessary canonicalise the array and check is constant.
+    Canonicalise,
 }
 
 /// Configuration for [`is_constant_opts`] operations.
@@ -55,7 +55,7 @@ pub struct IsConstantOpts {
 impl Default for IsConstantOpts {
     fn default() -> Self {
         Self {
-            cost: Cost::Canonicalize,
+            cost: Cost::Canonicalise,
         }
     }
 }

@@ -53,13 +53,13 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
 
     let mut uninit_range = builder.uninit_range(array.len());
 
-    // SAFETY: We later initialize the the uninitialized range of values with `copy_from_slice`.
+    // SAFETY: We later initialise the the uninitialised range of values with `copy_from_slice`.
     unsafe {
         // Append a dense null Mask.
         uninit_range.append_mask(array.validity_mask()?);
     }
 
-    // SAFETY: `decode_into` will initialize all values in this range.
+    // SAFETY: `decode_into` will initialise all values in this range.
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, array.len()) };
 
     let mut bit_packed_iter = array.unpacked_chunks();
@@ -70,7 +70,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
-    // initialized the same number of values needed via `decode_into`.
+    // initialised the same number of values needed via `decode_into`.
     unsafe {
         uninit_range.finish();
     }

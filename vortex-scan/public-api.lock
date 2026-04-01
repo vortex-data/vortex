@@ -92,7 +92,7 @@ pub fn vortex_scan::DataSource::row_count(&self) -> core::option::Option<vortex_
 
 pub fn vortex_scan::DataSource::scan<'life0, 'async_trait>(&'life0 self, scan_request: vortex_scan::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
-pub fn vortex_scan::DataSource::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_scan::DataSource::serialise(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub trait vortex_scan::DataSourceOpener: 'static
 
@@ -120,7 +120,7 @@ pub fn vortex_scan::Partition::execute(self: alloc::boxed::Box<Self>) -> vortex_
 
 pub fn vortex_scan::Partition::row_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
-pub fn vortex_scan::Partition::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_scan::Partition::serialise(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub type vortex_scan::DataSourceRef = alloc::sync::Arc<dyn vortex_scan::DataSource>
 

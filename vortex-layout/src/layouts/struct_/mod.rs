@@ -7,7 +7,7 @@ pub mod writer;
 use std::sync::Arc;
 
 use reader::StructReader;
-use vortex_array::DeserializeMetadata;
+use vortex_array::DeserialiseMetadata;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
@@ -128,7 +128,7 @@ impl VTable for Struct {
         _encoding: &Self::Encoding,
         dtype: &DType,
         row_count: u64,
-        _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
+        _metadata: &<Self::Metadata as DeserialiseMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
         _ctx: &ReadContext,

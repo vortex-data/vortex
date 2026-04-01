@@ -40,7 +40,7 @@ impl FillNullKernel for Dict {
         let Some(existing_fill_value_index) =
             found_fill_values.to_bit_buffer().set_indices().next()
         else {
-            // No fill values found, so we must canonicalize and fill_null.
+            // No fill values found, so we must canonicalise and fill_null.
             return Ok(Some(
                 array
                     .clone()

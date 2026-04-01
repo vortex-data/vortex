@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Tests documenting current behavior that may be inconsistent or problematic.
+//! Tests documenting current behaviour that may be inconsistent or problematic.
 
 #[cfg(test)]
 mod tests {
@@ -9,7 +9,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
-    // Demonstrates inconsistent null comparison behavior
+    // Demonstrates inconsistent null comparison behaviour
     #[test]
     fn test_null_comparison_inconsistency() {
         // Test with primitive scalars
@@ -45,7 +45,7 @@ mod tests {
         assert_ne!(nullable.dtype(), non_nullable.dtype());
 
         // But they compare as equal in value
-        // This might be correct behavior but could be surprising
+        // This might be correct behaviour but could be surprising
         assert_eq!(nullable, non_nullable);
     }
 }

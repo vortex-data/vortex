@@ -17,7 +17,7 @@ use crate::match_each_integer_ptype;
 
 /// Converts a VarBinArray to its canonical form (VarBinViewArray).
 ///
-/// This is a shared helper used by both `canonicalize` and `execute`.
+/// This is a shared helper used by both `canonicalise` and `execute`.
 pub(crate) fn varbin_to_canonical(
     array: &VarBinArray,
     ctx: &mut ExecutionCtx,
@@ -94,7 +94,7 @@ mod tests {
         assert_arrays_eq!(canonical, expected);
     }
 
-    // Empty array: offsets has exactly one element; no elements to canonicalize.
+    // Empty array: offsets has exactly one element; no elements to canonicalise.
     #[test]
     fn test_canonical_varbin_empty() {
         let varbin =

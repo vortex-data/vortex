@@ -84,7 +84,7 @@ impl ChunkedReader {
         self.chunk_offsets.get(idx).copied().unwrap_or_else(|| {
             vortex_panic!(
                 "Internal error: Chunk offset {idx} out of bounds (num_children: {}, num_offsets: {}). \
-                This indicates a bug in ChunkedReader initialization or chunk_range calculation.",
+                This indicates a bug in ChunkedReader initialisation or chunk_range calculation.",
                 self.layout.nchildren(),
                 self.chunk_offsets.len()
             )

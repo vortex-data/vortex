@@ -27,7 +27,7 @@ use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::DeserializeStep;
+use crate::DeserialiseStep;
 use crate::EOF_SIZE;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VortexFile;
@@ -270,8 +270,8 @@ impl VortexOpenOptions {
             .with_some_dtype(self.dtype.clone());
 
         let footer = loop {
-            match deserializer.deserialize()? {
-                DeserializeStep::NeedMoreData { offset, len } => {
+            match deserializer.deserialise()? {
+                DeserialiseStep::NeedMoreData { offset, len } => {
                     let more_data = read
                         .read_at(offset, len, Alignment::none())
                         .await?
@@ -279,8 +279,8 @@ impl VortexOpenOptions {
                         .await?;
                     deserializer.prefix_data(more_data);
                 }
-                DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
-                DeserializeStep::Done(footer) => break Ok::<_, VortexError>(footer),
+                DeserialiseStep::NeedFileSize => unreachable!("We passed file_size above"),
+                DeserialiseStep::Done(footer) => break Ok::<_, VortexError>(footer),
             }
         }?;
 

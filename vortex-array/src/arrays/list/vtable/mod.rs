@@ -30,8 +30,8 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::metadata::DeserializeMetadata;
-use crate::metadata::SerializeMetadata;
+use crate::metadata::DeserialiseMetadata;
+use crate::metadata::SerialiseMetadata;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
@@ -119,11 +119,11 @@ impl VTable for List {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(SerializeMetadata::serialize(metadata)))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(SerialiseMetadata::serialise(metadata)))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -131,7 +131,7 @@ impl VTable for List {
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
-            <ProstMetadata<ListMetadata> as DeserializeMetadata>::deserialize(bytes)?,
+            <ProstMetadata<ListMetadata> as DeserialiseMetadata>::deserialise(bytes)?,
         ))
     }
 

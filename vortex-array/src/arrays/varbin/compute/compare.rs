@@ -116,7 +116,7 @@ impl CompareKernel for VarBin {
 
             Ok(Some(from_arrow_array_with_len(&array, len, nullable)?))
         } else if !rhs.is::<VarBin>() {
-            // NOTE: If the rhs is not a VarBin array it will be canonicalized to a VarBinView
+            // NOTE: If the rhs is not a VarBin array it will be canonicalised to a VarBinView
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
             return Ok(Some(

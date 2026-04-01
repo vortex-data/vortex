@@ -91,7 +91,7 @@ pub fn cuda_available() -> bool {
 }
 
 /// Registers CUDA kernels.
-pub fn initialize_cuda(session: &CudaSession) {
+pub fn initialise_cuda(session: &CudaSession) {
     info!("Registering CUDA kernels");
     session.register_kernel(ALP::ID, &ALPExecutor);
     session.register_kernel(BitPacked::ID, &BitPackedExecutor);

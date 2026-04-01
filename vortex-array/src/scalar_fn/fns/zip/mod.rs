@@ -49,11 +49,11 @@ impl ScalarFnVTable for Zip {
         ScalarFnId::from("vortex.zip")
     }
 
-    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,

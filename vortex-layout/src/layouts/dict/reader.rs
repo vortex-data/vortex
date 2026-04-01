@@ -22,7 +22,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
-use vortex_array::optimizer::ArrayOptimizer;
+use vortex_array::optimiser::ArrayOptimiser;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -246,7 +246,7 @@ impl LayoutReader for DictReader {
                     .set_all_values_referenced(all_values_referenced)
             }
             .into_array()
-            .optimize()?;
+            .optimise()?;
 
             array.apply(&expr)
         }

@@ -139,7 +139,7 @@ impl VTable for Sparse {
         })
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         let prost_patches = ProstPatchesMetadata {
             patches: metadata.patches,
         };
@@ -148,7 +148,7 @@ impl VTable for Sparse {
         Ok(Some(prost_patches.encode_to_vec()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         dtype: &DType,
         _len: usize,

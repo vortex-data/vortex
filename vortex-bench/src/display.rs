@@ -76,7 +76,7 @@ pub fn render_table<W: Write, T: ToTable>(
             let value = measurement.value;
 
             if target != baseline_target {
-                let color = color(query_baseline, value);
+                let color = color_for(query_baseline, value);
 
                 colors.push(Colorization::exact(
                     vec![color],
@@ -113,7 +113,7 @@ pub fn print_measurements_json<T: ToJson>(
     Ok(())
 }
 
-fn color(baseline: MeasurementValue, value: MeasurementValue) -> Color {
+fn color_for(baseline: MeasurementValue, value: MeasurementValue) -> Color {
     if value > (baseline + baseline / 2) {
         Color::BG_RED | Color::FG_BLACK
     } else if value > (baseline + baseline / 10) {

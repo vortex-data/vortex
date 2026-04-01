@@ -12,11 +12,11 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DeserializeMetadata;
+use crate::DeserialiseMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::ProstMetadata;
-use crate::SerializeMetadata;
+use crate::SerialiseMetadata;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::array::NUM_SLOTS;
 use crate::arrays::decimal::array::SLOT_NAMES;
@@ -126,18 +126,18 @@ impl VTable for Decimal {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        let metadata = ProstMetadata::<DecimalMetadata>::deserialize(bytes)?;
+        let metadata = ProstMetadata::<DecimalMetadata>::deserialise(bytes)?;
         Ok(ProstMetadata(metadata))
     }
 
@@ -243,7 +243,7 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::dtype::DecimalDType;
     use crate::serde::ArrayParts;
-    use crate::serde::SerializeOptions;
+    use crate::serde::SerialiseOptions;
     use crate::validity::Validity;
 
     #[test]
@@ -258,7 +258,7 @@ mod tests {
         let ctx = ArrayContext::empty();
         let out = array
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialise(&ctx, &SerialiseOptions::default())
             .unwrap();
         // Concat into a single buffer
         let mut concat = ByteBufferMut::empty();
@@ -289,7 +289,7 @@ mod tests {
         let out = array
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialise(&ctx, &SerialiseOptions::default())
             .unwrap();
         let mut concat = ByteBufferMut::empty();
         for buf in out {

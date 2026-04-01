@@ -20,7 +20,7 @@ use crate::scalar::Scalar;
 
 /// Test that `append_zeros` produces the same result as manually appending `Scalar::default_value`.
 ///
-/// This test verifies that the implementation of `append_zeros` correctly matches the behavior
+/// This test verifies that the implementation of `append_zeros` correctly matches the behaviour
 /// defined by `Scalar::default_value` for each data type.
 #[rstest]
 #[case::bool(DType::Bool(Nullability::NonNullable))]
@@ -180,7 +180,7 @@ fn test_append_nulls_panics_on_non_nullable(#[case] dtype: DType, #[case] count:
 #[case::non_nullable_i32(DType::Primitive(PType::I32, Nullability::NonNullable), false)]
 #[case::nullable_utf8(DType::Utf8(Nullability::Nullable), true)]
 #[case::non_nullable_utf8(DType::Utf8(Nullability::NonNullable), false)]
-fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: bool) {
+fn test_append_defaults_behaviour(#[case] dtype: DType, #[case] should_be_null: bool) {
     let mut builder = builder_with_capacity(&dtype, 3);
     builder.append_defaults(3);
     let array = builder.finish();

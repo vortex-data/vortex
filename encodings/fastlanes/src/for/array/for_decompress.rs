@@ -111,7 +111,7 @@ pub(crate) fn fused_decompress<
         uninit_range.append_mask(bp.validity_mask()?);
     }
 
-    // SAFETY: `decode_into` will initialize all values in this range.
+    // SAFETY: `decode_into` will initialise all values in this range.
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, bp.len()) };
 
     // Decode all chunks (initial, full, and trailer) in one call.
@@ -127,7 +127,7 @@ pub(crate) fn fused_decompress<
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
-    // initialized the same number of values needed via `decode_into`.
+    // initialised the same number of values needed via `decode_into`.
     unsafe {
         uninit_range.finish();
     }

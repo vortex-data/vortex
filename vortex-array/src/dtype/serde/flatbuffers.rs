@@ -219,7 +219,7 @@ impl TryFrom<ViewedDType> for DType {
                     .registry()
                     .find(&id)
                     .ok_or_else(|| vortex_err!("No such DType extension ID: {}", id))?;
-                let ext_dtype = vtable.deserialize(
+                let ext_dtype = vtable.deserialise(
                     fb_ext
                         .metadata()
                         .ok_or_else(|| {

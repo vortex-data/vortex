@@ -7,7 +7,7 @@ use flatbuffers::FlatBufferBuilder;
 use vortex_array::ArrayContext;
 use vortex_array::DynArray;
 use vortex_array::dtype::DType;
-use vortex_array::serde::SerializeOptions;
+use vortex_array::serde::SerialiseOptions;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -47,7 +47,7 @@ impl MessageEncoder {
         buffers.push(self.zeros.clone());
         buffers.push(self.zeros.clone());
 
-        // We initialize the flatbuffer builder with a 4-byte vector that we will use to store
+        // We initialise the flatbuffer builder with a 4-byte vector that we will use to store
         // the flatbuffer length into. By passing this vector into the FlatBufferBuilder, the
         // flatbuffers internal alignment mechanisms will handle everything else for us.
         // TODO(ngates): again, this a ton of padding...
@@ -59,7 +59,7 @@ impl MessageEncoder {
                 // sending deltas later.
                 let ctx = ArrayContext::empty();
 
-                let array_buffers = array.serialize(&ctx, &SerializeOptions::default())?;
+                let array_buffers = array.serialise(&ctx, &SerialiseOptions::default())?;
                 let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();
 
                 let array_encodings = ctx

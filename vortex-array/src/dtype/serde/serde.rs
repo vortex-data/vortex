@@ -579,7 +579,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, ExtDTypeRef> {
                     storage_dtype.ok_or_else(|| de::Error::missing_field("storage_dtype"))?;
                 let metadata = metadata.ok_or_else(|| de::Error::missing_field("metadata"))?;
 
-                vtable.deserialize(&metadata, storage_dtype).map_err(|e| {
+                vtable.deserialise(&metadata, storage_dtype).map_err(|e| {
                     de::Error::custom(format!(
                         "failed to deserialize extension dtype {}: {}",
                         id, e

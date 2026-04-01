@@ -119,7 +119,7 @@ impl Deref for PyDType {
 }
 
 impl PyDType {
-    /// Initialize a [`PyDType`] from a Vortex [`DType`], ensuring the correct subclass is
+    /// Initialise a [`PyDType`] from a Vortex [`DType`], ensuring the correct subclass is
     /// returned.
     pub fn init(py: Python, dtype: DType) -> PyResult<Bound<PyDType>> {
         match dtype {
@@ -139,7 +139,7 @@ impl PyDType {
         }
     }
 
-    /// Initialize a [`PyDType`] from a Vortex [`DType`], with the given subclass.
+    /// Initialise a [`PyDType`] from a Vortex [`DType`], with the given subclass.
     /// We keep this a private method to ensure we correctly match on the DType in init.
     fn with_subclass<S: PyClass<BaseType = PyDType>>(
         py: Python,

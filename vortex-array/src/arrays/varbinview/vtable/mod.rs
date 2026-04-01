@@ -130,11 +130,11 @@ impl VTable for VarBinView {
         Ok(EmptyMetadata)
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
+    fn deserialise(
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -251,7 +251,7 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::assert_arrays_eq;
     use crate::serde::ArrayParts;
-    use crate::serde::SerializeOptions;
+    use crate::serde::SerialiseOptions;
 
     #[test]
     fn test_nullable_varbinview_serde_roundtrip() {
@@ -269,7 +269,7 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialise(&ctx, &SerialiseOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();

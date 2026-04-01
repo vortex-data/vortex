@@ -174,7 +174,7 @@ impl TryFrom<ArrayRef> for TemporalArray {
     ///
     /// If the provided Array does not have `vortex.ext` encoding, an error will be returned.
     ///
-    /// If the provided Array does not have recognized ExtMetadata corresponding to one of the known
+    /// If the provided Array does not have recognised ExtMetadata corresponding to one of the known
     /// `TemporalMetadata` variants, an error is returned.
     fn try_from(value: ArrayRef) -> Result<Self, Self::Error> {
         let ext = value

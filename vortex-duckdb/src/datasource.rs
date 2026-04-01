@@ -24,7 +24,7 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
-use vortex::array::optimizer::ArrayOptimizer;
+use vortex::array::optimiser::ArrayOptimiser;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
@@ -72,7 +72,7 @@ use crate::exporter::ConversionCache;
 ///
 /// If you define COLUMN_IDENTIFIER_EMPTY, planner takes it, otherwise the
 /// first column. As we don't want to fill the output chunk and we can leave
-/// it uninitialized in this case, we define COLUMN_IDENTIFIER_EMPTY as a
+/// it uninitialised in this case, we define COLUMN_IDENTIFIER_EMPTY as a
 /// virtual column in our table function vtab's get_virtual_columns.
 /// See vortex-duckdb/cpp/include/duckdb_vx/table_function.h
 /// See virtual_columns in this file
@@ -327,7 +327,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                     return Ok(());
                 };
                 let (array_result, conversion_cache) = result?;
-                let array_result = array_result.optimize_recursive()?;
+                let array_result = array_result.optimise_recursive()?;
 
                 let array_result = if let Some(array) = array_result.as_opt::<Struct>() {
                     array.clone()

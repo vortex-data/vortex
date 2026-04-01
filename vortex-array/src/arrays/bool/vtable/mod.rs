@@ -12,11 +12,11 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DeserializeMetadata;
+use crate::DeserialiseMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::ProstMetadata;
-use crate::SerializeMetadata;
+use crate::SerialiseMetadata;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::array::NUM_SLOTS;
 use crate::arrays::bool::array::SLOT_NAMES;
@@ -120,18 +120,18 @@ impl VTable for Bool {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
+        let metadata = <Self::Metadata as DeserialiseMetadata>::deserialise(bytes)?;
         Ok(ProstMetadata(metadata))
     }
 
@@ -223,7 +223,7 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
     use crate::serde::ArrayParts;
-    use crate::serde::SerializeOptions;
+    use crate::serde::SerialiseOptions;
 
     #[test]
     fn test_nullable_bool_serde_roundtrip() {
@@ -235,7 +235,7 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialise(&ctx, &SerialiseOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();

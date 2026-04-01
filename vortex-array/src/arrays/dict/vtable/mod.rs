@@ -22,12 +22,12 @@ use super::take_canonical;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DeserializeMetadata;
+use crate::DeserialiseMetadata;
 use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
-use crate::SerializeMetadata;
+use crate::SerialiseMetadata;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
@@ -125,18 +125,18 @@ impl VTable for Dict {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
+        let metadata = <Self::Metadata as DeserialiseMetadata>::deserialise(bytes)?;
         Ok(ProstMetadata(metadata))
     }
 

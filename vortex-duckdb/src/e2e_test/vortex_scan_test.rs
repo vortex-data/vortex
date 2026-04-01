@@ -50,7 +50,7 @@ use crate::duckdb::Database;
 fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();
     db.register_vortex_scan_replacement().unwrap();
-    crate::initialize(&db).unwrap();
+    crate::initialise(&db).unwrap();
     db.connect().unwrap()
 }
 

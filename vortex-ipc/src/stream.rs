@@ -244,7 +244,7 @@ mod test {
         assert_arrays_eq!(result, array);
     }
 
-    /// Wrapper that limits reads to small chunks to simulate network behavior
+    /// Wrapper that limits reads to small chunks to simulate network behaviour
     struct ChunkedReader<R> {
         inner: R,
         chunk_size: usize,

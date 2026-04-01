@@ -20,14 +20,14 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DeserializeMetadata;
+use crate::DeserialiseMetadata;
 use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
-use crate::SerializeMetadata;
+use crate::SerialiseMetadata;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArray;
 use crate::arrays::patched::array::NUM_SLOTS;
@@ -162,18 +162,18 @@ impl VTable for Patched {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        let inner = <ProstMetadata<PatchedMetadata> as DeserializeMetadata>::deserialize(bytes)?;
+        let inner = <ProstMetadata<PatchedMetadata> as DeserialiseMetadata>::deserialise(bytes)?;
         Ok(ProstMetadata(inner))
     }
 
@@ -185,7 +185,7 @@ impl VTable for Patched {
         let dtype = array.dtype();
 
         if !dtype.is_primitive() {
-            // Default pathway: canonicalize and propagate.
+            // Default pathway: canonicalise and propagate.
             let canonical = array
                 .clone()
                 .into_array()
@@ -410,7 +410,7 @@ mod tests {
     use crate::builders::builder_with_capacity;
     use crate::patches::Patches;
     use crate::serde::ArrayParts;
-    use crate::serde::SerializeOptions;
+    use crate::serde::SerialiseOptions;
     use crate::validity::Validity;
 
     #[test]
@@ -627,7 +627,7 @@ mod tests {
         let ctx = ArrayContext::empty();
         let serialized = array
             .clone()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialise(&ctx, &SerialiseOptions::default())
             .unwrap();
 
         // Concat into a single buffer.

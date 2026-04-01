@@ -19,7 +19,7 @@ use crate::DateTimeParts;
 use crate::DateTimePartsArray;
 
 fn take_datetime_parts(array: &DateTimePartsArray, indices: &ArrayRef) -> VortexResult<ArrayRef> {
-    // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
+    // we go ahead and canonicalise here to avoid worst-case canonicalizing 3 separate times
     let indices = indices.to_primitive();
 
     let taken_days = array.days().take(indices.clone().into_array())?;

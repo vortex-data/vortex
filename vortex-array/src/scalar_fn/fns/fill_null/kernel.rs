@@ -14,7 +14,7 @@ use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::builtins::ArrayBuiltins;
 use crate::kernel::ExecuteParentKernel;
-use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNull as FillNullExpr;
 use crate::vtable::VTable;

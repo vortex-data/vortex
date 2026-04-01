@@ -11,12 +11,12 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DeserializeMetadata;
+use crate::DeserialiseMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
 use crate::ProstMetadata;
-use crate::SerializeMetadata;
+use crate::SerialiseMetadata;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::array::NUM_SLOTS;
 use crate::arrays::listview::array::SLOT_NAMES;
@@ -124,18 +124,18 @@ impl VTable for ListView {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
+        let metadata = <Self::Metadata as DeserialiseMetadata>::deserialise(bytes)?;
         Ok(ProstMetadata(metadata))
     }
 

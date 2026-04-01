@@ -48,7 +48,7 @@ impl FixedShapeTensorMetadata {
         }
     }
 
-    /// Sets the dimension names for this tensor. An empty vec is normalized to `None` since a
+    /// Sets the dimension names for this tensor. An empty vec is normalised to `None` since a
     /// 0-dimensional tensor has no dimensions to name.
     ///
     /// The number of names must match the number of logical dimensions.
@@ -67,7 +67,7 @@ impl FixedShapeTensorMetadata {
         Ok(self)
     }
 
-    /// Sets the permutation for this tensor. An empty vec is normalized to `None` since a
+    /// Sets the permutation for this tensor. An empty vec is normalised to `None` since a
     /// 0-dimensional tensor has no dimensions to permute.
     ///
     /// The permutation must be a valid permutation of `[0, 1, ..., N-1]` where `N` is the

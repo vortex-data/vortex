@@ -29,7 +29,7 @@ use crate::browse::handle_search_mode;
 use crate::browse::input::InputEvent;
 use crate::browse::ui::render_app;
 
-/// Initialize the WASM module (sets up panic hook for better error messages).
+/// Initialise the WASM module (sets up panic hook for better error messages).
 #[wasm_bindgen(start)]
 pub fn init() {
     console_error_panic_hook::set_once();

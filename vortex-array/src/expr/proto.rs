@@ -13,20 +13,20 @@ use crate::expr::Expression;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::session::ScalarFnSessionExt;
 
-pub trait ExprSerializeProtoExt {
-    /// Serialize the expression to its protobuf representation.
-    fn serialize_proto(&self) -> VortexResult<pb::Expr>;
+pub trait ExprSerialiseProtoExt {
+    /// Serialise the expression to its protobuf representation, init?
+    fn serialise_proto(&self) -> VortexResult<pb::Expr>;
 }
 
-impl ExprSerializeProtoExt for Expression {
-    fn serialize_proto(&self) -> VortexResult<pb::Expr> {
+impl ExprSerialiseProtoExt for Expression {
+    fn serialise_proto(&self) -> VortexResult<pb::Expr> {
         let children = self
             .children()
             .iter()
-            .map(|child| child.serialize_proto())
+            .map(|child| child.serialise_proto())
             .try_collect()?;
 
-        let metadata = self.options().serialize()?.ok_or_else(|| {
+        let metadata = self.options().serialise()?.ok_or_else(|| {
             vortex_err!("Expression '{}' is not serializable: {}", self.id(), self)
         })?;
 
@@ -53,7 +53,7 @@ impl Expression {
             .map(|e| Expression::from_proto(e, session))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        Expression::try_new(vtable.deserialize(expr.metadata(), session)?, children)
+        Expression::try_new(vtable.deserialise(expr.metadata(), session)?, children)
     }
 }
 
@@ -71,7 +71,7 @@ mod tests {
     use prost::Message;
     use vortex_proto::expr as pb;
 
-    use super::ExprSerializeProtoExt;
+    use super::ExprSerialiseProtoExt;
     use crate::LEGACY_SESSION;
     use crate::expr::Expression;
     use crate::expr::and;
@@ -102,7 +102,7 @@ mod tests {
             eq(lit(1), root()),
         );
 
-        let s_expr = expr.serialize_proto().unwrap();
+        let s_expr = expr.serialise_proto().unwrap();
         let buf = s_expr.encode_to_vec();
         let s_expr = pb::Expr::decode(buf.as_slice()).unwrap();
         let deser_expr = Expression::from_proto(&s_expr, &LEGACY_SESSION).unwrap();

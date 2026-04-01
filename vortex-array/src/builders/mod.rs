@@ -136,8 +136,8 @@ pub trait ArrayBuilder: Send {
 
     /// Appends n default values to the array.
     ///
-    /// If the array builder is nullable, then this has the behavior of `self.append_nulls(n)`.
-    /// If the array builder is non-nullable, then it has the behavior of `self.append_zeros(n)`.
+    /// If the array builder is nullable, then this has the behaviour of `self.append_nulls(n)`.
+    /// If the array builder is non-nullable, then it has the behaviour of `self.append_zeros(n)`.
     fn append_defaults(&mut self, n: usize) {
         if self.dtype().is_nullable() {
             self.append_nulls(n);

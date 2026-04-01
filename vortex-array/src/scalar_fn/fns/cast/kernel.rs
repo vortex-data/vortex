@@ -11,7 +11,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::dtype::DType;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
-use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::cast::Cast;
 use crate::vtable::VTable;
 

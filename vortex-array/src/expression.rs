@@ -10,7 +10,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
 use crate::expr::Expression;
-use crate::optimizer::ArrayOptimizer;
+use crate::optimiser::ArrayOptimiser;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::root::Root;
 
@@ -38,7 +38,7 @@ impl dyn DynArray + '_ {
         let array =
             ScalarFnArray::try_new(expr.scalar_fn().clone(), children, self.len())?.into_array();
 
-        // Optimize the resulting array's root.
-        array.optimize()
+        // Optimise the resulting array's root, innit.
+        array.optimise()
     }
 }

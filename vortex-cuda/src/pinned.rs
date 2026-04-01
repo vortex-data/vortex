@@ -20,7 +20,7 @@ use crate::stream::VortexCudaStream;
 
 /// A page-locked host buffer allocated by CUDA.
 ///
-/// This is intended as a staging buffer for H2D transfers. Contents are uninitialized after
+/// This is intended as a staging buffer for H2D transfers. Contents are uninitialised after
 /// allocation.
 pub(crate) struct PinnedByteBuffer {
     inner: PinnedHostSlice<u8>,
@@ -32,7 +32,7 @@ impl PinnedByteBuffer {
     /// Allocate a pinned host buffer with a given capacity and logical length.
     ///
     /// # Safety
-    /// The returned buffer's contents are uninitialized. The caller must initialize before read.
+    /// The returned buffer's contents are uninitialised. The caller must initialise before read.
     pub(crate) unsafe fn uninit_with_capacity(
         ctx: &Arc<CudaContext>,
         capacity: usize,
@@ -362,7 +362,7 @@ mod tests {
     use super::*;
 
     fn setup() -> VortexResult<(Arc<PinnedByteBufferPool>, VortexCudaStream)> {
-        let ctx = CudaContext::new(0).map_err(|e| vortex_err!("Failed to initialize CUDA: {e}"))?;
+        let ctx = CudaContext::new(0).map_err(|e| vortex_err!("Failed to initialise CUDA: {e}"))?;
         let pool = Arc::new(PinnedByteBufferPool::new(Arc::clone(&ctx)));
         let stream = VortexCudaStream(
             ctx.new_stream()

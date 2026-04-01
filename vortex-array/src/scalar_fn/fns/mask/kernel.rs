@@ -10,7 +10,7 @@ use crate::arrays::Bool;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::kernel::ExecuteParentKernel;
-use crate::optimizer::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ArrayParentReduceRule;
 use crate::scalar_fn::fns::mask::Mask as MaskExpr;
 use crate::vtable::VTable;
 

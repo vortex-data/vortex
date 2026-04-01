@@ -100,7 +100,7 @@ where
 }
 
 impl PyScalar {
-    /// Initialize a [`PyScalar`] from a Vortex [`Scalar`], ensuring the correct subclass is
+    /// Initialise a [`PyScalar`] from a Vortex [`Scalar`], ensuring the correct subclass is
     /// returned.
     pub fn init(py: Python, scalar: Scalar) -> PyResult<Bound<PyScalar>> {
         // TODO(ngates): Bound::as_super would be great, but it's in newer PyO3.
@@ -124,7 +124,7 @@ impl PyScalar {
         }
     }
 
-    /// Initialize a [`PyScalar`] from a Vortex [`Scalar`], with the given subclass.
+    /// Initialise a [`PyScalar`] from a Vortex [`Scalar`], with the given subclass.
     /// We keep this a private method to ensure we correctly match on the scalar DType in init.
     fn with_subclass<S: PyClass<BaseType = PyScalar>>(
         py: Python,

@@ -199,7 +199,7 @@ impl core::fmt::Debug for Layout<'_> {
 /// and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_layout_unchecked`.
 pub fn root_as_layout(buf: &[u8]) -> Result<Layout, flatbuffers::InvalidFlatbuffer> {
   flatbuffers::root::<Layout>(buf)
@@ -209,7 +209,7 @@ pub fn root_as_layout(buf: &[u8]) -> Result<Layout, flatbuffers::InvalidFlatbuff
 /// `Layout` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `size_prefixed_root_as_layout_unchecked`.
 pub fn size_prefixed_root_as_layout(buf: &[u8]) -> Result<Layout, flatbuffers::InvalidFlatbuffer> {
   flatbuffers::size_prefixed_root::<Layout>(buf)
@@ -219,7 +219,7 @@ pub fn size_prefixed_root_as_layout(buf: &[u8]) -> Result<Layout, flatbuffers::I
 /// contains a `Layout` and returns it.
 /// Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_layout_unchecked`.
 pub fn root_as_layout_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,
@@ -232,7 +232,7 @@ pub fn root_as_layout_with_opts<'b, 'o>(
 /// bytes contains a size prefixed `Layout` and returns
 /// it. Note that verification is still experimental and may not
 /// catch every error, or be maximally performant. For the
-/// previous, unchecked, behavior use
+/// previous, unchecked, behaviour use
 /// `root_as_layout_unchecked`.
 pub fn size_prefixed_root_as_layout_with_opts<'b, 'o>(
   opts: &'o flatbuffers::VerifierOptions,

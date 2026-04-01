@@ -77,7 +77,7 @@ impl Deref for PyNativeArray {
 }
 
 impl PyNativeArray {
-    /// Initialize a [`PyArray`] from a Vortex [`ArrayRef`], ensuring we return the correct typed
+    /// Initialise a [`PyArray`] from a Vortex [`ArrayRef`], ensuring we return the correct typed
     /// subclass array.
     pub fn init(py: Python, array: ArrayRef) -> PyResult<Bound<PyNativeArray>> {
         if array.is::<Null>() {

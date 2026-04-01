@@ -45,7 +45,7 @@ pub(crate) enum InputKeyCode {
     Backspace,
     /// Delete.
     Delete,
-    /// Any other unrecognized key.
+    /// Any other unrecognised key.
     Other,
 }
 

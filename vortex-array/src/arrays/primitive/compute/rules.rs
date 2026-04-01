@@ -10,8 +10,8 @@ use crate::arrays::MaskedArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::slice::SliceReduceAdaptor;
-use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::optimiser::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::vtable::ValidityHelper;
 

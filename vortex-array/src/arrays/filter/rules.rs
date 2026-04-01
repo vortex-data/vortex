@@ -13,10 +13,10 @@ use crate::arrays::FilterArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayParts;
-use crate::optimizer::rules::ArrayParentReduceRule;
-use crate::optimizer::rules::ArrayReduceRule;
-use crate::optimizer::rules::ParentRuleSet;
-use crate::optimizer::rules::ReduceRuleSet;
+use crate::optimiser::rules::ArrayParentReduceRule;
+use crate::optimiser::rules::ArrayReduceRule;
+use crate::optimiser::rules::ParentRuleSet;
+use crate::optimiser::rules::ReduceRuleSet;
 
 pub(super) const PARENT_RULES: ParentRuleSet<Filter> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&FilterFilterRule)]);

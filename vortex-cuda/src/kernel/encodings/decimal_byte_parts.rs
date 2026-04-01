@@ -88,7 +88,7 @@ mod tests {
         )
         .vortex_expect("create DecimalBytePartsArray");
 
-        let cpu_result = dbp_array.to_canonical().vortex_expect("CPU canonicalize");
+        let cpu_result = dbp_array.to_canonical().vortex_expect("CPU canonicalise");
 
         let gpu_result = DecimalBytePartsExecutor
             .execute(dbp_array.into_array(), &mut cuda_ctx)

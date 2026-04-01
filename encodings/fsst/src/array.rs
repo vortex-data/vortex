@@ -14,14 +14,14 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::DeserializeMetadata;
+use vortex_array::DeserialiseMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
+use vortex_array::SerialiseMetadata;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::buffer::BufferHandle;
@@ -52,7 +52,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::canonical::canonicalize_fsst;
+use crate::canonical::canonicalise_fsst;
 use crate::canonical::fsst_decode_views;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
@@ -154,11 +154,11 @@ impl VTable for FSST {
         }))
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
@@ -166,7 +166,7 @@ impl VTable for FSST {
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
-            <ProstMetadata<FSSTMetadata> as DeserializeMetadata>::deserialize(bytes)?,
+            <ProstMetadata<FSSTMetadata> as DeserialiseMetadata>::deserialise(bytes)?,
         ))
     }
 
@@ -326,7 +326,7 @@ impl VTable for FSST {
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        canonicalize_fsst(&array, ctx).map(ExecutionResult::done)
+        canonicalise_fsst(&array, ctx).map(ExecutionResult::done)
     }
 
     fn execute_parent(
@@ -562,7 +562,7 @@ mod test {
     /// The original FSST array stored codes as a VarBinArray child and required that the child
     /// have this encoding. Vortex forbids this kind of introspection, therefore we had to fix
     /// the array to store the compressed offsets and compressed data buffer separately, and only
-    /// use VarBinArray to delegate behavior.
+    /// use VarBinArray to delegate behaviour.
     ///
     /// This test manually constructs an old-style FSST array and ensures that it can still be
     /// deserialized.

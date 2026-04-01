@@ -68,7 +68,7 @@ pub fn vortex_alp::ALP::buffer_name(_array: &vortex_alp::ALPArray, _idx: usize) 
 
 pub fn vortex_alp::ALP::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPArray>
 
-pub fn vortex_alp::ALP::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_alp::ALP::deserialise(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_alp::ALP::dtype(array: &vortex_alp::ALPArray) -> &vortex_array::dtype::DType
 
@@ -86,7 +86,7 @@ pub fn vortex_alp::ALP::nbuffers(_array: &vortex_alp::ALPArray) -> usize
 
 pub fn vortex_alp::ALP::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_alp::ALP::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_alp::ALP::serialise(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_alp::ALP::slot_name(_array: &vortex_alp::ALPArray, idx: usize) -> alloc::string::String
 
@@ -228,7 +228,7 @@ pub fn vortex_alp::ALPRD::buffer_name(_array: &vortex_alp::ALPRDArray, _idx: usi
 
 pub fn vortex_alp::ALPRD::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_alp::ALPRDArray>
 
-pub fn vortex_alp::ALPRD::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_alp::ALPRD::deserialise(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_alp::ALPRD::dtype(array: &vortex_alp::ALPRDArray) -> &vortex_array::dtype::DType
 
@@ -246,7 +246,7 @@ pub fn vortex_alp::ALPRD::nbuffers(_array: &vortex_alp::ALPRDArray) -> usize
 
 pub fn vortex_alp::ALPRD::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
-pub fn vortex_alp::ALPRD::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_alp::ALPRD::serialise(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_alp::ALPRD::slot_name(_array: &vortex_alp::ALPRDArray, idx: usize) -> alloc::string::String
 
@@ -586,4 +586,4 @@ pub fn vortex_alp::alp_rd_decode<T: vortex_alp::ALPRDFloat>(left_parts: vortex_b
 
 pub fn vortex_alp::decompress_into_array(array: vortex_alp::ALPArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::array::PrimitiveArray>
 
-pub fn vortex_alp::initialize(session: &mut vortex_session::VortexSession)
+pub fn vortex_alp::initialise(session: &mut vortex_session::VortexSession)

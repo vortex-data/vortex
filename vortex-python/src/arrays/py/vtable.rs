@@ -12,7 +12,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::ExecutionResult;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
-use vortex::array::SerializeMetadata;
+use vortex::array::SerialiseMetadata;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::serde::ArrayChildren;
 use vortex::array::stats::StatsSetRef;
@@ -117,11 +117,11 @@ impl VTable for PythonVTable {
         })
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialise(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialise()))
     }
 
-    fn deserialize(
+    fn deserialise(
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,

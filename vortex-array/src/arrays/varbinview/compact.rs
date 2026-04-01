@@ -110,7 +110,7 @@ impl VarBinViewArray {
 
     /// Returns a compacted copy of the input array using selective buffer compaction.
     ///
-    /// This method analyzes each buffer's utilization and applies one of three strategies:
+    /// This method analyses each buffer's utilization and applies one of three strategies:
     /// - **KeepFull** (zero-copy): Well-utilized buffers are kept unchanged
     /// - **Slice** (zero-copy): Buffers with contiguous ranges of used data are sliced to that range
     /// - **Rewrite**: Poorly-utilized buffers have their data copied to new compact buffers

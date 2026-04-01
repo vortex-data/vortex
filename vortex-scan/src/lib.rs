@@ -92,7 +92,7 @@ pub trait DataSource: 'static + Send + Sync {
     }
 
     /// Serialize the [`DataSource`] to pass to a remote worker.
-    fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self) -> VortexResult<Option<Vec<u8>>> {
         Ok(None)
     }
 
@@ -176,7 +176,7 @@ pub trait Partition: 'static + Send {
     fn byte_size(&self) -> Option<Precision<u64>>;
 
     /// Serialize this partition for a remote worker.
-    fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self) -> VortexResult<Option<Vec<u8>>> {
         Ok(None)
     }
 

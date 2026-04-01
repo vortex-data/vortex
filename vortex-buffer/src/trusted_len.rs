@@ -12,7 +12,7 @@ use itertools::ProcessResults;
 /// # Safety
 ///
 /// The type which implements this trait must provide an exact `Some` upper-bound for its
-/// `size_hint` method. Failure to do so can trigger undefined behavior in users of the trait.
+/// `size_hint` method. Failure to do so can trigger undefined behaviour in users of the trait.
 pub unsafe trait TrustedLen: Iterator {}
 
 /// An adapter that turns any iterator into a `TrustedLen` iterator.

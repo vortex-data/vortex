@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use arcref::ArcRef;
 use itertools::Itertools;
-use vortex_array::SerializeMetadata;
+use vortex_array::SerialiseMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_error::VortexExpect;
@@ -298,7 +298,7 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
     }
 
     fn metadata(&self) -> Vec<u8> {
-        V::metadata(&self.0).serialize()
+        V::metadata(&self.0).serialise()
     }
 
     fn segment_ids(&self) -> Vec<SegmentId> {

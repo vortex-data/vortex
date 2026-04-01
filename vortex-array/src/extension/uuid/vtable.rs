@@ -106,7 +106,7 @@ impl ExtVTable for Uuid {
             let expected = expected as u8;
             let actual = parsed
                 .get_version()
-                .ok_or_else(|| vortex_err!("UUID has unrecognized version nibble"))?
+                .ok_or_else(|| vortex_err!("UUID has unrecognised version nibble"))?
                 as u8;
 
             vortex_ensure_eq!(

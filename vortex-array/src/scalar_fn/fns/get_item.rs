@@ -46,7 +46,7 @@ impl ScalarFnVTable for GetItem {
         ScalarFnId::from("vortex.get_item")
     }
 
-    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialise(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::GetItemOpts {
                 path: instance.to_string(),
@@ -55,7 +55,7 @@ impl ScalarFnVTable for GetItem {
         ))
     }
 
-    fn deserialize(
+    fn deserialise(
         &self,
         _metadata: &[u8],
         _session: &VortexSession,
@@ -199,7 +199,7 @@ impl ScalarFnVTable for GetItem {
 
         // TODO(ngates): this is a bug whereby we may return stats for a nested field of the same
         //  name as a field in the root struct. This should be resolved with upcoming change to
-        //  falsify expressions, but for now I'm preserving the existing buggy behavior.
+        //  falsify expressions, but for now I'm preserving the existing buggy behaviour.
         catalog.stats_ref(&FieldPath::from_name(field_name.clone()), stat)
     }
 

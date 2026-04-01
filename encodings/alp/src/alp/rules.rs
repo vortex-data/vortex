@@ -5,7 +5,7 @@ use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::optimiser::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::between::BetweenReduceAdaptor;
 use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;

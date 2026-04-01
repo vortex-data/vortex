@@ -125,7 +125,7 @@ pub fn segments_ui(app_state: &mut AppState, area: Rect, buf: &mut Buffer) {
     }
 
     let Some((tree, root_node, contents)) = &mut app_state.segment_grid_state.segment_tree else {
-        unreachable!("uninitialized state")
+        unreachable!("uninitialised state")
     };
 
     if app_state.frame_size != area.as_size() {

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Encodings that enable zero-copy sharing of data with Arrow.
+//! Proper clever stuff for getting your data into a sensible format, innit?
 
 use std::sync::Arc;
 
@@ -428,35 +429,35 @@ impl IntoArray for Canonical {
 ///
 /// This trait has a blanket implementation for all types implementing [ToCanonical].
 pub trait ToCanonical {
-    /// Canonicalize into a [`NullArray`] if the target is [`Null`](DType::Null) typed.
+    /// Canonicalise into a [`NullArray`] if the target is [`Null`](DType::Null) typed.
     fn to_null(&self) -> NullArray;
 
-    /// Canonicalize into a [`BoolArray`] if the target is [`Bool`](DType::Bool) typed.
+    /// Canonicalise into a [`BoolArray`] if the target is [`Bool`](DType::Bool) typed.
     fn to_bool(&self) -> BoolArray;
 
-    /// Canonicalize into a [`PrimitiveArray`] if the target is [`Primitive`](DType::Primitive)
+    /// Canonicalise into a [`PrimitiveArray`] if the target is [`Primitive`](DType::Primitive)
     /// typed.
     fn to_primitive(&self) -> PrimitiveArray;
 
-    /// Canonicalize into a [`DecimalArray`] if the target is [`Decimal`](DType::Decimal)
+    /// Canonicalise into a [`DecimalArray`] if the target is [`Decimal`](DType::Decimal)
     /// typed.
     fn to_decimal(&self) -> DecimalArray;
 
-    /// Canonicalize into a [`StructArray`] if the target is [`Struct`](DType::Struct) typed.
+    /// Canonicalise into a [`StructArray`] if the target is [`Struct`](DType::Struct) typed.
     fn to_struct(&self) -> StructArray;
 
-    /// Canonicalize into a [`ListViewArray`] if the target is [`List`](DType::List) typed.
+    /// Canonicalise into a [`ListViewArray`] if the target is [`List`](DType::List) typed.
     fn to_listview(&self) -> ListViewArray;
 
-    /// Canonicalize into a [`FixedSizeListArray`] if the target is [`List`](DType::FixedSizeList)
+    /// Canonicalise into a [`FixedSizeListArray`] if the target is [`List`](DType::FixedSizeList)
     /// typed.
     fn to_fixed_size_list(&self) -> FixedSizeListArray;
 
-    /// Canonicalize into a [`VarBinViewArray`] if the target is [`Utf8`](DType::Utf8)
+    /// Canonicalise into a [`VarBinViewArray`] if the target is [`Utf8`](DType::Utf8)
     /// or [`Binary`](DType::Binary) typed.
     fn to_varbinview(&self) -> VarBinViewArray;
 
-    /// Canonicalize into an [`ExtensionArray`] if the array is [`Extension`](DType::Extension)
+    /// Canonicalise into an [`ExtensionArray`] if the array is [`Extension`](DType::Extension)
     /// typed.
     fn to_extension(&self) -> ExtensionArray;
 }
@@ -1059,7 +1060,7 @@ mod test {
     use crate::canonical::StructArray;
 
     #[test]
-    fn test_canonicalize_nested_struct() {
+    fn test_canonicalise_nested_struct() {
         // Create a struct array with multiple internal components.
         let nested_struct_array = StructArray::from_fields(&[
             ("a", buffer![1u64].into_array()),

@@ -76,7 +76,7 @@ impl RandomAccessor for VortexRandomAccessor {
             .read_all()
             .await?;
 
-        // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
+        // We canonicalise / decompress for equivalence to Arrow's `RecordBatch`es.
         let mut ctx = SESSION.create_execution_ctx();
         let canonical = array.execute::<Canonical>(&mut ctx)?.into_array();
         Ok(canonical.len())

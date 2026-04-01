@@ -23,7 +23,7 @@ use crate::dtype::PType;
 use crate::dtype::StructFields;
 use crate::validity::Validity;
 
-pub(super) fn _canonicalize(
+pub(super) fn _canonicalise(
     array: &ChunkedArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
