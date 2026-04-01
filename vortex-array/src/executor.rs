@@ -507,19 +507,22 @@ macro_rules! require_opt_child {
 #[macro_export]
 macro_rules! require_patches {
     ($parent:expr, $patches:expr, $indices_slot:expr, $values_slot:expr, $chunk_offsets_slot:expr) => {
+        let __patches = $patches;
         $crate::require_opt_child!(
             $parent,
-            $patches.map(|p| p.indices()),
+            __patches.as_ref().map(|p| p.indices()),
             $indices_slot => $crate::arrays::Primitive
         );
+        let __patches = $patches;
         $crate::require_opt_child!(
             $parent,
-            $patches.map(|p| p.values()),
+            __patches.as_ref().map(|p| p.values()),
             $values_slot => $crate::arrays::Primitive
         );
+        let __patches = $patches;
         $crate::require_opt_child!(
             $parent,
-            $patches.and_then(|p| p.chunk_offsets().as_ref()),
+            __patches.as_ref().and_then(|p| p.chunk_offsets().as_ref()),
             $chunk_offsets_slot => $crate::arrays::Primitive
         );
     };

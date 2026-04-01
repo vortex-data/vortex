@@ -43,9 +43,11 @@ use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::NUM_SLOTS;
+use crate::bitpacking::array::PATCH_CHUNK_OFFSETS_SLOT;
 use crate::bitpacking::array::PATCH_INDICES_SLOT;
 use crate::bitpacking::array::PATCH_VALUES_SLOT;
 use crate::bitpacking::array::SLOT_NAMES;
+use crate::bitpacking::array::VALIDITY_SLOT;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
@@ -296,7 +298,7 @@ impl VTable for BitPacked {
             PATCH_VALUES_SLOT,
             PATCH_CHUNK_OFFSETS_SLOT
         );
-        require_validity!(array, &array.validity, VALIDITY_SLOT => AnyCanonical);
+        require_validity!(array, &array.validity(), VALIDITY_SLOT => AnyCanonical);
 
         Ok(ExecutionResult::done(
             unpack_array(&array, ctx)?.into_array(),
