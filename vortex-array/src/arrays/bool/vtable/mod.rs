@@ -84,7 +84,7 @@ impl VTable for Bool {
         array
             .to_bit_buffer()
             .array_eq(&other.to_bit_buffer(), precision)
-            && array.validity().array_eq(&other.validity(), precision)
+            && array.validity().array_eq(other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

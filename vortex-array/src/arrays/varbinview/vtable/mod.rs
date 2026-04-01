@@ -94,7 +94,7 @@ impl VTable for VarBinView {
                 .zip(other.buffers.iter())
                 .all(|(a, b)| a.array_eq(b, precision))
             && array.views.array_eq(&other.views, precision)
-            && array.validity().array_eq(&other.validity(), precision)
+            && array.validity().array_eq(other.validity(), precision)
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {

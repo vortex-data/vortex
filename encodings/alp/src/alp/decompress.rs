@@ -133,7 +133,7 @@ fn decompress_chunked_core(
                 }
 
                 let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
-                PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity.clone())
+                PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
             })
         })
     })
@@ -157,7 +157,7 @@ fn decompress_unchunked_core(
         let mut alp_buffer = encoded.into_buffer_mut();
         <T>::decode_slice_inplace(alp_buffer.as_mut_slice(), exponents);
         let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
-        PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity.clone())
+        PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
     });
 
     if let Some(patches) = patches {

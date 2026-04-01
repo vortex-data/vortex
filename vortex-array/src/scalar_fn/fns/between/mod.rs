@@ -3,7 +3,6 @@
 
 mod kernel;
 
-use std::any::Any;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -22,7 +21,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::Options;
 use crate::dtype::DType;
 use crate::dtype::DType::Bool;
 use crate::expr::StatsCatalog;
@@ -58,12 +56,6 @@ impl Display for BetweenOptions {
             "<="
         };
         write!(f, "lower_strict: {}, upper_strict: {}", lower_op, upper_op)
-    }
-}
-
-impl Options for BetweenOptions {
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 

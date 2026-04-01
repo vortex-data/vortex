@@ -36,7 +36,6 @@ use std::hash::Hash;
 use crate::Precision;
 use crate::arrays::decimal::array::NUM_SLOTS;
 use crate::arrays::decimal::array::SLOT_NAMES;
-use crate::arrays::decimal::array::VALIDITY_SLOT;
 use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
@@ -96,7 +95,7 @@ impl VTable for Decimal {
     fn array_eq(array: &DecimalData, other: &DecimalData, precision: Precision) -> bool {
         array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
-            && array.validity().array_eq(&other.validity(), precision)
+            && array.validity().array_eq(other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

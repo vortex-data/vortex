@@ -17,7 +17,6 @@ impl CastReduce for BitPacked {
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity = array
                 .validity()
-                .clone()
                 .cast_nullability(dtype.nullability(), array.len())?;
             return Ok(Some(
                 BitPackedData::try_new(

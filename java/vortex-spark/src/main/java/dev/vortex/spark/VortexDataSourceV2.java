@@ -11,15 +11,20 @@ import dev.vortex.api.File;
 import dev.vortex.api.Files;
 import dev.vortex.jni.NativeFileMethods;
 import dev.vortex.spark.config.HadoopUtils;
+import dev.vortex.spark.read.PartitionPathUtils;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Table;
 import org.apache.spark.sql.connector.catalog.TableProvider;
 import org.apache.spark.sql.connector.expressions.Transform;
 import org.apache.spark.sql.sources.DataSourceRegister;
+import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.util.CaseInsensitiveStringMap;
 import scala.Option;
@@ -81,18 +86,31 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
                     .findFirst();
 
             if (firstFile.isEmpty()) {
-                // Return empty struct if no files found
-                // TODO(aduffy): how does Parquet handle this?
                 return new StructType();
             } else {
                 pathToInfer = firstFile.get();
             }
         }
 
+        StructType dataSchema;
         try (File file = Files.open(pathToInfer, formatOptions)) {
             var columns = SparkTypes.toColumns(file.getDType());
-            return CatalogV2Util.v2ColumnsToStructType(columns);
+            dataSchema = CatalogV2Util.v2ColumnsToStructType(columns);
         }
+
+        // Discover partition columns from Hive-style directory paths and append them.
+        Map<String, String> partitionValues = PartitionPathUtils.parsePartitionValues(pathToInfer);
+        if (!partitionValues.isEmpty()) {
+            Set<String> dataColumnNames = Stream.of(dataSchema.fieldNames()).collect(Collectors.toSet());
+            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
+                if (!dataColumnNames.contains(entry.getKey())) {
+                    DataType type = PartitionPathUtils.inferPartitionColumnType(entry.getValue());
+                    dataSchema = dataSchema.add(entry.getKey(), type, true);
+                }
+            }
+        }
+
+        return dataSchema;
     }
 
     /**
@@ -102,16 +120,16 @@ public final class VortexDataSourceV2 implements TableProvider, DataSourceRegist
      * Vortex files. The partitioning parameter is currently ignored.
      *
      * @param schema        the table schema
-     * @param _partitioning table partitioning transforms (currently ignored)
+     * @param partitioning table partitioning transforms
      * @param properties    the table properties containing file paths and other options
      * @return a VortexTable instance for reading and writing data
      * @throws RuntimeException if required path properties are missing
      */
     @Override
-    public Table getTable(StructType schema, Transform[] _partitioning, Map<String, String> properties) {
+    public Table getTable(StructType schema, Transform[] partitioning, Map<String, String> properties) {
         var uncased = new CaseInsensitiveStringMap(properties);
         ImmutableList<String> paths = getPaths(uncased);
-        return new VortexTable(paths, schema, buildDataSourceOptions(properties));
+        return new VortexTable(paths, schema, buildDataSourceOptions(properties), partitioning);
     }
 
     /**

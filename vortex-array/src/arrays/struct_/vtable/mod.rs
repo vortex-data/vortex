@@ -77,7 +77,7 @@ impl VTable for Struct {
                 .iter_unmasked_fields()
                 .zip(other.iter_unmasked_fields())
                 .all(|(a, b)| a.array_eq(b, precision))
-            && array.validity().array_eq(&other.validity(), precision)
+            && array.validity().array_eq(other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

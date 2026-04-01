@@ -87,7 +87,7 @@ impl VTable for VarBin {
     fn array_eq(array: &VarBinData, other: &VarBinData, precision: Precision) -> bool {
         array.bytes().array_eq(other.bytes(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
-            && array.validity().array_eq(&other.validity(), precision)
+            && array.validity().array_eq(other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

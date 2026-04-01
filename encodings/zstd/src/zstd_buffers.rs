@@ -200,7 +200,7 @@ impl ZstdBuffersData {
         let compressed_ref = compressed.clone().into_array();
         compressed
             .stats_set
-            .to_ref(&*compressed_ref)
+            .to_ref(&compressed_ref)
             .inherit_from(array.statistics());
         Ok(compressed)
     }

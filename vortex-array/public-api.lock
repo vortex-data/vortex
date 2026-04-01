@@ -9928,6 +9928,7 @@ pub fn vortex_array::expr::Expression::zip(&self, if_true: vortex_array::expr::E
 
 pub mod vortex_array::compute
 
+<<<<<<< HEAD
 pub enum vortex_array::compute::Cost
 
 pub vortex_array::compute::Cost::Canonicalize
@@ -10188,6 +10189,8 @@ pub fn vortex_array::compute::nan_count(array: &vortex_array::ArrayRef) -> vorte
 
 pub fn vortex_array::compute::sum(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
+=======
+>>>>>>> origin/develop
 pub mod vortex_array::display
 
 pub enum vortex_array::display::DisplayOptions
@@ -10915,10 +10918,6 @@ impl vortex_flatbuffers::WriteFlatBuffer for vortex_array::dtype::DType
 pub type vortex_array::dtype::DType::Target<'a> = vortex_flatbuffers::dtype::DType<'a>
 
 pub fn vortex_array::dtype::DType::write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<Self::Target>>
-
-impl<'a> core::convert::From<&'a vortex_array::dtype::DType> for vortex_array::compute::Input<'a>
-
-pub fn vortex_array::compute::Input<'a>::from(value: &'a vortex_array::dtype::DType) -> Self
 
 #[repr(u8)] pub enum vortex_array::dtype::DecimalType
 
@@ -16620,10 +16619,6 @@ impl core::convert::From<vortex_array::scalar::PrimitiveScalar<'_>> for vortex_a
 
 pub fn vortex_array::scalar::Scalar::from(ps: vortex_array::scalar::PrimitiveScalar<'_>) -> Self
 
-impl core::convert::From<vortex_array::scalar::Scalar> for vortex_array::compute::Output
-
-pub fn vortex_array::compute::Output::from(value: vortex_array::scalar::Scalar) -> Self
-
 impl core::convert::From<vortex_buffer::buffer::Buffer<u8>> for vortex_array::scalar::Scalar
 
 pub fn vortex_array::scalar::Scalar::from(value: vortex_buffer::ByteBuffer) -> Self
@@ -16877,10 +16872,6 @@ impl<'a, T> core::convert::TryFrom<&'a vortex_array::scalar::Scalar> for alloc::
 pub type alloc::vec::Vec<T>::Error = vortex_error::VortexError
 
 pub fn alloc::vec::Vec<T>::try_from(value: &'a vortex_array::scalar::Scalar) -> core::result::Result<Self, Self::Error>
-
-impl<'a> core::convert::From<&'a vortex_array::scalar::Scalar> for vortex_array::compute::Input<'a>
-
-pub fn vortex_array::compute::Input<'a>::from(value: &'a vortex_array::scalar::Scalar) -> Self
 
 impl<'a> core::convert::TryFrom<&'a vortex_array::scalar::Scalar> for alloc::string::String
 
@@ -17289,10 +17280,6 @@ impl core::hash::Hash for vortex_array::scalar_fn::fns::between::BetweenOptions
 pub fn vortex_array::scalar_fn::fns::between::BetweenOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
 impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::between::BetweenOptions
-
-impl vortex_array::compute::Options for vortex_array::scalar_fn::fns::between::BetweenOptions
-
-pub fn vortex_array::scalar_fn::fns::between::BetweenOptions::as_any(&self) -> &dyn core::any::Any
 
 pub struct vortex_array::scalar_fn::fns::between::BetweenReduceAdaptor<V>(pub V)
 
@@ -24115,8 +24102,6 @@ pub macro vortex_array::match_each_signed_integer_ptype!
 pub macro vortex_array::match_each_unsigned_integer_ptype!
 
 pub macro vortex_array::match_smallest_offset_type!
-
-pub macro vortex_array::register_kernel!
 
 pub macro vortex_array::require_child!
 

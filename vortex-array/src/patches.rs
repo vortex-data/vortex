@@ -910,7 +910,7 @@ impl Patches {
                     patch_indices_slice,
                     self.offset,
                     patch_values_slice,
-                    &patches_validity,
+                    patches_validity,
                     ctx,
                 );
             }
