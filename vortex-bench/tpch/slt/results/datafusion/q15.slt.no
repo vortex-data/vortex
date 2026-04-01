@@ -1,1 +1,0 @@
-include ../q15.slt.no

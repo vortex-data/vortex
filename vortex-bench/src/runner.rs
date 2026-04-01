@@ -3,7 +3,6 @@
 
 //! Generic benchmark runner infrastructure to reduce boilerplate across engine-specific benchmarks.
 
-use std::fs;
 use std::fs::File;
 use std::future::Future;
 use std::io::Write;
@@ -28,8 +27,6 @@ use crate::BenchmarkDataset;
 use crate::Engine;
 use crate::Format;
 use crate::Target;
-use crate::validation::validate_against_slt;
-
 /// Controls whether queries are benchmarked or explained.
 pub enum BenchmarkMode {
     /// Run each query `iterations` times, collecting timing.
@@ -42,9 +39,6 @@ pub enum BenchmarkMode {
     },
     /// Prepend `EXPLAIN` to each query, print the result, skip timing.
     Explain,
-    /// Run each query once and write (or overwrite) the engine-specific
-    /// `.slt.no` reference files with the actual `result_rows()` output.
-    RegenerateSlt,
 }
 
 /// Trait implemented by engine-specific query results so the runner can
@@ -91,7 +85,6 @@ pub struct SqlBenchmarkRunner {
     benchmark_dataset: BenchmarkDataset,
     storage: String,
     expected_row_counts: Option<Vec<usize>>,
-    expected_results_dir: Option<PathBuf>,
     formats: Vec<Format>,
     memory_tracker: Option<BenchmarkMemoryTracker>,
     hide_progress_bar: bool,
@@ -117,7 +110,6 @@ impl SqlBenchmarkRunner {
             benchmark_dataset: benchmark.dataset(),
             storage,
             expected_row_counts: benchmark.expected_row_counts().map(|s| s.to_vec()),
-            expected_results_dir: benchmark.expected_results_dir(),
             formats,
             memory_tracker,
             hide_progress_bar,
@@ -275,98 +267,6 @@ impl SqlBenchmarkRunner {
         }
     }
 
-    /// Get the path for a `.slt.no` reference result file.
-    ///
-    /// First checks the engine-specific subdirectory
-    /// (`{expected_results_dir}/{engine}/q{idx:02}.slt.no`), then falls back to
-    /// a shared file in the root (`{expected_results_dir}/q{idx:02}.slt.no`).
-    fn reference_path(&self, query_idx: usize) -> Option<PathBuf> {
-        self.expected_results_dir.as_ref().map(|dir| {
-            let engine_path = dir
-                .join(self.engine.to_string())
-                .join(format!("q{query_idx:02}.slt.no"));
-            if engine_path.exists() {
-                return engine_path;
-            }
-            let shared_path = dir.join(format!("q{query_idx:02}.slt.no"));
-            if shared_path.exists() {
-                return shared_path;
-            }
-            // Return the engine-specific path (will be created or flagged as missing).
-            engine_path
-        })
-    }
-
-    /// Write a `.slt.no` reference file for a query from actual results.
-    ///
-    /// The file is written to the engine-specific path returned by
-    /// [`Self::reference_path`]. Parent directories are created if needed.
-    fn write_slt_file(
-        &self,
-        query_idx: usize,
-        query_sql: &str,
-        rows: &mut [Vec<String>],
-    ) -> anyhow::Result<()> {
-        let Some(path) = self.reference_path(query_idx) else {
-            anyhow::bail!("No expected_results_dir configured, cannot write slt file");
-        };
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        rows.sort();
-        let num_cols = rows.first().map_or(0, |r| r.len());
-        let col_types = "T".repeat(num_cols);
-
-        let mut out = String::new();
-        out.push_str(&format!("query {col_types} rowsort\n"));
-        out.push_str(query_sql.trim());
-        out.push('\n');
-        out.push_str("----\n");
-        for row in rows.iter() {
-            out.push_str(&row.join(" "));
-            out.push('\n');
-        }
-
-        fs::write(&path, &out)?;
-        eprintln!("Wrote {}", path.display());
-        Ok(())
-    }
-
-    /// Validate a query result against its `.slt.no` reference file.
-    ///
-    /// Uses `sqllogictest::default_validator` with `value_normalizer` to compare
-    /// actual rows against the expected rows parsed from the slt file.
-    ///
-    /// Returns `true` if the result matches (or no reference exists), `false` on mismatch.
-    fn validate_query_result(&self, query_idx: usize, actual_rows: &mut [Vec<String>]) -> bool {
-        let Some(path) = self.reference_path(query_idx) else {
-            eprintln!("No expected_results_dir configured, skipping validation for q{query_idx}");
-            return true;
-        };
-
-        if !path.exists() {
-            eprintln!(
-                "Reference file {} does not exist, skipping validation for q{query_idx}. \
-                 Run with --print-results and redirect output to regenerate it.",
-                path.display()
-            );
-            return true;
-        }
-
-        match validate_against_slt(&path, actual_rows) {
-            Ok(()) => true,
-            Err(msg) => {
-                eprintln!(
-                    "=== Result mismatch for q{query_idx} ({engine}) ===",
-                    engine = self.engine
-                );
-                eprintln!("{msg}");
-                false
-            }
-        }
-    }
-
     /// Run (or explain) all queries for all formats synchronously.
     ///
     /// In `Run` mode, executes each query `iterations` times, collecting timing.
@@ -391,7 +291,7 @@ impl SqlBenchmarkRunner {
         match mode {
             BenchmarkMode::Run {
                 iterations,
-                validate,
+                validate: _,
                 print_results,
             } => {
                 let bar_length = queries.len() * self.formats.len();
@@ -400,8 +300,6 @@ impl SqlBenchmarkRunner {
                 } else {
                     ProgressBar::new(bar_length as u64)
                 };
-
-                let mut validation_failures = Vec::new();
 
                 for format in self.formats.clone() {
                     let mut ctx = setup(format)?;
@@ -417,14 +315,6 @@ impl SqlBenchmarkRunner {
                             )
                         });
 
-                        // Validate the last iteration's result against the reference file.
-                        if validate && self.expected_results_dir.is_some() {
-                            let (_cols, mut rows) = result.result_rows();
-                            if !self.validate_query_result(query_idx, &mut rows) {
-                                validation_failures.push((query_idx, format));
-                            }
-                        }
-
                         if print_results {
                             println!("=== Q{query_idx} ===");
                             println!("{}", result.display());
@@ -436,18 +326,6 @@ impl SqlBenchmarkRunner {
                 }
 
                 progress_bar.finish();
-
-                if !validation_failures.is_empty() {
-                    let failed: Vec<String> = validation_failures
-                        .iter()
-                        .map(|(q, f)| format!("q{q}:{f}"))
-                        .collect();
-                    anyhow::bail!(
-                        "Result validation failed for {engine}: {failed}",
-                        engine = self.engine,
-                        failed = failed.join(", "),
-                    );
-                }
             }
             BenchmarkMode::Explain => {
                 for format in self.formats.clone() {
@@ -462,22 +340,6 @@ impl SqlBenchmarkRunner {
                         println!("{}", result.display());
                         println!();
                     }
-                }
-            }
-            BenchmarkMode::RegenerateSlt => {
-                let format = *self.formats.first().ok_or_else(|| {
-                    anyhow::anyhow!("At least one format is required for --regenerate-slt")
-                })?;
-                let mut ctx = setup(format)?;
-
-                for (query_idx, query) in queries.iter() {
-                    let query_idx = *query_idx;
-                    let (_, result) = execute(&mut ctx, query_idx, format, query.as_str())
-                        .unwrap_or_else(|err| {
-                            vortex_panic!("query {query_idx} failed: {err}");
-                        });
-                    let (_cols, mut rows) = result.result_rows();
-                    self.write_slt_file(query_idx, query, &mut rows)?;
                 }
             }
         }
@@ -511,7 +373,7 @@ impl SqlBenchmarkRunner {
         match mode {
             BenchmarkMode::Run {
                 iterations,
-                validate,
+                validate: _,
                 print_results,
             } => {
                 let bar_length = queries.len() * self.formats.len();
@@ -520,8 +382,6 @@ impl SqlBenchmarkRunner {
                 } else {
                     ProgressBar::new(bar_length as u64)
                 };
-
-                let mut validation_failures = Vec::new();
 
                 for format in self.formats.clone() {
                     let ctx = setup(format).await?;
@@ -552,14 +412,6 @@ impl SqlBenchmarkRunner {
                         let row_count = result.row_count();
                         self.record_query(query_idx, format, runs, row_count);
 
-                        // Validate the last iteration's result against the reference file.
-                        if validate && self.expected_results_dir.is_some() {
-                            let (_cols, mut rows) = result.result_rows();
-                            if !self.validate_query_result(query_idx, &mut rows) {
-                                validation_failures.push((query_idx, format));
-                            }
-                        }
-
                         if print_results {
                             println!("=== Q{query_idx} ===");
                             println!("{}", result.display());
@@ -571,18 +423,6 @@ impl SqlBenchmarkRunner {
                 }
 
                 progress_bar.finish();
-
-                if !validation_failures.is_empty() {
-                    let failed: Vec<String> = validation_failures
-                        .iter()
-                        .map(|(q, f)| format!("q{q}:{f}"))
-                        .collect();
-                    anyhow::bail!(
-                        "Result validation failed for {engine}: {failed}",
-                        engine = self.engine,
-                        failed = failed.join(", "),
-                    );
-                }
             }
             BenchmarkMode::Explain => {
                 for format in self.formats.clone() {
@@ -597,23 +437,6 @@ impl SqlBenchmarkRunner {
                         println!("{}", result.display());
                         println!();
                     }
-                }
-            }
-            BenchmarkMode::RegenerateSlt => {
-                let format = *self.formats.first().ok_or_else(|| {
-                    anyhow::anyhow!("At least one format is required for --regenerate-slt")
-                })?;
-                let ctx = setup(format).await?;
-
-                for (query_idx, query) in queries.iter() {
-                    let query_idx = *query_idx;
-                    let (_, result) = execute(query_idx, &ctx, query.as_str())
-                        .await
-                        .unwrap_or_else(|err| {
-                            vortex_panic!("query {query_idx} failed: {err}");
-                        });
-                    let (_cols, mut rows) = result.result_rows();
-                    self.write_slt_file(query_idx, query, &mut rows)?;
                 }
             }
         }

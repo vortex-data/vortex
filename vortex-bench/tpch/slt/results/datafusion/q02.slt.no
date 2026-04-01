@@ -1,1 +1,0 @@
-include ../q02.slt.no

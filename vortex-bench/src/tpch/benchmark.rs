@@ -142,18 +142,6 @@ impl Benchmark for TpcHBenchmark {
         ]
     }
 
-    fn expected_results_dir(&self) -> Option<PathBuf> {
-        match self.scale_factor.as_str() {
-            "1.0" => Some(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join(self.dataset_name())
-                    .join("slt")
-                    .join("results"),
-            ),
-            _ => None,
-        }
-    }
-
     fn slt_path(&self, engine: &str) -> Option<PathBuf> {
         match self.scale_factor.as_str() {
             "1.0" => Some(

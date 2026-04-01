@@ -467,7 +467,7 @@ impl BenchmarkQueryResult for DataFusionQueryResult {
 ///
 /// Uses `ArrayFormatter` to produce `to_string()` values for every cell.
 /// NULL cells are represented as `"NULL"`. No type-specific normalization is
-/// applied — each engine's per-engine `.slt.no` reference files contain the
+/// applied — each engine's per-engine `.slt` reference files contain the
 /// exact expected output.
 fn extract_record_batch_rows(batches: &[RecordBatch]) -> (Vec<String>, Vec<Vec<String>>) {
     use vortex::error::VortexExpect;

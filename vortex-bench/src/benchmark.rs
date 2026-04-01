@@ -3,7 +3,6 @@
 
 //! Core benchmark trait and types.
 
-use std::path::Path;
 use std::path::PathBuf;
 
 use arrow_schema::Schema;
@@ -75,23 +74,6 @@ pub trait Benchmark: Send + Sync {
         _ = table_name;
         _ = format;
         None
-    }
-
-    /// Directory containing expected `.slt.no` result files for validation.
-    ///
-    /// Reference files are stored in engine-specific subdirectories as
-    /// `{dir}/{engine}/q{idx:02}.slt.no` in sqllogictest format (e.g. `results/duckdb/q01.slt.no`).
-    /// Use `--validate` to check results against them.
-    ///
-    /// The default implementation uses `dataset_name()` to locate the files at
-    /// `{CARGO_MANIFEST_DIR}/{dataset_name}/slt/results/`.
-    fn expected_results_dir(&self) -> Option<PathBuf> {
-        Some(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join(self.dataset_name())
-                .join("slt")
-                .join("results"),
-        )
     }
 
     /// Path to a per-engine `.slt` file containing all queries and expected results.
