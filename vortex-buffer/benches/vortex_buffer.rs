@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 
 use std::iter::Iterator;
 
@@ -10,8 +10,10 @@ use arrow_buffer::MutableBuffer;
 use arrow_buffer::ScalarBuffer;
 use divan::Bencher;
 use num_traits::PrimInt;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::mask_zeroed;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 
@@ -155,5 +157,37 @@ fn map_new_output(bencher: Bencher, n: i32) {
             buffer
                 .iter()
                 .for_each(|&i| unsafe { out.push_unchecked((i as u32) + 1) })
+        });
+}
+
+// ---- mask_zeroed benchmarks ----
+
+/// Density of set bits in the mask (percentage of 1s).
+const MASK_DENSITIES: &[u32] = &[0, 1, 10, 50, 90, 99, 100];
+
+#[divan::bench(types = [u32, u64], args = MASK_DENSITIES)]
+fn mask_zeroed_65536<T: Copy + From<u8>>(bencher: Bencher, density_pct: u32) {
+    let len = 65_536usize;
+    bencher
+        .with_inputs(|| {
+            let buf = Buffer::from(BufferMut::from_iter((0..len).map(|_| T::from(42u8))));
+            let mask = BitBuffer::collect_bool(len, |i| (i as u32 * 97 + 13) % 100 < density_pct);
+            (buf, mask)
+        })
+        .bench_values(|(buf, mask)| mask_zeroed(buf, &mask));
+}
+
+#[divan::bench(args = MASK_DENSITIES)]
+fn mask_zeroed_in_place_65536(bencher: Bencher, density_pct: u32) {
+    let len = 65_536usize;
+    bencher
+        .with_inputs(|| {
+            let buf = BufferMut::from_iter((0..len).map(|i| i as u32));
+            let mask = BitBuffer::collect_bool(len, |i| (i as u32 * 97 + 13) % 100 < density_pct);
+            (buf, mask)
+        })
+        .bench_values(|(mut buf, mask)| {
+            vortex_buffer::mask_zeroed_slice(buf.as_mut_slice(), &mask);
+            buf
         });
 }
