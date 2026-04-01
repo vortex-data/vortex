@@ -12,7 +12,6 @@ use super::common::create_single_element_fsl;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
@@ -161,8 +160,8 @@ fn test_element_index_overflow(
     #[case] indices: ArrayRef,
     #[case] expected: FixedSizeListArray,
 ) {
-    let result = fsl.take(indices).unwrap().to_fixed_size_list();
-    assert_arrays_eq!(expected, result);
+    let result = fsl.take(indices).unwrap();
+    assert_arrays_eq!(result, expected);
 }
 
 // Parameterized test for nullable array scenarios that are specific to FSL's implementation.
