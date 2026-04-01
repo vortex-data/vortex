@@ -1030,6 +1030,10 @@ pub fn vortex_buffer::get_bit(buf: &[u8], index: usize) -> bool
 
 pub unsafe fn vortex_buffer::get_bit_unchecked(buf: *const u8, index: usize) -> bool
 
+pub fn vortex_buffer::mask_zeroed<T: core::marker::Copy>(buffer: vortex_buffer::Buffer<T>, mask: &vortex_buffer::BitBuffer) -> vortex_buffer::Buffer<T>
+
+pub fn vortex_buffer::mask_zeroed_slice<T: core::marker::Copy>(slice: &mut [T], mask: &vortex_buffer::BitBuffer)
+
 pub unsafe fn vortex_buffer::set_bit_unchecked(buf: *mut u8, index: usize)
 
 pub unsafe fn vortex_buffer::unset_bit_unchecked(buf: *mut u8, index: usize)
