@@ -29,7 +29,7 @@ impl CastReduce for ALP {
                 .patches()
                 .map(|p| {
                     if p.values().dtype() == dtype {
-                        Ok(p.clone())
+                        Ok(p)
                     } else {
                         Patches::new(
                             p.array_len(),

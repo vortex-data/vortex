@@ -108,7 +108,7 @@ mod setup {
         vortex::encodings::alp::ALPArray::try_new(
             for_with_bp.into_array(),
             alp_compressed.exponents(),
-            alp_compressed.patches().cloned(),
+            alp_compressed.patches(),
         )
         .unwrap()
         .into_array()

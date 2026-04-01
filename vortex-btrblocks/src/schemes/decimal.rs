@@ -10,7 +10,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
-use vortex_array::vtable::ValidityHelper;
 use vortex_decimal_byte_parts::DecimalBytePartsArray;
 use vortex_error::VortexResult;
 
