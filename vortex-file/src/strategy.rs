@@ -27,14 +27,7 @@ use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArrayRegistry;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::FloatCode;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::IntCode;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::StringCode;
+use vortex_array::session::ArraySession;
 use vortex_bytebool::ByteBool;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_decimal_byte_parts::DecimalByteParts;
@@ -62,6 +55,16 @@ use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_zigzag::ZigZag;
+
+#[rustfmt::skip]
+#[cfg(feature = "zstd")]
+use vortex_btrblocks::{
+    BtrBlocksCompressorBuilder,
+    SchemeExt,
+    schemes::float,
+    schemes::integer,
+    schemes::string,
+};
 #[cfg(feature = "zstd")]
 use vortex_zstd::Zstd;
 #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
@@ -74,48 +77,48 @@ const ONE_MEG: u64 = 1 << 20;
 /// This includes all canonical encodings from vortex-array plus all compressed
 /// encodings from the various encoding crates.
 pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
-    let registry = ArrayRegistry::default();
+    let session = ArraySession::empty();
 
     // Canonical encodings from vortex-array
-    registry.register(Null::ID, Null);
-    registry.register(Bool::ID, Bool);
-    registry.register(Primitive::ID, Primitive);
-    registry.register(Decimal::ID, Decimal);
-    registry.register(VarBin::ID, VarBin);
-    registry.register(VarBinView::ID, VarBinView);
-    registry.register(List::ID, List);
-    registry.register(ListView::ID, ListView);
-    registry.register(FixedSizeList::ID, FixedSizeList);
-    registry.register(Struct::ID, Struct);
-    registry.register(Extension::ID, Extension);
-    registry.register(Chunked::ID, Chunked);
-    registry.register(Constant::ID, Constant);
-    registry.register(Masked::ID, Masked);
-    registry.register(Dict::ID, Dict);
+    session.register(Null);
+    session.register(Bool);
+    session.register(Primitive);
+    session.register(Decimal);
+    session.register(VarBin);
+    session.register(VarBinView);
+    session.register(List);
+    session.register(ListView);
+    session.register(FixedSizeList);
+    session.register(Struct);
+    session.register(Extension);
+    session.register(Chunked);
+    session.register(Constant);
+    session.register(Masked);
+    session.register(Dict);
 
     // Compressed encodings from encoding crates
-    registry.register(ALP::ID, ALP);
-    registry.register(ALPRD::ID, ALPRD);
-    registry.register(BitPacked::ID, BitPacked);
-    registry.register(ByteBool::ID, ByteBool);
-    registry.register(DateTimeParts::ID, DateTimeParts);
-    registry.register(DecimalByteParts::ID, DecimalByteParts);
-    registry.register(Delta::ID, Delta);
-    registry.register(FoR::ID, FoR);
-    registry.register(FSST::ID, FSST);
-    registry.register(Pco::ID, Pco);
-    registry.register(RLE::ID, RLE);
-    registry.register(RunEnd::ID, RunEnd);
-    registry.register(Sequence::ID, Sequence);
-    registry.register(Sparse::ID, Sparse);
-    registry.register(ZigZag::ID, ZigZag);
+    session.register(ALP);
+    session.register(ALPRD);
+    session.register(BitPacked);
+    session.register(ByteBool);
+    session.register(DateTimeParts);
+    session.register(DecimalByteParts);
+    session.register(Delta);
+    session.register(FoR);
+    session.register(FSST);
+    session.register(Pco);
+    session.register(RLE);
+    session.register(RunEnd);
+    session.register(Sequence);
+    session.register(Sparse);
+    session.register(ZigZag);
 
     #[cfg(feature = "zstd")]
-    registry.register(Zstd::ID, Zstd);
+    session.register(Zstd);
     #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-    registry.register(ZstdBuffers::ID, ZstdBuffers);
+    session.register(ZstdBuffers);
 
-    registry
+    session.registry().clone()
 });
 
 /// Build a new [writer strategy][LayoutStrategy] to compress and reorganize chunks of a Vortex file.
@@ -195,18 +198,22 @@ impl WriteStrategyBuilder {
     /// GPU decompression. Without it, strings use interleaved Zstd compression.
     #[cfg(feature = "zstd")]
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
-        let mut builder = BtrBlocksCompressorBuilder::default()
-            .exclude_int([IntCode::Sparse, IntCode::Rle])
-            .exclude_float([FloatCode::Rle, FloatCode::Sparse])
-            .exclude_string([StringCode::Dict, StringCode::Fsst]);
+        let mut builder = BtrBlocksCompressorBuilder::default().exclude([
+            integer::SparseScheme.id(),
+            integer::RLE_INTEGER_SCHEME.id(),
+            float::RLE_FLOAT_SCHEME.id(),
+            float::NullDominatedSparseScheme.id(),
+            string::StringDictScheme.id(),
+            string::FSSTScheme.id(),
+        ]);
 
         #[cfg(feature = "unstable_encodings")]
         {
-            builder = builder.include_string([StringCode::ZstdBuffers]);
+            builder = builder.include([string::ZstdBuffersScheme.id()]);
         }
         #[cfg(not(feature = "unstable_encodings"))]
         {
-            builder = builder.include_string([StringCode::Zstd]);
+            builder = builder.include([string::ZstdScheme.id()]);
         }
 
         self.compressor = Some(Arc::new(builder.build()));
@@ -221,9 +228,11 @@ impl WriteStrategyBuilder {
     #[cfg(feature = "zstd")]
     pub fn with_compact_encodings(mut self) -> Self {
         let btrblocks = BtrBlocksCompressorBuilder::default()
-            .include_string([StringCode::Zstd])
-            .include_int([IntCode::Pco])
-            .include_float([FloatCode::Pco])
+            .include([
+                string::ZstdScheme.id(),
+                integer::PcoScheme.id(),
+                float::PcoScheme.id(),
+            ])
             .build();
 
         self.compressor = Some(Arc::new(btrblocks));

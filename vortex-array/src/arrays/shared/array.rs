@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 
 use async_lock::Mutex as AsyncMutex;
 use vortex_error::SharedVortexResult;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -15,15 +16,19 @@ use crate::IntoArray;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 
+pub(super) const SOURCE_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["source"];
+
 /// A lazily-executing array wrapper with a one-way transition from source to cached form.
 ///
 /// Before materialization, operations delegate to the source array.
 /// After materialization (via `get_or_compute`), operations delegate to the cached result.
 #[derive(Debug, Clone)]
 pub struct SharedArray {
-    source: ArrayRef,
-    cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
-    async_compute_lock: Arc<AsyncMutex<()>>,
+    pub(super) slots: Vec<Option<ArrayRef>>,
+    pub(super) cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
+    pub(super) async_compute_lock: Arc<AsyncMutex<()>>,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
 }
@@ -32,11 +37,18 @@ impl SharedArray {
     pub fn new(source: ArrayRef) -> Self {
         Self {
             dtype: source.dtype().clone(),
-            source,
+            slots: vec![Some(source)],
             cached: Arc::new(OnceLock::new()),
             async_compute_lock: Arc::new(AsyncMutex::new(())),
             stats: ArrayStats::default(),
         }
+    }
+
+    /// Returns the source array reference.
+    pub(super) fn source(&self) -> &ArrayRef {
+        self.slots[SOURCE_SLOT]
+            .as_ref()
+            .vortex_expect("SharedArray source slot")
     }
 
     /// Returns the current array reference.
@@ -46,7 +58,7 @@ impl SharedArray {
     pub(super) fn current_array_ref(&self) -> &ArrayRef {
         match self.cached.get() {
             Some(Ok(arr)) => arr,
-            _ => &self.source,
+            _ => self.source(),
         }
     }
 
@@ -59,7 +71,7 @@ impl SharedArray {
     ) -> VortexResult<ArrayRef> {
         let result = self
             .cached
-            .get_or_init(|| f(&self.source).map(|c| c.into_array()).map_err(Arc::new));
+            .get_or_init(|| f(self.source()).map(|c| c.into_array()).map_err(Arc::new));
         result.clone().map_err(Into::into)
     }
 
@@ -82,19 +94,12 @@ impl SharedArray {
             return result.clone().map_err(Into::into);
         }
 
-        let computed = f(self.source.clone())
+        let computed = f(self.source().clone())
             .await
             .map(|c| c.into_array())
             .map_err(Arc::new);
 
         let result = self.cached.get_or_init(|| computed);
         result.clone().map_err(Into::into)
-    }
-
-    pub(super) fn set_source(&mut self, source: ArrayRef) {
-        self.dtype = source.dtype().clone();
-        self.source = source;
-        self.cached = Arc::new(OnceLock::new());
-        self.async_compute_lock = Arc::new(AsyncMutex::new(()));
     }
 }

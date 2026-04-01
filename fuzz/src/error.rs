@@ -114,10 +114,10 @@ impl Display for VortexFuzzError {
                     f,
                     "Mismatch at step {step} at index {idx}\n\
                     Expected scalar:\n{expected_scalar}\n\
-                    Actual scalar:\n{actual_scalar}\n\
+                    Actual scalar:\n{actual_scalar}\n\n\
                     Expected tree:\n{expected_tree}\n\
-                    Current tree:\n{current_tree}\
-                    Expected values:\n{expected_values:#}\n\
+                    Current tree:\n{current_tree}\n\
+                    Expected values:\n{expected_values:#}\n\n\
                     Current values:\n{current_values:#}\
                     \n{backtrace}"
                 )

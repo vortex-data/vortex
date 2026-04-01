@@ -104,6 +104,16 @@ public final class NativeDTypeMethods {
     public static native long newList(long elementTypePtr, boolean isNullable);
 
     /**
+     * Create a new native DType for a FixedSizeList type. The created object lives in native memory.
+     *
+     * @param elementTypePtr A native pointer to a DType containing the type of the elements
+     * @param size           The fixed size of each list
+     * @param isNullable     true if the values can be null
+     * @return Pointer to a new heap-allocated {@code DType}.
+     */
+    public static native long newFixedSizeList(long elementTypePtr, int size, boolean isNullable);
+
+    /**
      * Create a new native DType for a Struct type. The created object lives in native memory.
      *
      * @param fieldNames An array of field names
@@ -153,6 +163,8 @@ public final class NativeDTypeMethods {
     public static native List<Long> getFieldTypes(long pointer);
 
     public static native long getElementType(long pointer);
+
+    public static native int getFixedSizeListSize(long pointer);
 
     public static native boolean isDate(long pointer);
 

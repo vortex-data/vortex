@@ -3,12 +3,13 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
@@ -18,6 +19,7 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -28,6 +30,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::FoRArray;
+use crate::r#for::array::NUM_SLOTS;
+use crate::r#for::array::SLOT_NAMES;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::kernels::PARENT_KERNELS;
 use crate::r#for::vtable::rules::PARENT_RULES;
@@ -48,7 +52,11 @@ impl VTable for FoR {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &FoR
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -86,36 +94,22 @@ impl VTable for FoR {
         None
     }
 
-    fn nchildren(_array: &FoRArray) -> usize {
-        1
+    fn slots(array: &FoRArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
-    fn child(array: &FoRArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.encoded().clone(),
-            _ => vortex_panic!("FoRArray child index {idx} out of bounds"),
-        }
+    fn slot_name(_array: &FoRArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
-    fn child_name(_array: &FoRArray, idx: usize) -> String {
-        match idx {
-            0 => "encoded".to_string(),
-            _ => vortex_panic!("FoRArray child name index {idx} out of bounds"),
-        }
-    }
-
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // FoRArray children order (from visit_children):
-        // 1. encoded
-
+    fn with_slots(array: &mut FoRArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 1,
-            "Expected 1 child for FoR encoding, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "FoRArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        array.encoded = children[0].clone();
-
+        array.slots = slots;
         Ok(())
     }
 
@@ -159,19 +153,19 @@ impl VTable for FoR {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(decompress(array, ctx)?.into_array()))
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(decompress(&array, ctx)?.into_array()))
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -180,7 +174,7 @@ impl VTable for FoR {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FoR;
 
 impl FoR {

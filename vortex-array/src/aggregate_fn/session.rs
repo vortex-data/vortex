@@ -15,6 +15,8 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::nan_count::NanCount;
+use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::arrays::Chunked;
@@ -46,6 +48,13 @@ impl Default for AggregateFnSession {
             kernels: RwLock::new(HashMap::default()),
             grouped_kernels: RwLock::new(HashMap::default()),
         };
+
+        // Register the built-in aggregate functions
+        this.register(IsConstant);
+        this.register(IsSorted);
+        this.register(MinMax);
+        this.register(NanCount);
+        this.register(Sum);
 
         // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(Chunked::ID, None, &ChunkedArrayAggregate);

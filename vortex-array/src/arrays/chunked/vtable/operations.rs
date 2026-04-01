@@ -4,13 +4,18 @@
 use vortex_error::VortexResult;
 
 use crate::DynArray;
+use crate::ExecutionCtx;
 use crate::arrays::Chunked;
 use crate::arrays::chunked::vtable::ChunkedArray;
 use crate::scalar::Scalar;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Chunked> for Chunked {
-    fn scalar_at(array: &ChunkedArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &ChunkedArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let (chunk_index, chunk_offset) = array.find_chunk_idx(index)?;
         array.chunk(chunk_index).scalar_at(chunk_offset)
     }

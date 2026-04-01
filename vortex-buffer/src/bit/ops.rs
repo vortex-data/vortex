@@ -4,13 +4,54 @@
 use crate::BitBuffer;
 use crate::BitBufferMut;
 use crate::Buffer;
+use crate::ByteBufferMut;
 use crate::trusted_len::TrustedLenExt;
 
 #[inline]
-pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: &BitBuffer, op: F) -> BitBuffer {
-    let mut buf = buffer.clone().into_mut();
-    bitwise_unary_op_mut(&mut buf, op);
-    buf.freeze()
+pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: BitBuffer, mut op: F) -> BitBuffer {
+    match buffer.try_into_mut() {
+        Ok(mut buf) => {
+            bitwise_unary_op_mut(&mut buf, op);
+            buf.freeze()
+        }
+        Err(buffer) => {
+            let len = buffer.len();
+            let offset = buffer.offset();
+            let src = buffer.inner().as_slice();
+
+            let mut dst = ByteBufferMut::with_capacity(src.len());
+            let u64_len = src.len() / 8;
+            let remainder = src.len() % 8;
+
+            let mut src_ptr = src.as_ptr() as *const u64;
+            let mut dst_ptr = dst.spare_capacity_mut().as_mut_ptr() as *mut u64;
+            for _ in 0..u64_len {
+                let value = unsafe { src_ptr.read_unaligned() };
+                unsafe { dst_ptr.write_unaligned(op(value)) };
+                src_ptr = unsafe { src_ptr.add(1) };
+                dst_ptr = unsafe { dst_ptr.add(1) };
+            }
+
+            if remainder > 0 {
+                let mut remainder_u64 = 0u64;
+                let src_bytes = src_ptr as *const u8;
+                let dst_bytes = dst_ptr as *mut u8;
+                for i in 0..remainder {
+                    let byte = unsafe { src_bytes.add(i).read() };
+                    remainder_u64 |= (byte as u64) << (i * 8);
+                }
+                let remainder_u64 = op(remainder_u64);
+                for i in 0..remainder {
+                    let byte = ((remainder_u64 >> (i * 8)) & 0xFF) as u8;
+                    unsafe { dst_bytes.add(i).write(byte) };
+                }
+            }
+
+            // SAFETY: we wrote exactly src.len() bytes into the spare capacity.
+            unsafe { dst.set_len(src.len()) };
+            BitBuffer::new_with_offset(dst.freeze(), len, offset)
+        }
+    }
 }
 
 #[inline]
@@ -95,7 +136,7 @@ mod tests {
     #[test]
     fn test_bitwise_unary_not() {
         let buffer = BitBuffer::new(buffer![0b10101010u8], 4);
-        let result = bitwise_unary_op(&buffer, |x| !x);
+        let result = bitwise_unary_op(buffer, |x| !x);
         assert_eq!(result, bitbuffer![true, false, true, false]);
     }
 

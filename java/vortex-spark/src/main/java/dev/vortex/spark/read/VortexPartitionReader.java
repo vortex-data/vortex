@@ -47,7 +47,7 @@ final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
      * Initialize the Vortex File and ArrayStream resources.
      */
     void initNativeResources() {
-        file = Files.open(partition.getPath());
+        file = Files.open(partition.getPath(), partition.getFormatOptions());
         List<String> pushdownColumns =
                 partition.getColumns().stream().map(Column::name).collect(Collectors.toList());
         batches = new VortexColumnarBatchIterator(

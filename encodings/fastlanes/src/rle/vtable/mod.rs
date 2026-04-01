@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use prost::Message;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -19,6 +20,7 @@ use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
@@ -62,7 +64,11 @@ impl VTable for RLE {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &RLE
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -110,52 +116,30 @@ impl VTable for RLE {
         None
     }
 
-    fn nchildren(_array: &RLEArray) -> usize {
-        3
-    }
-
-    fn child(array: &RLEArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.values().clone(),
-            1 => array.indices().clone(),
-            2 => array.values_idx_offsets().clone(),
-            _ => vortex_panic!("RLEArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &RLEArray, idx: usize) -> String {
-        match idx {
-            0 => "values".to_string(),
-            1 => "indices".to_string(),
-            2 => "values_idx_offsets".to_string(),
-            _ => vortex_panic!("RLEArray child name index {idx} out of bounds"),
-        }
-    }
-
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // RLEArray children order (from visit_children):
-        // 1. values
-        // 2. indices
-        // 3. values_idx_offsets
+    fn slots(array: &RLEArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
 
+    fn slot_name(_array: &RLEArray, idx: usize) -> String {
+        crate::rle::array::SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut RLEArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 3,
-            "Expected 3 children for RLE encoding, got {}",
-            children.len()
+            slots.len() == crate::rle::array::NUM_SLOTS,
+            "RLEArray expects {} slots, got {}",
+            crate::rle::array::NUM_SLOTS,
+            slots.len()
         );
-
-        array.values = children[0].clone();
-        array.indices = children[1].clone();
-        array.values_idx_offsets = children[2].clone();
-
+        array.slots = slots;
         Ok(())
     }
 
@@ -223,7 +207,7 @@ impl VTable for RLE {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -231,14 +215,14 @@ impl VTable for RLE {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            rle_decompress(array, ctx)?.into_array(),
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            rle_decompress(&array, ctx)?.into_array(),
         ))
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RLE;
 
 impl RLE {

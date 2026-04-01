@@ -75,13 +75,11 @@ where
         let Some(scalar_fn_array) = parent.as_opt::<ScalarFnVTable>() else {
             return Ok(None);
         };
-        let children = scalar_fn_array.children();
-
         // Normalize so `array` is always LHS, swapping the operator if needed
         // TODO(joe): should be go this here or in the Rule/Kernel
         let (cmp_op, other) = match child_idx {
-            0 => (cmp_op, &children[1]),
-            1 => (cmp_op.swap(), &children[0]),
+            0 => (cmp_op, scalar_fn_array.get_child(1)),
+            1 => (cmp_op.swap(), scalar_fn_array.get_child(0)),
             _ => return Ok(None),
         };
 

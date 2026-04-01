@@ -136,6 +136,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
                 .with_nullability(masked_storage.dtype().nullability());
             ExtensionArray::new(ext_dtype, masked_storage).into_array()
         }
+        Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }
 

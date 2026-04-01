@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -13,10 +14,11 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::ConstantArray;
+use crate::arrays::constant::array::NUM_SLOTS;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
@@ -36,6 +38,7 @@ use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 pub(crate) mod canonical;
@@ -44,7 +47,7 @@ mod validity;
 
 vtable!(Constant);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Constant;
 
 impl Constant {
@@ -58,7 +61,11 @@ impl VTable for Constant {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Constant
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -107,16 +114,23 @@ impl VTable for Constant {
         }
     }
 
-    fn nchildren(_array: &ConstantArray) -> usize {
-        0
+    fn slots(array: &ConstantArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
-    fn child(_array: &ConstantArray, idx: usize) -> ArrayRef {
-        vortex_panic!("ConstantArray child index {idx} out of bounds")
+    fn slot_name(_array: &ConstantArray, idx: usize) -> String {
+        vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
 
-    fn child_name(_array: &ConstantArray, idx: usize) -> String {
-        vortex_panic!("ConstantArray child_name index {idx} out of bounds")
+    fn with_slots(array: &mut ConstantArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ConstantArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn metadata(array: &ConstantArray) -> VortexResult<Self::Metadata> {
@@ -161,26 +175,17 @@ impl VTable for Constant {
         Ok(ConstantArray::new(metadata.clone(), len))
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.is_empty(),
-            "ConstantArray has no children, got {}",
-            children.len()
-        );
-        Ok(())
-    }
-
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            constant_canonicalize(array)?.into_array(),
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            constant_canonicalize(&array)?.into_array(),
         ))
     }
 

@@ -10,21 +10,12 @@ use crate::IntoArray;
 use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
 use crate::arrays::slice::SliceReduce;
-use crate::stats::ArrayStats;
 
 impl SliceReduce for Masked {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let child = array.child.slice(range.clone())?;
+        let child = array.child().slice(range.clone())?;
         let validity = array.validity.slice(range)?;
 
-        Ok(Some(
-            MaskedArray {
-                child,
-                validity,
-                dtype: array.dtype.clone(),
-                stats: ArrayStats::default(),
-            }
-            .into_array(),
-        ))
+        Ok(Some(MaskedArray::try_new(child, validity)?.into_array()))
     }
 }

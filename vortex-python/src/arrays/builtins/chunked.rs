@@ -24,8 +24,7 @@ impl PyChunkedArray {
     pub fn chunks(self_: PyRef<'_, Self>) -> Vec<PyArrayRef> {
         self_
             .as_array_ref()
-            .chunks()
-            .iter()
+            .iter_chunks()
             .map(|chunk| PyArrayRef::from(chunk.clone()))
             .collect()
     }

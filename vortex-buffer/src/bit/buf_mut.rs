@@ -656,7 +656,7 @@ impl Not for BitBufferMut {
 
 impl From<&[bool]> for BitBufferMut {
     fn from(value: &[bool]) -> Self {
-        BitBuffer::collect_bool(value.len(), |i| value[i]).into_mut()
+        BitBufferMut::collect_bool(value.len(), |i| value[i])
     }
 }
 
@@ -1183,7 +1183,7 @@ mod tests {
         for i in 0..10 {
             let buf = bitbuffer![0 1 0 1 0 1 0 1 0 1];
 
-            let mut buf_mut = buf.clone().into_mut();
+            let mut buf_mut = BitBufferMut::copy_from(&buf);
             assert_eq!(buf_mut.len(), 10);
 
             let tail = buf_mut.split_off(i);
@@ -1201,7 +1201,7 @@ mod tests {
         for i in 0..10 {
             let buf = bitbuffer![0 1 0 1 0 1 0 1 0 1 0 1].slice(2..);
 
-            let mut buf_mut = buf.clone().into_mut();
+            let mut buf_mut = BitBufferMut::copy_from(&buf);
             assert_eq!(buf_mut.len(), 10);
 
             let tail = buf_mut.split_off(i);

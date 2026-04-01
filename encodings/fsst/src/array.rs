@@ -17,7 +17,7 @@ use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -35,15 +35,16 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_array::vtable::validity_nchildren;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -81,7 +82,11 @@ impl VTable for FSST {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &FSST
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -102,7 +107,7 @@ impl VTable for FSST {
         array.symbols.array_hash(state, precision);
         array.symbol_lengths.array_hash(state, precision);
         array.codes.as_ref().array_hash(state, precision);
-        array.uncompressed_lengths.array_hash(state, precision);
+        array.uncompressed_lengths().array_hash(state, precision);
     }
 
     fn array_eq(array: &FSSTArray, other: &FSSTArray, precision: Precision) -> bool {
@@ -116,8 +121,8 @@ impl VTable for FSST {
                 .as_ref()
                 .array_eq(other.codes.as_ref(), precision)
             && array
-                .uncompressed_lengths
-                .array_eq(&other.uncompressed_lengths, precision)
+                .uncompressed_lengths()
+                .array_eq(other.uncompressed_lengths(), precision)
     }
 
     fn nbuffers(_array: &FSSTArray) -> usize {
@@ -139,29 +144,6 @@ impl VTable for FSST {
             1 => Some("symbol_lengths".to_string()),
             2 => Some("compressed_codes".to_string()),
             _ => vortex_panic!("FSSTArray buffer_name index {idx} out of bounds"),
-        }
-    }
-
-    fn nchildren(array: &FSSTArray) -> usize {
-        2 + validity_nchildren(array.codes.validity())
-    }
-
-    fn child(array: &FSSTArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.uncompressed_lengths().clone(),
-            1 => array.codes.offsets().clone(),
-            2 => validity_to_child(array.codes.validity(), array.codes.len())
-                .unwrap_or_else(|| vortex_panic!("FSSTArray child index {idx} out of bounds")),
-            _ => vortex_panic!("FSSTArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &FSSTArray, idx: usize) -> String {
-        match idx {
-            0 => "uncompressed_lengths".to_string(),
-            1 => "codes_offsets".to_string(),
-            2 => "validity".to_string(),
-            _ => vortex_panic!("FSSTArray child_name index {idx} out of bounds"),
         }
     }
 
@@ -308,43 +290,47 @@ impl VTable for FSST {
         );
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: &FSSTArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
+
+    fn slot_name(_array: &FSSTArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut FSSTArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 2,
-            "FSSTArray expects 2 children, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "FSSTArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
 
-        let mut children_iter = children.into_iter();
-        let codes = children_iter
-            .next()
-            .ok_or_else(|| vortex_err!("FSSTArray with_children missing codes"))?;
-
-        let codes = codes
-            .as_opt::<VarBin>()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Expected VarBinArray for codes, got {}",
-                    codes.encoding_id()
-                )
-            })?
-            .clone();
-        let uncompressed_lengths = children_iter
-            .next()
-            .ok_or_else(|| vortex_err!("FSSTArray with_children missing uncompressed_lengths"))?;
-
-        array.codes = codes;
-        array.uncompressed_lengths = uncompressed_lengths;
-
+        // Reconstruct codes VarBinArray from new offsets + existing bytes + new validity
+        let codes_offsets = slots[CODES_OFFSETS_SLOT]
+            .clone()
+            .vortex_expect("FSSTArray requires codes_offsets slot");
+        let codes_validity = match &slots[CODES_VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.codes.dtype().nullability()),
+        };
+        array.codes = VarBinArray::try_new_from_handle(
+            codes_offsets,
+            array.codes.bytes_handle().clone(),
+            array.codes.dtype().clone(),
+            codes_validity,
+        )?;
+        array.codes_array = array.codes.clone().into_array();
+        array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        canonicalize_fsst(array, ctx).map(ExecutionStep::Done)
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        canonicalize_fsst(&array, ctx).map(ExecutionResult::done)
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -353,13 +339,20 @@ impl VTable for FSST {
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
     }
 }
+
+pub(crate) const UNCOMPRESSED_LENGTHS_SLOT: usize = 0;
+pub(crate) const CODES_OFFSETS_SLOT: usize = 1;
+pub(crate) const CODES_VALIDITY_SLOT: usize = 2;
+pub(crate) const NUM_SLOTS: usize = 3;
+pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
+    ["uncompressed_lengths", "codes_offsets", "codes_validity"];
 
 #[derive(Clone)]
 pub struct FSSTArray {
@@ -370,7 +363,7 @@ pub struct FSSTArray {
     /// NOTE(ngates): this === codes, but is stored as an ArrayRef so we can return &ArrayRef!
     codes_array: ArrayRef,
     /// Lengths of the original values before compression, can be compressed.
-    uncompressed_lengths: ArrayRef,
+    slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 
     /// Memoized compressor used for push-down of compute by compressing the RHS.
@@ -384,12 +377,12 @@ impl Debug for FSSTArray {
             .field("symbols", &self.symbols)
             .field("symbol_lengths", &self.symbol_lengths)
             .field("codes", &self.codes)
-            .field("uncompressed_lengths", &self.uncompressed_lengths)
+            .field("uncompressed_lengths", self.uncompressed_lengths())
             .finish()
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FSST;
 
 impl FSST {
@@ -459,6 +452,8 @@ impl FSSTArray {
         })
             as Box<dyn Fn() -> Compressor + Send>));
         let codes_array = codes.clone().into_array();
+        let codes_offsets_slot = Some(codes.offsets().clone());
+        let codes_validity_slot = validity_to_child(codes.validity(), codes.len());
 
         Self {
             dtype,
@@ -466,7 +461,11 @@ impl FSSTArray {
             symbol_lengths,
             codes,
             codes_array,
-            uncompressed_lengths,
+            slots: vec![
+                Some(uncompressed_lengths),
+                codes_offsets_slot,
+                codes_validity_slot,
+            ],
             stats_set: Default::default(),
             compressor,
         }
@@ -495,13 +494,15 @@ impl FSSTArray {
 
     /// Get the uncompressed length for each element in the array.
     pub fn uncompressed_lengths(&self) -> &ArrayRef {
-        &self.uncompressed_lengths
+        self.slots[UNCOMPRESSED_LENGTHS_SLOT]
+            .as_ref()
+            .vortex_expect("FSSTArray uncompressed_lengths slot")
     }
 
     /// Get the DType of the uncompressed lengths array
     #[inline]
     pub fn uncompressed_lengths_dtype(&self) -> &DType {
-        self.uncompressed_lengths.dtype()
+        self.uncompressed_lengths().dtype()
     }
 
     /// Build a [`Decompressor`][fsst::Decompressor] that can be used to decompress values from

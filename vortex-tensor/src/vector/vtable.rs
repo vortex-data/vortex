@@ -31,7 +31,7 @@ impl ExtVTable for Vector {
         Ok(EmptyMetadata)
     }
 
-    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         let storage_dtype = ext_dtype.storage_dtype();
         let DType::FixedSizeList(element_dtype, _list_size, _nullability) = storage_dtype else {
             vortex_bail!("Vector storage dtype must be a FixedSizeList, got {storage_dtype}");
@@ -50,7 +50,6 @@ impl ExtVTable for Vector {
     }
 
     fn unpack_native<'a>(
-        &self,
         _ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {

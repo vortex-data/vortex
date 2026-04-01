@@ -43,12 +43,11 @@ mod tests {
             Ok(0)
         }
 
-        fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
             Ok(())
         }
 
         fn unpack_native<'a>(
-            &self,
             _ext_dtype: &'a ExtDType<Self>,
             _storage_value: &'a ScalarValue,
         ) -> VortexResult<Self::NativeValue<'a>> {
@@ -259,12 +258,11 @@ mod tests {
                 vortex_bail!("not implemented")
             }
 
-            fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
-                &self,
                 _ext_dtype: &'a ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
@@ -317,12 +315,11 @@ mod tests {
                 vortex_bail!("not implemented")
             }
 
-            fn validate_dtype(&self, _ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
-                &self,
                 _ext_dtype: &'a ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {

@@ -14,7 +14,7 @@ use crate::vtable::ValidityHelper;
 impl MaskReduce for Struct {
     fn mask(array: &StructArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         StructArray::try_new_with_dtype(
-            array.unmasked_fields().clone(),
+            array.unmasked_fields().iter().cloned().collect::<Vec<_>>(),
             array.struct_fields().clone(),
             array.len(),
             array

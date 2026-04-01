@@ -10,9 +10,13 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::stats::ArrayStats;
 
+pub(super) const CHILD_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
+
 #[derive(Clone, Debug)]
 pub struct SliceArray {
-    pub(super) child: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) range: Range<usize>,
     pub(super) stats: ArrayStats,
 }
@@ -32,7 +36,7 @@ impl SliceArray {
             );
         }
         Ok(Self {
-            child,
+            slots: vec![Some(child)],
             range,
             stats: ArrayStats::default(),
         })
@@ -49,13 +53,17 @@ impl SliceArray {
 
     /// The child array being sliced.
     pub fn child(&self) -> &ArrayRef {
-        &self.child
+        self.slots[CHILD_SLOT]
+            .as_ref()
+            .vortex_expect("SliceArray child slot")
     }
 
     /// Consume the slice array and return its components.
-    pub fn into_parts(self) -> SliceArrayParts {
+    pub fn into_parts(mut self) -> SliceArrayParts {
         SliceArrayParts {
-            child: self.child,
+            child: self.slots[CHILD_SLOT]
+                .take()
+                .vortex_expect("SliceArray child slot"),
             range: self.range,
         }
     }

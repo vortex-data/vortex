@@ -31,10 +31,14 @@ pub struct DictMetadata {
     pub(super) all_values_referenced: Option<bool>,
 }
 
+pub(super) const CODES_SLOT: usize = 0;
+pub(super) const VALUES_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["codes", "values"];
+
 #[derive(Debug, Clone)]
 pub struct DictArray {
-    pub(super) codes: ArrayRef,
-    pub(super) values: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
     pub(super) dtype: DType,
     /// Indicates whether all dictionary values are definitely referenced by at least one code.
@@ -63,8 +67,7 @@ impl DictArray {
             .dtype()
             .union_nullability(codes.dtype().nullability());
         Self {
-            codes,
-            values,
+            slots: vec![Some(codes), Some(values)],
             stats_set: Default::default(),
             dtype,
             all_values_referenced: false,
@@ -120,22 +123,30 @@ impl DictArray {
         Ok(unsafe { Self::new_unchecked(codes, values) })
     }
 
-    pub fn into_parts(self) -> DictArrayParts {
+    pub fn into_parts(mut self) -> DictArrayParts {
         DictArrayParts {
-            codes: self.codes,
-            values: self.values,
+            codes: self.slots[CODES_SLOT]
+                .take()
+                .vortex_expect("DictArray codes slot"),
+            values: self.slots[VALUES_SLOT]
+                .take()
+                .vortex_expect("DictArray values slot"),
             dtype: self.dtype,
         }
     }
 
     #[inline]
     pub fn codes(&self) -> &ArrayRef {
-        &self.codes
+        self.slots[CODES_SLOT]
+            .as_ref()
+            .vortex_expect("DictArray codes slot")
     }
 
     #[inline]
     pub fn values(&self) -> &ArrayRef {
-        &self.values
+        self.slots[VALUES_SLOT]
+            .as_ref()
+            .vortex_expect("DictArray values slot")
     }
 
     /// Returns `true` if all dictionary values are definitely referenced by at least one code.

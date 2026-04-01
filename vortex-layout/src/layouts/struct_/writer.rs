@@ -113,8 +113,7 @@ impl LayoutStrategy for StructStrategy {
 
             columns.extend(
                 struct_chunk
-                    .unmasked_fields()
-                    .iter()
+                    .iter_unmasked_fields()
                     .map(|field| (sequence_pointer.advance(), field.to_array())),
             );
 

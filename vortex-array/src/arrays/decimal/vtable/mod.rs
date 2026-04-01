@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Alignment;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -13,11 +14,13 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
+use crate::arrays::decimal::array::NUM_SLOTS;
+use crate::arrays::decimal::array::SLOT_NAMES;
+use crate::arrays::decimal::array::VALIDITY_SLOT;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -26,10 +29,9 @@ use crate::match_each_decimal_value_type;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
@@ -58,7 +60,11 @@ impl VTable for Decimal {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Decimal
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -112,22 +118,6 @@ impl VTable for Decimal {
             0 => Some("values".to_string()),
             _ => None,
         }
-    }
-
-    fn nchildren(array: &DecimalArray) -> usize {
-        validity_nchildren(&array.validity)
-    }
-
-    fn child(array: &DecimalArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => validity_to_child(&array.validity, array.len())
-                .vortex_expect("DecimalArray child index out of bounds"),
-            _ => vortex_panic!("DecimalArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &DecimalArray, _idx: usize) -> String {
-        "validity".to_string()
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {
@@ -187,32 +177,35 @@ impl VTable for Decimal {
         })
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() <= 1,
-            "DecimalArray expects 0 or 1 child (validity), got {}",
-            children.len()
-        );
+    fn slots(array: &DecimalArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
 
-        if children.is_empty() {
-            array.validity = Validity::from(array.dtype.nullability());
-        } else {
-            array.validity = Validity::Array(
-                children
-                    .into_iter()
-                    .next()
-                    .vortex_expect("children length already validated"),
-            );
-        }
+    fn slot_name(_array: &DecimalArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut DecimalArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "DecimalArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
+        };
+        array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -220,7 +213,7 @@ impl VTable for Decimal {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -229,7 +222,7 @@ impl VTable for Decimal {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Decimal;
 
 impl Decimal {
@@ -247,6 +240,7 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DecimalDType;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
@@ -279,5 +273,39 @@ mod tests {
             .decode(&dtype, 5, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION)
             .unwrap();
         assert!(decoded.is::<Decimal>());
+    }
+
+    #[test]
+    fn test_nullable_decimal_serde_roundtrip() {
+        let array = DecimalArray::new(
+            buffer![1234567i32, 0i32, -9999999i32],
+            DecimalDType::new(7, 3),
+            Validity::from_iter([true, false, true]),
+        );
+        let dtype = array.dtype().clone();
+        let len = array.len();
+
+        let ctx = ArrayContext::empty();
+        let out = array
+            .clone()
+            .into_array()
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
+        let mut concat = ByteBufferMut::empty();
+        for buf in out {
+            concat.extend_from_slice(buf.as_ref());
+        }
+
+        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let decoded = parts
+            .decode(
+                &dtype,
+                len,
+                &ReadContext::new(ctx.to_ids()),
+                &LEGACY_SESSION,
+            )
+            .unwrap();
+
+        assert_arrays_eq!(decoded, array);
     }
 }

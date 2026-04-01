@@ -26,7 +26,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::Context;
 
 use crate::session::ArraySession;
-use crate::vtable::DynVTable;
+use crate::vtable::DynVTableRef;
 
 pub mod accessor;
 pub mod aggregate_fn;
@@ -82,4 +82,4 @@ pub mod flatbuffers {
 pub static LEGACY_SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-pub type ArrayContext = Context<&'static dyn DynVTable>;
+pub type ArrayContext = Context<DynVTableRef>;

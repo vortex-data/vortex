@@ -2,12 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -31,6 +32,7 @@ use vortex_array::stats::StatsSet;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -72,6 +74,8 @@ pub struct SequenceArrayParts {
     pub nullability: Nullability,
 }
 
+pub(super) const SLOT_NAMES: [&str; 0] = [];
+
 #[derive(Clone, Debug)]
 /// An array representing the equation `A[i] = base + i * multiplier`.
 pub struct SequenceArray {
@@ -79,6 +83,7 @@ pub struct SequenceArray {
     multiplier: PValue,
     dtype: DType,
     pub(crate) len: usize,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
@@ -167,6 +172,7 @@ impl SequenceArray {
             multiplier,
             dtype,
             len: length,
+            slots: vec![],
             stats_set: ArrayStats::from(stats_set),
         }
     }
@@ -242,7 +248,11 @@ impl VTable for Sequence {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Sequence
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -286,18 +296,6 @@ impl VTable for Sequence {
 
     fn buffer_name(_array: &SequenceArray, idx: usize) -> Option<String> {
         vortex_panic!("SequenceArray buffer_name index {idx} out of bounds")
-    }
-
-    fn nchildren(_array: &SequenceArray) -> usize {
-        0
-    }
-
-    fn child(_array: &SequenceArray, idx: usize) -> ArrayRef {
-        vortex_panic!("SequenceArray child index {idx} out of bounds")
-    }
-
-    fn child_name(_array: &SequenceArray, idx: usize) -> String {
-        vortex_panic!("SequenceArray child_name index {idx} out of bounds")
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
@@ -372,21 +370,31 @@ impl VTable for Sequence {
         )
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: &SequenceArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
+
+    fn slot_name(_array: &SequenceArray, idx: usize) -> String {
+        let _ = SLOT_NAMES;
+        vortex_panic!("SequenceArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut SequenceArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.is_empty(),
-            "SequenceArray expects 0 children, got {}",
-            children.len()
+            slots.is_empty(),
+            "SequenceArray expects 0 slots, got {}",
+            slots.len()
         );
+        array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        sequence_decompress(array).map(ExecutionStep::Done)
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        sequence_decompress(&array).map(ExecutionResult::done)
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -395,7 +403,7 @@ impl VTable for Sequence {
     }
 
     fn reduce_parent(
-        array: &SequenceArray,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -404,7 +412,11 @@ impl VTable for Sequence {
 }
 
 impl OperationsVTable<Sequence> for Sequence {
-    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &SequenceArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Scalar::try_new(
             array.dtype().clone(),
             Some(ScalarValue::Primitive(array.index_value(index))),
@@ -418,7 +430,7 @@ impl ValidityVTable<Sequence> for Sequence {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Sequence;
 
 impl Sequence {

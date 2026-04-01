@@ -1,20 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::VarBinArray;
+use crate::arrays::varbin::array::NUM_SLOTS;
+use crate::arrays::varbin::array::SLOT_NAMES;
+use crate::arrays::varbin::array::VALIDITY_SLOT;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
@@ -22,11 +27,10 @@ use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod canonical;
 mod kernel;
 mod operations;
@@ -57,7 +61,11 @@ impl VTable for VarBin {
     type Metadata = ProstMetadata<VarBinMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &VarBin
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -102,27 +110,6 @@ impl VTable for VarBin {
         match idx {
             0 => Some("bytes".to_string()),
             _ => vortex_panic!("VarBinArray buffer_name index {idx} out of bounds"),
-        }
-    }
-
-    fn nchildren(array: &VarBinArray) -> usize {
-        1 + validity_nchildren(&array.validity)
-    }
-
-    fn child(array: &VarBinArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.offsets().clone(),
-            1 => validity_to_child(&array.validity, array.len())
-                .vortex_expect("VarBinArray validity child out of bounds"),
-            _ => vortex_panic!("VarBinArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &VarBinArray, idx: usize) -> String {
-        match idx {
-            0 => "offsets".to_string(),
-            1 => "validity".to_string(),
-            _ => vortex_panic!("VarBinArray child_name index {idx} out of bounds"),
         }
     }
 
@@ -179,31 +166,31 @@ impl VTable for VarBin {
         VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        match children.len() {
-            1 => {
-                let [offsets]: [ArrayRef; 1] = children
-                    .try_into()
-                    .map_err(|_| vortex_err!("Failed to convert children to array"))?;
-                array.offsets = offsets;
-            }
-            2 => {
-                let [offsets, validity]: [ArrayRef; 2] = children
-                    .try_into()
-                    .map_err(|_| vortex_err!("Failed to convert children to array"))?;
-                array.offsets = offsets;
-                array.validity = Validity::Array(validity);
-            }
-            _ => vortex_bail!(
-                "VarBinArray expects 1 or 2 children (offsets, validity?), got {}",
-                children.len()
-            ),
-        }
+    fn slots(array: &VarBinArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
+
+    fn slot_name(_array: &VarBinArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut VarBinArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "VarBinArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
+        };
+        array.slots = slots;
         Ok(())
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -211,7 +198,7 @@ impl VTable for VarBin {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -219,14 +206,14 @@ impl VTable for VarBin {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            varbin_to_canonical(array, ctx)?.into_array(),
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            varbin_to_canonical(&array, ctx)?.into_array(),
         ))
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VarBin;
 
 impl VarBin {

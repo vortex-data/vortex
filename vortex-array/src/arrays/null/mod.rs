@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -11,8 +12,7 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -23,10 +23,13 @@ use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
+
+const NUM_SLOTS: usize = 0;
 
 pub(crate) mod compute;
 
@@ -39,7 +42,11 @@ impl VTable for Null {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Null
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -75,16 +82,23 @@ impl VTable for Null {
         None
     }
 
-    fn nchildren(_array: &NullArray) -> usize {
-        0
+    fn slots(array: &NullArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
-    fn child(_array: &NullArray, idx: usize) -> ArrayRef {
-        vortex_panic!("NullArray child index {idx} out of bounds")
+    fn slot_name(_array: &NullArray, idx: usize) -> String {
+        vortex_panic!("NullArray slot_name index {idx} out of bounds")
     }
 
-    fn child_name(_array: &NullArray, idx: usize) -> String {
-        vortex_panic!("NullArray child_name index {idx} out of bounds")
+    fn with_slots(array: &mut NullArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "NullArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {
@@ -115,25 +129,16 @@ impl VTable for Null {
         Ok(NullArray::new(len))
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.is_empty(),
-            "NullArray has no children, got {}",
-            children.len()
-        );
-        Ok(())
-    }
-
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 }
 
@@ -167,10 +172,11 @@ impl VTable for Null {
 #[derive(Clone, Debug)]
 pub struct NullArray {
     len: usize,
+    slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Null;
 
 impl Null {
@@ -181,12 +187,17 @@ impl NullArray {
     pub fn new(len: usize) -> Self {
         Self {
             len,
+            slots: vec![],
             stats_set: Default::default(),
         }
     }
 }
 impl OperationsVTable<Null> for Null {
-    fn scalar_at(_array: &NullArray, _index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        _array: &NullArray,
+        _index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Ok(Scalar::null(DType::Null))
     }
 }

@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -13,11 +13,14 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DynArray;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
+use crate::arrays::list::array::NUM_SLOTS;
+use crate::arrays::list::array::SLOT_NAMES;
+use crate::arrays::list::array::VALIDITY_SLOT;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::listview::list_view_from_list;
@@ -33,11 +36,10 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod operations;
 mod validity;
 vtable!(List);
@@ -56,12 +58,16 @@ impl VTable for List {
     type Metadata = ProstMetadata<ListMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &List
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
     fn len(array: &ListArray) -> usize {
-        array.offsets.len().saturating_sub(1)
+        array.offsets().len().saturating_sub(1)
     }
 
     fn dtype(array: &ListArray) -> &DType {
@@ -74,15 +80,15 @@ impl VTable for List {
 
     fn array_hash<H: std::hash::Hasher>(array: &ListArray, state: &mut H, precision: Precision) {
         array.dtype.hash(state);
-        array.elements.array_hash(state, precision);
-        array.offsets.array_hash(state, precision);
+        array.elements().array_hash(state, precision);
+        array.offsets().array_hash(state, precision);
         array.validity.array_hash(state, precision);
     }
 
     fn array_eq(array: &ListArray, other: &ListArray, precision: Precision) -> bool {
         array.dtype == other.dtype
-            && array.elements.array_eq(&other.elements, precision)
-            && array.offsets.array_eq(&other.offsets, precision)
+            && array.elements().array_eq(other.elements(), precision)
+            && array.offsets().array_eq(other.offsets(), precision)
             && array.validity.array_eq(&other.validity, precision)
     }
 
@@ -98,31 +104,8 @@ impl VTable for List {
         vortex_panic!("ListArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &ListArray) -> usize {
-        2 + validity_nchildren(&array.validity)
-    }
-
-    fn child(array: &ListArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.elements().clone(),
-            1 => array.offsets().clone(),
-            2 => validity_to_child(&array.validity, array.len())
-                .vortex_expect("ListArray validity child out of bounds"),
-            _ => vortex_panic!("ListArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &ListArray, idx: usize) -> String {
-        match idx {
-            0 => "elements".to_string(),
-            1 => "offsets".to_string(),
-            2 => "validity".to_string(),
-            _ => vortex_panic!("ListArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -186,39 +169,37 @@ impl VTable for List {
         ListArray::try_new(elements, offsets, validity)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: &ListArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
+
+    fn slot_name(_array: &ListArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut ListArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 2 || children.len() == 3,
-            "ListArray expects 2 or 3 children, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "ListArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        let mut iter = children.into_iter();
-        let elements = iter
-            .next()
-            .vortex_expect("children length already validated");
-        let offsets = iter
-            .next()
-            .vortex_expect("children length already validated");
-        let validity = if let Some(validity_array) = iter.next() {
-            Validity::Array(validity_array)
-        } else {
-            Validity::from(array.dtype.nullability())
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
         };
-
-        let new_array = ListArray::try_new(elements, offsets, validity)?;
-        *array = new_array;
+        array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            list_view_from_list(array.clone(), ctx)?.into_array(),
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            list_view_from_list(ListArray::clone(&array), ctx)?.into_array(),
         ))
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -227,7 +208,7 @@ impl VTable for List {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct List;
 
 impl List {

@@ -10,7 +10,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -21,6 +21,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -37,7 +38,7 @@ use crate::ZstdBuffersMetadata;
 
 vtable!(ZstdBuffers);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ZstdBuffers;
 
 impl ZstdBuffers {
@@ -56,7 +57,7 @@ pub struct ZstdBuffersArray {
     compressed_buffers: Vec<BufferHandle>,
     uncompressed_sizes: Vec<u64>,
     buffer_alignments: Vec<u32>,
-    children: Vec<ArrayRef>,
+    pub(crate) slots: Vec<Option<ArrayRef>>,
     dtype: DType,
     len: usize,
     stats_set: ArrayStats,
@@ -172,7 +173,7 @@ impl ZstdBuffersArray {
             compressed_buffers,
             uncompressed_sizes,
             buffer_alignments,
-            children,
+            slots: children.into_iter().map(Some).collect(),
             dtype: array.dtype().clone(),
             len: array.len(),
             stats_set: Default::default(),
@@ -248,14 +249,14 @@ impl ZstdBuffersArray {
             .find(&self.inner_encoding_id)
             .ok_or_else(|| vortex_err!("Unknown inner encoding: {}", self.inner_encoding_id))?;
 
-        let children = self.children.as_slice();
+        let children: Vec<ArrayRef> = self.slots.iter().flatten().cloned().collect();
         inner_vtable.build(
             self.inner_encoding_id.clone(),
             &self.dtype,
             self.len,
             &self.inner_metadata,
             buffer_handles,
-            &children,
+            &children.as_slice(),
             session,
         )
     }
@@ -330,7 +331,11 @@ impl VTable for ZstdBuffers {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &ZstdBuffers
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -360,7 +365,7 @@ impl VTable for ZstdBuffers {
         array.buffer_alignments.hash(state);
         array.dtype.hash(state);
         array.len.hash(state);
-        for child in &array.children {
+        for child in array.slots.iter().flatten() {
             child.array_hash(state, precision);
         }
     }
@@ -378,11 +383,12 @@ impl VTable for ZstdBuffers {
             && array.buffer_alignments == other.buffer_alignments
             && array.dtype == other.dtype
             && array.len == other.len
-            && array.children.len() == other.children.len()
+            && array.slots.len() == other.slots.len()
             && array
-                .children
+                .slots
                 .iter()
-                .zip(&other.children)
+                .flatten()
+                .zip(other.slots.iter().flatten())
                 .all(|(a, b)| a.array_eq(b, precision))
     }
 
@@ -398,16 +404,17 @@ impl VTable for ZstdBuffers {
         Some(format!("compressed_{idx}"))
     }
 
-    fn nchildren(array: &ZstdBuffersArray) -> usize {
-        array.children.len()
+    fn slots(array: &ZstdBuffersArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
-    fn child(array: &ZstdBuffersArray, idx: usize) -> ArrayRef {
-        array.children[idx].clone()
-    }
-
-    fn child_name(_array: &ZstdBuffersArray, idx: usize) -> String {
+    fn slot_name(_array: &ZstdBuffersArray, idx: usize) -> String {
         format!("child_{idx}")
+    }
+
+    fn with_slots(array: &mut ZstdBuffersArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        array.slots = slots;
+        Ok(())
     }
 
     fn metadata(array: &ZstdBuffersArray) -> VortexResult<Self::Metadata> {
@@ -442,8 +449,8 @@ impl VTable for ZstdBuffers {
     ) -> VortexResult<ZstdBuffersArray> {
         let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
 
-        let child_arrays: Vec<ArrayRef> = (0..children.len())
-            .map(|i| children.get(i, dtype, len))
+        let child_arrays: Vec<Option<ArrayRef>> = (0..children.len())
+            .map(|i| children.get(i, dtype, len).map(Some))
             .collect::<VortexResult<Vec<_>>>()?;
 
         let array = ZstdBuffersArray {
@@ -452,7 +459,7 @@ impl VTable for ZstdBuffers {
             compressed_buffers,
             uncompressed_sizes: metadata.0.uncompressed_sizes.clone(),
             buffer_alignments: metadata.0.buffer_alignments.clone(),
-            children: child_arrays,
+            slots: child_arrays,
             dtype: dtype.clone(),
             len,
             stats_set: Default::default(),
@@ -462,22 +469,21 @@ impl VTable for ZstdBuffers {
         Ok(array)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        array.children = children;
-        Ok(())
-    }
-
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let session = ctx.session();
         let inner_array = array.decompress_and_build_inner(session)?;
         inner_array
             .execute::<ArrayRef>(ctx)
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 }
 
 impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
-    fn scalar_at(array: &ZstdBuffersArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: &ZstdBuffersArray,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
         // canonical

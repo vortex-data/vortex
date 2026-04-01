@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ExecutionCtx;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
@@ -11,7 +12,7 @@ use super::FoR;
 use crate::FoRArray;
 
 impl OperationsVTable<FoR> for FoR {
-    fn scalar_at(array: &FoRArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(array: &FoRArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         let encoded_pvalue = array.encoded().scalar_at(index)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();
         let reference = array.reference_scalar();

@@ -31,7 +31,13 @@ mod top_value;
 pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
+use crate::ArrayRef;
 use crate::buffer::BufferHandle;
+use crate::vtable::validity_to_child;
+
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 /// A primitive array that stores [native types][crate::dtype::NativePType] in a contiguous buffer
 /// of memory, along with an optional validity child.
@@ -70,6 +76,7 @@ use crate::buffer::BufferHandle;
 /// ```
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) buffer: BufferHandle,
     pub(super) validity: Validity,
@@ -84,6 +91,10 @@ pub struct PrimitiveArrayParts {
 
 // TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
 impl PrimitiveArray {
+    fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+        vec![validity_to_child(validity, len)]
+    }
+
     /// Create a new array from a buffer handle.
     ///
     /// # Safety
@@ -95,7 +106,9 @@ impl PrimitiveArray {
         ptype: PType,
         validity: Validity,
     ) -> Self {
+        let len = handle.len() / ptype.byte_width();
         Self {
+            slots: Self::make_slots(&validity, len),
             buffer: handle,
             dtype: DType::Primitive(ptype, validity.nullability()),
             validity,
@@ -148,7 +161,9 @@ impl PrimitiveArray {
         Self::validate(&buffer, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `PrimitiveArray` parameters");
 
+        let len = buffer.len();
         Self {
+            slots: Self::make_slots(&validity, len),
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
             buffer: BufferHandle::new_host(buffer.into_byte_buffer()),
             validity,
@@ -203,7 +218,9 @@ impl PrimitiveArray {
 
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
         let dtype = DType::Primitive(ptype, validity.nullability());
+        let len = handle.len() / ptype.byte_width();
         Self {
+            slots: Self::make_slots(&validity, len),
             buffer: handle,
             dtype,
             validity,

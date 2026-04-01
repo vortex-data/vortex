@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
@@ -26,7 +27,10 @@ impl BoolArray {
             ctx,
         )?;
 
-        let mut own_values = self.into_bit_buffer().into_mut();
+        let bit_buffer = self.into_bit_buffer();
+        let mut own_values = bit_buffer
+            .try_into_mut()
+            .unwrap_or_else(|bb| BitBufferMut::copy_from(&bb));
         match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
             for (idx, value) in indices
                 .as_slice::<I>()

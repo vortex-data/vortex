@@ -73,6 +73,17 @@ impl<T: ArrowNativeType, R: ArrowNativeType> MapEach<T, R> for Arrow<ScalarBuffe
     }
 }
 
+impl<T: Copy, R> MapEach<T, R> for Buffer<T> {
+    type Output = BufferMut<R>;
+
+    fn map_each<F>(self, f: F) -> Self::Output
+    where
+        F: FnMut(T) -> R,
+    {
+        Buffer::<T>::map_each_in_place(self, f)
+    }
+}
+
 impl<T: Copy, R> MapEach<T, R> for BufferMut<T> {
     type Output = BufferMut<R>;
 
@@ -85,7 +96,7 @@ impl<T: Copy, R> MapEach<T, R> for BufferMut<T> {
 }
 
 #[divan::bench(
-    types = [Arrow<ScalarBuffer<i32>>, BufferMut<i32>],
+    types = [Arrow<ScalarBuffer<i32>>, Buffer<i32>, BufferMut<i32>],
     args = INPUT_SIZE,
 )]
 fn map_each<B: MapEach<i32, u32> + FromIterator<i32>>(bencher: Bencher, n: i32) {

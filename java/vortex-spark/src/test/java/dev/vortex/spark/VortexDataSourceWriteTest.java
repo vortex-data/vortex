@@ -178,56 +178,6 @@ public final class VortexDataSourceWriteTest {
     }
 
     @Test
-    @DisplayName("Write and read Vortex files from S3")
-    public void testWriteAndReadFromS3() throws IOException {
-        // Skip test if AWS credentials or S3 base URI are not available
-        String awsAccessKey = System.getenv("AWS_ACCESS_KEY_ID");
-        String awsSecretKey = System.getenv("AWS_SECRET_ACCESS_KEY");
-        String s3BaseUri = System.getenv("VORTEX_TEST_S3_BASE_URI");
-
-        Assumptions.assumeTrue(
-                awsAccessKey != null && awsSecretKey != null, "Skipping S3 test - AWS credentials not configured");
-
-        Assumptions.assumeTrue(
-                s3BaseUri != null,
-                "Skipping S3 test - VORTEX_TEST_S3_BASE_URI not configured (e.g., s3://bucket/path)");
-
-        // Given: Create a test DataFrame
-        int numRows = 100;
-        Dataset<Row> originalDf = createTestDataFrame(numRows);
-
-        // When: Write to S3 (relying on environment credentials)
-        String s3Path = s3BaseUri + "/spark-test-" + System.currentTimeMillis();
-        originalDf
-                .repartition(2) // Force 2 partitions
-                .write()
-                .format("vortex")
-                .option("path", s3Path)
-                .mode(SaveMode.Overwrite)
-                .save();
-
-        // Then: Read back from S3
-        Dataset<Row> readDf =
-                spark.read().format("vortex").option("path", s3Path).load();
-
-        // Verify schema is preserved
-        assertSchemaEquals(originalDf.schema(), readDf.schema());
-
-        // Verify row count
-        assertEquals(numRows, readDf.count(), "Read DataFrame should have same number of rows as original");
-
-        // Verify data content
-        verifyDataContent(originalDf, readDf);
-
-        // Log the S3 path for debugging
-        System.out.println("Successfully wrote and read Vortex files from: " + s3Path);
-
-        // Cleanup: Delete the test files from S3
-        // Note: In production, you might want to use AWS SDK for cleanup
-        // For now, we'll rely on a periodic cleanup job for the test folder
-    }
-
-    @Test
     @DisplayName("Handle special characters and nulls")
     public void testSpecialCharactersAndNulls() throws IOException {
         // Create DataFrame with nulls and special characters

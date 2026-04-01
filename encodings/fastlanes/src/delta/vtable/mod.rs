@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use fastlanes::FastLanes;
 use prost::Message;
@@ -9,7 +10,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -20,9 +21,9 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
+use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -30,6 +31,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::DeltaArray;
+use crate::delta::array::NUM_SLOTS;
+use crate::delta::array::SLOT_NAMES;
 use crate::delta::array::delta_decompress::delta_decompress;
 
 mod operations;
@@ -54,9 +57,13 @@ impl VTable for Delta {
     type Metadata = ProstMetadata<DeltaMetadata>;
 
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromChildSliceHelper;
+    type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Delta
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -100,48 +107,30 @@ impl VTable for Delta {
         None
     }
 
-    fn nchildren(_array: &DeltaArray) -> usize {
-        2
-    }
-
-    fn child(array: &DeltaArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.bases().clone(),
-            1 => array.deltas().clone(),
-            _ => vortex_panic!("DeltaArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &DeltaArray, idx: usize) -> String {
-        match idx {
-            0 => "bases".to_string(),
-            1 => "deltas".to_string(),
-            _ => vortex_panic!("DeltaArray child name index {idx} out of bounds"),
-        }
-    }
-
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // DeltaArray children order (from visit_children):
-        // 1. bases
-        // 2. deltas
+    fn slots(array: &DeltaArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
 
+    fn slot_name(_array: &DeltaArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut DeltaArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 2,
-            "Expected 2 children for Delta encoding, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "DeltaArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        array.bases = children[0].clone();
-        array.deltas = children[1].clone();
-
+        array.slots = slots;
         Ok(())
     }
 
@@ -190,14 +179,14 @@ impl VTable for Delta {
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            delta_decompress(array, ctx)?.into_array(),
+    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            delta_decompress(&array, ctx)?.into_array(),
         ))
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Delta;
 
 impl Delta {

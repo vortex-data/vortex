@@ -30,6 +30,7 @@ use vortex::error::vortex_err;
 
 use crate::CudaSession;
 use crate::ExportDeviceArray;
+use crate::hybrid_dispatch;
 use crate::kernel::DefaultLaunchStrategy;
 use crate::kernel::LaunchStrategy;
 use crate::kernel::LaunchStrategyExt;
@@ -251,6 +252,22 @@ impl CudaExecutionCtx {
         self.stream.copy_to_device(host_buffer)?.await
     }
 
+    /// Synchronous variant of [`ensure_on_device`](Self::ensure_on_device).
+    ///
+    /// Safe to call from within an async executor (no nested `block_on`).
+    /// The copy is enqueued on the stream and completes before any subsequent
+    /// work on the same stream.
+    pub fn ensure_on_device_sync(&self, handle: BufferHandle) -> VortexResult<BufferHandle> {
+        if handle.is_on_device() {
+            return Ok(handle);
+        }
+        let host_buffer = handle
+            .as_host_opt()
+            .ok_or_else(|| vortex_err!("Buffer is not on host"))?
+            .clone();
+        self.stream.copy_to_device_sync(host_buffer.as_ref())
+    }
+
     /// Returns a reference to the underlying [`VortexCudaStream`].
     ///
     /// Through [`Deref`][std::ops::Deref], this also provides access to the
@@ -263,6 +280,11 @@ impl CudaExecutionCtx {
     #[cfg(feature = "unstable_encodings")]
     pub(crate) fn session(&self) -> &vortex::session::VortexSession {
         self.ctx.session()
+    }
+
+    /// Returns a reference to the CUDA session.
+    pub(crate) fn cuda_session(&self) -> &CudaSession {
+        &self.cuda_session
     }
 
     /// Get a handle to the exporter that can convert arrays into `ArrowDeviceArray`.
@@ -364,19 +386,21 @@ impl CudaArrayExt for ArrayRef {
             return self.execute(&mut ctx.ctx);
         }
 
-        let Some(support) = ctx.cuda_session.kernel(&self.encoding_id()) else {
-            debug!(
-                encoding = %self.encoding_id(),
-                "No CUDA support registered for encoding, falling back to CPU execution"
-            );
-            return self.execute(&mut ctx.ctx);
-        };
+        // Try all GPU execution strategies: fused dynamic dispatch, partial
+        // fusion with subtree fallbacks, and single-kernel fallback.
+        // If none succeed, fall back to CPU execution.
+        match hybrid_dispatch::try_gpu_dispatch(&self, ctx).await {
+            Ok(canonical) => return Ok(canonical),
+            Err(e) => {
+                debug!(
+                    encoding = %self.encoding_id(),
+                    error = %e,
+                    "No GPU execution path available, falling back to CPU"
+                );
+            }
+        }
 
-        debug!(
-            encoding = %self.encoding_id(),
-            "Executing array on CUDA device"
-        );
-
-        support.execute(self, ctx).await
+        // TODO(0ax1): Double check whether we need to move buffers back to the host explicitly.
+        self.execute(&mut ctx.ctx)
     }
 }

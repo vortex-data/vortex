@@ -52,8 +52,7 @@ fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     fn validity(array: &ScalarFnArray) -> VortexResult<Validity> {
         let inputs: Vec<_> = array
-            .children
-            .iter()
+            .iter_children()
             .map(|child| {
                 if let Some(scalar) = child.as_constant() {
                     return Ok(lit(scalar));
@@ -62,7 +61,7 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
             })
             .collect::<VortexResult<_>>()?;
 
-        let expr = Expression::try_new(array.scalar_fn.clone(), inputs)?;
+        let expr = Expression::try_new(array.scalar_fn().clone(), inputs)?;
         let validity_expr = array.scalar_fn().validity(&expr)?;
 
         // Execute the validity expression. All leaves are ArrayExpr nodes.

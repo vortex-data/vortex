@@ -158,16 +158,16 @@ mod forever_constant {
 pub fn register_default_encodings(session: &mut VortexSession) {
     {
         let arrays = session.arrays();
-        arrays.register(ByteBool::ID, ByteBool);
-        arrays.register(Dict::ID, Dict);
-        arrays.register(FSST::ID, FSST);
-        arrays.register(Pco::ID, Pco);
-        arrays.register(Sparse::ID, Sparse);
-        arrays.register(ZigZag::ID, ZigZag);
+        arrays.register(ByteBool);
+        arrays.register(Dict);
+        arrays.register(FSST);
+        arrays.register(Pco);
+        arrays.register(Sparse);
+        arrays.register(ZigZag);
         #[cfg(feature = "zstd")]
-        arrays.register(vortex_zstd::Zstd::ID, vortex_zstd::Zstd);
+        arrays.register(vortex_zstd::Zstd);
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-        arrays.register(vortex_zstd::ZstdBuffers::ID, vortex_zstd::ZstdBuffers);
+        arrays.register(vortex_zstd::ZstdBuffers);
     }
 
     // Eventually all encodings crates should expose an initialize function. For now it's only

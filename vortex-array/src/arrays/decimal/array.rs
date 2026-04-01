@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
@@ -27,6 +28,11 @@ use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
+use crate::vtable::validity_to_child;
+
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 /// A decimal array that stores fixed-precision decimal numbers with configurable scale.
 ///
@@ -87,6 +93,7 @@ use crate::vtable::ValidityHelper;
 /// ```
 #[derive(Clone, Debug)]
 pub struct DecimalArray {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) values: BufferHandle,
     pub(super) values_type: DecimalType,
@@ -102,6 +109,10 @@ pub struct DecimalArrayParts {
 }
 
 impl DecimalArray {
+    fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+        vec![validity_to_child(validity, len)]
+    }
+
     /// Creates a new [`DecimalArray`] using a host-native buffer.
     ///
     /// # Panics
@@ -222,7 +233,9 @@ impl DecimalArray {
                 .vortex_expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
         }
 
+        let len = values.len() / values_type.byte_width();
         Self {
+            slots: Self::make_slots(&validity, len),
             values,
             values_type,
             dtype: DType::Decimal(decimal_dtype, validity.nullability()),

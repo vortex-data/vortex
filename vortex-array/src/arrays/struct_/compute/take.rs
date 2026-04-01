@@ -20,7 +20,7 @@ impl TakeReduce for Struct {
         // an out of bounds element.
         if array.is_empty() {
             return StructArray::try_new_with_dtype(
-                array.unmasked_fields().clone(),
+                array.iter_unmasked_fields().cloned().collect::<Vec<_>>(),
                 array.struct_fields().clone(),
                 indices.len(),
                 Validity::AllInvalid,
@@ -39,8 +39,7 @@ impl TakeReduce for Struct {
 
         StructArray::try_new_with_dtype(
             array
-                .unmasked_fields()
-                .iter()
+                .iter_unmasked_fields()
                 .map(|field| field.take(inner_indices.clone()))
                 .collect::<Result<Vec<_>, _>>()?,
             array.struct_fields().clone(),

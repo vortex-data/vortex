@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
@@ -60,7 +61,7 @@ pub(super) fn execute_filter_fast_paths(
 
     // If the mask selects everything, then we can just fully decompress the whole thing.
     if true_count == array.mask.len() {
-        return Ok(Some(array.child.clone()));
+        return Ok(Some(array.child().clone()));
     }
 
     // Also check if the array itself is completely null, in which case we only care about the total
@@ -93,6 +94,9 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
                 .filter(values_to_mask(mask))
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
+        }
+        Canonical::Variant(_) => {
+            vortex_panic!("Variant arrays don't support filtering")
         }
     }
 }

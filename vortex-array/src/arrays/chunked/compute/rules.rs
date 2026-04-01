@@ -37,13 +37,12 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
         parent: &ScalarFnArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        if parent.children().len() != 1 {
+        if parent.nchildren() != 1 {
             return Ok(None);
         }
 
         let new_chunks: Vec<_> = array
-            .chunks
-            .iter()
+            .iter_chunks()
             .map(|chunk| {
                 ScalarFnArray::try_new(
                     parent.scalar_fn().clone(),
@@ -73,7 +72,7 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
         parent: &ScalarFnArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        for (idx, child) in parent.children().iter().enumerate() {
+        for (idx, child) in parent.iter_children().enumerate() {
             if idx == child_idx {
                 continue;
             }
@@ -83,12 +82,10 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
         }
 
         let new_chunks: Vec<_> = array
-            .chunks
-            .iter()
+            .iter_chunks()
             .map(|chunk| {
                 let new_children: Vec<_> = parent
-                    .children()
-                    .iter()
+                    .iter_children()
                     .enumerate()
                     .map(|(idx, child)| {
                         if idx == child_idx {

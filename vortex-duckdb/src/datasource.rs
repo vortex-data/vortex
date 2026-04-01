@@ -41,8 +41,8 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar_fn::fns::pack::Pack;
-use vortex::scan::api::DataSourceRef;
-use vortex::scan::api::ScanRequest;
+use vortex::scan::DataSourceRef;
+use vortex::scan::ScanRequest;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::RUNTIME;

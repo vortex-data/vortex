@@ -61,8 +61,7 @@ impl ArrayExporter {
         assert!(validity.all_true());
 
         let fields = array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .map(|field| new_array_exporter(field.clone(), cache, &mut ctx))
             .collect::<VortexResult<Vec<_>>>()?;
 
@@ -179,6 +178,9 @@ fn new_array_exporter_with_flatten(
                 return temporal::new_exporter(temporal_array, ctx);
             }
             vortex_bail!("no non-temporal extension exporter")
+        }
+        Canonical::Variant(_) => {
+            vortex_bail!("Variant arrays can't be exported to DuckDB")
         }
     }
 }

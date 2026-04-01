@@ -4,7 +4,6 @@
 mod array;
 mod metadata;
 mod rules;
-mod slice;
 mod vtable;
 
 pub use array::*;

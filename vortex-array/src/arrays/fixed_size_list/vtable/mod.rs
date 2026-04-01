@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -13,10 +13,12 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::array::NUM_SLOTS;
+use crate::arrays::fixed_size_list::array::SLOT_NAMES;
+use crate::arrays::fixed_size_list::array::VALIDITY_SLOT;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -26,17 +28,17 @@ use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
+
 vtable!(FixedSizeList);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FixedSizeList;
 
 impl FixedSizeList {
@@ -49,7 +51,11 @@ impl VTable for FixedSizeList {
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &FixedSizeList
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
@@ -101,29 +107,8 @@ impl VTable for FixedSizeList {
         vortex_panic!("FixedSizeListArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &FixedSizeListArray) -> usize {
-        1 + validity_nchildren(&array.validity)
-    }
-
-    fn child(array: &FixedSizeListArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.elements().clone(),
-            1 => validity_to_child(&array.validity, array.len())
-                .vortex_expect("FixedSizeListArray validity child out of bounds"),
-            _ => vortex_panic!("FixedSizeListArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &FixedSizeListArray, idx: usize) -> String {
-        match idx {
-            0 => "elements".to_string(),
-            1 => "validity".to_string(),
-            _ => vortex_panic!("FixedSizeListArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -131,7 +116,7 @@ impl VTable for FixedSizeList {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -196,30 +181,33 @@ impl VTable for FixedSizeList {
         FixedSizeListArray::try_new(elements, *list_size, validity, len)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: &FixedSizeListArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
+
+    fn slot_name(_array: &FixedSizeListArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(
+        array: &mut FixedSizeListArray,
+        slots: Vec<Option<ArrayRef>>,
+    ) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 1 || children.len() == 2,
-            "FixedSizeListArray expects 1 or 2 children, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "FixedSizeListArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        let mut iter = children.into_iter();
-        let elements = iter
-            .next()
-            .vortex_expect("children length already validated");
-        let validity = if let Some(validity_array) = iter.next() {
-            Validity::Array(validity_array)
-        } else {
-            Validity::from(array.dtype.nullability())
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
         };
-
-        let new_array =
-            FixedSizeListArray::try_new(elements, array.list_size(), validity, array.len())?;
-        *array = new_array;
+        array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 }

@@ -31,7 +31,7 @@ impl FillNullKernel for Primitive {
                 let is_invalid = is_valid
                     .clone()
                     .execute::<BoolArray>(ctx)?
-                    .to_bit_buffer()
+                    .into_bit_buffer()
                     .not();
                 match_each_native_ptype!(array.ptype(), |T| {
                     let mut buffer = array.to_buffer::<T>().into_mut();

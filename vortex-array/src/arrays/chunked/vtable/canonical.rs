@@ -31,13 +31,14 @@ pub(super) fn _canonicalize(
         return Ok(Canonical::empty(array.dtype()));
     }
     if array.nchunks() == 1 {
-        return array.chunks()[0].clone().execute::<Canonical>(ctx);
+        return array.chunk(0).clone().execute::<Canonical>(ctx);
     }
 
+    let owned_chunks: Vec<ArrayRef> = array.iter_chunks().cloned().collect();
     Ok(match array.dtype() {
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
-                array.chunks(),
+                &owned_chunks,
                 Validity::copy_from_array(&array.clone().into_array())?,
                 struct_dtype,
                 ctx,
@@ -45,7 +46,7 @@ pub(super) fn _canonicalize(
             Canonical::Struct(struct_array)
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
-            array.chunks(),
+            &owned_chunks,
             Validity::copy_from_array(&array.clone().into_array())?,
             elem_dtype,
             ctx,
@@ -79,11 +80,7 @@ fn pack_struct_chunks(
     for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
         let mut field_chunks = Vec::with_capacity(chunks.len());
         for struct_array in &executed_chunks {
-            let field = struct_array
-                .unmasked_fields()
-                .get(field_idx)
-                .vortex_expect("Invalid field index")
-                .to_array();
+            let field = struct_array.unmasked_field(field_idx).to_array();
             field_chunks.push(field);
         }
 
@@ -228,8 +225,8 @@ mod tests {
         .unwrap()
         .into_array();
         let canonical_struct = chunked.to_struct();
-        let canonical_varbin = canonical_struct.unmasked_fields()[0].to_varbinview();
-        let original_varbin = struct_array.unmasked_fields()[0].to_varbinview();
+        let canonical_varbin = canonical_struct.unmasked_field(0).to_varbinview();
+        let original_varbin = struct_array.unmasked_field(0).to_varbinview();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
         let canon_values = canonical_varbin

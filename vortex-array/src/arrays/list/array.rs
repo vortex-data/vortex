@@ -27,6 +27,13 @@ use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::validity_to_child;
+
+pub(super) const ELEMENTS_SLOT: usize = 0;
+pub(super) const OFFSETS_SLOT: usize = 1;
+pub(super) const VALIDITY_SLOT: usize = 2;
+pub(super) const NUM_SLOTS: usize = 3;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "validity"];
 
 /// A list array that stores variable-length lists of elements, similar to `Vec<Vec<T>>`.
 ///
@@ -83,8 +90,7 @@ use crate::validity::Validity;
 #[derive(Clone, Debug)]
 pub struct ListArray {
     pub(super) dtype: DType,
-    pub(super) elements: ArrayRef,
-    pub(super) offsets: ArrayRef,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
@@ -147,10 +153,12 @@ impl ListArray {
         Self::validate(&elements, &offsets, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `ListViewArray` parameters");
 
+        let len = offsets.len().saturating_sub(1);
+        let validity_slot = validity_to_child(&validity, len);
+
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
-            elements,
-            offsets,
+            slots: vec![Some(elements), Some(offsets), validity_slot],
             validity,
             stats_set: Default::default(),
         }
@@ -242,11 +250,15 @@ impl ListArray {
     }
 
     /// Splits an array into its parts
-    pub fn into_parts(self) -> ListArrayParts {
+    pub fn into_parts(mut self) -> ListArrayParts {
         ListArrayParts {
             dtype: self.dtype,
-            elements: self.elements,
-            offsets: self.offsets,
+            elements: self.slots[ELEMENTS_SLOT]
+                .take()
+                .vortex_expect("ListArray elements slot"),
+            offsets: self.slots[OFFSETS_SLOT]
+                .take()
+                .vortex_expect("ListArray offsets slot"),
             validity: self.validity,
         }
     }
@@ -293,7 +305,9 @@ impl ListArray {
 
     /// Returns the offsets array.
     pub fn offsets(&self) -> &ArrayRef {
-        &self.offsets
+        self.slots[OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("ListArray offsets slot")
     }
 
     /// Returns the element dtype of the list array.
@@ -306,7 +320,9 @@ impl ListArray {
 
     /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
-        &self.elements
+        self.slots[ELEMENTS_SLOT]
+            .as_ref()
+            .vortex_expect("ListArray elements slot")
     }
 
     // TODO(connor)[ListView]: Create 2 functions `reset_offsets` and `recursive_reset_offsets`,

@@ -18,7 +18,7 @@ impl FilterReduce for Masked {
 
         // Filter the child array
         // The child is guaranteed to have no nulls, so filtering it is straightforward
-        let filtered_child = array.child.filter(mask.clone())?;
+        let filtered_child = array.child().filter(mask.clone())?;
 
         // Construct new MaskedArray
         Ok(Some(

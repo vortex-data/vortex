@@ -25,6 +25,10 @@ mod scalar;
 #[cfg(not(feature = "_test-harness"))]
 mod x86;
 
+mod validity;
+
+pub use validity::*;
+
 /// Base indices for the first 64 output bytes (lanes 0-7).
 /// Each entry indicates the starting input byte index for that output byte group.
 /// Pattern: [0*2, 4*2, 2*2, 6*2, 1*2, 5*2, 3*2, 7*2] = [0, 8, 4, 12, 2, 10, 6, 14]
@@ -39,6 +43,8 @@ const TRANSPOSE_2X2: u64 = 0x00AA_00AA_00AA_00AA;
 const TRANSPOSE_4X4: u64 = 0x0000_CCCC_0000_CCCC;
 const TRANSPOSE_8X8: u64 = 0x0000_0000_F0F0_F0F0;
 
+/// Transpose 1024-bits into FastLanes layout.
+///
 /// Dispatch to the best available implementation at runtime.
 #[inline]
 pub fn transpose_bits(input: &[u8; 128], output: &mut [u8; 128]) {
@@ -64,6 +70,8 @@ pub fn transpose_bits(input: &[u8; 128], output: &mut [u8; 128]) {
     scalar::transpose_bits_scalar(input, output);
 }
 
+/// Untranspose 1024-bits from FastLanes layout.
+///
 /// Dispatch untranspose to the best available implementation at runtime.
 #[inline]
 pub fn untranspose_bits(input: &[u8; 128], output: &mut [u8; 128]) {

@@ -39,7 +39,7 @@ impl ArrayParentReduceRule<Filter> for FilterFilterRule {
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let combined_mask = child.mask.intersect_by_rank(&parent.mask);
-        let new_array = child.child.filter(combined_mask)?;
+        let new_array = child.child().filter(combined_mask)?;
 
         Ok(Some(new_array.into_array()))
     }
@@ -51,7 +51,7 @@ struct TrivialFilterRule;
 impl ArrayReduceRule<Filter> for TrivialFilterRule {
     fn reduce(&self, array: &FilterArray) -> VortexResult<Option<ArrayRef>> {
         match array.filter_mask() {
-            Mask::AllTrue(_) => Ok(Some(array.child.clone())),
+            Mask::AllTrue(_) => Ok(Some(array.child().clone())),
             Mask::AllFalse(_) => Ok(Some(Canonical::empty(array.dtype()).into_array())),
             Mask::Values(_) => Ok(None),
         }

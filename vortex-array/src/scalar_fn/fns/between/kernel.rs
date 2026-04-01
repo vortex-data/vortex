@@ -65,9 +65,8 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let children = scalar_fn_array.children();
-        let lower = &children[1];
-        let upper = &children[2];
+        let lower = scalar_fn_array.get_child(1);
+        let upper = scalar_fn_array.get_child(2);
         let arr = array.clone().into_array();
         if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));
@@ -100,9 +99,8 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let children = scalar_fn_array.children();
-        let lower = &children[1];
-        let upper = &children[2];
+        let lower = scalar_fn_array.get_child(1);
+        let upper = scalar_fn_array.get_child(2);
         let arr = array.clone().into_array();
         if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));

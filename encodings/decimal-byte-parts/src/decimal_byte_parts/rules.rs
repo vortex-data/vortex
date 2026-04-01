@@ -43,7 +43,7 @@ impl ArrayParentReduceRule<DecimalByteParts> for DecimalBytePartsFilterPushDownR
             return Ok(None);
         }
 
-        let new_msp = child.msp.filter(parent.filter_mask().clone())?;
+        let new_msp = child.msp().filter(parent.filter_mask().clone())?;
         let new_child =
             DecimalBytePartsArray::try_new(new_msp, *child.decimal_dtype())?.into_array();
         Ok(Some(new_child))

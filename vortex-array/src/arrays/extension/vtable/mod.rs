@@ -6,9 +6,9 @@ mod operations;
 mod validity;
 
 use std::hash::Hash;
+use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -18,10 +18,11 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::ExtensionArray;
+use crate::arrays::extension::array::NUM_SLOTS;
+use crate::arrays::extension::array::SLOT_NAMES;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -30,6 +31,7 @@ use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromChild;
@@ -43,12 +45,16 @@ impl VTable for Extension {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Extension
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
     fn len(array: &ExtensionArray) -> usize {
-        array.storage_array.len()
+        array.storage_array().len()
     }
 
     fn dtype(array: &ExtensionArray) -> &DType {
@@ -65,14 +71,14 @@ impl VTable for Extension {
         precision: Precision,
     ) {
         array.dtype.hash(state);
-        array.storage_array.array_hash(state, precision);
+        array.storage_array().array_hash(state, precision);
     }
 
     fn array_eq(array: &ExtensionArray, other: &ExtensionArray, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array
-                .storage_array
-                .array_eq(&other.storage_array, precision)
+                .storage_array()
+                .array_eq(other.storage_array(), precision)
     }
 
     fn nbuffers(_array: &ExtensionArray) -> usize {
@@ -87,22 +93,12 @@ impl VTable for Extension {
         None
     }
 
-    fn nchildren(_array: &ExtensionArray) -> usize {
-        1
+    fn slots(array: &ExtensionArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
-    fn child(array: &ExtensionArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.storage_array.clone(),
-            _ => vortex_panic!("ExtensionArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &ExtensionArray, idx: usize) -> String {
-        match idx {
-            0 => "storage".to_string(),
-            _ => vortex_panic!("ExtensionArray child_name index {idx} out of bounds"),
-        }
+    fn slot_name(_array: &ExtensionArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {
@@ -140,25 +136,23 @@ impl VTable for Extension {
         Ok(ExtensionArray::new(ext_dtype.clone(), storage))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 1,
-            "ExtensionArray expects exactly 1 child (storage), got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "ExtensionArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-        array.storage_array = children
-            .into_iter()
-            .next()
-            .vortex_expect("children length already validated");
+        array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -166,7 +160,7 @@ impl VTable for Extension {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: &Array<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -175,7 +169,7 @@ impl VTable for Extension {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Extension;
 
 impl Extension {

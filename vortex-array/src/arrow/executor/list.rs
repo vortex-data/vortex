@@ -17,6 +17,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::arrays::Chunked;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListView;
@@ -31,7 +32,7 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::vtable::ValidityHelper;
 
-/// Convert a Vortex array into an Arrow GenericBinaryArray.
+/// Convert a Vortex VarBinArray into an Arrow [`GenericListArray`](arrow_array:array::GenericListArray).
 pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     array: ArrayRef,
     elements_field: &FieldRef,
@@ -40,6 +41,17 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     // If the Vortex array is already in List format, we can directly convert it.
     if let Some(array) = array.as_opt::<List>() {
         return list_to_list::<O>(array, elements_field, ctx);
+    }
+
+    // Converting each chunk individually, then using the fast concat logic from arrow
+    if let Some(chunked) = array.as_opt::<Chunked>() {
+        let mut arrow_chunks: Vec<ArrowArrayRef> = Vec::with_capacity(chunked.nchunks());
+        for chunk in chunked.chunks() {
+            arrow_chunks.push(to_arrow_list::<O>(chunk.clone(), elements_field, ctx)?);
+        }
+
+        let refs = arrow_chunks.iter().map(|a| a.as_ref()).collect::<Vec<_>>();
+        return Ok(arrow_select::concat::concat(&refs)?);
     }
 
     // If the Vortex array is a ListViewArray, rebuild to ZCTL if needed and convert.
@@ -68,7 +80,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     list_view_zctl::<O>(zctl, elements_field, ctx)
 }
 
-/// Convert a Vortex VarBinArray into an Arrow GenericBinaryArray.
+/// Convert a Vortex VarBinArray into an Arrow [`GenericListArray`](arrow_array:array::GenericListArray).
 fn list_to_list<O: OffsetSizeTrait + NativePType>(
     array: &ListArray,
     elements_field: &FieldRef,

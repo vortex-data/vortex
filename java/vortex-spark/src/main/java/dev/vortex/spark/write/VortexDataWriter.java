@@ -17,9 +17,7 @@ import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.SpecializedGetters;
 import org.apache.spark.sql.catalyst.util.ArrayData;
@@ -96,11 +94,8 @@ public final class VortexDataWriter implements DataWriter<InternalRow>, AutoClos
             var writeSchema = SparkTypes.toDType(schema);
             var arrowSchema = SparkToArrowSchema.convert(schema);
 
-            // Convert the writer to a new schema type instead.
-
             // Create Vortex writer
-            Map<String, String> writerOptions = new HashMap<>();
-            this.vortexWriter = VortexWriter.create(filePath, writeSchema, writerOptions);
+            this.vortexWriter = VortexWriter.create(filePath, writeSchema, options.asCaseSensitiveMap());
 
             // Create VectorSchemaRoot for batching rows
             this.vectorSchemaRoot = VectorSchemaRoot.create(arrowSchema, allocator);

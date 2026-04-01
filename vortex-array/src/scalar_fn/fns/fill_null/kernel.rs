@@ -3,6 +3,7 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -57,6 +58,11 @@ pub(super) fn precondition(
     array: &ArrayRef,
     fill_value: &Scalar,
 ) -> VortexResult<Option<ArrayRef>> {
+    vortex_ensure!(
+        !fill_value.is_null(),
+        "fill_null requires a non-null fill value"
+    );
+
     // If the array has no nulls, fill_null is a no-op (just cast for nullability).
     if !array.dtype().is_nullable() || array.all_valid()? {
         return array.to_array().cast(fill_value.dtype().clone()).map(Some);
@@ -109,7 +115,8 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let fill_value = scalar_fn_array.children()[1]
+        let fill_value = scalar_fn_array
+            .get_child(1)
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
         let arr = array.to_array();
@@ -144,7 +151,8 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let fill_value = scalar_fn_array.children()[1]
+        let fill_value = scalar_fn_array
+            .get_child(1)
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
         let arr = array.to_array();

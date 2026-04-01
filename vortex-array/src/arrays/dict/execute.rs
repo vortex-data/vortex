@@ -5,6 +5,7 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -50,6 +51,9 @@ pub fn take_canonical(
         }
         Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes, ctx)),
+        Canonical::Variant(_) => {
+            vortex_bail!("Variant arrays don't support Take")
+        }
     })
 }
 

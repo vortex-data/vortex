@@ -5,10 +5,12 @@ mod operations;
 mod validity;
 
 use std::hash::Hasher;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayEq;
@@ -16,21 +18,23 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::Precision;
 use crate::arrays::VariantArray;
+use crate::arrays::variant::NUM_SLOTS;
+use crate::arrays::variant::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::stats::StatsSetRef;
 use crate::vtable;
+use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 
 vtable!(Variant);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Variant;
 
 impl Variant {
@@ -46,28 +50,32 @@ impl VTable for Variant {
 
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::Array) -> &Self {
+        &Variant
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
     fn len(array: &Self::Array) -> usize {
-        array.child.len()
+        array.child().len()
     }
 
     fn dtype(array: &Self::Array) -> &DType {
-        &array.dtype
+        array.child().dtype()
     }
 
     fn stats(array: &Self::Array) -> StatsSetRef<'_> {
-        array.child.statistics()
+        array.child().statistics()
     }
 
     fn array_hash<H: Hasher>(array: &Self::Array, state: &mut H, precision: Precision) {
-        array.child.array_hash(state, precision);
+        array.child().array_hash(state, precision);
     }
 
     fn array_eq(array: &Self::Array, other: &Self::Array, precision: Precision) -> bool {
-        array.child.array_eq(&other.child, precision)
+        array.child().array_eq(other.child(), precision)
     }
 
     fn nbuffers(_array: &Self::Array) -> usize {
@@ -82,21 +90,14 @@ impl VTable for Variant {
         None
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
-        1
+    fn slots(array: &Self::Array) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.child.clone(),
-            _ => vortex_panic!("VariantArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
-        match idx {
-            0 => "child".to_string(),
-            _ => vortex_panic!("VariantArray child_name index {idx} out of bounds"),
+    fn slot_name(_array: &Self::Array, idx: usize) -> String {
+        match SLOT_NAMES.get(idx) {
+            Some(name) => (*name).to_string(),
+            None => vortex_panic!("VariantArray slot_name index {idx} out of bounds"),
         }
     }
 
@@ -131,27 +132,44 @@ impl VTable for Variant {
             "Expected 1 child, got {}",
             children.len()
         );
-        // The child can be any variant encoding, so we use DType::Variant.
-        let child = children.get(
-            0,
-            &DType::Variant(crate::dtype::Nullability::NonNullable),
-            len,
-        )?;
-        Ok(VariantArray::new(child, dtype.nullability()))
+        // The child carries the nullability for the whole VariantArray.
+        let child = children.get(0, dtype, len)?;
+        Ok(VariantArray::new(child))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 1,
-            "VariantArray expects exactly 1 child, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "VariantArray expects exactly {} slot, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-        array.child = children.into_iter().next().vortex_expect("must exist");
+        let child = slots
+            .into_iter()
+            .next()
+            .vortex_expect("VariantArray slot vector length was validated")
+            .ok_or_else(|| vortex_err!("VariantArray child slot must be present"))?;
+        array.slots = [Some(child)];
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        // VariantArray is the canonical variant representation.
-        Ok(ExecutionStep::done(array.clone().into_array()))
+    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::IntoArray;
+    use crate::arrays::PrimitiveArray;
+
+    #[test]
+    fn with_slots_rejects_missing_child() {
+        let mut array = VariantArray::new(PrimitiveArray::from_iter([1u8, 2, 3]).into_array());
+
+        let err = <Variant as VTable>::with_slots(&mut array, vec![None]).unwrap_err();
+
+        assert!(err.to_string().contains("child slot must be present"));
     }
 }

@@ -22,9 +22,9 @@ impl MaskReduce for Masked {
             .and(Validity::Array(mask.clone()))?
             .to_array(array.len());
         let masked_child = MaskExpr.try_new_array(
-            array.child.len(),
+            array.child().len(),
             EmptyOptions,
-            [array.child.clone(), combined_mask],
+            [array.child().clone(), combined_mask],
         )?;
         Ok(Some(masked_child))
     }

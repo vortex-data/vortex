@@ -84,6 +84,18 @@ impl AggregateFnVTable for NanCount {
         AggregateFnId::new_ref("vortex.nan_count")
     }
 
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &vortex_session::VortexSession,
+    ) -> VortexResult<Self::Options> {
+        Ok(EmptyOptions)
+    }
+
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         if let DType::Primitive(ptype, ..) = input_dtype
             && ptype.is_float()

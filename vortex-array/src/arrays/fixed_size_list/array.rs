@@ -12,6 +12,12 @@ use crate::DynArray;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::validity_to_child;
+
+pub(super) const ELEMENTS_SLOT: usize = 0;
+pub(super) const VALIDITY_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "validity"];
 
 /// The canonical encoding for fixed-size list arrays.
 ///
@@ -67,12 +73,8 @@ pub struct FixedSizeListArray {
     /// This type **must** be the variant [`DType::FixedSizeList`].
     pub(super) dtype: DType,
 
-    /// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
-    /// array, and each inner list element is a _scalar_ of the `elements` array.
-    ///
-    /// The fixed-size list scalars (or the elements of the array) are contiguous (regardless of
-    /// nullability for easy lookups), each with equal size in memory.
-    elements: ArrayRef,
+    /// Slots holding [elements].
+    pub(super) slots: Vec<Option<ArrayRef>>,
 
     /// The size of each fixed-size list scalar in the array.
     ///
@@ -158,10 +160,11 @@ impl FixedSizeListArray {
             .vortex_expect("[Debug Assertion]: Invalid `FixedSizeListArray` parameters");
 
         let nullability = validity.nullability();
+        let validity_slot = validity_to_child(&validity, len);
 
         Self {
             dtype: DType::FixedSizeList(Arc::new(elements.dtype().clone()), list_size, nullability),
-            elements,
+            slots: vec![Some(elements), validity_slot],
             list_size,
             validity,
             len,
@@ -169,8 +172,14 @@ impl FixedSizeListArray {
         }
     }
 
-    pub fn into_parts(self) -> (ArrayRef, Validity, DType) {
-        (self.elements, self.validity, self.dtype)
+    pub fn into_parts(mut self) -> (ArrayRef, Validity, DType) {
+        (
+            self.slots[ELEMENTS_SLOT]
+                .take()
+                .vortex_expect("FixedSizeListArray elements slot"),
+            self.validity,
+            self.dtype,
+        )
     }
 
     /// Validates the components that would be used to create a [`FixedSizeListArray`].
@@ -211,7 +220,9 @@ impl FixedSizeListArray {
 
     /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
-        &self.elements
+        self.slots[ELEMENTS_SLOT]
+            .as_ref()
+            .vortex_expect("FixedSizeListArray elements slot")
     }
 
     /// The size of each fixed-size list scalar in the array.

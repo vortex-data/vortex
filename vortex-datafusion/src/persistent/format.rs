@@ -32,6 +32,7 @@ use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
+use datafusion_execution::cache::cache_manager::CachedFileMetadataEntry;
 use datafusion_expr::dml::InsertOp;
 use datafusion_physical_expr::LexRequirement;
 use datafusion_physical_plan::ExecutionPlan;
@@ -251,16 +252,19 @@ impl FileFormat for VortexFormat {
                 let cache = file_metadata_cache.clone();
 
                 SpawnedTask::spawn(async move {
-                    // Check if we have cached metadata for this file
-                    if let Some(cached) = cache.get(&object)
-                        && let Some(cached_vortex) =
-                            cached.as_any().downcast_ref::<CachedVortexMetadata>()
+                    // Check if we have entry metadata for this file
+                    if let Some(entry) = cache.get(&object.location)
+                        && entry.is_valid_for(&object)
+                        && let Some(cached_vortex) = entry
+                            .file_metadata
+                            .as_any()
+                            .downcast_ref::<CachedVortexMetadata>()
                     {
                         let inferred_schema = cached_vortex.footer().dtype().to_arrow_schema()?;
                         return VortexResult::Ok((object.location, inferred_schema));
                     }
 
-                    // Not cached or invalid - open the file
+                    // Not entry or invalid - open the file
                     let reader = Arc::new(ObjectStoreReadAt::new(
                         store,
                         object.location.clone(),
@@ -276,7 +280,8 @@ impl FileFormat for VortexFormat {
 
                     // Cache the metadata
                     let cached_metadata = Arc::new(CachedVortexMetadata::new(&vxf));
-                    cache.put(&object, cached_metadata);
+                    let entry = CachedFileMetadataEntry::new(object.clone(), cached_metadata);
+                    cache.put(&object.location, entry);
 
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((object.location, inferred_schema))
@@ -310,24 +315,28 @@ impl FileFormat for VortexFormat {
         let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
 
         SpawnedTask::spawn(async move {
-            // Try to get cached metadata first
-            let cached_metadata = file_metadata_cache.get(&object).and_then(|cached| {
-                cached
-                    .as_any()
-                    .downcast_ref::<CachedVortexMetadata>()
-                    .map(|m| {
-                        (
-                            m.footer().dtype().clone(),
-                            m.footer().statistics().cloned(),
-                            m.footer().row_count(),
-                        )
-                    })
-            });
+            // Try to get entry metadata first
+            let cached_metadata = file_metadata_cache
+                .get(&object.location)
+                .filter(|entry| entry.is_valid_for(&object))
+                .and_then(|entry| {
+                    entry
+                        .file_metadata
+                        .as_any()
+                        .downcast_ref::<CachedVortexMetadata>()
+                        .map(|m| {
+                            (
+                                m.footer().dtype().clone(),
+                                m.footer().statistics().cloned(),
+                                m.footer().row_count(),
+                            )
+                        })
+                });
 
             let (dtype, file_stats, row_count) = match cached_metadata {
                 Some(metadata) => metadata,
                 None => {
-                    // Not cached - open the file
+                    // Not entry - open the file
                     let reader = Arc::new(ObjectStoreReadAt::new(
                         store,
                         object.location.clone(),
@@ -348,8 +357,9 @@ impl FileFormat for VortexFormat {
                         })?;
 
                     // Cache the metadata
-                    let cached = Arc::new(CachedVortexMetadata::new(&vxf));
-                    file_metadata_cache.put(&object, cached);
+                    let file_metadata = Arc::new(CachedVortexMetadata::new(&vxf));
+                    let entry = CachedFileMetadataEntry::new(object.clone(), file_metadata);
+                    file_metadata_cache.put(&object.location, entry);
 
                     (
                         vxf.dtype().clone(),

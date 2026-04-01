@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
@@ -11,10 +13,12 @@ use vortex::array::vtable::ArrayId;
 use vortex::encodings::fastlanes::Delta;
 use vortex::encodings::fastlanes::DeltaArray;
 use vortex::error::VortexResult;
+use vortex_session::VortexSession;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
 
+#[expect(dead_code)]
 pub struct DeltaFixture;
 
 impl FlatLayoutFixture for DeltaFixture {
@@ -31,6 +35,9 @@ impl FlatLayoutFixture for DeltaFixture {
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
+        let session = VortexSession::default();
+        let mut ctx = session.create_execution_ctx();
+
         let monotonic_u64: PrimitiveArray = (0..N as u64).map(|i| i * 3 + 1000).collect();
         let constant_delta_u32: PrimitiveArray = (0..N as u32).collect();
         let large_stride_u64: PrimitiveArray = (0..N as u64).map(|i| i * 1_000_000).collect();
@@ -70,16 +77,16 @@ impl FlatLayoutFixture for DeltaFixture {
                 "nullable_monotone",
             ]),
             vec![
-                DeltaArray::try_from_primitive_array(&monotonic_u64)?.into_array(),
-                DeltaArray::try_from_primitive_array(&constant_delta_u32)?.into_array(),
-                DeltaArray::try_from_primitive_array(&large_stride_u64)?.into_array(),
-                DeltaArray::try_from_primitive_array(&monotonic_u16)?.into_array(),
-                DeltaArray::try_from_primitive_array(&monotonic_u8)?.into_array(),
-                DeltaArray::try_from_primitive_array(&large_base_u64)?.into_array(),
-                DeltaArray::try_from_primitive_array(&all_zero_deltas)?.into_array(),
-                DeltaArray::try_from_primitive_array(&irregular_monotone)?.into_array(),
-                DeltaArray::try_from_primitive_array(&near_overflow_base)?.into_array(),
-                DeltaArray::try_from_primitive_array(&nullable_monotone)?.into_array(),
+                DeltaArray::try_from_primitive_array(&monotonic_u64, &mut ctx)?.into_array(),
+                DeltaArray::try_from_primitive_array(&constant_delta_u32, &mut ctx)?.into_array(),
+                DeltaArray::try_from_primitive_array(&large_stride_u64, &mut ctx)?.into_array(),
+                DeltaArray::try_from_primitive_array(&monotonic_u16, &mut ctx)?.into_array(),
+                DeltaArray::try_from_primitive_array(&monotonic_u8, &mut ctx)?.into_array(),
+                DeltaArray::try_from_primitive_array(&large_base_u64, &mut ctx)?.into_array(),
+                DeltaArray::try_from_primitive_array(&all_zero_deltas, &mut ctx)?.into_array(),
+                DeltaArray::try_from_primitive_array(&irregular_monotone, &mut ctx)?.into_array(),
+                DeltaArray::try_from_primitive_array(&near_overflow_base, &mut ctx)?.into_array(),
+                DeltaArray::try_from_primitive_array(&nullable_monotone, &mut ctx)?.into_array(),
             ],
             N,
             Validity::NonNullable,

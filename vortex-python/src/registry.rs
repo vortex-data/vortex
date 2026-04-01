@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use vortex::array::session::ArraySessionExt;
 
 use crate::SESSION;
-use crate::arrays::py::Python as PythonVTable;
+use crate::arrays::py::PythonVTable;
 use crate::arrays::py::id_from_obj;
 use crate::error::PyVortexResult;
 use crate::install_module;
@@ -31,6 +31,6 @@ pub(crate) fn register(cls: &Bound<PyAny>) -> PyVortexResult<()> {
     let id = id_from_obj(cls)?;
     // TODO(ngates): we would need to register the Python class object in a PyVortexSession
     //  to call back into it during deserialize operations.
-    SESSION.arrays().register(id, PythonVTable);
+    SESSION.arrays().register(PythonVTable { id });
     Ok(())
 }

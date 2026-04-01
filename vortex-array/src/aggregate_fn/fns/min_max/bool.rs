@@ -13,6 +13,10 @@ use crate::dtype::Nullability::NonNullable;
 use crate::scalar::Scalar;
 
 pub(super) fn accumulate_bool(partial: &mut MinMaxPartial, array: &BoolArray) -> VortexResult<()> {
+    if array.is_empty() {
+        return Ok(());
+    }
+
     let mask = array.validity_mask()?;
     let true_non_null = match &mask {
         Mask::AllTrue(_) => array.to_bit_buffer(),

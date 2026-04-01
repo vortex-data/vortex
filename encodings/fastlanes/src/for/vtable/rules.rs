@@ -38,7 +38,7 @@ impl ArrayParentReduceRule<FoR> for FoRFilterPushDownRule {
     ) -> VortexResult<Option<ArrayRef>> {
         let new_array = unsafe {
             FoRArray::new_unchecked(
-                child.encoded.filter(parent.filter_mask().clone())?,
+                child.encoded().filter(parent.filter_mask().clone())?,
                 child.reference.clone(),
             )
         };

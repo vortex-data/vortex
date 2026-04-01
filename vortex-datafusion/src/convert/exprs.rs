@@ -395,7 +395,8 @@ fn try_operator_from_df(value: &DFOperator) -> DFResult<Operator> {
         | DFOperator::AtQuestion
         | DFOperator::Question
         | DFOperator::QuestionAnd
-        | DFOperator::QuestionPipe => {
+        | DFOperator::QuestionPipe
+        | DFOperator::Colon => {
             tracing::debug!(operator = %value, "Can't pushdown binary_operator operator");
             Err(exec_datafusion_err!(
                 "Unsupported datafusion operator {value}"

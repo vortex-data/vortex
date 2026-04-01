@@ -14,7 +14,6 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -71,7 +70,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
             encoded
         } else {
             PrimitiveArray::new(
-                decompress_primitive(encoded.into_buffer_mut::<T>(), min),
+                decompress_primitive(encoded.into_buffer::<T>(), min),
                 validity,
             )
         }
@@ -137,7 +136,7 @@ pub(crate) fn fused_decompress<
 }
 
 fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(
-    values: BufferMut<T>,
+    values: Buffer<T>,
     min: T,
 ) -> Buffer<T> {
     values

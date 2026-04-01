@@ -203,6 +203,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::dtype::extension::ExtDType;
     use crate::dtype::extension::ExtId;
     use crate::dtype::extension::ExtVTable;
     use crate::dtype::i256;
@@ -465,16 +466,12 @@ mod tests {
                 vortex_bail!("not implemented")
             }
 
-            fn validate_dtype(
-                &self,
-                _ext_dtype: &crate::dtype::extension::ExtDType<Self>,
-            ) -> VortexResult<()> {
+            fn validate_dtype(_ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
                 Ok(())
             }
 
             fn unpack_native<'a>(
-                &self,
-                _ext_dtype: &'a crate::dtype::extension::ExtDType<Self>,
+                _ext_dtype: &'a ExtDType<Self>,
                 _storage_value: &'a ScalarValue,
             ) -> VortexResult<Self::NativeValue<'a>> {
                 Ok("")

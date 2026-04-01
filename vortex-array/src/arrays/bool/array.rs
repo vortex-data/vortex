@@ -11,11 +11,15 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::bool;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::validity_to_child;
+
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 /// A boolean array that stores true/false values in a compact bit-packed format.
 ///
@@ -51,6 +55,7 @@ use crate::validity::Validity;
 /// ```
 #[derive(Clone, Debug)]
 pub struct BoolArray {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
@@ -67,6 +72,10 @@ pub struct BoolArrayParts {
 }
 
 impl BoolArray {
+    fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+        vec![validity_to_child(validity, len)]
+    }
+
     /// Constructs a new `BoolArray`.
     ///
     /// # Panics
@@ -101,6 +110,7 @@ impl BoolArray {
         let (offset, len, buffer) = bits.into_inner();
 
         Ok(Self {
+            slots: Self::make_slots(&validity, len),
             dtype: DType::Bool(validity.nullability()),
             bits: BufferHandle::new_host(buffer),
             offset,
@@ -138,6 +148,7 @@ impl BoolArray {
         );
 
         Ok(Self {
+            slots: Self::make_slots(&validity, len),
             dtype: DType::Bool(validity.nullability()),
             bits,
             offset,
@@ -159,6 +170,7 @@ impl BoolArray {
             let (offset, len, buffer) = bits.into_inner();
 
             Self {
+                slots: Self::make_slots(&validity, len),
                 dtype: DType::Bool(validity.nullability()),
                 bits: BufferHandle::new_host(buffer),
                 offset,
@@ -224,7 +236,9 @@ impl BoolArray {
 
     /// Returns the underlying [`BitBuffer`] of the array
     pub fn into_bit_buffer(self) -> BitBuffer {
-        self.to_bit_buffer()
+        let buffer = self.bits.unwrap_host();
+
+        BitBuffer::new_with_offset(buffer, self.len, self.offset)
     }
 
     pub fn to_mask(&self) -> Mask {

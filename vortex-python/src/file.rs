@@ -21,9 +21,9 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
+use vortex::layout::scan::scan_builder::ScanBuilder;
+use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
-use vortex::scan::ScanBuilder;
-use vortex::scan::SplitBy;
 
 use crate::RUNTIME;
 use crate::SESSION;

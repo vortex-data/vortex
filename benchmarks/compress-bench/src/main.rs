@@ -13,7 +13,6 @@ use indicatif::ProgressBar;
 use itertools::Itertools;
 use regex::Regex;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_bench::BenchmarkOutput;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Target;
@@ -23,6 +22,7 @@ use vortex_bench::compress::Compressor;
 use vortex_bench::compress::benchmark_compress;
 use vortex_bench::compress::benchmark_decompress;
 use vortex_bench::compress::calculate_ratios;
+use vortex_bench::create_output_writer;
 use vortex_bench::datasets::Dataset;
 use vortex_bench::datasets::struct_list_of_ints::StructListOfInts;
 use vortex_bench::datasets::taxi_data::TaxiData;
@@ -169,8 +169,7 @@ async fn run_compress(
 
     progress.finish();
 
-    let output = BenchmarkOutput::with_path(BENCHMARK_ID, output_path);
-    let mut writer = output.create_writer()?;
+    let mut writer = create_output_writer(&display_format, output_path, BENCHMARK_ID)?;
 
     match display_format {
         DisplayFormat::Table => {

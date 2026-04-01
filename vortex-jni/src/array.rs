@@ -158,7 +158,12 @@ fn data_type_no_views(data_type: DataType) -> DataType {
         }
         DataType::Decimal128(precision, scale) => DataType::Decimal128(precision, scale),
         DataType::Decimal256(precision, scale) => DataType::Decimal256(precision, scale),
-        DataType::FixedSizeList(..) => unreachable!("Vortex never returns FixedSizeList"),
+        DataType::FixedSizeList(inner, size) => {
+            let new_inner = (*inner)
+                .clone()
+                .with_data_type(data_type_no_views(inner.data_type().clone()));
+            DataType::FixedSizeList(FieldRef::new(new_inner), size)
+        }
         DataType::Union(..) => unreachable!("Vortex never returns Union"),
         DataType::Dictionary(..) => unreachable!("Vortex never returns Dictionary"),
         DataType::Map(..) => unreachable!("Vortex never returns Map"),
@@ -222,13 +227,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let field = array_ref
-            .inner
-            .to_struct()
-            .unmasked_fields()
-            .get(index as usize)
-            .cloned()
-            .ok_or_else(|| vortex_err!("Field index out of bounds"))?;
+        let struct_array = array_ref.inner.to_struct();
+        let idx = index as usize;
+        if idx >= struct_array.struct_fields().nfields() {
+            return Err(vortex_err!("Field index out of bounds").into());
+        }
+        let field = struct_array.unmasked_field(idx).clone();
         Ok(NativeArray::new(field).into_raw())
     })
 }
