@@ -49,18 +49,46 @@ pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
     Ok(centroids)
 }
 
+/// Half-integer exponent: represents `int_part + (if has_half { 0.5 } else { 0.0 })`.
+///
+/// The marginal distribution exponent `(d-3)/2` is always an integer (when `d` is odd)
+/// or a half-integer (when `d` is even). This type makes that invariant explicit and
+/// avoids floating-point comparison in the hot path.
+#[derive(Clone, Copy, Debug)]
+struct HalfIntExponent {
+    int_part: i32,
+    has_half: bool,
+}
+
+impl HalfIntExponent {
+    /// Compute `(numerator) / 2` as a half-integer exponent.
+    ///
+    /// `numerator` is `d - 3` where `d` is the dimension (>= 2), so it can be negative.
+    fn from_numerator(numerator: i32) -> Self {
+        // Integer division truncates toward zero; for negative odd numerators
+        // (e.g., d=2 → num=-1) this gives int_part=0, has_half=true,
+        // representing -0.5 = 0 + (-0.5). The sign is handled by adjusting
+        // int_part: -1/2 = 0 with has_half, but we need the floor division.
+        // Rust's `/` truncates toward zero, so -1/2 = 0. We want floor: -1.
+        // Use divmod that rounds toward negative infinity.
+        let int_part = numerator.div_euclid(2);
+        let has_half = numerator.rem_euclid(2) != 0;
+        Self { int_part, has_half }
+    }
+}
+
 /// Compute optimal centroids via the Max-Lloyd (Lloyd-Max) algorithm.
 ///
 /// Operates on the marginal distribution of a single coordinate of a randomly
 /// rotated unit vector in d dimensions. The PDF is:
 ///   `f(x) = C_d * (1 - x^2)^((d-3)/2)` on `[-1, 1]`
 /// where `C_d` is the normalizing constant.
+#[allow(clippy::cast_possible_truncation)] // f64→f32 centroid values are intentional
 fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
     let num_centroids = 1usize << bit_width;
-    let dim = dimension as f64;
 
     // For the marginal distribution on [-1, 1], we use the exponent (d-3)/2.
-    let exponent = (dim - 3.0) / 2.0;
+    let exponent = HalfIntExponent::from_numerator(dimension as i32 - 3);
 
     // Initialize centroids uniformly on [-1, 1].
     let mut centroids: Vec<f64> = (0..num_centroids)
@@ -98,7 +126,7 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
 ///
 /// Returns `E[X | lo <= X <= hi]` where X has PDF proportional to `(1 - x^2)^exponent`
 /// on [-1, 1].
-fn conditional_mean(lo: f64, hi: f64, exponent: f64) -> f64 {
+fn conditional_mean(lo: f64, hi: f64, exponent: HalfIntExponent) -> f64 {
     if (hi - lo).abs() < 1e-15 {
         return (lo + hi) / 2.0;
     }
@@ -135,21 +163,15 @@ fn conditional_mean(lo: f64, hi: f64, exponent: f64) -> f64 {
 /// that arise from `(d-3)/2`. This is significantly faster than the general
 /// `powf` which goes through `exp(exponent * ln(base))`.
 #[inline]
-fn pdf_unnormalized(x_val: f64, exponent: f64) -> f64 {
+fn pdf_unnormalized(x_val: f64, exponent: HalfIntExponent) -> f64 {
     let base = (1.0 - x_val * x_val).max(0.0);
 
-    // `as i32` truncates toward zero, so for negative exponents (d < 5):
-    //   exponent = -0.5 → int_part = 0, frac = -0.5 → powi(0) * sqrt = sqrt
-    //   exponent = -1.5 → int_part = -1, frac = -0.5 → powi(-1) * sqrt = 1/(base * sqrt(base))
-    // This correctly computes base^exponent for all half-integer values.
-    let int_part = exponent as i32;
-    let frac = exponent - int_part as f64;
-    if frac.abs() < 1e-10 {
-        // Integer exponent: use powi.
-        base.powi(int_part)
+    if exponent.has_half {
+        // Half-integer exponent: base^(int_part) * sqrt(base).
+        base.powi(exponent.int_part) * base.sqrt()
     } else {
-        // Half-integer exponent: powi(floor) * sqrt(base).
-        base.powi(int_part) * base.sqrt()
+        // Integer exponent: use powi directly.
+        base.powi(exponent.int_part)
     }
 }
 
@@ -168,6 +190,7 @@ pub fn compute_boundaries(centroids: &[f32]) -> Vec<f32> {
 /// centroids. Uses binary search on the midpoints, avoiding distance comparisons
 /// in the inner loop.
 #[inline]
+#[allow(clippy::cast_possible_truncation)] // bounded by num_centroids <= 256
 pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
     debug_assert!(
         boundaries.windows(2).all(|w| w[0] <= w[1]),
@@ -178,6 +201,7 @@ pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use rstest::rstest;
     use vortex_error::VortexResult;

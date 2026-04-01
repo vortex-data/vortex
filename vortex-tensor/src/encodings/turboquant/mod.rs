@@ -112,6 +112,7 @@ pub fn initialize(session: &mut VortexSession) {
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use std::sync::LazyLock;
 

@@ -63,8 +63,11 @@ impl Scheme for TurboQuantScheme {
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<f64> {
-        // TurboQuant is always preferred for tensor data.
-        Ok(f64::MAX)
+        // Conservative estimate for 5-bit QJL (the default config): ~4x compression
+        // for typical embedding dimensions (768-1536). The actual ratio varies with
+        // dimension and padding overhead, but 4x is a reasonable lower bound that
+        // ensures TurboQuant is preferred over generic float compression for tensor data.
+        Ok(4.0)
     }
 
     fn compress(

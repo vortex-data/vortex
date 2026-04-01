@@ -152,6 +152,7 @@ impl VTable for TurboQuant {
         ))
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     fn build(
         dtype: &DType,
         len: usize,

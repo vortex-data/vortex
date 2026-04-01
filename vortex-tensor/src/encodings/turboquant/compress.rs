@@ -83,6 +83,7 @@ struct MseQuantizationResult {
 }
 
 /// Core quantization: extract f32 elements, build rotation, normalize/rotate/quantize all rows.
+#[allow(clippy::cast_possible_truncation)]
 fn turboquant_quantize_core(
     fsl: &FixedSizeListArray,
     seed: u64,
@@ -136,6 +137,7 @@ fn turboquant_quantize_core(
 }
 
 /// Build a `TurboQuantArray` (MSE-only) from quantization results.
+#[allow(clippy::cast_possible_truncation)]
 fn build_turboquant_mse(
     fsl: &FixedSizeListArray,
     core: MseQuantizationResult,
@@ -215,6 +217,7 @@ pub fn turboquant_encode_mse(
 /// The QJL variant uses `bit_width - 1` MSE bits plus 1 bit of QJL residual
 /// correction, giving unbiased inner product estimation. The input must be
 /// non-nullable.
+#[allow(clippy::cast_possible_truncation)]
 pub fn turboquant_encode_qjl(
     fsl: &FixedSizeListArray,
     config: &TurboQuantConfig,
