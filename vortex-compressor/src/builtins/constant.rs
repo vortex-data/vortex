@@ -11,7 +11,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
 use super::is_bool;
