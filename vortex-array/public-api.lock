@@ -10386,270 +10386,6 @@ pub fn vortex_array::expr::Expression::zip(&self, if_true: vortex_array::expr::E
 
 pub mod vortex_array::compute
 
-pub enum vortex_array::compute::Cost
-
-pub vortex_array::compute::Cost::Canonicalize
-
-pub vortex_array::compute::Cost::Negligible
-
-pub vortex_array::compute::Cost::Specialized
-
-impl core::clone::Clone for vortex_array::compute::Cost
-
-pub fn vortex_array::compute::Cost::clone(&self) -> vortex_array::compute::Cost
-
-impl core::cmp::Eq for vortex_array::compute::Cost
-
-impl core::cmp::PartialEq for vortex_array::compute::Cost
-
-pub fn vortex_array::compute::Cost::eq(&self, other: &vortex_array::compute::Cost) -> bool
-
-impl core::fmt::Debug for vortex_array::compute::Cost
-
-pub fn vortex_array::compute::Cost::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::marker::Copy for vortex_array::compute::Cost
-
-impl core::marker::StructuralPartialEq for vortex_array::compute::Cost
-
-pub enum vortex_array::compute::Input<'a>
-
-pub vortex_array::compute::Input::Array(&'a dyn vortex_array::DynArray)
-
-pub vortex_array::compute::Input::Builder(&'a mut dyn vortex_array::builders::ArrayBuilder)
-
-pub vortex_array::compute::Input::DType(&'a vortex_array::dtype::DType)
-
-pub vortex_array::compute::Input::Mask(&'a vortex_mask::Mask)
-
-pub vortex_array::compute::Input::Scalar(&'a vortex_array::scalar::Scalar)
-
-impl<'a> vortex_array::compute::Input<'a>
-
-pub fn vortex_array::compute::Input<'a>::array(&self) -> core::option::Option<&'a dyn vortex_array::DynArray>
-
-pub fn vortex_array::compute::Input<'a>::builder(&'a mut self) -> core::option::Option<&'a mut dyn vortex_array::builders::ArrayBuilder>
-
-pub fn vortex_array::compute::Input<'a>::dtype(&self) -> core::option::Option<&'a vortex_array::dtype::DType>
-
-pub fn vortex_array::compute::Input<'a>::mask(&self) -> core::option::Option<&'a vortex_mask::Mask>
-
-pub fn vortex_array::compute::Input<'a>::scalar(&self) -> core::option::Option<&'a vortex_array::scalar::Scalar>
-
-impl core::fmt::Debug for vortex_array::compute::Input<'_>
-
-pub fn vortex_array::compute::Input<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl<'a> core::convert::From<&'a (dyn vortex_array::DynArray + 'static)> for vortex_array::compute::Input<'a>
-
-pub fn vortex_array::compute::Input<'a>::from(value: &'a dyn vortex_array::DynArray) -> Self
-
-impl<'a> core::convert::From<&'a alloc::sync::Arc<dyn vortex_array::DynArray>> for vortex_array::compute::Input<'a>
-
-pub fn vortex_array::compute::Input<'a>::from(value: &'a vortex_array::ArrayRef) -> Self
-
-impl<'a> core::convert::From<&'a vortex_array::dtype::DType> for vortex_array::compute::Input<'a>
-
-pub fn vortex_array::compute::Input<'a>::from(value: &'a vortex_array::dtype::DType) -> Self
-
-impl<'a> core::convert::From<&'a vortex_array::scalar::Scalar> for vortex_array::compute::Input<'a>
-
-pub fn vortex_array::compute::Input<'a>::from(value: &'a vortex_array::scalar::Scalar) -> Self
-
-impl<'a> core::convert::From<&'a vortex_mask::Mask> for vortex_array::compute::Input<'a>
-
-pub fn vortex_array::compute::Input<'a>::from(value: &'a vortex_mask::Mask) -> Self
-
-pub enum vortex_array::compute::Output
-
-pub vortex_array::compute::Output::Array(vortex_array::ArrayRef)
-
-pub vortex_array::compute::Output::Scalar(vortex_array::scalar::Scalar)
-
-impl vortex_array::compute::Output
-
-pub fn vortex_array::compute::Output::dtype(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_array::compute::Output::len(&self) -> usize
-
-pub fn vortex_array::compute::Output::unwrap_array(self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::compute::Output::unwrap_scalar(self) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-impl core::convert::From<alloc::sync::Arc<dyn vortex_array::DynArray>> for vortex_array::compute::Output
-
-pub fn vortex_array::compute::Output::from(value: vortex_array::ArrayRef) -> Self
-
-impl core::convert::From<vortex_array::scalar::Scalar> for vortex_array::compute::Output
-
-pub fn vortex_array::compute::Output::from(value: vortex_array::scalar::Scalar) -> Self
-
-impl core::fmt::Debug for vortex_array::compute::Output
-
-pub fn vortex_array::compute::Output::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-pub struct vortex_array::compute::BinaryArgs<'a, O: vortex_array::compute::Options>
-
-pub vortex_array::compute::BinaryArgs::lhs: &'a dyn vortex_array::DynArray
-
-pub vortex_array::compute::BinaryArgs::options: &'a O
-
-pub vortex_array::compute::BinaryArgs::rhs: &'a dyn vortex_array::DynArray
-
-impl<'a, O: vortex_array::compute::Options> core::convert::TryFrom<&vortex_array::compute::InvocationArgs<'a>> for vortex_array::compute::BinaryArgs<'a, O>
-
-pub type vortex_array::compute::BinaryArgs<'a, O>::Error = vortex_error::VortexError
-
-pub fn vortex_array::compute::BinaryArgs<'a, O>::try_from(value: &vortex_array::compute::InvocationArgs<'a>) -> core::result::Result<Self, Self::Error>
-
-pub struct vortex_array::compute::ComputeFn
-
-impl vortex_array::compute::ComputeFn
-
-pub fn vortex_array::compute::ComputeFn::id(&self) -> &arcref::ArcRef<str>
-
-pub fn vortex_array::compute::ComputeFn::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_array::compute::Output>
-
-pub fn vortex_array::compute::ComputeFn::is_elementwise(&self) -> bool
-
-pub fn vortex_array::compute::ComputeFn::kernels(&self) -> alloc::vec::Vec<arcref::ArcRef<dyn vortex_array::compute::Kernel>>
-
-pub fn vortex_array::compute::ComputeFn::new(id: arcref::ArcRef<str>, vtable: arcref::ArcRef<dyn vortex_array::compute::ComputeFnVTable>) -> Self
-
-pub fn vortex_array::compute::ComputeFn::register_kernel(&self, kernel: arcref::ArcRef<dyn vortex_array::compute::Kernel>)
-
-pub fn vortex_array::compute::ComputeFn::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
-pub fn vortex_array::compute::ComputeFn::return_len(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
-
-pub struct vortex_array::compute::InvocationArgs<'a>
-
-pub vortex_array::compute::InvocationArgs::inputs: &'a [vortex_array::compute::Input<'a>]
-
-pub vortex_array::compute::InvocationArgs::options: &'a dyn vortex_array::compute::Options
-
-impl<'a, O: vortex_array::compute::Options> core::convert::TryFrom<&vortex_array::compute::InvocationArgs<'a>> for vortex_array::compute::BinaryArgs<'a, O>
-
-pub type vortex_array::compute::BinaryArgs<'a, O>::Error = vortex_error::VortexError
-
-pub fn vortex_array::compute::BinaryArgs<'a, O>::try_from(value: &vortex_array::compute::InvocationArgs<'a>) -> core::result::Result<Self, Self::Error>
-
-impl<'a, O: vortex_array::compute::Options> core::convert::TryFrom<&vortex_array::compute::InvocationArgs<'a>> for vortex_array::compute::UnaryArgs<'a, O>
-
-pub type vortex_array::compute::UnaryArgs<'a, O>::Error = vortex_error::VortexError
-
-pub fn vortex_array::compute::UnaryArgs<'a, O>::try_from(value: &vortex_array::compute::InvocationArgs<'a>) -> core::result::Result<Self, Self::Error>
-
-impl<'a> core::clone::Clone for vortex_array::compute::InvocationArgs<'a>
-
-pub fn vortex_array::compute::InvocationArgs<'a>::clone(&self) -> vortex_array::compute::InvocationArgs<'a>
-
-pub struct vortex_array::compute::IsConstantOpts
-
-pub vortex_array::compute::IsConstantOpts::cost: vortex_array::compute::Cost
-
-impl vortex_array::compute::IsConstantOpts
-
-pub fn vortex_array::compute::IsConstantOpts::is_negligible_cost(&self) -> bool
-
-impl core::clone::Clone for vortex_array::compute::IsConstantOpts
-
-pub fn vortex_array::compute::IsConstantOpts::clone(&self) -> vortex_array::compute::IsConstantOpts
-
-impl core::default::Default for vortex_array::compute::IsConstantOpts
-
-pub fn vortex_array::compute::IsConstantOpts::default() -> Self
-
-impl core::fmt::Debug for vortex_array::compute::IsConstantOpts
-
-pub fn vortex_array::compute::IsConstantOpts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_array::compute::Options for vortex_array::compute::IsConstantOpts
-
-pub fn vortex_array::compute::IsConstantOpts::as_any(&self) -> &dyn core::any::Any
-
-pub struct vortex_array::compute::MinMaxResult
-
-pub vortex_array::compute::MinMaxResult::max: vortex_array::scalar::Scalar
-
-pub vortex_array::compute::MinMaxResult::min: vortex_array::scalar::Scalar
-
-impl vortex_array::aggregate_fn::fns::min_max::MinMaxResult
-
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::from_scalar(scalar: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<Self>>
-
-impl core::clone::Clone for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
-
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::clone(&self) -> vortex_array::aggregate_fn::fns::min_max::MinMaxResult
-
-impl core::cmp::Eq for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
-
-impl core::cmp::PartialEq for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
-
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::eq(&self, other: &vortex_array::aggregate_fn::fns::min_max::MinMaxResult) -> bool
-
-impl core::fmt::Debug for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
-
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMaxResult::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::marker::StructuralPartialEq for vortex_array::aggregate_fn::fns::min_max::MinMaxResult
-
-pub struct vortex_array::compute::UnaryArgs<'a, O: vortex_array::compute::Options>
-
-pub vortex_array::compute::UnaryArgs::array: &'a dyn vortex_array::DynArray
-
-pub vortex_array::compute::UnaryArgs::options: &'a O
-
-impl<'a, O: vortex_array::compute::Options> core::convert::TryFrom<&vortex_array::compute::InvocationArgs<'a>> for vortex_array::compute::UnaryArgs<'a, O>
-
-pub type vortex_array::compute::UnaryArgs<'a, O>::Error = vortex_error::VortexError
-
-pub fn vortex_array::compute::UnaryArgs<'a, O>::try_from(value: &vortex_array::compute::InvocationArgs<'a>) -> core::result::Result<Self, Self::Error>
-
-pub trait vortex_array::compute::ComputeFnVTable: 'static + core::marker::Send + core::marker::Sync
-
-pub fn vortex_array::compute::ComputeFnVTable::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>, kernels: &[arcref::ArcRef<dyn vortex_array::compute::Kernel>]) -> vortex_error::VortexResult<vortex_array::compute::Output>
-
-pub fn vortex_array::compute::ComputeFnVTable::is_elementwise(&self) -> bool
-
-pub fn vortex_array::compute::ComputeFnVTable::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
-pub fn vortex_array::compute::ComputeFnVTable::return_len(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
-
-pub trait vortex_array::compute::Kernel: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
-
-pub fn vortex_array::compute::Kernel::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-
-pub trait vortex_array::compute::Options: 'static
-
-pub fn vortex_array::compute::Options::as_any(&self) -> &dyn core::any::Any
-
-impl vortex_array::compute::Options for ()
-
-pub fn ()::as_any(&self) -> &dyn core::any::Any
-
-impl vortex_array::compute::Options for vortex_array::compute::IsConstantOpts
-
-pub fn vortex_array::compute::IsConstantOpts::as_any(&self) -> &dyn core::any::Any
-
-impl vortex_array::compute::Options for vortex_array::scalar_fn::fns::between::BetweenOptions
-
-pub fn vortex_array::scalar_fn::fns::between::BetweenOptions::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::compute::is_constant(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::compute::is_constant_opts(array: &vortex_array::ArrayRef, _opts: &vortex_array::compute::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::compute::is_sorted(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::compute::is_strict_sorted(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<bool>>
-
-pub fn vortex_array::compute::min_max(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::aggregate_fn::fns::min_max::MinMaxResult>>
-
-pub fn vortex_array::compute::nan_count(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<usize>
-
-pub fn vortex_array::compute::sum(array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
 pub mod vortex_array::display
 
 pub enum vortex_array::display::DisplayOptions
@@ -11377,10 +11113,6 @@ impl vortex_flatbuffers::WriteFlatBuffer for vortex_array::dtype::DType
 pub type vortex_array::dtype::DType::Target<'a> = vortex_flatbuffers::dtype::DType<'a>
 
 pub fn vortex_array::dtype::DType::write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<Self::Target>>
-
-impl<'a> core::convert::From<&'a vortex_array::dtype::DType> for vortex_array::compute::Input<'a>
-
-pub fn vortex_array::compute::Input<'a>::from(value: &'a vortex_array::dtype::DType) -> Self
 
 #[repr(u8)] pub enum vortex_array::dtype::DecimalType
 
@@ -17082,10 +16814,6 @@ impl core::convert::From<vortex_array::scalar::PrimitiveScalar<'_>> for vortex_a
 
 pub fn vortex_array::scalar::Scalar::from(ps: vortex_array::scalar::PrimitiveScalar<'_>) -> Self
 
-impl core::convert::From<vortex_array::scalar::Scalar> for vortex_array::compute::Output
-
-pub fn vortex_array::compute::Output::from(value: vortex_array::scalar::Scalar) -> Self
-
 impl core::convert::From<vortex_buffer::buffer::Buffer<u8>> for vortex_array::scalar::Scalar
 
 pub fn vortex_array::scalar::Scalar::from(value: vortex_buffer::ByteBuffer) -> Self
@@ -17353,10 +17081,6 @@ impl<'a, T> core::convert::TryFrom<&'a vortex_array::scalar::Scalar> for alloc::
 pub type alloc::vec::Vec<T>::Error = vortex_error::VortexError
 
 pub fn alloc::vec::Vec<T>::try_from(value: &'a vortex_array::scalar::Scalar) -> core::result::Result<Self, Self::Error>
-
-impl<'a> core::convert::From<&'a vortex_array::scalar::Scalar> for vortex_array::compute::Input<'a>
-
-pub fn vortex_array::compute::Input<'a>::from(value: &'a vortex_array::scalar::Scalar) -> Self
 
 impl<'a> core::convert::TryFrom<&'a vortex_array::scalar::Scalar> for alloc::string::String
 
@@ -17765,10 +17489,6 @@ impl core::hash::Hash for vortex_array::scalar_fn::fns::between::BetweenOptions
 pub fn vortex_array::scalar_fn::fns::between::BetweenOptions::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
 impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::between::BetweenOptions
-
-impl vortex_array::compute::Options for vortex_array::scalar_fn::fns::between::BetweenOptions
-
-pub fn vortex_array::scalar_fn::fns::between::BetweenOptions::as_any(&self) -> &dyn core::any::Any
 
 pub struct vortex_array::scalar_fn::fns::between::BetweenReduceAdaptor<V>(pub V)
 
@@ -24329,8 +24049,6 @@ pub macro vortex_array::match_each_signed_integer_ptype!
 pub macro vortex_array::match_each_unsigned_integer_ptype!
 
 pub macro vortex_array::match_smallest_offset_type!
-
-pub macro vortex_array::register_kernel!
 
 pub macro vortex_array::require_child!
 
