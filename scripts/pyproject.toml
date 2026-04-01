@@ -7,15 +7,11 @@ version = "0.1.0"
 description = "CI and benchmark scripts for Vortex"
 requires-python = ">=3.11"
 classifiers = ["Private :: Do Not Upload"]
-dependencies = [
-    "numpy",
-    "pandas",
-    "tabulate",
-]
+dependencies = ["numpy", "pandas", "tabulate"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["dummy"]  # No importable package, just scripts
+packages = ["dummy"] # No importable package, just scripts
