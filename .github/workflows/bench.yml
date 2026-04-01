@@ -29,7 +29,7 @@ jobs:
 
           sudo apt-get update && sudo apt-get install -y jq
           bash scripts/commit-json.sh > new-commit.json
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results commits.json new-commit.json
+          python3 scripts/cat-s3.py vortex-ci-benchmark-results commits.json new-commit.json
 
   bench:
     timeout-minutes: 120
@@ -100,7 +100,7 @@ jobs:
       - name: Upload Benchmark Results
         shell: bash
         run: |
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
+          python3 scripts/cat-s3.py vortex-ci-benchmark-results data.json.gz results.json
 
       - name: Alert incident.io
         if: failure()
