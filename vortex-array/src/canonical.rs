@@ -55,7 +55,7 @@ use crate::vtable::ArrayView;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
-/// Any array can be decoded into canonical form via the [`to_canonical`](DynArray::to_canonical)
+/// Any array can be decoded into canonical form via the `to_canonical`
 /// trait method. This is the simplest encoding for a type, and will not be compressed but may
 /// contain compressed child arrays.
 ///

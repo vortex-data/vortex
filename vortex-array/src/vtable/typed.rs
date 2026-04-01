@@ -369,6 +369,7 @@ impl<V: VTable> AsRef<ArrayRef> for Array<V> {
 }
 
 impl<V: VTable> IntoArray for Array<V> {
+    #[inline(always)]
     fn into_array(self) -> ArrayRef {
         self.inner
     }

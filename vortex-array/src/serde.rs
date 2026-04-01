@@ -281,7 +281,7 @@ impl ArrayChildren for &[ArrayRef] {
     }
 }
 
-/// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized [`DynArray`].
+/// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized array.
 /// It contains all the information from the serialized form, without anything extra. i.e.
 /// it is missing a [`DType`] and `len`, and the `encoding_id` is not yet resolved to a concrete
 /// vtable.

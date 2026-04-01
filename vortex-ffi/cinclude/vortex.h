@@ -500,17 +500,9 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Clone a borrowed [`vx_array`], returning an owned [`vx_array`].
- *
- *
- * Must be released with [`vx_array_free`].
- */
-const vx_array *vx_array_clone(const vx_array *ptr);
-
-/**
  * Free an owned [`vx_array`] object.
  */
-void vx_array_free(const vx_array *ptr);
+void vx_array_free(vx_array *ptr);
 
 /**
  * Check if array's dtype is nullable.
@@ -559,9 +551,9 @@ size_t vx_array_len(const vx_array *array);
  */
 const vx_dtype *vx_array_dtype(const vx_array *array);
 
-const vx_array *vx_array_get_field(const vx_array *array, size_t index, vx_error **error_out);
+vx_array *vx_array_get_field(const vx_array *array, size_t index, vx_error **error_out);
 
-const vx_array *vx_array_slice(const vx_array *array, size_t start, size_t stop, vx_error **error_out);
+vx_array *vx_array_slice(const vx_array *array, size_t start, size_t stop, vx_error **error_out);
 
 /**
  * Check whether array's element at index is invalid (null) according to the
@@ -578,7 +570,7 @@ size_t vx_array_invalid_count(const vx_array *array, vx_error **error_out);
 /**
  * Create a new array with DTYPE_NULL dtype.
  */
-const vx_array *vx_array_new_null(size_t len);
+vx_array *vx_array_new_null(size_t len);
 
 /**
  * Create a new primitive array from an existing buffer.
@@ -597,11 +589,11 @@ const vx_array *vx_array_new_null(size_t len);
  * vx_array_free(array);
  *
  */
-const vx_array *vx_array_new_primitive(vx_ptype ptype,
-                                       const void *ptr,
-                                       size_t len,
-                                       const vx_validity *validity,
-                                       vx_error **error);
+vx_array *vx_array_new_primitive(vx_ptype ptype,
+                                 const void *ptr,
+                                 size_t len,
+                                 const vx_validity *validity,
+                                 vx_error **error);
 
 uint8_t vx_array_get_u8(const vx_array *array, size_t index);
 
@@ -664,7 +656,7 @@ const vx_binary *vx_array_get_binary(const vx_array *array, uint32_t index);
  * This operation takes constant time as it doesn't execute the underlying
  * array. Executing the underlying array still takes O(n) time.
  */
-const vx_array *vx_array_apply(const vx_array *array, const vx_expression *expression, vx_error **error);
+vx_array *vx_array_apply(const vx_array *array, const vx_expression *expression, vx_error **error);
 
 /**
  * Free an owned [`vx_array_iterator`] object.
@@ -679,7 +671,7 @@ void vx_array_iterator_free(vx_array_iterator *ptr);
  *
  * It is an error to call this function again after the iterator is finished.
  */
-const vx_array *vx_array_iterator_next(vx_array_iterator *iter, vx_error **error_out);
+vx_array *vx_array_iterator_next(vx_array_iterator *iter, vx_error **error_out);
 
 /**
  * Clone a borrowed [`vx_binary`], returning an owned [`vx_binary`].

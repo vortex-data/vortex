@@ -31,9 +31,6 @@ pub type ArrayId = ArcRef<str>;
 pub type DynVTableRef = Arc<dyn DynVTable>;
 
 /// Dynamically typed vtable trait.
-///
-/// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
-/// [`DynArray`] trait API to a minimum.
 pub trait DynVTable: 'static + Send + Sync + Debug {
     /// Clone this vtable into a `Box<dyn DynVTable>`.
     fn clone_boxed(&self) -> Box<dyn DynVTable>;
