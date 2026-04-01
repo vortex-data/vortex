@@ -230,10 +230,7 @@ impl Scheme for StringConstantScheme {
                 let scalar = stats.source().scalar_at(idx)?;
                 let const_arr = ConstantArray::new(scalar, stats.source().len()).into_array();
                 if !stats.source().all_valid()? {
-                    Ok(
-                        MaskedArray::try_new(const_arr, stats.source().validity())?
-                            .into_array(),
-                    )
+                    Ok(MaskedArray::try_new(const_arr, stats.source().validity())?.into_array())
                 } else {
                     Ok(const_arr)
                 }

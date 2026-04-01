@@ -419,12 +419,10 @@ impl CascadingCompressor {
             offset_ctx,
         )?;
 
-        Ok(ListArray::try_new(
-            compressed_elems,
-            compressed_offsets,
-            list_array.validity(),
-        )?
-        .into_array())
+        Ok(
+            ListArray::try_new(compressed_elems, compressed_offsets, list_array.validity())?
+                .into_array(),
+        )
     }
 
     /// Compresses a [`ListViewArray`] by narrowing offsets/sizes and recursively compressing
