@@ -17,10 +17,10 @@ from collections import defaultdict
 
 def format_size(size_bytes: int) -> str:
     """Format bytes as human-readable size."""
-    if size_bytes >= 1024 ** 3:
-        return f"{size_bytes / (1024 ** 3):.2f} GB"
-    elif size_bytes >= 1024 ** 2:
-        return f"{size_bytes / (1024 ** 2):.2f} MB"
+    if size_bytes >= 1024**3:
+        return f"{size_bytes / (1024**3):.2f} GB"
+    elif size_bytes >= 1024**2:
+        return f"{size_bytes / (1024**2):.2f} MB"
     elif size_bytes >= 1024:
         return f"{size_bytes / 1024:.2f} KB"
     else:
@@ -40,9 +40,7 @@ def format_pct_change(pct: float) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Compare file sizes between base and HEAD"
-    )
+    parser = argparse.ArgumentParser(description="Compare file sizes between base and HEAD")
     parser.add_argument("base_file", help="Base JSONL file")
     parser.add_argument("head_file", help="HEAD JSONL file")
     args = parser.parse_args()
@@ -94,14 +92,16 @@ def main():
         else:
             pct_change = 0
 
-        comparisons.append({
-            "file": file_name,
-            "format": fmt,
-            "base_size": base_size,
-            "head_size": head_size,
-            "change": change,
-            "pct_change": pct_change,
-        })
+        comparisons.append(
+            {
+                "file": file_name,
+                "format": fmt,
+                "base_size": base_size,
+                "head_size": head_size,
+                "change": change,
+                "pct_change": pct_change,
+            }
+        )
 
     if not comparisons:
         print("_No file size changes detected._")

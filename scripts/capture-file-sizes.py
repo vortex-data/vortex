@@ -16,9 +16,7 @@ from pathlib import Path
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Capture file sizes from benchmark data directories"
-    )
+    parser = argparse.ArgumentParser(description="Capture file sizes from benchmark data directories")
     parser.add_argument("data_dir", help="Data directory (e.g., vortex-bench/data)")
     parser.add_argument("--benchmark", required=True, help="Benchmark name (e.g., clickbench)")
     parser.add_argument("--commit", required=True, help="Commit SHA")
@@ -57,13 +55,15 @@ def main():
             size_bytes = file_path.stat().st_size
             relative_path = file_path.relative_to(format_dir)
 
-            records.append({
-                "commit_id": args.commit,
-                "benchmark": args.benchmark,
-                "format": format_name,
-                "file": str(relative_path),
-                "size_bytes": size_bytes,
-            })
+            records.append(
+                {
+                    "commit_id": args.commit,
+                    "benchmark": args.benchmark,
+                    "format": format_name,
+                    "file": str(relative_path),
+                    "size_bytes": size_bytes,
+                }
+            )
 
     # Sort for deterministic output
     records.sort(key=lambda r: (r["benchmark"], r["format"], r["file"]))
