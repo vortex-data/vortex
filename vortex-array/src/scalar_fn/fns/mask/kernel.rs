@@ -104,8 +104,7 @@ where
         if child_idx != 0 {
             return Ok(None);
         }
-        let parent_ref: ArrayRef = (*parent).clone();
-        let mask_child = parent_ref
+        let mask_child = parent
             .nth_child(1)
             .ok_or_else(|| vortex_err!("Mask expression must have 2 children"))?;
         <V as MaskKernel>::mask(array, &mask_child, ctx)

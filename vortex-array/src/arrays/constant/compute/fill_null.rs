@@ -15,7 +15,7 @@ impl FillNullReduce for Constant {
         array: ArrayView<'_, Constant>,
         fill_value: &Scalar,
     ) -> VortexResult<Option<ArrayRef>> {
-        fill_null_constant(&array, fill_value).map(Some)
+        fill_null_constant(array, fill_value).map(Some)
     }
 }
 

@@ -10,6 +10,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
@@ -83,7 +84,7 @@ pub(super) fn precondition(
 /// Fill null on a [`ConstantArray`] by replacing null scalars with the fill value,
 /// or casting non-null scalars to the fill value's dtype.
 pub(crate) fn fill_null_constant(
-    array: &crate::arrays::constant::ConstantData,
+    array: ArrayView<Constant>,
     fill_value: &Scalar,
 ) -> VortexResult<ArrayRef> {
     let scalar = if array.scalar().is_null() {

@@ -37,7 +37,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
                     array.scalar_fn(),
                 );
-                arr.to_array_ref().scalar_at(0)?
+                arr.into_array().scalar_at(0)?
             }
             Columnar::Constant(constant) => constant.scalar().clone(),
         };

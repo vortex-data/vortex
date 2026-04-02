@@ -67,8 +67,8 @@ mod tests {
         .unwrap();
 
         let canonical = array.to_canonical()?;
-        assert_eq!(canonical.to_array_ref().valid_count().unwrap(), 3);
         assert_eq!(canonical.dtype().nullability(), Nullability::Nullable);
+        assert_eq!(canonical.into_array().valid_count().unwrap(), 3);
         Ok(())
     }
 }

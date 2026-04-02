@@ -32,7 +32,7 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
             vortex_panic!(Compute: "must decode TemporalMetadata from extension metadata");
         };
 
-        if !array.array().is_valid(index)? {
+        if !array.as_ref().is_valid(index)? {
             return Ok(Scalar::null(DType::Extension(ext)));
         }
 

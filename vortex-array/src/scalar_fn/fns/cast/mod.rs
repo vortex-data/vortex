@@ -15,12 +15,12 @@ use vortex_session::VortexSession;
 
 use crate::AnyColumnar;
 use crate::ArrayRef;
+use crate::ArrayView;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
-use crate::arrays::ConstantArray;
 use crate::arrays::Decimal;
 use crate::arrays::Extension;
 use crate::arrays::FixedSizeList;
@@ -125,16 +125,14 @@ impl ScalarFnVTable for Cast {
                     ),
                 }
             }
-            ColumnarView::Constant(constant) => {
-                match cast_constant(&constant.into_owned(), target_dtype)? {
-                    Some(result) => Ok(result),
-                    None => vortex_bail!(
-                        "No CastReduce to cast constant array from {} to {}",
-                        constant.dtype(),
-                        target_dtype,
-                    ),
-                }
-            }
+            ColumnarView::Constant(constant) => match cast_constant(constant, target_dtype)? {
+                Some(result) => Ok(result),
+                None => vortex_bail!(
+                    "No CastReduce to cast constant array from {} to {}",
+                    constant.dtype(),
+                    target_dtype,
+                ),
+            },
         }
     }
 
@@ -223,8 +221,8 @@ fn cast_canonical(
 }
 
 /// Cast a constant array by dispatching to its [`CastReduce`] implementation.
-fn cast_constant(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-    <Constant as CastReduce>::cast(array.as_view(), dtype)
+fn cast_constant(array: ArrayView<Constant>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    <Constant as CastReduce>::cast(array, dtype)
 }
 
 #[cfg(test)]

@@ -16,7 +16,6 @@ use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
-use crate::DateTimePartsData;
 use crate::array::DateTimeParts;
 use crate::timestamp;
 

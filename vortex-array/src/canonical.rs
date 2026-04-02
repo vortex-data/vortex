@@ -412,13 +412,6 @@ impl Canonical {
     }
 }
 
-impl Canonical {
-    /// Convert to a type-erased [`ArrayRef`].
-    pub fn to_array_ref(&self) -> ArrayRef {
-        self.clone().into_array()
-    }
-}
-
 impl IntoArray for Canonical {
     fn into_array(self) -> ArrayRef {
         match_each_canonical!(self, |arr| arr.into_array())
@@ -518,44 +511,6 @@ impl ToCanonical for ArrayRef {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
             .into_extension()
-    }
-}
-
-impl<V: VTable> ToCanonical for Array<V> {
-    fn to_null(&self) -> NullArray {
-        self.as_ref().to_null()
-    }
-
-    fn to_bool(&self) -> BoolArray {
-        todo!()
-    }
-
-    fn to_primitive(&self) -> PrimitiveArray {
-        todo!()
-    }
-
-    fn to_decimal(&self) -> DecimalArray {
-        todo!()
-    }
-
-    fn to_struct(&self) -> StructArray {
-        todo!()
-    }
-
-    fn to_listview(&self) -> ListViewArray {
-        todo!()
-    }
-
-    fn to_fixed_size_list(&self) -> FixedSizeListArray {
-        todo!()
-    }
-
-    fn to_varbinview(&self) -> VarBinViewArray {
-        todo!()
-    }
-
-    fn to_extension(&self) -> ExtensionArray {
-        todo!()
     }
 }
 

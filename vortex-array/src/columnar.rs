@@ -89,16 +89,6 @@ pub enum ColumnarView<'a> {
     Constant(ArrayView<'a, Constant>),
 }
 
-impl ColumnarView<'_> {
-    /// Convert to a type-erased [`ArrayRef`].
-    pub fn to_array_ref(&self) -> ArrayRef {
-        match self {
-            ColumnarView::Canonical(canonical) => canonical.to_array_ref(),
-            ColumnarView::Constant(constant) => constant.array().clone(),
-        }
-    }
-}
-
 pub struct AnyColumnar;
 impl Matcher for AnyColumnar {
     type Match<'a> = ColumnarView<'a>;

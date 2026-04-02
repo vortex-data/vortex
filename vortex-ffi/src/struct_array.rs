@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 use std::ffi::c_char;
 use std::ptr;
-use std::sync::Arc;
 
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
@@ -47,7 +46,7 @@ pub unsafe extern "C" fn vx_struct_column_builder_new(
         fields,
         validity,
     };
-    vx_struct_column_builder::new(Box::new(builder))
+    vx_struct_column_builder::new(builder)
 }
 
 /// Add a named field to a struct array builder.
@@ -110,7 +109,7 @@ pub unsafe extern "C" fn vx_struct_column_builder_add_field(
 pub extern "C-unwind" fn vx_struct_column_builder_finalize(
     builder: *mut vx_struct_column_builder,
     error: *mut *mut vx_error,
-) -> *const vx_array {
+) -> *mut vx_array {
     try_or_default(error, || {
         vortex_ensure!(!builder.is_null());
         let builder = *vx_struct_column_builder::into_box(builder);
@@ -121,7 +120,7 @@ pub extern "C-unwind" fn vx_struct_column_builder_finalize(
         };
         let array =
             StructArray::try_new(builder.names.into(), builder.fields, rows, builder.validity)?;
-        Ok(vx_array::new(Arc::new(array.into_array())))
+        Ok(vx_array::new(array.into_array()))
     })
 }
 
@@ -131,14 +130,14 @@ mod tests {
     use std::ptr;
     use std::sync::Arc;
 
+    use vortex::array::IntoArray;
+    use vortex::array::ToCanonical;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
-    use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::validity::Validity;
 
     use crate::array::vx_array;
     use crate::array::vx_array_free;
@@ -222,7 +221,7 @@ mod tests {
             vx_array_free(ffi_null_field);
 
             // Can't create a string array from C API yet.
-            let ffi_name_field = vx_array::new(Arc::new(name_field.into_array()));
+            let ffi_name_field = vx_array::new(name_field.into_array());
             vx_struct_column_builder_add_field(
                 builder,
                 c"name".as_ptr(),
