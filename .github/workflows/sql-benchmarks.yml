@@ -260,7 +260,7 @@ jobs:
           comment-tag: bench-pr-comment-${{ matrix.id }}
 
       - name: Compare file sizes
-        if: inputs.mode == 'pr'
+        if: inputs.mode == 'pr' && matrix.remote_storage == null
         shell: bash
         run: |
           set -Eeu -o pipefail -x
@@ -303,7 +303,7 @@ jobs:
           cat sizes-comment.md >> $GITHUB_STEP_SUMMARY
 
       - name: Comment PR with file sizes
-        if: inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        if: inputs.mode == 'pr' && matrix.remote_storage == null && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@v3
         with:
           file-path: sizes-comment.md
@@ -326,7 +326,7 @@ jobs:
           bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
 
       - name: Upload File Sizes
-        if: inputs.mode == 'develop'
+        if: inputs.mode == 'develop' && matrix.remote_storage == null
         shell: bash
         run: |
           uv run --no-project scripts/capture-file-sizes.py \
