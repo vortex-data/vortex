@@ -1107,10 +1107,22 @@ impl<V: VTable> Matcher for V {
     type Match<'a> = &'a V::Array;
 
     fn matches(array: &dyn DynArray) -> bool {
+        // Handle the case where ArrayRef (Arc<dyn DynArray>) is coerced to &dyn DynArray
+        // via the blanket impl. In this case, we need to unwrap the Arc to get to the
+        // actual array type.
+        if let Some(arc) = (array as &dyn Any).downcast_ref::<Arc<dyn DynArray>>() {
+            return Self::matches(arc.as_ref());
+        }
         (array as &dyn Any).is::<Array<V>>() || (array as &dyn Any).is::<ArrayAdapter<V>>()
     }
 
     fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
+        // Handle the case where ArrayRef (Arc<dyn DynArray>) is coerced to &dyn DynArray
+        // via the blanket impl. In this case, we need to unwrap the Arc to get to the
+        // actual array type.
+        if let Some(arc) = (array as &dyn Any).downcast_ref::<Arc<dyn DynArray>>() {
+            return Self::try_match(arc.as_ref());
+        }
         // Try new Array<V> first.
         if let Some(typed) = (array as &dyn Any).downcast_ref::<Array<V>>() {
             return Some(typed.inner());

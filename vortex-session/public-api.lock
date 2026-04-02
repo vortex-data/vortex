@@ -160,12 +160,4 @@ pub fn vortex_session::VortexSession::session(&self) -> vortex_session::VortexSe
 
 pub trait vortex_session::SessionVar: core::any::Any + core::marker::Send + core::marker::Sync + core::fmt::Debug + 'static
 
-pub fn vortex_session::SessionVar::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_session::SessionVar::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
-impl<T: core::marker::Send + core::marker::Sync + core::fmt::Debug + 'static> vortex_session::SessionVar for T
-
-pub fn T::as_any(&self) -> &dyn core::any::Any
-
-pub fn T::as_any_mut(&mut self) -> &mut dyn core::any::Any
+impl<T: core::marker::Send + core::marker::Sync + core::fmt::Debug + core::any::Any + 'static> vortex_session::SessionVar for T

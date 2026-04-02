@@ -3862,8 +3862,6 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::into_array(self) -> vorte
 
 impl vortex_array::scalar_fn::ReduceNode for vortex_array::arrays::scalar_fn::ScalarFnArray
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::as_any(&self) -> &dyn core::any::Any
-
 pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::child_count(&self) -> usize
@@ -7680,8 +7678,6 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::into_array(self) -> vorte
 
 impl vortex_array::scalar_fn::ReduceNode for vortex_array::arrays::scalar_fn::ScalarFnArray
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::as_any(&self) -> &dyn core::any::Any
-
 pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::child_count(&self) -> usize
@@ -9156,13 +9152,11 @@ impl vortex_array::ArrayHash for vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::buffer::BufferHandle::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
 
-pub trait vortex_array::buffer::DeviceBuffer: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug + vortex_utils::dyn_traits::DynEq + vortex_utils::dyn_traits::DynHash
+pub trait vortex_array::buffer::DeviceBuffer: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug + vortex_utils::dyn_traits::DynEq + vortex_utils::dyn_traits::DynHash + core::any::Any
 
 pub fn vortex_array::buffer::DeviceBuffer::aligned(self: alloc::sync::Arc<Self>, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_array::buffer::DeviceBuffer>>
 
 pub fn vortex_array::buffer::DeviceBuffer::alignment(&self) -> vortex_buffer::alignment::Alignment
-
-pub fn vortex_array::buffer::DeviceBuffer::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_array::buffer::DeviceBuffer::copy_to_host(&self, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_buffer::ByteBuffer>>>
 
@@ -9286,10 +9280,6 @@ pub fn vortex_array::builders::BoolBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::BoolBuilder::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::BoolBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::BoolBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::BoolBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::BoolBuilder::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -9343,10 +9333,6 @@ pub fn vortex_array::builders::DecimalBuilder::append_scalar(&mut self, scalar: 
 pub fn vortex_array::builders::DecimalBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::DecimalBuilder::append_zeros(&mut self, n: usize)
-
-pub fn vortex_array::builders::DecimalBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::DecimalBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub fn vortex_array::builders::DecimalBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -9404,10 +9390,6 @@ pub fn vortex_array::builders::ExtensionBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::ExtensionBuilder::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::ExtensionBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::ExtensionBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::ExtensionBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::ExtensionBuilder::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -9464,10 +9446,6 @@ pub fn vortex_array::builders::FixedSizeListBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::FixedSizeListBuilder::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::FixedSizeListBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::FixedSizeListBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::FixedSizeListBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::FixedSizeListBuilder::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -9521,10 +9499,6 @@ pub fn vortex_array::builders::ListBuilder<O>::append_scalar(&mut self, scalar: 
 pub fn vortex_array::builders::ListBuilder<O>::append_zero(&mut self)
 
 pub fn vortex_array::builders::ListBuilder<O>::append_zeros(&mut self, n: usize)
-
-pub fn vortex_array::builders::ListBuilder<O>::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::ListBuilder<O>::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub fn vortex_array::builders::ListBuilder<O>::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -9580,10 +9554,6 @@ pub fn vortex_array::builders::ListViewBuilder<O, S>::append_zero(&mut self)
 
 pub fn vortex_array::builders::ListViewBuilder<O, S>::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::ListViewBuilder<O, S>::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::ListViewBuilder<O, S>::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::ListViewBuilder<O, S>::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::ListViewBuilder<O, S>::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -9631,10 +9601,6 @@ pub fn vortex_array::builders::NullBuilder::append_scalar(&mut self, scalar: &vo
 pub fn vortex_array::builders::NullBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::NullBuilder::append_zeros(&mut self, n: usize)
-
-pub fn vortex_array::builders::NullBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::NullBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub fn vortex_array::builders::NullBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -9696,10 +9662,6 @@ pub fn vortex_array::builders::PrimitiveBuilder<T>::append_zero(&mut self)
 
 pub fn vortex_array::builders::PrimitiveBuilder<T>::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::PrimitiveBuilder<T>::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::PrimitiveBuilder<T>::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::PrimitiveBuilder<T>::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::PrimitiveBuilder<T>::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -9751,10 +9713,6 @@ pub fn vortex_array::builders::StructBuilder::append_scalar(&mut self, scalar: &
 pub fn vortex_array::builders::StructBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::StructBuilder::append_zeros(&mut self, n: usize)
-
-pub fn vortex_array::builders::StructBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::StructBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub fn vortex_array::builders::StructBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -9836,10 +9794,6 @@ pub fn vortex_array::builders::VarBinViewBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::VarBinViewBuilder::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::VarBinViewBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::VarBinViewBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::VarBinViewBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::VarBinViewBuilder::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -9862,7 +9816,7 @@ pub unsafe fn vortex_array::builders::VarBinViewBuilder::set_validity_unchecked(
 
 pub const vortex_array::builders::DEFAULT_BUILDER_CAPACITY: usize
 
-pub trait vortex_array::builders::ArrayBuilder: core::marker::Send
+pub trait vortex_array::builders::ArrayBuilder: core::marker::Send + core::any::Any
 
 pub fn vortex_array::builders::ArrayBuilder::append_default(&mut self)
 
@@ -9879,10 +9833,6 @@ pub fn vortex_array::builders::ArrayBuilder::append_scalar(&mut self, scalar: &v
 pub fn vortex_array::builders::ArrayBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::ArrayBuilder::append_zeros(&mut self, n: usize)
-
-pub fn vortex_array::builders::ArrayBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::ArrayBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub fn vortex_array::builders::ArrayBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -9922,10 +9872,6 @@ pub fn vortex_array::builders::BoolBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::BoolBuilder::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::BoolBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::BoolBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::BoolBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::BoolBuilder::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -9963,10 +9909,6 @@ pub fn vortex_array::builders::DecimalBuilder::append_scalar(&mut self, scalar: 
 pub fn vortex_array::builders::DecimalBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::DecimalBuilder::append_zeros(&mut self, n: usize)
-
-pub fn vortex_array::builders::DecimalBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::DecimalBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub fn vortex_array::builders::DecimalBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -10006,10 +9948,6 @@ pub fn vortex_array::builders::ExtensionBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::ExtensionBuilder::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::ExtensionBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::ExtensionBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::ExtensionBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::ExtensionBuilder::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -10047,10 +9985,6 @@ pub fn vortex_array::builders::FixedSizeListBuilder::append_scalar(&mut self, sc
 pub fn vortex_array::builders::FixedSizeListBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::FixedSizeListBuilder::append_zeros(&mut self, n: usize)
-
-pub fn vortex_array::builders::FixedSizeListBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::FixedSizeListBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub fn vortex_array::builders::FixedSizeListBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -10090,10 +10024,6 @@ pub fn vortex_array::builders::NullBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::NullBuilder::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::NullBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::NullBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::NullBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::NullBuilder::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -10131,10 +10061,6 @@ pub fn vortex_array::builders::StructBuilder::append_scalar(&mut self, scalar: &
 pub fn vortex_array::builders::StructBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::StructBuilder::append_zeros(&mut self, n: usize)
-
-pub fn vortex_array::builders::StructBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::StructBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub fn vortex_array::builders::StructBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -10174,10 +10100,6 @@ pub fn vortex_array::builders::VarBinViewBuilder::append_zero(&mut self)
 
 pub fn vortex_array::builders::VarBinViewBuilder::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::VarBinViewBuilder::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::VarBinViewBuilder::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::VarBinViewBuilder::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::VarBinViewBuilder::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -10215,10 +10137,6 @@ pub fn vortex_array::builders::ListViewBuilder<O, S>::append_scalar(&mut self, s
 pub fn vortex_array::builders::ListViewBuilder<O, S>::append_zero(&mut self)
 
 pub fn vortex_array::builders::ListViewBuilder<O, S>::append_zeros(&mut self, n: usize)
-
-pub fn vortex_array::builders::ListViewBuilder<O, S>::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::ListViewBuilder<O, S>::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub fn vortex_array::builders::ListViewBuilder<O, S>::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -10258,10 +10176,6 @@ pub fn vortex_array::builders::ListBuilder<O>::append_zero(&mut self)
 
 pub fn vortex_array::builders::ListBuilder<O>::append_zeros(&mut self, n: usize)
 
-pub fn vortex_array::builders::ListBuilder<O>::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::ListBuilder<O>::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 pub fn vortex_array::builders::ListBuilder<O>::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::builders::ListBuilder<O>::extend_from_array(&mut self, array: &vortex_array::ArrayRef)
@@ -10299,10 +10213,6 @@ pub fn vortex_array::builders::PrimitiveBuilder<T>::append_scalar(&mut self, sca
 pub fn vortex_array::builders::PrimitiveBuilder<T>::append_zero(&mut self)
 
 pub fn vortex_array::builders::PrimitiveBuilder<T>::append_zeros(&mut self, n: usize)
-
-pub fn vortex_array::builders::PrimitiveBuilder<T>::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_array::builders::PrimitiveBuilder<T>::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub fn vortex_array::builders::PrimitiveBuilder<T>::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -19426,9 +19336,7 @@ pub trait vortex_array::scalar_fn::ReduceCtx
 
 pub fn vortex_array::scalar_fn::ReduceCtx::new_node(&self, scalar_fn: vortex_array::scalar_fn::ScalarFnRef, children: &[vortex_array::scalar_fn::ReduceNodeRef]) -> vortex_error::VortexResult<vortex_array::scalar_fn::ReduceNodeRef>
 
-pub trait vortex_array::scalar_fn::ReduceNode
-
-pub fn vortex_array::scalar_fn::ReduceNode::as_any(&self) -> &dyn core::any::Any
+pub trait vortex_array::scalar_fn::ReduceNode: core::any::Any
 
 pub fn vortex_array::scalar_fn::ReduceNode::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
 
@@ -19440,8 +19348,6 @@ pub fn vortex_array::scalar_fn::ReduceNode::scalar_fn(&self) -> core::option::Op
 
 impl vortex_array::scalar_fn::ReduceNode for vortex_array::ArrayRef
 
-pub fn vortex_array::ArrayRef::as_any(&self) -> &dyn core::any::Any
-
 pub fn vortex_array::ArrayRef::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
 
 pub fn vortex_array::ArrayRef::child_count(&self) -> usize
@@ -19451,8 +19357,6 @@ pub fn vortex_array::ArrayRef::node_dtype(&self) -> vortex_error::VortexResult<v
 pub fn vortex_array::ArrayRef::scalar_fn(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFnRef>
 
 impl vortex_array::scalar_fn::ReduceNode for vortex_array::arrays::scalar_fn::ScalarFnArray
-
-pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
 
@@ -19464,8 +19368,6 @@ pub fn vortex_array::arrays::scalar_fn::ScalarFnArray::scalar_fn(&self) -> core:
 
 impl<V: vortex_array::vtable::VTable> vortex_array::scalar_fn::ReduceNode for vortex_array::ArrayAdapter<V>
 
-pub fn vortex_array::ArrayAdapter<V>::as_any(&self) -> &dyn core::any::Any
-
 pub fn vortex_array::ArrayAdapter<V>::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
 
 pub fn vortex_array::ArrayAdapter<V>::child_count(&self) -> usize
@@ -19475,8 +19377,6 @@ pub fn vortex_array::ArrayAdapter<V>::node_dtype(&self) -> vortex_error::VortexR
 pub fn vortex_array::ArrayAdapter<V>::scalar_fn(&self) -> core::option::Option<&vortex_array::scalar_fn::ScalarFnRef>
 
 impl<V: vortex_array::vtable::VTable> vortex_array::scalar_fn::ReduceNode for vortex_array::vtable::Array<V>
-
-pub fn vortex_array::vtable::Array<V>::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_array::vtable::Array<V>::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
 
@@ -21068,8 +20968,6 @@ pub fn vortex_array::vtable::Array<V>::all_valid(&self) -> vortex_error::VortexR
 
 pub fn vortex_array::vtable::Array<V>::append_to_builder(&self, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::vtable::Array<V>::as_any(&self) -> &dyn core::any::Any
-
 pub fn vortex_array::vtable::Array<V>::as_any_arc(self: alloc::sync::Arc<Self>) -> alloc::sync::Arc<(dyn core::any::Any + core::marker::Send + core::marker::Sync)>
 
 pub fn vortex_array::vtable::Array<V>::dtype(&self) -> &vortex_array::dtype::DType
@@ -21113,8 +21011,6 @@ impl<V: vortex_array::vtable::VTable> vortex_array::IntoArray for vortex_array::
 pub fn vortex_array::vtable::Array<V>::into_array(self) -> vortex_array::ArrayRef
 
 impl<V: vortex_array::vtable::VTable> vortex_array::scalar_fn::ReduceNode for vortex_array::vtable::Array<V>
-
-pub fn vortex_array::vtable::Array<V>::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_array::vtable::Array<V>::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
 
@@ -24368,8 +24264,6 @@ pub fn vortex_array::ArrayAdapter<V>::all_valid(&self) -> vortex_error::VortexRe
 
 pub fn vortex_array::ArrayAdapter<V>::append_to_builder(&self, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::ArrayAdapter<V>::as_any(&self) -> &dyn core::any::Any
-
 pub fn vortex_array::ArrayAdapter<V>::as_any_arc(self: alloc::sync::Arc<Self>) -> alloc::sync::Arc<(dyn core::any::Any + core::marker::Send + core::marker::Sync)>
 
 pub fn vortex_array::ArrayAdapter<V>::dtype(&self) -> &vortex_array::dtype::DType
@@ -24409,8 +24303,6 @@ pub fn vortex_array::ArrayAdapter<V>::validity_mask(&self) -> vortex_error::Vort
 pub fn vortex_array::ArrayAdapter<V>::vtable(&self) -> &dyn vortex_array::vtable::DynVTable
 
 impl<V: vortex_array::vtable::VTable> vortex_array::scalar_fn::ReduceNode for vortex_array::ArrayAdapter<V>
-
-pub fn vortex_array::ArrayAdapter<V>::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_array::ArrayAdapter<V>::child(&self, idx: usize) -> vortex_array::scalar_fn::ReduceNodeRef
 
@@ -24812,15 +24704,13 @@ pub type vortex_array::ProstMetadata<M>::Output = M
 
 pub fn vortex_array::ProstMetadata<M>::deserialize(metadata: &[u8]) -> vortex_error::VortexResult<Self::Output>
 
-pub trait vortex_array::DynArray: 'static + vortex_array::array::private::Sealed + core::marker::Send + core::marker::Sync + core::fmt::Debug + vortex_array::DynArrayEq + vortex_array::DynArrayHash + vortex_array::ArrayVisitor + vortex_array::scalar_fn::ReduceNode
+pub trait vortex_array::DynArray: 'static + vortex_array::array::private::Sealed + core::marker::Send + core::marker::Sync + core::fmt::Debug + vortex_array::DynArrayEq + vortex_array::DynArrayHash + vortex_array::ArrayVisitor + vortex_array::scalar_fn::ReduceNode + core::any::Any
 
 pub fn vortex_array::DynArray::all_invalid(&self) -> vortex_error::VortexResult<bool>
 
 pub fn vortex_array::DynArray::all_valid(&self) -> vortex_error::VortexResult<bool>
 
 pub fn vortex_array::DynArray::append_to_builder(&self, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::DynArray::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_array::DynArray::as_any_arc(self: alloc::sync::Arc<Self>) -> alloc::sync::Arc<(dyn core::any::Any + core::marker::Send + core::marker::Sync)>
 
@@ -24868,8 +24758,6 @@ pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::all_valid(&self) -> vortex_
 
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::append_to_builder(&self, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::as_any(&self) -> &dyn core::any::Any
-
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::as_any_arc(self: alloc::sync::Arc<Self>) -> alloc::sync::Arc<(dyn core::any::Any + core::marker::Send + core::marker::Sync)>
 
 pub fn alloc::sync::Arc<dyn vortex_array::DynArray>::dtype(&self) -> &vortex_array::dtype::DType
@@ -24916,8 +24804,6 @@ pub fn vortex_array::ArrayAdapter<V>::all_valid(&self) -> vortex_error::VortexRe
 
 pub fn vortex_array::ArrayAdapter<V>::append_to_builder(&self, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::ArrayAdapter<V>::as_any(&self) -> &dyn core::any::Any
-
 pub fn vortex_array::ArrayAdapter<V>::as_any_arc(self: alloc::sync::Arc<Self>) -> alloc::sync::Arc<(dyn core::any::Any + core::marker::Send + core::marker::Sync)>
 
 pub fn vortex_array::ArrayAdapter<V>::dtype(&self) -> &vortex_array::dtype::DType
@@ -24963,8 +24849,6 @@ pub fn vortex_array::vtable::Array<V>::all_invalid(&self) -> vortex_error::Vorte
 pub fn vortex_array::vtable::Array<V>::all_valid(&self) -> vortex_error::VortexResult<bool>
 
 pub fn vortex_array::vtable::Array<V>::append_to_builder(&self, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::vtable::Array<V>::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_array::vtable::Array<V>::as_any_arc(self: alloc::sync::Arc<Self>) -> alloc::sync::Arc<(dyn core::any::Any + core::marker::Send + core::marker::Sync)>
 

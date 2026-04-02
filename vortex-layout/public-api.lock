@@ -1668,8 +1668,6 @@ pub fn vortex_layout::LayoutAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<
 
 impl<V: vortex_layout::VTable> vortex_layout::Layout for vortex_layout::LayoutAdapter<V>
 
-pub fn vortex_layout::LayoutAdapter<V>::as_any(&self) -> &dyn core::any::Any
-
 pub fn vortex_layout::LayoutAdapter<V>::as_any_arc(self: alloc::sync::Arc<Self>) -> alloc::sync::Arc<(dyn core::any::Any + core::marker::Send + core::marker::Sync)>
 
 pub fn vortex_layout::LayoutAdapter<V>::child(&self, idx: usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
@@ -1699,8 +1697,6 @@ impl<V: vortex_layout::VTable> core::fmt::Debug for vortex_layout::LayoutEncodin
 pub fn vortex_layout::LayoutEncodingAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl<V: vortex_layout::VTable> vortex_layout::LayoutEncoding for vortex_layout::LayoutEncodingAdapter<V>
-
-pub fn vortex_layout::LayoutEncodingAdapter<V>::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_layout::LayoutEncodingAdapter<V>::build(&self, dtype: &vortex_array::dtype::DType, row_count: u64, metadata: &[u8], segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
@@ -1746,9 +1742,7 @@ impl vortex_layout::IntoLayout for vortex_layout::layouts::zoned::ZonedLayout
 
 pub fn vortex_layout::layouts::zoned::ZonedLayout::into_layout(self) -> vortex_layout::LayoutRef
 
-pub trait vortex_layout::Layout: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug + vortex_layout::layout::private::Sealed
-
-pub fn vortex_layout::Layout::as_any(&self) -> &dyn core::any::Any
+pub trait vortex_layout::Layout: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug + core::any::Any + vortex_layout::layout::private::Sealed
 
 pub fn vortex_layout::Layout::as_any_arc(self: alloc::sync::Arc<Self>) -> alloc::sync::Arc<(dyn core::any::Any + core::marker::Send + core::marker::Sync)>
 
@@ -1773,8 +1767,6 @@ pub fn vortex_layout::Layout::segment_ids(&self) -> alloc::vec::Vec<vortex_layou
 pub fn vortex_layout::Layout::to_layout(&self) -> vortex_layout::LayoutRef
 
 impl<V: vortex_layout::VTable> vortex_layout::Layout for vortex_layout::LayoutAdapter<V>
-
-pub fn vortex_layout::LayoutAdapter<V>::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_layout::LayoutAdapter<V>::as_any_arc(self: alloc::sync::Arc<Self>) -> alloc::sync::Arc<(dyn core::any::Any + core::marker::Send + core::marker::Sync)>
 
@@ -1818,17 +1810,13 @@ pub fn alloc::sync::Arc<dyn vortex_layout::LayoutChildren>::nchildren(&self) -> 
 
 pub fn alloc::sync::Arc<dyn vortex_layout::LayoutChildren>::to_arc(&self) -> alloc::sync::Arc<dyn vortex_layout::LayoutChildren>
 
-pub trait vortex_layout::LayoutEncoding: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug + vortex_layout::encoding::private::Sealed
-
-pub fn vortex_layout::LayoutEncoding::as_any(&self) -> &dyn core::any::Any
+pub trait vortex_layout::LayoutEncoding: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug + core::any::Any + vortex_layout::encoding::private::Sealed
 
 pub fn vortex_layout::LayoutEncoding::build(&self, dtype: &vortex_array::dtype::DType, row_count: u64, metadata: &[u8], segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 
 pub fn vortex_layout::LayoutEncoding::id(&self) -> vortex_layout::LayoutEncodingId
 
 impl<V: vortex_layout::VTable> vortex_layout::LayoutEncoding for vortex_layout::LayoutEncodingAdapter<V>
-
-pub fn vortex_layout::LayoutEncodingAdapter<V>::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_layout::LayoutEncodingAdapter<V>::build(&self, dtype: &vortex_array::dtype::DType, row_count: u64, metadata: &[u8], segment_ids: alloc::vec::Vec<vortex_layout::segments::SegmentId>, children: &dyn vortex_layout::LayoutChildren, ctx: &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
 

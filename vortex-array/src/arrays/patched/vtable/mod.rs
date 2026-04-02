@@ -5,6 +5,7 @@ mod kernels;
 mod operations;
 mod slice;
 
+use std::any::Any;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
@@ -216,8 +217,7 @@ impl VTable for Patched {
             .execute::<PrimitiveArray>(ctx)?;
 
         match_each_native_ptype!(ptype, |V| {
-            let typed_builder = builder
-                .as_any_mut()
+            let typed_builder = (builder as &mut dyn Any)
                 .downcast_mut::<PrimitiveBuilder<V>>()
                 .vortex_expect("correctly typed builder");
 

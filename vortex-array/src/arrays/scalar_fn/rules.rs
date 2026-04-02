@@ -182,7 +182,8 @@ impl ReduceCtx for ArrayReduceCtx {
                 children
                     .iter()
                     .map(|c| {
-                        (c as &dyn Any)
+                        // Dereference the Arc to get &dyn ReduceNode, then upcast to &dyn Any
+                        (c.as_ref() as &dyn Any)
                             .downcast_ref::<ArrayRef>()
                             .vortex_expect("ReduceNode is not an ArrayRef")
                             .clone()

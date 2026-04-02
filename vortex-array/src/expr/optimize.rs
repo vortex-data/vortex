@@ -274,7 +274,8 @@ impl ReduceCtx for ExpressionReduceCtx {
             children
                 .iter()
                 .map(|c| {
-                    (c as &dyn Any)
+                    // Dereference the Arc to get &dyn ReduceNode, then upcast to &dyn Any
+                    (c.as_ref() as &dyn Any)
                         .downcast_ref::<ExpressionReduceNode>()
                         .vortex_expect("ReduceNode not an ExpressionReduceNode")
                         .expression
