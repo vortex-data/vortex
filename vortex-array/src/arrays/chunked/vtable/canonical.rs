@@ -12,8 +12,10 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
@@ -45,7 +47,6 @@ pub(super) fn _canonicalize(
                 &owned_chunks,
                 Validity::copy_from_array(array.array())?,
                 struct_dtype,
-                ctx,
             )?;
             Canonical::Struct(struct_array)
         }
@@ -66,24 +67,22 @@ pub(super) fn _canonicalize(
 /// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`DynArray`] for each
 /// field is a [`ChunkedArray`].
 ///
-/// The caller guarantees there are at least 2 chunks.
+/// The caller guarantees there are at least 2 chunks, and that all chunks are already
+/// canonicalized to [`StructArray`] by iterative execution.
 fn pack_struct_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
     struct_dtype: &StructFields,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<StructArray> {
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
-    let executed_chunks: Vec<StructArray> = chunks
-        .iter()
-        .map(|c| c.clone().execute::<StructArray>(ctx))
-        .collect::<VortexResult<_>>()?;
-
     for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
         let mut field_chunks = Vec::with_capacity(chunks.len());
-        for struct_array in &executed_chunks {
+        for chunk in chunks {
+            let struct_array = chunk
+                .as_opt::<Struct>()
+                .vortex_expect("struct chunk pre-canonicalized by iterative execution");
             let field = struct_array.unmasked_field(field_idx).clone();
             field_chunks.push(field);
         }
@@ -103,7 +102,8 @@ fn pack_struct_chunks(
 ///
 /// We use the existing arrays (chunks) to form a chunked array of `elements` (the child array).
 ///
-/// The caller guarantees there are at least 2 chunks.
+/// The caller guarantees there are at least 2 chunks, and that all chunks are already
+/// canonicalized to [`ListViewArray`] by iterative execution.
 fn swizzle_list_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
@@ -135,7 +135,11 @@ fn swizzle_list_chunks(
     let mut sizes = BufferMut::<u64>::with_capacity(len);
 
     for chunk in chunks {
-        let chunk_array = chunk.clone().execute::<ListViewArray>(ctx)?;
+        let chunk_array = chunk
+            .clone()
+            .try_downcast::<ListView>()
+            .ok()
+            .vortex_expect("list chunk pre-canonicalized by iterative execution");
         // By rebuilding as zero-copy to `List` and trimming all elements (to prevent gaps), we make
         // the final output `ListView` also zero-copyable to `List`.
         let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact)?;

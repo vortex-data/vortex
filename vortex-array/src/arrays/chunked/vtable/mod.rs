@@ -12,6 +12,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
@@ -237,7 +238,22 @@ impl VTable for Chunked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
+        // Iteratively request execution of each chunk until it reaches canonical form.
+        // This gives the scheduler visibility into child execution and enables
+        // cross-step optimizations between chunk decoding steps.
+        for i in 0..array.nchunks() {
+            if !array.chunk(i).is::<AnyCanonical>() {
+                return Ok(ExecutionResult::execute_slot::<AnyCanonical>(
+                    array,
+                    i + CHUNKS_OFFSET,
+                ));
+            }
+        }
+
+        // All chunks are now canonical — combine them.
+        Ok(ExecutionResult::done(
+            _canonicalize(array.as_view(), ctx)?,
+        ))
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
