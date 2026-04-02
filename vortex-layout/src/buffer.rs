@@ -472,11 +472,12 @@ fn validate_filter_ranges(ranges: &[Range<usize>], len: usize) {
 
 #[cfg(test)]
 mod tests {
+    use std::iter;
     use std::ops::Range;
     use std::sync::Arc;
-    use std::sync::Mutex;
 
     use futures::FutureExt;
+    use parking_lot::Mutex;
     use vortex_array::buffer::BufferHandle;
     use vortex_buffer::Alignment;
     use vortex_buffer::ByteBuffer;
@@ -489,10 +490,14 @@ mod tests {
     use crate::segments::SegmentSource;
     use crate::segments::apply_ranges;
 
+    type RangeRequest = Vec<Range<usize>>;
+    type RangeRequestLog = Vec<RangeRequest>;
+    type SharedRangeRequestLog = Arc<Mutex<RangeRequestLog>>;
+
     /// A trivial in-memory segment source for tests.
     struct SingleSegment {
         buffer: BufferHandle,
-        ranged_requests: Arc<Mutex<Vec<Vec<Range<usize>>>>>,
+        ranged_requests: SharedRangeRequestLog,
     }
 
     impl SegmentSource for SingleSegment {
@@ -506,10 +511,7 @@ mod tests {
         }
 
         fn request_ranges(&self, _id: SegmentId, ranges: Vec<Range<usize>>) -> SegmentFuture {
-            self.ranged_requests
-                .lock()
-                .expect("range request log poisoned")
-                .push(ranges.clone());
+            self.ranged_requests.lock().push(ranges.clone());
             let handle = self.buffer.clone();
             async move { apply_ranges(handle, &ranges) }.boxed()
         }
@@ -519,7 +521,7 @@ mod tests {
         lazy_with_requests(data).0
     }
 
-    fn lazy_with_requests(data: &[u8]) -> (LazyBufferHandle, Arc<Mutex<Vec<Vec<Range<usize>>>>>) {
+    fn lazy_with_requests(data: &[u8]) -> (LazyBufferHandle, SharedRangeRequestLog) {
         let buf = BufferHandle::new_host(ByteBuffer::copy_from(data));
         let ranged_requests = Arc::new(Mutex::new(Vec::new()));
         (
@@ -656,13 +658,11 @@ mod tests {
         block_on(|_| async {
             let (lazy, ranged_requests) = lazy_with_requests(&[1, 2, 3, 4, 5, 6]);
             let handle = lazy.slice(1..5).materialize().await?;
+            let expected_ranges: RangeRequest = iter::once(1..5).collect();
             assert_eq!(handle.unwrap_host().as_slice(), &[2, 3, 4, 5]);
             assert_eq!(
-                ranged_requests
-                    .lock()
-                    .expect("range request log poisoned")
-                    .as_slice(),
-                &[vec![1..5]]
+                ranged_requests.lock().as_slice(),
+                std::slice::from_ref(&expected_ranges)
             );
             Ok(())
         })

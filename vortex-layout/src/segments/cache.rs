@@ -237,8 +237,9 @@ mod tests {
         let full = adapter.request(SegmentId::from(0)).await.unwrap();
         assert_eq!(full.unwrap_host().as_slice(), &[1, 2, 3, 4]);
 
+        let requested_ranges = std::iter::once(1..3).collect();
         let ranges = adapter
-            .request_ranges(SegmentId::from(0), vec![1..3])
+            .request_ranges(SegmentId::from(0), requested_ranges)
             .await
             .unwrap();
         assert_eq!(ranges.unwrap_host().as_slice(), &[2, 3]);
