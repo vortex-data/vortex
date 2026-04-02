@@ -100,10 +100,13 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch.dtype()
         );
 
+        // Allow the vtable to short-circuit on the raw array before decompression.
+        if self.vtable.try_accumulate(&mut self.partial, batch, ctx)? {
+            return Ok(());
+        }
+
         let session = ctx.session().clone();
-        let agg_fns = session.aggregate_fns();
-        let kernels = &agg_fns.kernels;
-        let generic_kernels = &agg_fns.generic_kernels;
+        let kernels = &session.aggregate_fns().kernels;
 
         let mut batch = batch.clone();
         for _ in 0..*MAX_ITERATIONS {
@@ -116,27 +119,6 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             if let Some(result) = kernels_r
                 .get(&(batch_id.clone(), Some(self.aggregate_fn.id())))
                 .or_else(|| kernels_r.get(&(batch_id, None)))
-                .and_then(|kernel| {
-                    kernel
-                        .aggregate(&self.aggregate_fn, &batch, ctx)
-                        .transpose()
-                })
-                .transpose()?
-            {
-                vortex_ensure!(
-                    result.dtype() == &self.partial_dtype,
-                    "Aggregate kernel returned {}, expected {}",
-                    result.dtype(),
-                    self.partial_dtype,
-                );
-                self.vtable.combine_partials(&mut self.partial, result)?;
-                return Ok(());
-            }
-
-            // Try encoding-agnostic kernels before decompressing.
-            let generic_r = generic_kernels.read();
-            if let Some(result) = generic_r
-                .get(&self.aggregate_fn.id())
                 .and_then(|kernel| {
                     kernel
                         .aggregate(&self.aggregate_fn, &batch, ctx)

@@ -12,8 +12,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::fns::count::Count;
-use crate::aggregate_fn::fns::count::CountKernel;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::min_max::MinMax;
@@ -38,9 +36,6 @@ pub struct AggregateFnSession {
     registry: AggregateFnRegistry,
 
     pub(super) kernels: RwLock<HashMap<KernelKey, &'static dyn DynAggregateKernel>>,
-    /// Encoding-agnostic kernels keyed by aggregate function ID.
-    /// These are checked as a fallback after encoding-specific kernels.
-    pub(super) generic_kernels: RwLock<HashMap<AggregateFnId, &'static dyn DynAggregateKernel>>,
     pub(super) grouped_kernels: RwLock<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
 }
 
@@ -51,12 +46,10 @@ impl Default for AggregateFnSession {
         let this = Self {
             registry: AggregateFnRegistry::default(),
             kernels: RwLock::new(HashMap::default()),
-            generic_kernels: RwLock::new(HashMap::default()),
             grouped_kernels: RwLock::new(HashMap::default()),
         };
 
         // Register the built-in aggregate functions
-        this.register(Count);
         this.register(IsConstant);
         this.register(IsSorted);
         this.register(MinMax);
@@ -68,9 +61,6 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(Dict::ID, Some(MinMax.id()), &DictMinMaxKernel);
         this.register_aggregate_kernel(Dict::ID, Some(IsConstant.id()), &DictIsConstantKernel);
         this.register_aggregate_kernel(Dict::ID, Some(IsSorted.id()), &DictIsSortedKernel);
-
-        // Register encoding-agnostic kernels.
-        this.register_generic_kernel(Count.id(), &CountKernel);
 
         this
     }
@@ -97,15 +87,6 @@ impl AggregateFnSession {
         kernel: &'static dyn DynAggregateKernel,
     ) {
         self.kernels.write().insert((array_id, agg_fn_id), kernel);
-    }
-
-    /// Register an encoding-agnostic aggregate kernel for a specific aggregate function.
-    pub fn register_generic_kernel(
-        &self,
-        agg_fn_id: AggregateFnId,
-        kernel: &'static dyn DynAggregateKernel,
-    ) {
-        self.generic_kernels.write().insert(agg_fn_id, kernel);
     }
 }
 

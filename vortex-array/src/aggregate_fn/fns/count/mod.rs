@@ -10,11 +10,9 @@ use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
-use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
-use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -32,29 +30,6 @@ pub fn count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
         .as_primitive()
         .typed_value::<u64>()
         .vortex_expect("count result should not be null"))
-}
-
-/// Encoding-agnostic count kernel.
-///
-/// Count-non-null only depends on validity, not data values. Since every encoding
-/// exposes validity independently, this avoids decompressing the data.
-#[derive(Debug)]
-pub(crate) struct CountKernel;
-
-impl DynAggregateKernel for CountKernel {
-    fn aggregate(
-        &self,
-        aggregate_fn: &AggregateFnRef,
-        batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Scalar>> {
-        if !aggregate_fn.is::<Count>() {
-            return Ok(None);
-        }
-
-        let count = batch.valid_count()? as u64;
-        Ok(Some(Scalar::primitive(count, Nullability::NonNullable)))
-    }
 }
 
 /// Count the number of non-null elements in an array.
@@ -122,24 +97,23 @@ impl AggregateFnVTable for Count {
         false
     }
 
+    fn try_accumulate(
+        &self,
+        state: &mut Self::Partial,
+        batch: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        *state += batch.valid_count()? as u64;
+        Ok(true)
+    }
+
     fn accumulate(
         &self,
-        partial: &mut Self::Partial,
-        batch: &Columnar,
+        _partial: &mut Self::Partial,
+        _batch: &Columnar,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        match batch {
-            Columnar::Constant(c) => {
-                if !c.scalar().is_null() {
-                    *partial += c.len() as u64;
-                }
-            }
-            Columnar::Canonical(c) => {
-                let valid = c.as_ref().valid_count()?;
-                *partial += valid as u64;
-            }
-        }
-        Ok(())
+        unreachable!("Count::try_accumulate handles all arrays")
     }
 
     fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
