@@ -7,9 +7,9 @@ use super::Dict;
 use super::DictArray;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::binary::CompareKernel;
@@ -18,7 +18,7 @@ use crate::scalar_fn::fns::operators::Operator;
 
 impl CompareKernel for Dict {
     fn compare(
-        lhs: &DictArray,
+        lhs: ArrayView<'_, Dict>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
@@ -30,7 +30,7 @@ impl CompareKernel for Dict {
 
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(rhs) = rhs.as_constant() {
-            let compare_result = lhs.values().to_array().binary(
+            let compare_result = lhs.values().clone().binary(
                 ConstantArray::new(rhs, lhs.values().len()).into_array(),
                 Operator::from(operator),
             )?;

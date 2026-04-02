@@ -11,7 +11,6 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Bool;
@@ -103,7 +102,7 @@ impl ScalarFnVTable for Not {
 
         // For boolean array
         if let Some(bool) = child.as_opt::<Bool>() {
-            return Ok(BoolArray::new(!bool.to_bit_buffer(), bool.validity()?).into_array());
+            return Ok(BoolArray::new(!bool.to_bit_buffer(), bool.validity()).into_array());
         }
 
         // Otherwise, execute and try again

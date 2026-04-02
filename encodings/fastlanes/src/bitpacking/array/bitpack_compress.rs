@@ -14,7 +14,6 @@ use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
@@ -25,6 +24,7 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::BitPackedArray;
+use crate::BitPackedData;
 use crate::bitpack_decompress;
 
 pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
@@ -65,7 +65,7 @@ pub fn bitpack_encode(
     }
 
     // SAFETY: we check that array only contains non-negative values.
-    let packed = unsafe { bitpack_unchecked(array, bit_width)? };
+    let packed = unsafe { bitpack_unchecked(array, bit_width) };
     let patches = (num_exceptions > 0)
         .then(|| gather_patches(array, bit_width, num_exceptions))
         .transpose()?
@@ -73,20 +73,25 @@ pub fn bitpack_encode(
 
     // SAFETY: all components validated above
     let bitpacked = unsafe {
-        BitPackedArray::new_unchecked(
+        BitPackedData::new_unchecked(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
-            array.validity().clone(),
+            array.validity(),
             patches,
             bit_width,
             array.len(),
             0,
         )
     };
-    bitpacked
-        .stats_set
-        .to_ref(bitpacked.as_ref())
-        .inherit_from(array.statistics());
+    let bitpacked =
+        BitPackedArray::try_from_data(bitpacked).vortex_expect("BitPackedData is always valid");
+    {
+        let bp_ref = bitpacked.clone().into_array();
+        bitpacked
+            .stats_set
+            .to_ref(&bp_ref)
+            .inherit_from(array.statistics());
+    }
     Ok(bitpacked)
 }
 
@@ -103,24 +108,30 @@ pub unsafe fn bitpack_encode_unchecked(
     bit_width: u8,
 ) -> VortexResult<BitPackedArray> {
     // SAFETY: non-negativity of input checked by caller.
-    let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
+    let packed = unsafe { bitpack_unchecked(&array, bit_width) };
 
     // SAFETY: checked by bitpack_unchecked
-    let bitpacked = unsafe {
-        BitPackedArray::new_unchecked(
+    let data = unsafe {
+        BitPackedData::new_unchecked(
             BufferHandle::new_host(packed),
             array.dtype().clone(),
-            array.validity().clone(),
+            array.validity(),
             None,
             bit_width,
             array.len(),
             0,
         )
     };
-    bitpacked
-        .stats_set
-        .to_ref(bitpacked.as_ref())
-        .inherit_from(array.statistics());
+    let bitpacked =
+        BitPackedArray::try_from_data(data).vortex_expect("BitPackedData is always valid");
+    {
+        let bp_ref = bitpacked.clone().into_array();
+        let arr_ref = array.into_array();
+        bitpacked
+            .stats_set
+            .to_ref(&bp_ref)
+            .inherit_from(arr_ref.statistics());
+    }
     Ok(bitpacked)
 }
 
@@ -135,15 +146,11 @@ pub unsafe fn bitpack_encode_unchecked(
 ///
 /// It is the caller's responsibility to ensure that `parray` is non-negative before calling
 /// this function.
-pub unsafe fn bitpack_unchecked(
-    parray: &PrimitiveArray,
-    bit_width: u8,
-) -> VortexResult<ByteBuffer> {
+pub unsafe fn bitpack_unchecked(parray: &PrimitiveArray, bit_width: u8) -> ByteBuffer {
     let parray = parray.reinterpret_cast(parray.ptype().to_unsigned());
-    let packed = match_each_unsigned_integer_ptype!(parray.ptype(), |P| {
+    match_each_unsigned_integer_ptype!(parray.ptype(), |P| {
         bitpack_primitive(parray.as_slice::<P>(), bit_width).into_byte_buffer()
-    });
-    Ok(packed)
+    })
 }
 
 /// Bitpack a slice of primitives down to the given width.
@@ -461,7 +468,7 @@ mod test {
             Validity::from_iter(valid_values),
         );
         assert!(values.ptype().is_unsigned_int());
-        let compressed = BitPackedArray::encode(&values.into_array(), 4).unwrap();
+        let compressed = BitPackedData::encode(&values.into_array(), 4).unwrap();
         assert!(compressed.patches().is_none());
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
@@ -480,7 +487,7 @@ mod test {
         let array = PrimitiveArray::new(values, Validity::AllValid);
         assert!(array.ptype().is_signed_int());
 
-        let err = BitPackedArray::encode(&array.into_array(), 1024u32.ilog2() as u8).unwrap_err();
+        let err = BitPackedData::encode(&array.into_array(), 1024u32.ilog2() as u8).unwrap_err();
         assert!(matches!(err, VortexError::InvalidArgument(_, _)));
     }
 
@@ -493,12 +500,10 @@ mod test {
             .collect::<Vec<_>>();
         let chunked = ChunkedArray::from_iter(chunks).into_array();
 
-        let into_ca = chunked.clone().to_primitive();
+        let into_ca = chunked.to_primitive();
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        chunked
-            .clone()
-            .append_to_builder(&mut primitive_builder, &mut SESSION.create_execution_ctx())?;
+        chunked.append_to_builder(&mut primitive_builder, &mut SESSION.create_execution_ctx())?;
         let ca_into = primitive_builder.finish();
 
         assert_arrays_eq!(into_ca, ca_into);

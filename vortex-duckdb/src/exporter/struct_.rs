@@ -81,6 +81,7 @@ mod tests {
     use std::ffi::CString;
 
     use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -89,7 +90,6 @@ mod tests {
     use vortex::buffer::BitBuffer;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;

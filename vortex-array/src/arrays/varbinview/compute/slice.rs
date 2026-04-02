@@ -9,6 +9,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::filter::FilterReduce;
@@ -16,15 +17,15 @@ use crate::arrays::slice::SliceReduce;
 use crate::arrays::varbinview::BinaryView;
 
 impl SliceReduce for VarBinView {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             VarBinViewArray::new_handle(
                 array
                     .views_handle()
                     .slice_typed::<BinaryView>(range.clone()),
-                Arc::clone(array.buffers()),
+                Arc::clone(array.data_buffers()),
                 array.dtype().clone(),
-                array.validity()?.slice(range)?,
+                array.validity().slice(range)?,
             )
             .into_array(),
         ))
@@ -32,7 +33,7 @@ impl SliceReduce for VarBinView {
 }
 
 impl FilterReduce for VarBinView {
-    fn filter(array: &VarBinViewArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let ranges: Vec<Range<usize>> = mask
             .slices()
             .unwrap_or_else(|| unreachable!(), || unreachable!())
@@ -42,9 +43,9 @@ impl FilterReduce for VarBinView {
         Ok(Some(
             VarBinViewArray::new_handle(
                 array.views_handle().filter_typed::<BinaryView>(&ranges)?,
-                Arc::clone(array.buffers()),
+                Arc::clone(array.data_buffers()),
                 array.dtype().clone(),
-                array.validity()?.filter(mask)?,
+                array.validity().filter(mask)?,
             )
             .into_array(),
         ))

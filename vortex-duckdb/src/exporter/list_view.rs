@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -54,7 +53,7 @@ pub(crate) fn new_exporter(
         offsets,
         sizes,
         validity,
-    } = array.into_parts();
+    } = array.into_data().into_parts();
     // Cache an `elements` vector up front so that future exports can reference it.
     let num_elements = elements.len();
     let nullability = validity.nullability();
@@ -65,7 +64,7 @@ pub(crate) fn new_exporter(
         return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
-    let values_key = Arc::as_ptr(&elements).addr();
+    let values_key = elements.addr();
     // Check if we have a cached vector and extract it if we do.
     let cached_elements = cache
         .values_cache
@@ -88,14 +87,14 @@ pub(crate) fn new_exporter(
             let shared_elements = Arc::new(Mutex::new(duckdb_elements));
             cache
                 .values_cache
-                .insert(values_key, (elements.clone(), shared_elements.clone()));
+                .insert(values_key, (elements, shared_elements.clone()));
 
             shared_elements
         }
     };
 
     let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
-    let sizes = sizes.clone().execute::<PrimitiveArray>(ctx)?;
+    let sizes = sizes.execute::<PrimitiveArray>(ctx)?;
 
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
@@ -172,12 +171,12 @@ impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S>
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray as _;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;

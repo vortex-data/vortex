@@ -4,8 +4,7 @@
 mod array;
 mod metadata;
 mod rules;
-mod slice;
 mod vtable;
 
-pub use array::*;
+pub use array::ScalarFnData;
 pub use vtable::*;

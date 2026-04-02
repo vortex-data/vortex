@@ -9,14 +9,12 @@ use vortex_array::arrays::TemporalArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
-use crate::DateTimePartsArray;
+use crate::DateTimePartsData;
 use crate::timestamp;
-
 pub struct TemporalParts {
     pub days: ArrayRef,
     pub seconds: ArrayRef,
@@ -53,13 +51,13 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
     }
 
     Ok(TemporalParts {
-        days: PrimitiveArray::new(days, temporal_values.validity().clone()).into_array(),
+        days: PrimitiveArray::new(days, temporal_values.validity()).into_array(),
         seconds: seconds.into_array(),
         subseconds: subseconds.into_array(),
     })
 }
 
-impl TryFrom<TemporalArray> for DateTimePartsArray {
+impl TryFrom<TemporalArray> for DateTimePartsData {
     type Error = VortexError;
 
     fn try_from(array: TemporalArray) -> Result<Self, Self::Error> {
@@ -69,7 +67,7 @@ impl TryFrom<TemporalArray> for DateTimePartsArray {
             seconds,
             subseconds,
         } = split_temporal(array)?;
-        DateTimePartsArray::try_new(DType::Extension(ext_dtype), days, seconds, subseconds)
+        DateTimePartsData::try_new(DType::Extension(ext_dtype), days, seconds, subseconds)
     }
 }
 
@@ -84,7 +82,6 @@ mod tests {
     use vortex_array::arrays::TemporalArray;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
 
     use crate::TemporalParts;

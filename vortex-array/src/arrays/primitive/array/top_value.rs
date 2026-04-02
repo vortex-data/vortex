@@ -15,6 +15,7 @@ use crate::arrays::primitive::NativeValue;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
 use crate::scalar::PValue;
+use crate::validity::Validity;
 
 impl PrimitiveArray {
     /// Compute most common present value of this array
@@ -23,7 +24,7 @@ impl PrimitiveArray {
             return Ok(None);
         }
 
-        if self.all_invalid()? {
+        if matches!(self.validity(), Validity::AllInvalid) {
             return Ok(None);
         }
 

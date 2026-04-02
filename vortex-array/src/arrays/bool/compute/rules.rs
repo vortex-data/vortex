@@ -5,17 +5,16 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::vtable::ValidityHelper;
 
 pub(crate) const RULES: ParentRuleSet<Bool> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&BoolMaskedValidityRule),
@@ -37,8 +36,8 @@ impl ArrayParentReduceRule<Bool> for BoolMaskedValidityRule {
 
     fn reduce_parent(
         &self,
-        array: &BoolArray,
-        parent: &MaskedArray,
+        array: ArrayView<'_, Bool>,
+        parent: ArrayView<'_, Masked>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         if child_idx > 0 {
@@ -50,7 +49,7 @@ impl ArrayParentReduceRule<Bool> for BoolMaskedValidityRule {
         Ok(Some(
             BoolArray::new(
                 array.to_bit_buffer(),
-                array.validity().clone().and(parent.validity().clone())?,
+                array.validity().and(parent.validity())?,
             )
             .into_array(),
         ))

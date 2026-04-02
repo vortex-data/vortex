@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::encodings::bytebool::ByteBool;
-use vortex::encodings::bytebool::ByteBoolArray;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -61,16 +60,16 @@ impl FlatLayoutFixture for ByteBoolFixture {
                 "edge_nulls",
             ]),
             vec![
-                ByteBoolArray::from_vec(alternating, Validity::NonNullable).into_array(),
-                ByteBoolArray::from_vec(mostly_true, Validity::NonNullable).into_array(),
-                ByteBoolArray::from_vec(mixed, Validity::NonNullable).into_array(),
-                ByteBoolArray::from_vec(nullable_vals, nullable_validity).into_array(),
-                ByteBoolArray::from_vec(all_false, Validity::NonNullable).into_array(),
-                ByteBoolArray::from_vec(all_true, Validity::NonNullable).into_array(),
-                ByteBoolArray::from_vec(all_null_vals, Validity::AllInvalid).into_array(),
-                ByteBoolArray::from_vec(single_flip, Validity::NonNullable).into_array(),
-                ByteBoolArray::from_vec(sparse_true, Validity::NonNullable).into_array(),
-                ByteBoolArray::from_vec(edge_null_vals, edge_null_validity).into_array(),
+                ByteBool::from_vec(alternating, Validity::NonNullable).into_array(),
+                ByteBool::from_vec(mostly_true, Validity::NonNullable).into_array(),
+                ByteBool::from_vec(mixed, Validity::NonNullable).into_array(),
+                ByteBool::from_vec(nullable_vals, nullable_validity).into_array(),
+                ByteBool::from_vec(all_false, Validity::NonNullable).into_array(),
+                ByteBool::from_vec(all_true, Validity::NonNullable).into_array(),
+                ByteBool::from_vec(all_null_vals, Validity::AllInvalid).into_array(),
+                ByteBool::from_vec(single_flip, Validity::NonNullable).into_array(),
+                ByteBool::from_vec(sparse_true, Validity::NonNullable).into_array(),
+                ByteBool::from_vec(edge_null_vals, edge_null_validity).into_array(),
             ],
             N,
             Validity::NonNullable,

@@ -36,9 +36,8 @@ pub mod buffer {
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
-    pub use vortex_btrblocks::FloatCode;
-    pub use vortex_btrblocks::IntCode;
-    pub use vortex_btrblocks::StringCode;
+    pub use vortex_btrblocks::Scheme;
+    pub use vortex_btrblocks::SchemeId;
 }
 
 pub mod dtype {
@@ -197,7 +196,6 @@ mod test {
     use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
@@ -215,11 +213,10 @@ mod test {
 
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-        use vortex::array::DynArray;
         use vortex::array::arrays::ChunkedArray;
+        use vortex::array::arrow::FromArrowArray;
         use vortex::dtype::DType;
         use vortex::dtype::arrow::FromArrowType;
-        use vortex_array::arrow::FromArrowArray;
 
         let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(
             "../docs/_static/example.parquet",
@@ -253,7 +250,7 @@ mod test {
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),
-            array.nbytes()
+            array.into_array().nbytes()
         );
         // [compress]
 
@@ -274,7 +271,7 @@ mod test {
             .write_options()
             .write(
                 &mut tokio::fs::File::create(&path).await?,
-                array.to_array_stream(),
+                array.into_array().to_array_stream(),
             )
             .await?;
 
@@ -318,7 +315,7 @@ mod test {
             )
             .write(
                 &mut tokio::fs::File::create(&path).await?,
-                array.to_array_stream(),
+                array.clone().into_array().to_array_stream(),
             )
             .await?;
 
@@ -340,7 +337,7 @@ mod test {
         assert!(
             recovered_primitive
                 .validity()
-                .mask_eq(array.validity(), &mut ctx)?
+                .mask_eq(&array.validity(), &mut ctx)?
         );
         assert_eq!(
             recovered_primitive.to_buffer::<u64>(),
@@ -375,7 +372,7 @@ mod test {
             .write_options()
             .write(
                 &mut tokio::fs::File::create(&path).await?,
-                array.to_array_stream(),
+                array.into_array().to_array_stream(),
             )
             .await?;
 

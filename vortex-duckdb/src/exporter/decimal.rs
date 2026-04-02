@@ -47,7 +47,7 @@ pub(crate) fn new_exporter(
         decimal_dtype,
         values_type,
         values,
-    } = array.into_parts();
+    } = array.into_data().into_parts();
     let dest_values_type = precision_to_duckdb_storage_size(&decimal_dtype)?;
     let nullability = validity.nullability();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;
@@ -138,10 +138,10 @@ pub fn precision_to_duckdb_storage_size(decimal_dtype: &DecimalDType) -> VortexR
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::DecimalArray;
     use vortex::dtype::DecimalDType;
     use vortex::error::VortexExpect;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;

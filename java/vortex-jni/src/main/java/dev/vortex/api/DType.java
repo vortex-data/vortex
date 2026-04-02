@@ -46,9 +46,14 @@ public interface DType extends AutoCloseable {
     List<DType> getFieldTypes();
 
     /**
-     * Get the element type for a LIST type.
+     * Get the element type for a LIST or FIXED_SIZE_LIST type.
      */
     DType getElementType();
+
+    /**
+     * Get the fixed size for a FIXED_SIZE_LIST type.
+     */
+    int getFixedSizeListSize();
 
     /**
      * Checks if this data type represents a date.
@@ -232,6 +237,19 @@ public interface DType extends AutoCloseable {
         // Get the pointer
         JNIDType jniType = (JNIDType) element;
         return new JNIDType(NativeDTypeMethods.newList(jniType.getPointer(), isNullable), true);
+    }
+
+    /**
+     * Create a new FixedSizeList data type.
+     *
+     * @param element    DType of the list elements
+     * @param size       The fixed size of each list
+     * @param isNullable True if the values can be null
+     * @return The new DType instance, allocated in native heap memory
+     */
+    static DType newFixedSizeList(DType element, int size, boolean isNullable) {
+        JNIDType jniType = (JNIDType) element;
+        return new JNIDType(NativeDTypeMethods.newFixedSizeList(jniType.getPointer(), size, isNullable), true);
     }
 
     /**
@@ -467,12 +485,17 @@ public interface DType extends AutoCloseable {
          * Decimal type for precise numeric values
          */
         DECIMAL,
+
+        /**
+         * Fixed-size list type containing a fixed number of elements of a single type
+         */
+        FIXED_SIZE_LIST,
         ;
 
         /**
          * Converts a byte value to the corresponding Variant enum.
          *
-         * @param variant the byte value representing the variant (0-18)
+         * @param variant the byte value representing the variant (0-19)
          * @return the corresponding {@link Variant} enum value
          * @throws RuntimeException if the variant value is not recognized
          */
@@ -516,6 +539,8 @@ public interface DType extends AutoCloseable {
                     return EXTENSION;
                 case 18:
                     return DECIMAL;
+                case 19:
+                    return FIXED_SIZE_LIST;
                 default:
                     throw new IllegalArgumentException("Unknown DType variant: " + variant);
             }

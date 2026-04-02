@@ -30,7 +30,6 @@ use vortex_array::expr::transform::replace;
 use vortex_array::expr::transform::replace_root_fields;
 use vortex_array::scalar_fn::fns::merge::Merge;
 use vortex_array::scalar_fn::fns::pack::Pack;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -363,8 +362,7 @@ impl LayoutReader for StructReader {
                 if is_pack_merge {
                     let struct_array = array.to_struct();
                     let masked_fields: Vec<ArrayRef> = struct_array
-                        .unmasked_fields()
-                        .iter()
+                        .iter_unmasked_fields()
                         .map(|a| a.clone().mask(validity.clone()))
                         .try_collect()?;
 
@@ -372,7 +370,7 @@ impl LayoutReader for StructReader {
                         struct_array.names().clone(),
                         masked_fields,
                         struct_array.len(),
-                        struct_array.validity().clone(),
+                        struct_array.validity(),
                     )?
                     .into_array())
                 } else {
@@ -394,7 +392,6 @@ mod tests {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;

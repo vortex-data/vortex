@@ -7,21 +7,23 @@ use std::sync::Arc;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
+use vortex::array::Array;
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayView;
 use vortex::array::ExecutionCtx;
-use vortex::array::ExecutionStep;
+use vortex::array::ExecutionResult;
+use vortex::array::OperationsVTable;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
 use vortex::array::SerializeMetadata;
+use vortex::array::VTable;
+use vortex::array::ValidityVTable;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::serde::ArrayChildren;
-use vortex::array::stats::StatsSetRef;
+use vortex::array::stats::ArrayStats;
 use vortex::array::validity::Validity;
 use vortex::array::vtable;
-use vortex::array::vtable::ArrayId;
-use vortex::array::vtable::OperationsVTable;
-use vortex::array::vtable::VTable;
-use vortex::array::vtable::ValidityVTable;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -32,21 +34,27 @@ use vortex::session::VortexSession;
 
 use crate::arrays::py::PythonArray;
 
-vtable!(Python);
+vtable!(Python, PythonVTable);
 
 /// Wrapper struct encapsulating a Python encoding.
-#[derive(Debug)]
-pub struct Python;
+#[derive(Debug, Clone)]
+pub struct PythonVTable {
+    pub id: ArrayId,
+}
 
-impl VTable for Python {
-    type Array = PythonArray;
+impl VTable for PythonVTable {
+    type ArrayData = PythonArray;
 
     type Metadata = RawMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(array: &Self::Array) -> ArrayId {
-        array.id.clone()
+    fn vtable(array: &Self::ArrayData) -> &Self {
+        &array.vtable
+    }
+
+    fn id(&self) -> ArrayId {
+        self.id.clone()
     }
 
     fn len(array: &PythonArray) -> usize {
@@ -57,50 +65,44 @@ impl VTable for Python {
         &array.dtype
     }
 
-    fn stats(array: &PythonArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+    fn stats(array: &PythonArray) -> &ArrayStats {
+        &array.stats
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
         Arc::as_ptr(&array.object).hash(state);
-        array.id.hash(state);
-        array.len.hash(state);
-        array.dtype.hash(state);
     }
 
     fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
         Arc::ptr_eq(&array.object, &other.object)
-            && array.id == other.id
-            && array.len == other.len
-            && array.dtype == other.dtype
     }
 
-    fn nbuffers(_array: &PythonArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &PythonArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("PythonArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &PythonArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &PythonArray) -> usize {
+    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn child(_array: &PythonArray, idx: usize) -> ArrayRef {
+    fn child(_array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         vortex_panic!("PythonArray child index {idx} out of bounds")
     }
 
-    fn child_name(_array: &PythonArray, idx: usize) -> String {
+    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("PythonArray child_name index {idx} out of bounds")
     }
 
-    fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
-        pyo3::Python::attach(|py| {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+        Python::attach(|py| {
             let obj = array.object.bind(py);
             if !obj
                 .hasattr(intern!(py, "metadata"))
@@ -111,7 +113,7 @@ impl VTable for Python {
             }
 
             let bytes = obj
-                .call_method("__vx_metadata__", (), None)
+                .call_method(intern!(py, "__vx_metadata__"), (), None)
                 .map_err(|e| vortex_err!("{}", e))?
                 .cast::<PyBytes>()
                 .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
@@ -146,28 +148,40 @@ impl VTable for Python {
         todo!()
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(_array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &[]
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
+        vortex_panic!("PythonArray has no slots")
+    }
+
+    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.is_empty(),
-            "PythonArray has no children, got {}",
-            children.len()
+            slots.is_empty(),
+            "PythonArray has no slots, got {}",
+            slots.len()
         );
         Ok(())
     }
 
-    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(_array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         todo!()
     }
 }
 
-impl OperationsVTable<Python> for Python {
-    fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
+impl OperationsVTable<PythonVTable> for PythonVTable {
+    fn scalar_at(
+        _array: ArrayView<'_, PythonVTable>,
+        _index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         todo!()
     }
 }
 
-impl ValidityVTable<Python> for Python {
-    fn validity(_array: &PythonArray) -> VortexResult<Validity> {
+impl ValidityVTable<PythonVTable> for PythonVTable {
+    fn validity(_array: ArrayView<'_, PythonVTable>) -> VortexResult<Validity> {
         todo!()
     }
 }

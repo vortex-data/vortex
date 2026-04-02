@@ -21,7 +21,7 @@ use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Expr;
 use datafusion_expr::TableType;
 use datafusion_physical_plan::ExecutionPlan;
-use vortex::scan::api::DataSourceRef;
+use vortex::scan::DataSourceRef;
 use vortex::session::VortexSession;
 
 use crate::v2::source::VortexDataSource;

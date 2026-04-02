@@ -35,13 +35,18 @@ impl CudaExecute for DecimalBytePartsExecutor {
         };
 
         let decimal_dtype = *array.decimal_dtype();
-        let DecimalBytePartsArrayParts { msp, .. } = array.into_parts();
+        let DecimalBytePartsArrayParts { msp, .. } = array.into_data().into_parts();
         let PrimitiveArrayParts {
             buffer,
             ptype,
             validity,
             ..
-        } = msp.execute_cuda(ctx).await?.into_primitive().into_parts();
+        } = msp
+            .execute_cuda(ctx)
+            .await?
+            .into_primitive()
+            .into_data()
+            .into_parts();
 
         // SAFETY: The primitive array's buffer is already validated with correct type.
         // The decimal dtype matches the array's dtype, and validity is preserved.
@@ -60,7 +65,7 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::dtype::DecimalDType;
-    use vortex::encodings::decimal_byte_parts::DecimalBytePartsArray;
+    use vortex::encodings::decimal_byte_parts::DecimalByteParts;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
 
@@ -82,7 +87,7 @@ mod tests {
             .vortex_expect("create execution context");
 
         let decimal_dtype = DecimalDType::new(precision, scale);
-        let dbp_array = DecimalBytePartsArray::try_new(
+        let dbp_array = DecimalByteParts::try_new(
             PrimitiveArray::new(encoded, Validity::NonNullable).into_array(),
             decimal_dtype,
         )

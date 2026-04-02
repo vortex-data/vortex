@@ -12,7 +12,6 @@ use vortex::array::arrays::decimal::DecimalArrayParts;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::arrays::struct_::StructArrayParts;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::vtable::ValidityHelper;
 use vortex::dtype::DecimalType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -69,7 +68,7 @@ fn export_canonical(
                 let len = primitive.len();
                 let PrimitiveArrayParts {
                     buffer, validity, ..
-                } = primitive.into_parts();
+                } = primitive.into_data().into_parts();
 
                 check_validity_empty(&validity)?;
 
@@ -96,7 +95,7 @@ fn export_canonical(
                     values_type,
                     validity,
                     ..
-                } = decimal.into_parts();
+                } = decimal.into_data().into_parts();
 
                 // verify that there is no null buffer
                 check_validity_empty(&validity)?;
@@ -121,7 +120,7 @@ fn export_canonical(
 
                 let PrimitiveArrayParts {
                     buffer, validity, ..
-                } = values.into_parts();
+                } = values.into_data().into_parts();
 
                 check_validity_empty(&validity)?;
 
@@ -143,7 +142,7 @@ fn export_canonical(
             }
             Canonical::VarBinView(varbinview) => {
                 let len = varbinview.len();
-                check_validity_empty(varbinview.validity())?;
+                check_validity_empty(&varbinview.validity())?;
 
                 let BinaryParts { offsets, bytes } =
                     copy_varbinview_to_varbin(varbinview, ctx).await?;

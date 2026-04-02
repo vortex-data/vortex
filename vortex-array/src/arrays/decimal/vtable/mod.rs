@@ -3,7 +3,6 @@
 
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Alignment;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -13,11 +12,13 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
-use crate::IntoArray;
+use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::DecimalArray;
+use crate::array::Array;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::decimal::DecimalData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -26,10 +27,6 @@ use crate::match_each_decimal_value_type;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
@@ -37,12 +34,14 @@ mod validity;
 use std::hash::Hash;
 
 use crate::Precision;
+use crate::array::ArrayId;
+use crate::arrays::decimal::array::NUM_SLOTS;
+use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
-use crate::vtable::ArrayId;
-vtable!(Decimal);
+use crate::stats::ArrayStats;
+vtable!(Decimal, Decimal, DecimalData);
 
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]
@@ -52,17 +51,21 @@ pub struct DecimalMetadata {
 }
 
 impl VTable for Decimal {
-    type Array = DecimalArray;
+    type ArrayData = DecimalData;
 
     type Metadata = ProstMetadata<DecimalMetadata>;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
+        &Decimal
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &DecimalArray) -> usize {
+    fn len(array: &DecimalData) -> usize {
         let divisor = match array.values_type {
             DecimalType::I8 => 1,
             DecimalType::I16 => 2,
@@ -74,63 +77,45 @@ impl VTable for Decimal {
         array.values.len() / divisor
     }
 
-    fn dtype(array: &DecimalArray) -> &DType {
+    fn dtype(array: &DecimalData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &DecimalArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &DecimalData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DecimalArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &DecimalData, state: &mut H, precision: Precision) {
         array.values.array_hash(state, precision);
         std::mem::discriminant(&array.values_type).hash(state);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &DecimalArray, other: &DecimalArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.values.array_eq(&other.values, precision)
+    fn array_eq(array: &DecimalData, other: &DecimalData, precision: Precision) -> bool {
+        array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
-    fn nbuffers(_array: &DecimalArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &DecimalArray, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.values.clone(),
             _ => vortex_panic!("DecimalArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &DecimalArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("values".to_string()),
             _ => None,
         }
     }
 
-    fn nchildren(array: &DecimalArray) -> usize {
-        validity_nchildren(&array.validity)
-    }
-
-    fn child(array: &DecimalArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => validity_to_child(&array.validity, array.len())
-                .vortex_expect("DecimalArray child index out of bounds"),
-            _ => vortex_panic!("DecimalArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &DecimalArray, _idx: usize) -> String {
-        "validity".to_string()
-    }
-
-    fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DecimalMetadata {
             values_type: array.values_type() as i32,
         }))
@@ -157,7 +142,7 @@ impl VTable for Decimal {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<DecimalArray> {
+    ) -> VortexResult<DecimalData> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -183,36 +168,35 @@ impl VTable for Decimal {
                 "DecimalArray buffer not aligned for values type {:?}",
                 D::DECIMAL_TYPE
             );
-            DecimalArray::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
+            DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
         })
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.len() <= 1,
-            "DecimalArray expects 0 or 1 child (validity), got {}",
-            children.len()
-        );
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
 
-        if children.is_empty() {
-            array.validity = Validity::from(array.dtype.nullability());
-        } else {
-            array.validity = Validity::Array(
-                children
-                    .into_iter()
-                    .next()
-                    .vortex_expect("children length already validated"),
-            );
-        }
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "DecimalArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(array.clone().into_array()))
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(array))
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -220,7 +204,7 @@ impl VTable for Decimal {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -229,7 +213,7 @@ impl VTable for Decimal {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Decimal;
 
 impl Decimal {
@@ -247,6 +231,7 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;
+    use crate::assert_arrays_eq;
     use crate::dtype::DecimalDType;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
@@ -279,5 +264,39 @@ mod tests {
             .decode(&dtype, 5, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION)
             .unwrap();
         assert!(decoded.is::<Decimal>());
+    }
+
+    #[test]
+    fn test_nullable_decimal_serde_roundtrip() {
+        let array = DecimalArray::new(
+            buffer![1234567i32, 0i32, -9999999i32],
+            DecimalDType::new(7, 3),
+            Validity::from_iter([true, false, true]),
+        );
+        let dtype = array.dtype().clone();
+        let len = array.len();
+
+        let ctx = ArrayContext::empty();
+        let out = array
+            .clone()
+            .into_array()
+            .serialize(&ctx, &SerializeOptions::default())
+            .unwrap();
+        let mut concat = ByteBufferMut::empty();
+        for buf in out {
+            concat.extend_from_slice(buf.as_ref());
+        }
+
+        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let decoded = parts
+            .decode(
+                &dtype,
+                len,
+                &ReadContext::new(ctx.to_ids()),
+                &LEGACY_SESSION,
+            )
+            .unwrap();
+
+        assert_arrays_eq!(decoded, array);
     }
 }

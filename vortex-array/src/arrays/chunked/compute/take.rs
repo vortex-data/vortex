@@ -7,8 +7,8 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
@@ -22,12 +22,11 @@ use crate::validity::Validity;
 // TODO(joe): this is pretty unoptimized but better than before. We want canonical using a builder
 // we also want to return a chunked array ideally.
 fn take_chunked(
-    array: &ChunkedArray,
+    array: ArrayView<'_, Chunked>,
     indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let indices = indices
-        .to_array()
         .cast(DType::Primitive(PType::U64, indices.dtype().nullability()))?
         .execute::<PrimitiveArray>(ctx)?;
 
@@ -95,13 +94,14 @@ fn take_chunked(
 
     // 4. Single take to restore original order and expand duplicates.
     //    Carry the original index validity so null indices produce null outputs.
-    let take_validity = Validity::from_mask(indices_mask, indices.dtype().nullability());
+    let take_validity =
+        Validity::from_mask(indices.validity_mask()?, indices.dtype().nullability());
     flat.take(PrimitiveArray::new(final_take.freeze(), take_validity).into_array())
 }
 
 impl TakeExecute for Chunked {
     fn take(
-        array: &ChunkedArray,
+        array: ArrayView<'_, Chunked>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -117,7 +117,6 @@ mod test {
 
     use crate::IntoArray;
     use crate::ToCanonical;
-    use crate::array::DynArray;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
@@ -137,7 +136,7 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = arr.take(indices.to_array()).unwrap();
+        let result = arr.take(indices).unwrap();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 1, 1, 2]));
     }
 
@@ -234,7 +233,7 @@ mod test {
 
         // Fully shuffled indices that cross every chunk boundary.
         let indices = buffer![8u64, 0, 5, 3, 2, 7, 1, 6, 4].into_array();
-        let result = arr.take(indices.to_array())?;
+        let result = arr.take(indices)?;
 
         assert_arrays_eq!(
             result,

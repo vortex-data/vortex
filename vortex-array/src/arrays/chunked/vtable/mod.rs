@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -15,15 +13,21 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::ToCanonical;
-use crate::arrays::ChunkedArray;
-use crate::arrays::PrimitiveArray;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::chunked::ChunkedData;
+use crate::arrays::chunked::array::CHUNK_OFFSETS_SLOT;
+use crate::arrays::chunked::array::CHUNKS_OFFSET;
 use crate::arrays::chunked::compute::kernel::PARENT_KERNELS;
 use crate::arrays::chunked::compute::rules::PARENT_RULES;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
+use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -32,17 +36,15 @@ use crate::dtype::PType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
 mod canonical;
 mod operations;
 mod validity;
-vtable!(Chunked);
+vtable!(Chunked, Chunked, ChunkedData);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Chunked;
 
 impl Chunked {
@@ -50,82 +52,68 @@ impl Chunked {
 }
 
 impl VTable for Chunked {
-    type Array = ChunkedArray;
+    type ArrayData = ChunkedData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
+        &Chunked
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &ChunkedArray) -> usize {
+    fn len(array: &ChunkedData) -> usize {
         array.len
     }
 
-    fn dtype(array: &ChunkedArray) -> &DType {
+    fn dtype(array: &ChunkedData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &ChunkedArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &ChunkedData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ChunkedArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.len.hash(state);
-        array.chunk_offsets.as_ref().array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(array: &ChunkedData, state: &mut H, precision: Precision) {
+        array
+            .chunk_offsets
+            .clone()
+            .into_array()
+            .array_hash(state, precision);
         for chunk in &array.chunks {
             chunk.array_hash(state, precision);
         }
     }
 
-    fn array_eq(array: &ChunkedArray, other: &ChunkedArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.len == other.len
-            && array
-                .chunk_offsets
-                .as_ref()
-                .array_eq(other.chunk_offsets.as_ref(), precision)
+    fn array_eq(array: &ChunkedData, other: &ChunkedData, precision: Precision) -> bool {
+        array
+            .chunk_offsets
+            .clone()
+            .into_array()
+            .array_eq(&other.chunk_offsets.clone().into_array(), precision)
             && array.chunks.len() == other.chunks.len()
             && array
-                .chunks
-                .iter()
-                .zip(&other.chunks)
+                .iter_chunks()
+                .zip(other.iter_chunks())
                 .all(|(a, b)| a.array_eq(b, precision))
     }
 
-    fn nbuffers(_array: &ChunkedArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &ChunkedArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ChunkedArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &ChunkedArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &ChunkedArray) -> usize {
-        1 + array.chunks().len()
-    }
-
-    fn child(array: &ChunkedArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.chunk_offsets.clone().into_array(),
-            n => array.chunks()[n - 1].clone(),
-        }
-    }
-
-    fn child_name(_array: &ChunkedArray, idx: usize) -> String {
-        match idx {
-            0 => "chunk_offsets".to_string(),
-            n => format!("chunks[{}]", n - 1),
-        }
-    }
-
-    fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -149,7 +137,7 @@ impl VTable for Chunked {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ChunkedArray> {
+    ) -> VortexResult<ChunkedData> {
         if children.is_empty() {
             vortex_bail!("Chunked array needs at least one child");
         }
@@ -169,7 +157,7 @@ impl VTable for Chunked {
         let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
 
         // The remaining children contain the actual data of the chunks
-        let chunks = chunk_offsets_buf
+        let chunks: Vec<ArrayRef> = chunk_offsets_buf
             .iter()
             .tuple_windows()
             .enumerate()
@@ -180,7 +168,7 @@ impl VTable for Chunked {
             })
             .try_collect()?;
 
-        let chunk_offsets = PrimitiveArray::new(chunk_offsets_buf.clone(), Validity::NonNullable);
+        let chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
 
         let total_len = chunk_offsets_buf
             .last()
@@ -188,26 +176,38 @@ impl VTable for Chunked {
         let len = usize::try_from(*total_len)
             .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
 
+        let slots = ChunkedData::make_slots(&chunk_offsets, &chunks);
         // Construct directly using the struct fields to avoid recomputing chunk_offsets
-        Ok(ChunkedArray {
+        Ok(ChunkedData {
             dtype: dtype.clone(),
             len,
             chunk_offsets,
             chunks,
+            slots,
             stats_set: Default::default(),
         })
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // Children: chunk_offsets, then chunks...
-        vortex_ensure!(
-            !children.is_empty(),
-            "Chunked array needs at least one child"
-        );
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
 
-        let nchunks = children.len() - 1;
-        let chunk_offsets_array = children[0].to_primitive();
-        let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        match idx {
+            CHUNK_OFFSETS_SLOT => "chunk_offsets".to_string(),
+            n => format!("chunks[{}]", n - CHUNKS_OFFSET),
+        }
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        // Slots: chunk_offsets, then chunks...
+        vortex_ensure!(!slots.is_empty(), "Chunked array needs at least one slot");
+
+        let nchunks = slots.len() - CHUNKS_OFFSET;
+        let chunk_offsets_ref = slots[CHUNK_OFFSETS_SLOT]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("chunk_offsets slot must not be None"))?;
+        let chunk_offsets_buf = chunk_offsets_ref.to_primitive().to_buffer::<u64>();
 
         vortex_ensure!(
             chunk_offsets_buf.len() == nchunks + 1,
@@ -216,9 +216,16 @@ impl VTable for Chunked {
             chunk_offsets_buf.len()
         );
 
-        let chunks = children.into_iter().skip(1).collect();
-        array.chunk_offsets = PrimitiveArray::new(chunk_offsets_buf.clone(), Validity::NonNullable);
+        let chunks: Vec<ArrayRef> = slots[CHUNKS_OFFSET..]
+            .iter()
+            .map(|s| {
+                s.clone()
+                    .ok_or_else(|| vortex_err!("chunk slot must not be None"))
+            })
+            .try_collect()?;
+        array.chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
         array.chunks = chunks;
+        array.slots = slots;
 
         let total_len = chunk_offsets_buf
             .last()
@@ -230,30 +237,30 @@ impl VTable for Chunked {
     }
 
     fn append_to_builder(
-        array: &ChunkedArray,
+        array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        for chunk in array.chunks() {
+        for chunk in array.iter_chunks() {
             chunk.append_to_builder(builder, ctx)?;
         }
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(_canonicalize(array, ctx)?.into_array()))
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
     }
 
-    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         Ok(match array.chunks.len() {
             0 => Some(Canonical::empty(array.dtype()).into_array()),
-            1 => Some(array.chunks[0].clone()),
+            1 => Some(array.chunk(0).clone()),
             _ => None,
         })
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -261,7 +268,7 @@ impl VTable for Chunked {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

@@ -10,7 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::DynArray;
+use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -25,7 +25,7 @@ use crate::scalar::PValue;
 use crate::scalar::Scalar;
 use crate::search_sorted::IndexOrd;
 
-impl dyn DynArray + '_ {
+impl ArrayRef {
     /// Downcasts the array for null-specific behavior.
     pub fn as_null_typed(&self) -> NullTyped<'_> {
         matches!(self.dtype(), DType::Null)
@@ -96,7 +96,7 @@ impl dyn DynArray + '_ {
 
         // Convert nulls to false first in case this can be done cheaply by the encoding.
         let array = self
-            .to_array()
+            .clone()
             .fill_null(Scalar::bool(false, self.dtype().nullability()))?;
 
         Ok(array.execute::<BoolArray>(ctx)?.to_mask_fill_null_false())
@@ -104,14 +104,14 @@ impl dyn DynArray + '_ {
 }
 
 #[expect(dead_code)]
-pub struct NullTyped<'a>(&'a dyn DynArray);
+pub struct NullTyped<'a>(&'a ArrayRef);
 
-pub struct BoolTyped<'a>(&'a dyn DynArray);
+pub struct BoolTyped<'a>(&'a ArrayRef);
 
 impl BoolTyped<'_> {
     pub fn true_count(&self) -> VortexResult<usize> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let true_count = sum(&self.0.to_array(), &mut ctx)?;
+        let true_count = sum(self.0, &mut ctx)?;
         Ok(true_count
             .as_primitive()
             .as_::<usize>()
@@ -119,7 +119,7 @@ impl BoolTyped<'_> {
     }
 }
 
-pub struct PrimitiveTyped<'a>(&'a dyn DynArray);
+pub struct PrimitiveTyped<'a>(&'a ArrayRef);
 
 impl PrimitiveTyped<'_> {
     pub fn ptype(&self) -> PType {
@@ -173,15 +173,15 @@ impl IndexOrd<PValue> for PrimitiveTyped<'_> {
 }
 
 #[expect(dead_code)]
-pub struct Utf8Typed<'a>(&'a dyn DynArray);
+pub struct Utf8Typed<'a>(&'a ArrayRef);
 
 #[expect(dead_code)]
-pub struct BinaryTyped<'a>(&'a dyn DynArray);
+pub struct BinaryTyped<'a>(&'a ArrayRef);
 
 #[expect(dead_code)]
-pub struct DecimalTyped<'a>(&'a dyn DynArray);
+pub struct DecimalTyped<'a>(&'a ArrayRef);
 
-pub struct StructTyped<'a>(&'a dyn DynArray);
+pub struct StructTyped<'a>(&'a ArrayRef);
 
 impl StructTyped<'_> {
     pub fn names(&self) -> &FieldNames {
@@ -204,9 +204,9 @@ impl StructTyped<'_> {
 }
 
 #[expect(dead_code)]
-pub struct ListTyped<'a>(&'a dyn DynArray);
+pub struct ListTyped<'a>(&'a ArrayRef);
 
-pub struct ExtensionTyped<'a>(&'a dyn DynArray);
+pub struct ExtensionTyped<'a>(&'a ArrayRef);
 
 impl ExtensionTyped<'_> {
     /// Returns the extension logical [`DType`].

@@ -8,9 +8,9 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
-use crate::arrays::DecimalArray;
 use crate::dtype::NativeDecimalType;
 use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
@@ -18,11 +18,10 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
-use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for Decimal {
     fn between(
-        arr: &DecimalArray,
+        arr: ArrayView<'_, Decimal>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -46,7 +45,7 @@ impl BetweenKernel for Decimal {
 }
 
 fn between_unpack<T: NativeDecimalType>(
-    arr: &DecimalArray,
+    arr: ArrayView<'_, Decimal>,
     lower: Scalar,
     upper: Scalar,
     nullability: Nullability,
@@ -94,7 +93,7 @@ fn between_unpack<T: NativeDecimalType>(
 }
 
 fn between_impl<T: NativeDecimalType>(
-    arr: &DecimalArray,
+    arr: ArrayView<'_, Decimal>,
     lower: T,
     upper: T,
     nullability: Nullability,
@@ -107,7 +106,7 @@ fn between_impl<T: NativeDecimalType>(
             let value = buffer[idx];
             lower_op(lower, value) & upper_op(value, upper)
         }),
-        arr.validity().clone().union_nullability(nullability),
+        arr.validity().union_nullability(nullability),
     )
     .into_array()
 }

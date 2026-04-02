@@ -13,7 +13,6 @@ use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
-use crate::vtable::ValidityHelper;
 
 pub(super) fn to_arrow_fixed_list(
     array: ArrayRef,
@@ -23,7 +22,7 @@ pub(super) fn to_arrow_fixed_list(
 ) -> VortexResult<arrow_array::ArrayRef> {
     // Check for Vortex FixedSizeListArray and convert directly.
     if let Some(array) = array.as_opt::<FixedSizeList>() {
-        return list_to_list(array, elements_field, list_size, ctx);
+        return list_to_list(&array.into_owned(), elements_field, list_size, ctx);
     }
 
     // Otherwise, we execute the array to become a FixedSizeListArray.
@@ -53,7 +52,7 @@ fn list_to_list(
         "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"
     );
 
-    let null_buffer = to_arrow_null_buffer(array.validity().clone(), array.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
 
     Ok(Arc::new(
         arrow_array::FixedSizeListArray::try_new_with_length(

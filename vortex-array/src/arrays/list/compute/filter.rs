@@ -16,6 +16,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::List;
 use crate::arrays::ListArray;
@@ -23,7 +24,6 @@ use crate::arrays::filter::FilterKernel;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 /// Density threshold for choosing between indices and slices representation when expanding masks.
 ///
@@ -94,7 +94,7 @@ fn process_element_range(
 
 impl FilterKernel for List {
     fn filter(
-        array: &ListArray,
+        array: ArrayView<'_, List>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

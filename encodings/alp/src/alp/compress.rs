@@ -8,13 +8,13 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
+use crate::ALP;
 use crate::Exponents;
 use crate::alp::ALPArray;
 use crate::alp::ALPFloat;
@@ -48,7 +48,7 @@ pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> Vort
 
     // SAFETY: alp_encode_components_typed must return well-formed components
     unsafe {
-        Ok(ALPArray::new_unchecked(
+        Ok(ALP::new_unchecked(
             encoded,
             exponents,
             patches,
@@ -73,7 +73,7 @@ where
     let (exponents, encoded, exceptional_positions, exceptional_values, mut chunk_offsets) =
         T::encode(values_slice, exponents);
 
-    let encoded_array = PrimitiveArray::new(encoded, values.validity().clone()).into_array();
+    let encoded_array = PrimitiveArray::new(encoded, values.validity()).into_array();
 
     let validity = values.validity_mask()?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
@@ -239,7 +239,7 @@ mod tests {
         let original =
             PrimitiveArray::new(buffer![195.26274f64, PI, -48.815685], Validity::AllInvalid);
         let alp_arr = alp_encode(&original, None).unwrap();
-        let decompressed = alp_arr.to_primitive();
+        let decompressed = alp_arr.into_array().to_primitive();
 
         assert_eq!(
             // The second and third values become exceptions and are replaced
@@ -257,7 +257,7 @@ mod tests {
             Validity::NonNullable,
         );
         let encoded = alp_encode(&original, None).unwrap();
-        let decoded = encoded.to_primitive();
+        let decoded = encoded.as_array().to_primitive();
         for idx in 0..original.len() {
             let decoded_val = decoded.as_slice::<f32>()[idx];
             let original_val = original.as_slice::<f32>()[idx];

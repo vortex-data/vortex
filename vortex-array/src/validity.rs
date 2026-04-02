@@ -18,9 +18,9 @@ use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -54,7 +54,7 @@ impl Debug for Validity {
             Self::NonNullable => write!(f, "NonNullable"),
             Self::AllValid => write!(f, "AllValid"),
             Self::AllInvalid => write!(f, "AllInvalid"),
-            Self::Array(arr) => write!(f, "SomeValid({})", arr.as_ref().display_values()),
+            Self::Array(arr) => write!(f, "SomeValid({})", arr.display_values()),
         }
     }
 }
@@ -168,7 +168,7 @@ impl Validity {
             },
             Self::AllInvalid => Ok(Self::AllInvalid),
             Self::Array(is_valid) => {
-                let maybe_is_valid = is_valid.take(indices.to_array())?;
+                let maybe_is_valid = is_valid.take(indices.clone())?;
                 // Null indices invalidate that position.
                 let is_valid = maybe_is_valid.fill_null(Scalar::from(false))?;
                 Ok(Self::Array(is_valid))
@@ -201,6 +201,17 @@ impl Validity {
                 Ok(v.clone())
             }
             Validity::Array(arr) => Ok(Validity::Array(arr.filter(mask.clone())?)),
+        }
+    }
+
+    /// Converts this validity into a [`Mask`] of the given length.
+    ///
+    /// Valid elements are `true` and invalid elements are `false`.
+    pub fn to_mask(&self, length: usize) -> Mask {
+        match self {
+            Self::NonNullable | Self::AllValid => Mask::new_true(length),
+            Self::AllInvalid => Mask::new_false(length),
+            Self::Array(a) => a.to_bool().to_mask(),
         }
     }
 
@@ -295,7 +306,7 @@ impl Validity {
             Validity::NonNullable => BoolArray::from(BitBuffer::new_set(len)),
             Validity::AllValid => BoolArray::from(BitBuffer::new_set(len)),
             Validity::AllInvalid => BoolArray::from(BitBuffer::new_unset(len)),
-            Validity::Array(a) => a.clone().execute::<BoolArray>(ctx)?,
+            Validity::Array(a) => a.execute::<BoolArray>(ctx)?,
         };
 
         let patch_values = match patches {
@@ -308,7 +319,7 @@ impl Validity {
         let patches = Patches::new(
             len,
             indices_offset,
-            indices.to_array(),
+            indices.clone(),
             patch_values.into_array(),
             // TODO(0ax1): chunk offsets
             None,

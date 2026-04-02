@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -12,27 +10,30 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::ExecutionStep;
+use crate::ExecutionResult;
 use crate::Precision;
-use crate::arrays::SharedArray;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
+use crate::array::VTable;
+use crate::array::ValidityVTable;
+use crate::arrays::shared::SharedData;
+use crate::arrays::shared::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::ArrayId;
-use crate::vtable::OperationsVTable;
-use crate::vtable::VTable;
-use crate::vtable::ValidityVTable;
 
-vtable!(Shared);
+vtable!(Shared, Shared, SharedData);
 
 // TODO(ngates): consider hooking Shared into the iterative execution model. Cache either the
 //  most executed, or after each iteration, and return a shared cache for each execution.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Shared;
 
 impl Shared {
@@ -40,69 +41,76 @@ impl Shared {
 }
 
 impl VTable for Shared {
-    type Array = SharedArray;
+    type ArrayData = SharedData;
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &SharedData) -> &Self {
+        &Shared
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &SharedArray) -> usize {
+    fn len(array: &SharedData) -> usize {
         array.current_array_ref().len()
     }
 
-    fn dtype(array: &SharedArray) -> &DType {
+    fn dtype(array: &SharedData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &SharedArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+    fn stats(array: &SharedData) -> &ArrayStats {
+        &array.stats
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &SharedArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &SharedData, state: &mut H, precision: Precision) {
         let current = array.current_array_ref();
         current.array_hash(state, precision);
-        array.dtype.hash(state);
     }
 
-    fn array_eq(array: &SharedArray, other: &SharedArray, precision: Precision) -> bool {
+    fn array_eq(array: &SharedData, other: &SharedData, precision: Precision) -> bool {
         let current = array.current_array_ref();
         let other_current = other.current_array_ref();
-        current.array_eq(other_current, precision) && array.dtype == other.dtype
+        current.array_eq(other_current, precision)
     }
 
-    fn nbuffers(_array: &Self::Array) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
         vortex_panic!("SharedArray has no buffers")
     }
 
-    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
-        1
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.current_array_ref().clone(),
-            _ => vortex_panic!("SharedArray child index {idx} out of bounds"),
-        }
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
-        match idx {
-            0 => "source".to_string(),
-            _ => vortex_panic!("SharedArray child_name index {idx} out of bounds"),
-        }
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_error::vortex_ensure!(
+            slots.len() == 1,
+            "SharedArray expects exactly 1 slot, got {}",
+            slots.len()
+        );
+        let slot = slots
+            .into_iter()
+            .next()
+            .vortex_expect("slots length already validated");
+        array.set_source(slot);
+        Ok(())
     }
 
-    fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -126,39 +134,29 @@ impl VTable for Shared {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn crate::serde::ArrayChildren,
-    ) -> VortexResult<SharedArray> {
+    ) -> VortexResult<SharedData> {
         let child = children.get(0, dtype, len)?;
-        Ok(SharedArray::new(child))
+        Ok(SharedData::new(child))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_error::vortex_ensure!(
-            children.len() == 1,
-            "SharedArray expects exactly 1 child, got {}",
-            children.len()
-        );
-        let child = children
-            .into_iter()
-            .next()
-            .vortex_expect("children length already validated");
-        array.set_source(child);
-        Ok(())
-    }
-
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         array
             .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 }
 impl OperationsVTable<Shared> for Shared {
-    fn scalar_at(array: &SharedArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: ArrayView<'_, Shared>,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         array.current_array_ref().scalar_at(index)
     }
 }
 
 impl ValidityVTable<Shared> for Shared {
-    fn validity(array: &SharedArray) -> VortexResult<Validity> {
+    fn validity(array: ArrayView<'_, Shared>) -> VortexResult<Validity> {
         array.current_array_ref().validity()
     }
 }

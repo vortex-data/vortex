@@ -4,30 +4,34 @@
 use std::hash::Hash;
 
 use prost::Message;
+use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::StatsSetRef;
+use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
-use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::RLEArray;
+use crate::RLEData;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::kernel::PARENT_KERNELS;
 use crate::rle::vtable::rules::RULES;
@@ -36,7 +40,7 @@ mod operations;
 mod rules;
 mod validity;
 
-vtable!(RLE);
+vtable!(RLE, RLE, RLEData);
 
 #[derive(Clone, prost::Message)]
 pub struct RLEMetadata {
@@ -55,111 +59,89 @@ pub struct RLEMetadata {
 }
 
 impl VTable for RLE {
-    type Array = RLEArray;
+    type ArrayData = RLEData;
 
     type Metadata = ProstMetadata<RLEMetadata>;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &RLEData) -> &Self {
+        &RLE
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &RLEArray) -> usize {
+    fn len(array: &RLEData) -> usize {
         array.len()
     }
 
-    fn dtype(array: &RLEArray) -> &DType {
+    fn dtype(array: &RLEData) -> &DType {
         array.dtype()
     }
 
-    fn stats(array: &RLEArray) -> StatsSetRef<'_> {
-        array.stats_set().to_ref(array.as_ref())
+    fn stats(array: &RLEData) -> &ArrayStats {
+        array.stats_set()
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &RLEArray, state: &mut H, precision: Precision) {
-        array.dtype().hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &RLEData, state: &mut H, precision: Precision) {
         array.values().array_hash(state, precision);
         array.indices().array_hash(state, precision);
         array.values_idx_offsets().array_hash(state, precision);
         array.offset().hash(state);
-        array.len().hash(state);
     }
 
-    fn array_eq(array: &RLEArray, other: &RLEArray, precision: Precision) -> bool {
-        array.dtype() == other.dtype()
-            && array.values().array_eq(other.values(), precision)
+    fn array_eq(array: &RLEData, other: &RLEData, precision: Precision) -> bool {
+        array.values().array_eq(other.values(), precision)
             && array.indices().array_eq(other.indices(), precision)
             && array
                 .values_idx_offsets()
                 .array_eq(other.values_idx_offsets(), precision)
             && array.offset() == other.offset()
-            && array.len() == other.len()
     }
 
-    fn nbuffers(_array: &RLEArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &RLEArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("RLEArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &RLEArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &RLEArray) -> usize {
-        3
-    }
-
-    fn child(array: &RLEArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.values().clone(),
-            1 => array.indices().clone(),
-            2 => array.values_idx_offsets().clone(),
-            _ => vortex_panic!("RLEArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &RLEArray, idx: usize) -> String {
-        match idx {
-            0 => "values".to_string(),
-            1 => "indices".to_string(),
-            2 => "values_idx_offsets".to_string(),
-            _ => vortex_panic!("RLEArray child name index {idx} out of bounds"),
-        }
-    }
-
     fn reduce_parent(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // RLEArray children order (from visit_children):
-        // 1. values
-        // 2. indices
-        // 3. values_idx_offsets
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        crate::rle::array::SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 3,
-            "Expected 3 children for RLE encoding, got {}",
-            children.len()
+            slots.len() == crate::rle::array::NUM_SLOTS,
+            "RLEArray expects {} slots, got {}",
+            crate::rle::array::NUM_SLOTS,
+            slots.len()
         );
-
-        array.values = children[0].clone();
-        array.indices = children[1].clone();
-        array.values_idx_offsets = children[2].clone();
-
+        array.slots = slots;
         Ok(())
     }
 
-    fn metadata(array: &RLEArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(RLEMetadata {
             values_len: array.values().len() as u64,
             indices_len: array.indices().len() as u64,
@@ -190,7 +172,7 @@ impl VTable for RLE {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<RLEArray> {
+    ) -> VortexResult<RLEData> {
         let metadata = &metadata.0;
         let values = children.get(
             0,
@@ -213,7 +195,7 @@ impl VTable for RLE {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        RLEArray::try_new(
+        RLEData::try_new(
             values,
             indices,
             values_idx_offsets,
@@ -223,7 +205,7 @@ impl VTable for RLE {
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -231,18 +213,41 @@ impl VTable for RLE {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        Ok(ExecutionStep::Done(
-            rle_decompress(array, ctx)?.into_array(),
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(
+            rle_decompress(&array, ctx)?.into_array(),
         ))
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RLE;
 
 impl RLE {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
+
+    /// Create a new RLE array without validation.
+    ///
+    /// # Safety
+    /// See [`RLEData::new_unchecked`] for preconditions.
+    pub unsafe fn new_unchecked(
+        values: ArrayRef,
+        indices: ArrayRef,
+        values_idx_offsets: ArrayRef,
+        dtype: DType,
+        offset: usize,
+        length: usize,
+    ) -> RLEArray {
+        Array::try_from_data(unsafe {
+            RLEData::new_unchecked(values, indices, values_idx_offsets, dtype, offset, length)
+        })
+        .vortex_expect("RLEData is always valid")
+    }
+
+    /// Encode a primitive array using FastLanes RLE.
+    pub fn encode(array: &PrimitiveArray) -> VortexResult<RLEArray> {
+        RLEData::encode(array)
+    }
 }
 
 #[cfg(test)]

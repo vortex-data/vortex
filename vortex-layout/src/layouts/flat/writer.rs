@@ -4,7 +4,6 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::ArrayContext;
-use vortex_array::DynArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
@@ -197,7 +196,6 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
@@ -220,6 +218,8 @@ mod tests {
     use vortex_array::expr::stats::StatsProviderExt;
     use vortex_array::session::ArrayRegistry;
     use vortex_array::validity::Validity;
+    use vortex_array::vtable::DynVTableRef;
+    use vortex_array::vtable::VTable;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
@@ -249,7 +249,7 @@ mod tests {
                 .write_stream(
                     ctx,
                     segments.clone(),
-                    array.to_array_stream().sequenced(ptr),
+                    array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
@@ -298,7 +298,7 @@ mod tests {
                 .write_stream(
                     ctx,
                     segments.clone(),
-                    array.to_array_stream().sequenced(ptr),
+                    array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
@@ -365,7 +365,7 @@ mod tests {
                     .write_stream(
                         ctx,
                         segments.clone(),
-                        array.to_array_stream().sequenced(ptr),
+                        array.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,
                     )
@@ -426,7 +426,7 @@ mod tests {
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let allowed = ArrayRegistry::default();
-            allowed.register(Primitive::ID, Primitive);
+            allowed.register(Primitive.id(), Arc::new(Primitive) as DynVTableRef);
             let layout = FlatLayoutStrategy::default()
                 .with_allow_encodings(allowed)
                 .write_stream(
@@ -470,14 +470,14 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Only allow primitive encodings - filter arrays should fail.
                 let allowed = ArrayRegistry::default();
-                allowed.register(Primitive::ID, Primitive);
-                allowed.register(Dict::ID, Dict);
+                allowed.register(Primitive.id(), Arc::new(Primitive) as DynVTableRef);
+                allowed.register(Dict.id(), Arc::new(Dict) as DynVTableRef);
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
                     .write_stream(
                         ctx,
                         segments.clone(),
-                        dict.to_array_stream().sequenced(ptr),
+                        dict.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,
                     )

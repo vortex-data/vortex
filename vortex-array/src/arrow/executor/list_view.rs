@@ -49,7 +49,7 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
         sizes,
         validity,
         ..
-    } = array.into_parts();
+    } = array.into_data().into_parts();
 
     let elements = elements.execute_arrow(Some(elements_field.data_type()), ctx)?;
     vortex_ensure!(

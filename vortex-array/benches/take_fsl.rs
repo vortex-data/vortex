@@ -14,7 +14,6 @@ use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
@@ -66,7 +65,8 @@ fn take_fsl_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize)
         .with_inputs(|| (&fsl, &indices_array, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, execution_ctx)| {
             array
-                .take(indices.to_array())
+                .clone()
+                .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
@@ -91,7 +91,8 @@ fn take_fsl_nullable_random<const LIST_SIZE: usize>(bencher: Bencher, num_indice
         .with_inputs(|| (&fsl, &indices_array, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(array, indices, execution_ctx)| {
             array
-                .take(indices.to_array())
+                .clone()
+                .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()

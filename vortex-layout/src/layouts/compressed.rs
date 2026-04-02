@@ -7,11 +7,11 @@ use async_trait::async_trait;
 use futures::StreamExt as _;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
-use vortex_btrblocks::IntCode;
+use vortex_btrblocks::SchemeExt;
+use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
@@ -69,7 +69,7 @@ impl CompressingStrategy {
     pub fn new_btrblocks<S: LayoutStrategy>(child: S, exclude_int_dict_encoding: bool) -> Self {
         let compressor = if exclude_int_dict_encoding {
             BtrBlocksCompressorBuilder::default()
-                .exclude_int([IntCode::Dict])
+                .exclude([IntDictScheme.id()])
                 .build()
         } else {
             BtrBlocksCompressor::default()

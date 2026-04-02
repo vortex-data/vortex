@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceExecuteAdaptor;
@@ -13,14 +14,14 @@ use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
-use crate::RLEArray;
+use crate::RLEData;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<RLE> =
     ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(RLE))]);
 
 impl SliceKernel for RLE {
     fn slice(
-        array: &RLEArray,
+        array: ArrayView<'_, Self>,
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -47,7 +48,7 @@ impl SliceKernel for RLE {
 
         // SAFETY: Slicing preserves all invariants.
         Ok(Some(unsafe {
-            RLEArray::new_unchecked(
+            RLEData::new_unchecked(
                 sliced_values,
                 sliced_indices,
                 sliced_values_idx_offsets,

@@ -8,7 +8,6 @@ use vortex_error::VortexExpect;
 use crate::arrays::DecimalArray;
 use crate::dtype::DecimalType;
 use crate::dtype::i256;
-use crate::vtable::ValidityHelper;
 
 macro_rules! try_downcast {
     ($array:expr, from: $src:ty, to: $($dst:ty),*) => {{

@@ -31,6 +31,15 @@ public final class Files {
     /**
      * Opens a Vortex file from the specified path string.
      *
+     * @see #open(String, Map)
+     */
+    public static File open(String path) {
+        return open(path, Map.of());
+    }
+
+    /**
+     * Opens a Vortex file from the specified path string and format parameters.
+     *
      * <p>This method provides a convenient way to open Vortex files using either
      * absolute file system paths or URI strings. If the path starts with "/",
      * it is treated as an absolute file system path and converted to a file URI.
@@ -42,16 +51,15 @@ public final class Files {
      * @param path the path to the Vortex file, either as an absolute file system path
      *             (starting with "/") or as a URI string
      * @return a {@link File} instance representing the opened Vortex file
-     * @throws RuntimeException if the file cannot be opened or the path is invalid
+     * @throws RuntimeException     if the file cannot be opened or the path is invalid
      * @throws NullPointerException if path is null
-     *
      * @see #open(URI, Map)
      */
-    public static File open(String path) {
+    public static File open(String path, Map<String, String> properties) {
         if (path.startsWith("/")) {
-            return open(Paths.get(path).toUri(), Map.of());
+            return open(Paths.get(path).toUri(), properties);
         }
-        return open(URI.create(path), Map.of());
+        return open(URI.create(path), properties);
     }
 
     /**
@@ -66,14 +74,13 @@ public final class Files {
      * underlying file system or storage layer. The specific properties supported
      * depend on the URI scheme and storage backend being used.
      *
-     * @param uri the URI pointing to the Vortex file to open
+     * @param uri        the URI pointing to the Vortex file to open
      * @param properties a map of configuration properties for opening the file;
      *                   may be empty but must not be null
      * @return a {@link File} instance representing the opened Vortex file
-     * @throws RuntimeException if the file cannot be opened, the URI is invalid,
-     *                                  or the returned native pointer is invalid
+     * @throws RuntimeException     if the file cannot be opened, the URI is invalid,
+     *                              or the returned native pointer is invalid
      * @throws NullPointerException if uri or properties is null
-     *
      * @see #open(String)
      */
     public static File open(URI uri, Map<String, String> properties) {

@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+mod array;
+mod compute;
+mod vtable;
+
+pub use array::*;
+use vortex_buffer::ByteBuffer;
+pub use vtable::*;
+
+/// Patches that have been transposed into GPU format.
+struct TransposedPatches {
+    n_lanes: usize,
+    lane_offsets: ByteBuffer,
+    indices: ByteBuffer,
+    values: ByteBuffer,
+}
+
+/// Number of lanes used at patch time for a value of type `V`.
+///
+/// This is *NOT* equal to the number of FastLanes lanes for the type `V`, rather this is going to
+/// correspond to how many "lanes" we will end up copying data on.
+///
+/// When applied on the CPU, this configuration doesn't really matter. On the GPU, it is based
+/// on the number of patches involved here.
+const fn patch_lanes<V: Sized>() -> usize {
+    // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
+    // This matches up with the number of lanes we use to execute copying results from bit-unpacking
+    // from shared to global memory.
+    if size_of::<V>() < 8 { 32 } else { 16 }
+}

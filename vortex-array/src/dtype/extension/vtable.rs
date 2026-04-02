@@ -37,14 +37,14 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata>;
 
     /// Validate that the given storage type is compatible with this extension type.
-    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
 
     /// Can a value of `other` be implicitly widened into this type?
     /// e.g. GeographyType might accept Point, LineString, etc.
     ///
     /// Implementors only need to override one of `can_coerce_from` or `can_coerce_to` — both
     /// exist so that either side of the coercion can provide the logic.
-    fn can_coerce_from(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
+    fn can_coerce_from(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
         let _ = (ext_dtype, other);
         false
     }
@@ -53,14 +53,14 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     ///
     /// Implementors only need to override one of `can_coerce_from` or `can_coerce_to` — both
     /// exist so that either side of the coercion can provide the logic.
-    fn can_coerce_to(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
+    fn can_coerce_to(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
         let _ = (ext_dtype, other);
         false
     }
 
     /// Given two types in a Uniform context, what is their least supertype?
     /// Return None if no supertype exists.
-    fn least_supertype(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
+    fn least_supertype(ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
         let _ = (ext_dtype, other);
         None
     }
@@ -75,11 +75,10 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     ///
     /// Returns an error if the storage [`ScalarValue`] is not compatible with the extension type.
     fn validate_scalar_value(
-        &self,
         ext_dtype: &ExtDType<Self>,
         storage_value: &ScalarValue,
     ) -> VortexResult<()> {
-        self.unpack_native(ext_dtype, storage_value).map(|_| ())
+        Self::unpack_native(ext_dtype, storage_value).map(|_| ())
     }
 
     /// Validate and unpack a native value from the storage [`ScalarValue`].
@@ -92,7 +91,6 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     ///
     /// Returns an error if the storage [`ScalarValue`] is not compatible with the extension type.
     fn unpack_native<'a>(
-        &self,
         ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>>;

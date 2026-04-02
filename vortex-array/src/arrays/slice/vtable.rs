@@ -7,7 +7,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -19,27 +18,31 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
+use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::slice::array::SliceArray;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
+use crate::array::VTable;
+use crate::array::ValidityVTable;
+use crate::arrays::slice::array::NUM_SLOTS;
+use crate::arrays::slice::array::SLOT_NAMES;
+use crate::arrays::slice::array::SliceData;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
-use crate::executor::ExecutionStep;
+use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::ArrayId;
-use crate::vtable::OperationsVTable;
-use crate::vtable::VTable;
-use crate::vtable::ValidityVTable;
 
-vtable!(Slice);
+vtable!(Slice, Slice, SliceData);
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Slice;
 
 impl Slice {
@@ -47,67 +50,61 @@ impl Slice {
 }
 
 impl VTable for Slice {
-    type Array = SliceArray;
+    type ArrayData = SliceData;
     type Metadata = SliceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &SliceData) -> &Self {
+        &Slice
+    }
+
+    fn id(&self) -> ArrayId {
         Slice::ID
     }
 
-    fn len(array: &SliceArray) -> usize {
+    fn len(array: &SliceData) -> usize {
         array.range.len()
     }
 
-    fn dtype(array: &SliceArray) -> &DType {
-        array.child.dtype()
+    fn dtype(array: &SliceData) -> &DType {
+        array.child().dtype()
     }
 
-    fn stats(array: &SliceArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+    fn stats(array: &SliceData) -> &ArrayStats {
+        &array.stats
     }
 
-    fn array_hash<H: Hasher>(array: &SliceArray, state: &mut H, precision: Precision) {
-        array.child.array_hash(state, precision);
+    fn array_hash<H: Hasher>(array: &SliceData, state: &mut H, precision: Precision) {
+        array.child().array_hash(state, precision);
         array.range.start.hash(state);
         array.range.end.hash(state);
     }
 
-    fn array_eq(array: &SliceArray, other: &SliceArray, precision: Precision) -> bool {
-        array.child.array_eq(&other.child, precision) && array.range == other.range
+    fn array_eq(array: &SliceData, other: &SliceData, precision: Precision) -> bool {
+        array.child().array_eq(other.child(), precision) && array.range == other.range
     }
 
-    fn nbuffers(_array: &Self::Array) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
         vortex_panic!("SliceArray has no buffers")
     }
 
-    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn nchildren(_array: &Self::Array) -> usize {
-        1
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.child.clone(),
-            _ => vortex_panic!("SliceArray child index {idx} out of bounds"),
-        }
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
-    fn child_name(_array: &Self::Array, idx: usize) -> String {
-        match idx {
-            0 => "child".to_string(),
-            _ => vortex_panic!("SliceArray child_name index {idx} out of bounds"),
-        }
-    }
-
-    fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(SliceMetadata(array.range.clone()))
     }
 
@@ -132,50 +129,44 @@ impl VTable for Slice {
         metadata: &SliceMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array> {
+    ) -> VortexResult<Self::ArrayData> {
         assert_eq!(len, metadata.0.len());
         let child = children.get(0, dtype, metadata.0.end)?;
-        Ok(SliceArray {
-            child,
-            range: metadata.0.clone(),
-            stats: Default::default(),
-        })
+        SliceData::try_new(child, metadata.0.clone())
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 1,
-            "SliceArray expects exactly 1 child, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "SliceArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-        array.child = children
-            .into_iter()
-            .next()
-            .vortex_expect("children length already validated");
+        array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // Execute the child to get canonical form, then slice it
-        let Some(canonical) = array.child.as_opt::<AnyCanonical>() else {
+        let Some(canonical) = array.child().as_opt::<AnyCanonical>() else {
             // If the child is not canonical, recurse.
             return array
-                .child
+                .child()
                 .clone()
                 .execute::<ArrayRef>(ctx)?
                 .slice(array.slice_range().clone())
-                .map(ExecutionStep::Done);
+                .map(ExecutionResult::done);
         };
 
         // TODO(ngates): we should inline canonical slice logic here.
         Canonical::from(canonical)
-            .as_ref()
+            .into_array()
             .slice(array.range.clone())
-            .map(ExecutionStep::Done)
+            .map(ExecutionResult::done)
     }
 
     fn reduce_parent(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -183,14 +174,18 @@ impl VTable for Slice {
     }
 }
 impl OperationsVTable<Slice> for Slice {
-    fn scalar_at(array: &SliceArray, index: usize) -> VortexResult<Scalar> {
-        array.child.scalar_at(array.range.start + index)
+    fn scalar_at(
+        array: ArrayView<'_, Slice>,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
+        array.child().scalar_at(array.range.start + index)
     }
 }
 
 impl ValidityVTable<Slice> for Slice {
-    fn validity(array: &SliceArray) -> VortexResult<Validity> {
-        array.child.validity()?.slice(array.range.clone())
+    fn validity(array: ArrayView<'_, Slice>) -> VortexResult<Validity> {
+        array.child().validity()?.slice(array.range.clone())
     }
 }
 
@@ -206,7 +201,6 @@ impl Debug for SliceMetadata {
 mod tests {
     use vortex_error::VortexResult;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::SliceArray;

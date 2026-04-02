@@ -5,10 +5,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
-use crate::arrays::FilterArray;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
@@ -38,8 +38,8 @@ impl ArrayParentReduceRule<Constant> for ConstantFilterRule {
 
     fn reduce_parent(
         &self,
-        child: &ConstantArray,
-        parent: &FilterArray,
+        child: ArrayView<'_, Constant>,
+        parent: ArrayView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(

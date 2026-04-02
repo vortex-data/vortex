@@ -89,6 +89,28 @@ impl VortexCudaStream {
             Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
         }))
     }
+
+    /// Synchronous variant of [`copy_to_device`](Self::copy_to_device).
+    ///
+    /// Allocates device memory, enqueues the H2D copy on the stream, and
+    /// returns immediately. The device pointer is valid as soon as this call
+    /// returns; the copy completes before any later work on the same stream.
+    ///
+    /// For **pageable** host memory (the common case), `memcpy_htod` stages
+    /// the source into a driver-managed pinned buffer before returning, so
+    /// the source data is safe to drop after this call.
+    pub(crate) fn copy_to_device_sync<T>(&self, data: &[T]) -> VortexResult<BufferHandle>
+    where
+        T: DeviceRepr + Debug + Send + Sync + 'static,
+    {
+        let mut cuda_slice: CudaSlice<T> = self.device_alloc(data.len())?;
+
+        self.memcpy_htod(data, &mut cuda_slice)
+            .map_err(|e| vortex_err!("Failed to schedule H2D copy: {}", e))?;
+
+        let cuda_buf = CudaDeviceBuffer::new(cuda_slice);
+        Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
+    }
 }
 
 /// Registers a callback and asynchronously waits for its completion.

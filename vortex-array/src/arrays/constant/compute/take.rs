@@ -5,19 +5,19 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
 use crate::arrays::dict::TakeReduceAdaptor;
+use crate::arrays::masked::MaskedData;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 impl TakeReduce for Constant {
-    fn take(array: &ConstantArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: ArrayView<'_, Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let result = match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
                 let scalar = Scalar::try_new(
@@ -45,7 +45,7 @@ impl TakeReduce for Constant {
                     return Ok(Some(arr));
                 }
 
-                MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array()
+                MaskedData::try_new(arr, Validity::from(v.clone()))?.into_array()
             }
         };
         Ok(Some(result))
@@ -63,7 +63,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::AllOr;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;

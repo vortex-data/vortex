@@ -11,6 +11,7 @@ use object_store::GetOptions;
 use object_store::GetRange;
 use object_store::GetResultPayload;
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::path::Path as ObjectPath;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;

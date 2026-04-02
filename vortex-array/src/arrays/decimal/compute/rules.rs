@@ -8,10 +8,10 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduce;
@@ -20,7 +20,6 @@ use crate::match_each_decimal_value_type;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::vtable::ValidityHelper;
 
 pub(crate) static RULES: ParentRuleSet<Decimal> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalMaskedValidityRule),
@@ -41,8 +40,8 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
 
     fn reduce_parent(
         &self,
-        array: &DecimalArray,
-        parent: &MaskedArray,
+        array: ArrayView<'_, Decimal>,
+        parent: ArrayView<'_, Masked>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Merge the parent's validity mask into the child's validity
@@ -54,7 +53,7 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
                 DecimalArray::new_unchecked(
                     array.buffer::<D>(),
                     array.decimal_dtype(),
-                    array.validity().clone().and(parent.validity().clone())?,
+                    array.validity().and(parent.validity())?,
                 )
             }
             .into_array()
@@ -65,10 +64,10 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
 }
 
 impl SliceReduce for Decimal {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let result = match_each_decimal_value_type!(array.values_type(), |D| {
             let sliced = array.buffer::<D>().slice(range.clone());
-            let validity = array.validity().clone().slice(range)?;
+            let validity = array.validity().slice(range)?;
             // SAFETY: Slicing preserves all DecimalArray invariants
             unsafe { DecimalArray::new_unchecked(sliced, array.decimal_dtype(), validity) }
                 .into_array()
@@ -78,7 +77,7 @@ impl SliceReduce for Decimal {
 }
 
 impl FilterReduce for Decimal {
-    fn filter(array: &DecimalArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let ranges: Vec<Range<usize>> = mask
             .slices()
             .unwrap_or_else(|| unreachable!(), || unreachable!())

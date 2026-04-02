@@ -25,12 +25,10 @@ use num_traits::Float;
 use num_traits::One;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
-use vortex_array::DynArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -229,7 +227,7 @@ impl RDEncoder {
         }
 
         // Bit-pack down the encoded left-parts array that have been dictionary encoded.
-        let primitive_left = PrimitiveArray::new(left_parts, array.validity().clone());
+        let primitive_left = PrimitiveArray::new(left_parts, array.validity());
         // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
         let packed_left = unsafe {
             bitpack_encode_unchecked(primitive_left, left_bit_width as _)
@@ -273,7 +271,7 @@ impl RDEncoder {
             .vortex_expect("Patches construction in encode")
         });
 
-        ALPRDArray::try_new(
+        ALPRD::try_new(
             DType::Primitive(T::PTYPE, packed_left.dtype().nullability()),
             packed_left,
             Buffer::<u16>::copy_from(&self.codes),
@@ -285,44 +283,68 @@ impl RDEncoder {
     }
 }
 
-/// Decode a vector of ALP-RD encoded values back into their original floating point format.
+/// Decode ALP-RD encoded values back into their original floating point format.
 ///
 /// # Panics
 ///
-/// The function panics if the provided `left_parts` and `right_parts` differ in length.
+/// Panics if `left_parts` and `right_parts` differ in length.
 pub fn alp_rd_decode<T: ALPRDFloat>(
-    left_parts: Buffer<u16>,
+    mut left_parts: BufferMut<u16>,
     left_parts_dict: &[u16],
     right_bit_width: u8,
     right_parts: BufferMut<T::UINT>,
-    left_parts_patches: Option<&Patches>,
+    left_parts_patches: Option<Patches>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Buffer<T>> {
     if left_parts.len() != right_parts.len() {
         vortex_panic!("alp_rd_decode: left_parts.len != right_parts.len");
     }
 
-    // Decode the left-parts dictionary
-    let mut values = BufferMut::<u16>::from_iter(
-        left_parts
-            .iter()
-            .map(|code| left_parts_dict[*code as usize]),
-    );
+    let shift = right_bit_width as usize;
 
-    // Apply any patches
     if let Some(patches) = left_parts_patches {
+        // Patched path: some left-part codes map to exception values that live outside
+        // the dictionary. We must dictionary-decode first, then overwrite the exceptions,
+        // before we can combine with right-parts.
+
+        // Dictionary-decode every code in-place (code → actual left bit-pattern).
+        for code in left_parts.iter_mut() {
+            *code = left_parts_dict[*code as usize];
+        }
+
+        // Overwrite exception positions with their true left bit-patterns.
         let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-        alp_rd_apply_patches(&mut values, &indices, &patch_values, patches.offset());
-    }
+        alp_rd_apply_patches(&mut left_parts, &indices, &patch_values, patches.offset());
 
-    // Shift the left-parts and add in the right-parts.
-    Ok(alp_rd_decode_core(
-        left_parts_dict,
-        right_bit_width,
-        right_parts,
-        values,
-    ))
+        // Reconstruct floats by shifting each decoded left value into the MSBs
+        // and OR-ing with the corresponding right value.
+        alp_rd_combine_inplace::<T>(
+            right_parts,
+            |right, &left| {
+                *right = (<T as ALPRDFloat>::from_u16(left) << shift) | *right;
+            },
+            left_parts.as_ref(),
+        )
+    } else {
+        // Non-patched fast path: every code maps through the dictionary, so we can
+        // pre-shift the entire dictionary once and reduce the per-element hot loop to
+        // a single table lookup + OR.
+        let mut shifted_dict = [T::UINT::default(); MAX_DICT_SIZE as usize];
+        for (i, &entry) in left_parts_dict.iter().enumerate() {
+            shifted_dict[i] = <T as ALPRDFloat>::from_u16(entry) << shift;
+        }
+
+        // Each element: look up the pre-shifted left value by code, OR with right-parts.
+        alp_rd_combine_inplace::<T>(
+            right_parts,
+            |right, &code| {
+                // SAFETY: codes are bounded by dict size (< left_parts_dict.len() <= MAX_DICT_SIZE).
+                *right = unsafe { *shifted_dict.get_unchecked(code as usize) } | *right;
+            },
+            left_parts.as_ref(),
+        )
+    }
 }
 
 /// Apply patches to the decoded left-parts values.
@@ -343,25 +365,19 @@ fn alp_rd_apply_patches(
     })
 }
 
-/// Core decode logic shared between `alp_rd_decode` and `execute_alp_rd_decode`.
-fn alp_rd_decode_core<T: ALPRDFloat>(
-    _left_parts_dict: &[u16],
-    right_bit_width: u8,
-    right_parts: BufferMut<T::UINT>,
-    values: BufferMut<u16>,
-) -> Buffer<T> {
-    // Shift the left-parts and add in the right-parts.
-    let mut index = 0;
-    right_parts
-        .map_each_in_place(|right| {
-            let left = values[index];
-            index += 1;
-            let left = <T as ALPRDFloat>::from_u16(left);
-            T::from_bits((left << (right_bit_width as usize)) | right)
-        })
-        .freeze()
+/// Zip `right_parts` with `left_data`, apply `combine_fn` per element, then reinterpret the
+/// buffer from `T::UINT` to `T` (same bit-width: u32↔f32, u64↔f64).
+fn alp_rd_combine_inplace<T: ALPRDFloat>(
+    mut right_parts: BufferMut<T::UINT>,
+    combine_fn: impl Fn(&mut T::UINT, &u16),
+    left_data: &[u16],
+) -> VortexResult<Buffer<T>> {
+    for (right, left) in right_parts.as_mut_slice().iter_mut().zip(left_data.iter()) {
+        combine_fn(right, left);
+    }
+    // SAFETY: all bit patterns of T::UINT are valid T (u32↔f32 or u64↔f64).
+    Ok(unsafe { right_parts.transmute::<T>() }.freeze())
 }
-
 /// Find the best "cut point" for a set of floating point values such that we can
 /// cast them all to the relevant value instead.
 fn find_best_dictionary<T: ALPRDFloat>(samples: &[T]) -> ALPRDDictionary {

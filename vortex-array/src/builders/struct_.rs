@@ -168,18 +168,14 @@ impl ArrayBuilder for StructBuilder {
         let array = array.to_struct();
 
         for (a, builder) in array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .zip_eq(self.builders.iter_mut())
         {
             builder.extend_from_array(a);
         }
 
-        self.nulls.append_validity_mask(
-            array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
-        );
+        self.nulls
+            .append_validity_mask(array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, capacity: usize) {

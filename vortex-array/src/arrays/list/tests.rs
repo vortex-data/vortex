@@ -727,7 +727,7 @@ fn test_list_of_lists_nullable_inner() {
     assert_eq!(first_list.len(), 3);
 
     // Check that second inner list is null.
-    let second_inner = first_list.scalar_at(1).unwrap();
+    let second_inner = first_list.array().scalar_at(1).unwrap();
     assert!(second_inner.is_null());
 }
 
@@ -766,7 +766,7 @@ fn test_list_of_lists_both_nullable() {
     assert_eq!(first_inner.len(), 2);
 
     // Second inner list should be null.
-    let second_inner = first_list.scalar_at(1).unwrap();
+    let second_inner = first_list.array().scalar_at(1).unwrap();
     assert!(second_inner.is_null());
 
     // Second outer list should be null.
@@ -784,7 +784,7 @@ fn test_list_of_lists_both_nullable() {
     let fourth_outer = list_of_lists.list_elements_at(3).unwrap();
     let fourth_list = fourth_outer.as_::<List>();
     assert_eq!(fourth_list.len(), 1);
-    let inner = fourth_list.scalar_at(0).unwrap();
+    let inner = fourth_list.array().scalar_at(0).unwrap();
     assert!(inner.is_null());
 }
 
@@ -901,8 +901,10 @@ fn test_recursive_compact_list_of_lists() {
     assert_eq!(recursive.len(), 2);
 
     // Check the flattened elements - this shows the actual compaction difference
-    let non_recursive_flat_elements = non_recursive.elements().as_::<List>().elements();
-    let recursive_flat_elements = recursive.elements().as_::<List>().elements();
+    let non_recursive_inner = non_recursive.elements().as_::<List>();
+    let non_recursive_flat_elements = non_recursive_inner.elements();
+    let recursive_inner = recursive.elements().as_::<List>();
+    let recursive_flat_elements = recursive_inner.elements();
 
     // Non-recursive should still have all original elements [1,2,3,4,5,6,7,8,9,10,11,12]
     assert_eq!(non_recursive_flat_elements.len(), 12);
@@ -912,8 +914,8 @@ fn test_recursive_compact_list_of_lists() {
 
     // Verify data integrity is preserved
     assert_eq!(
-        non_recursive.scalar_at(0).unwrap(),
-        recursive.scalar_at(0).unwrap()
+        non_recursive.clone().into_array().scalar_at(0).unwrap(),
+        recursive.clone().into_array().scalar_at(0).unwrap()
     );
 }
 

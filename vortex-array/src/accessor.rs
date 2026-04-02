@@ -6,7 +6,7 @@ pub trait ArrayAccessor<Item: ?Sized> {
     /// Iterate over each element of the array, in-order.
     ///
     /// The function `f` will be passed an [`Iterator`], it can call [`Iterator::next`] on the
-    /// iterator [`crate::DynArray::len`] times. Iterator elements are `Option` types,
+    /// iterator `len` times. Iterator elements are `Option` types,
     /// regardless of the nullability of the underlying array data.
     fn with_iterator<F, R>(&self, f: F) -> R
     where

@@ -91,7 +91,7 @@ impl ExtVTable for Date {
         TimeUnit::try_from(tag)
     }
 
-    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         let metadata = ext_dtype.metadata();
         let ptype = date_ptype(metadata)
             .ok_or_else(|| vortex_err!("Date type does not support time unit {}", metadata))?;
@@ -106,7 +106,7 @@ impl ExtVTable for Date {
         Ok(())
     }
 
-    fn can_coerce_from(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
+    fn can_coerce_from(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
         let DType::Extension(other_ext) = other else {
             return false;
         };
@@ -118,7 +118,7 @@ impl ExtVTable for Date {
         our_unit <= other_unit && (ext_dtype.storage_dtype().is_nullable() || !other.is_nullable())
     }
 
-    fn least_supertype(&self, ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
+    fn least_supertype(ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
         let DType::Extension(other_ext) = other else {
             return None;
         };
@@ -129,11 +129,10 @@ impl ExtVTable for Date {
         Some(DType::Extension(Date::new(finest, union_null).erased()))
     }
 
-    fn unpack_native(
-        &self,
-        ext_dtype: &ExtDType<Self>,
-        storage_value: &ScalarValue,
-    ) -> VortexResult<Self::NativeValue<'_>> {
+    fn unpack_native<'a>(
+        ext_dtype: &'a ExtDType<Self>,
+        storage_value: &'a ScalarValue,
+    ) -> VortexResult<Self::NativeValue<'a>> {
         let metadata = ext_dtype.metadata();
         match metadata {
             TimeUnit::Milliseconds => Ok(DateValue::Milliseconds(

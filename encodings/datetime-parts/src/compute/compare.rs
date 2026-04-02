@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -17,12 +17,11 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
 use crate::array::DateTimeParts;
-use crate::array::DateTimePartsArray;
 use crate::timestamp;
 
 impl CompareKernel for DateTimeParts {
     fn compare(
-        lhs: &DateTimePartsArray,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
@@ -67,7 +66,7 @@ impl CompareKernel for DateTimeParts {
 }
 
 fn compare_eq(
-    lhs: &DateTimePartsArray,
+    lhs: ArrayView<DateTimeParts>,
     ts_parts: &timestamp::TimestampParts,
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -102,7 +101,7 @@ fn compare_eq(
 }
 
 fn compare_ne(
-    lhs: &DateTimePartsArray,
+    lhs: ArrayView<DateTimeParts>,
     ts_parts: &timestamp::TimestampParts,
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -142,7 +141,7 @@ fn compare_ne(
 }
 
 fn compare_lt(
-    lhs: &DateTimePartsArray,
+    lhs: ArrayView<DateTimeParts>,
     ts_parts: &timestamp::TimestampParts,
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -156,7 +155,7 @@ fn compare_lt(
 }
 
 fn compare_gt(
-    lhs: &DateTimePartsArray,
+    lhs: ArrayView<DateTimeParts>,
     ts_parts: &timestamp::TimestampParts,
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -180,7 +179,7 @@ fn compare_dtp(
         .into_array()
         .cast(lhs.dtype().with_nullability(nullability))
     {
-        Ok(casted) => lhs.to_array().binary(casted, Operator::from(operator)),
+        Ok(casted) => lhs.binary(casted, Operator::from(operator)),
         // The narrowing cast failed. Therefore, we know lhs < rhs.
         _ => {
             let constant_value = match operator {
@@ -206,12 +205,13 @@ mod test {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::DateTimePartsData;
 
     fn dtp_array_from_timestamp<T: IntegerPType>(
         value: T,
         validity: Validity,
-    ) -> DateTimePartsArray {
-        DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    ) -> DateTimePartsData {
+        DateTimePartsData::try_from(TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![value], validity).into_array(),
             TimeUnit::Seconds,
             Some("UTC".into()),
@@ -312,7 +312,7 @@ mod test {
             Some("UTC".into()),
         );
 
-        let lhs = DateTimePartsArray::try_new(
+        let lhs = DateTimePartsData::try_new(
             DType::Extension(temporal_array.ext_dtype()),
             PrimitiveArray::new(buffer![0i32], lhs_validity).into_array(),
             PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),

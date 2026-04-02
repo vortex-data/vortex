@@ -13,7 +13,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Chunked;
@@ -78,7 +77,7 @@ pub(super) fn to_arrow_struct(
         };
         return create_from_fields(
             target_fields.ok_or_else(|| struct_fields.names().clone()),
-            array.children(),
+            &array.children(),
             None, // Pack is never null,
             len,
             ctx,

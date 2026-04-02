@@ -4,19 +4,15 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::Zstd;
-use crate::ZstdArray;
 
 impl SliceReduce for Zstd {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(slice_zstd(array, range)))
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(array._slice(range.start, range.end).into_array()))
     }
-}
-
-fn slice_zstd(array: &ZstdArray, range: Range<usize>) -> ArrayRef {
-    array._slice(range.start, range.end).into_array()
 }

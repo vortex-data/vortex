@@ -4,10 +4,13 @@
 use std::hash::Hash;
 
 use num_traits::cast::FromPrimitive;
+use vortex_array::Array;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::ExecutionStep;
+use vortex_array::ExecutionResult;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -28,10 +31,8 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSet;
-use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
-use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -47,7 +48,7 @@ use crate::compress::sequence_decompress;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
-vtable!(Sequence);
+vtable!(Sequence, Sequence, SequenceData);
 
 #[derive(Debug, Clone, Copy)]
 pub struct SequenceMetadata {
@@ -72,17 +73,20 @@ pub struct SequenceArrayParts {
     pub nullability: Nullability,
 }
 
+pub(super) const SLOT_NAMES: [&str; 0] = [];
+
 #[derive(Clone, Debug)]
 /// An array representing the equation `A[i] = base + i * multiplier`.
-pub struct SequenceArray {
+pub struct SequenceData {
     base: PValue,
     multiplier: PValue,
     dtype: DType,
     pub(crate) len: usize,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
-impl SequenceArray {
+impl SequenceData {
     pub fn try_new_typed<T: NativePType + Into<PValue>>(
         base: T,
         multiplier: T,
@@ -167,8 +171,27 @@ impl SequenceArray {
             multiplier,
             dtype,
             len: length,
+            slots: vec![],
             stats_set: ArrayStats::from(stats_set),
         }
+    }
+
+    /// Returns the length of the array.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns whether the array is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Returns the logical data type of the array.
+    #[inline]
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
     }
 
     pub fn ptype(&self) -> PType {
@@ -236,71 +259,58 @@ impl SequenceArray {
 }
 
 impl VTable for Sequence {
-    type Array = SequenceArray;
+    type ArrayData = SequenceData;
 
     type Metadata = SequenceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
+        &Sequence
+    }
+
+    fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &SequenceArray) -> usize {
+    fn len(array: &SequenceData) -> usize {
         array.len
     }
 
-    fn dtype(array: &SequenceArray) -> &DType {
+    fn dtype(array: &SequenceData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &SequenceArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &SequenceData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &SequenceArray,
+        array: &SequenceData,
         state: &mut H,
         _precision: Precision,
     ) {
         array.base.hash(state);
         array.multiplier.hash(state);
-        array.dtype.hash(state);
-        array.len.hash(state);
     }
 
-    fn array_eq(array: &SequenceArray, other: &SequenceArray, _precision: Precision) -> bool {
-        array.base == other.base
-            && array.multiplier == other.multiplier
-            && array.dtype == other.dtype
-            && array.len == other.len
+    fn array_eq(array: &SequenceData, other: &SequenceData, _precision: Precision) -> bool {
+        array.base == other.base && array.multiplier == other.multiplier
     }
 
-    fn nbuffers(_array: &SequenceArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &SequenceArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("SequenceArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &SequenceArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("SequenceArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: &SequenceArray) -> usize {
-        0
-    }
-
-    fn child(_array: &SequenceArray, idx: usize) -> ArrayRef {
-        vortex_panic!("SequenceArray child index {idx} out of bounds")
-    }
-
-    fn child_name(_array: &SequenceArray, idx: usize) -> String {
-        vortex_panic!("SequenceArray child_name index {idx} out of bounds")
-    }
-
-    fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(SequenceMetadata {
             base: array.base(),
             multiplier: array.multiplier(),
@@ -362,8 +372,8 @@ impl VTable for Sequence {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-    ) -> VortexResult<SequenceArray> {
-        SequenceArray::try_new(
+    ) -> VortexResult<SequenceData> {
+        SequenceData::try_new(
             metadata.base,
             metadata.multiplier,
             dtype.as_ptype(),
@@ -372,21 +382,30 @@ impl VTable for Sequence {
         )
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.is_empty(),
-            "SequenceArray expects 0 children, got {}",
-            children.len()
+            slots.is_empty(),
+            "SequenceArray expects 0 slots, got {}",
+            slots.len()
         );
+        array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionStep> {
-        sequence_decompress(array).map(ExecutionStep::Done)
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        sequence_decompress(&array).map(ExecutionResult::done)
     }
 
     fn execute_parent(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -395,7 +414,7 @@ impl VTable for Sequence {
     }
 
     fn reduce_parent(
-        array: &SequenceArray,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -404,7 +423,11 @@ impl VTable for Sequence {
 }
 
 impl OperationsVTable<Sequence> for Sequence {
-    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: ArrayView<'_, Sequence>,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Scalar::try_new(
             array.dtype().clone(),
             Some(ScalarValue::Primitive(array.index_value(index))),
@@ -413,16 +436,48 @@ impl OperationsVTable<Sequence> for Sequence {
 }
 
 impl ValidityVTable<Sequence> for Sequence {
-    fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
+    fn validity(_array: ArrayView<'_, Sequence>) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Sequence;
 
 impl Sequence {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
+
+    /// Construct a new [`SequenceArray`] from its components.
+    pub fn try_new(
+        base: PValue,
+        multiplier: PValue,
+        ptype: PType,
+        nullability: Nullability,
+        length: usize,
+    ) -> VortexResult<SequenceArray> {
+        Array::try_from_data(SequenceData::try_new(
+            base,
+            multiplier,
+            ptype,
+            nullability,
+            length,
+        )?)
+    }
+
+    /// Construct a new typed [`SequenceArray`] from base/multiplier values.
+    pub fn try_new_typed<T: NativePType + Into<PValue>>(
+        base: T,
+        multiplier: T,
+        nullability: Nullability,
+        length: usize,
+    ) -> VortexResult<SequenceArray> {
+        Array::try_from_data(SequenceData::try_new_typed(
+            base,
+            multiplier,
+            nullability,
+            length,
+        )?)
+    }
 }
 
 #[cfg(test)]
@@ -437,11 +492,11 @@ mod tests {
     use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
 
-    use crate::array::SequenceArray;
+    use crate::Sequence;
 
     #[test]
     fn test_sequence_canonical() {
-        let arr = SequenceArray::try_new_typed(2i64, 3, Nullability::NonNullable, 4).unwrap();
+        let arr = Sequence::try_new_typed(2i64, 3, Nullability::NonNullable, 4).unwrap();
 
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
@@ -450,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_sequence_slice_canonical() {
-        let arr = SequenceArray::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
+        let arr = Sequence::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
             .slice(2..3)
             .unwrap();
@@ -462,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_sequence_scalar_at() {
-        let scalar = SequenceArray::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
+        let scalar = Sequence::try_new_typed(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
             .scalar_at(2)
             .unwrap();
@@ -475,19 +530,19 @@ mod tests {
 
     #[test]
     fn test_sequence_min_max() {
-        assert!(SequenceArray::try_new_typed(-127i8, -1i8, Nullability::NonNullable, 2).is_ok());
-        assert!(SequenceArray::try_new_typed(126i8, -1i8, Nullability::NonNullable, 2).is_ok());
+        assert!(Sequence::try_new_typed(-127i8, -1i8, Nullability::NonNullable, 2).is_ok());
+        assert!(Sequence::try_new_typed(126i8, -1i8, Nullability::NonNullable, 2).is_ok());
     }
 
     #[test]
     fn test_sequence_too_big() {
-        assert!(SequenceArray::try_new_typed(127i8, 1i8, Nullability::NonNullable, 2).is_err());
-        assert!(SequenceArray::try_new_typed(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
+        assert!(Sequence::try_new_typed(127i8, 1i8, Nullability::NonNullable, 2).is_err());
+        assert!(Sequence::try_new_typed(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
     }
 
     #[test]
     fn positive_multiplier_is_strict_sorted() -> VortexResult<()> {
-        let arr = SequenceArray::try_new_typed(0i64, 3, Nullability::NonNullable, 4)?;
+        let arr = Sequence::try_new_typed(0i64, 3, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -503,7 +558,7 @@ mod tests {
 
     #[test]
     fn zero_multiplier_is_sorted_not_strict() -> VortexResult<()> {
-        let arr = SequenceArray::try_new_typed(5i64, 0, Nullability::NonNullable, 4)?;
+        let arr = Sequence::try_new_typed(5i64, 0, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -519,7 +574,7 @@ mod tests {
 
     #[test]
     fn negative_multiplier_not_sorted() -> VortexResult<()> {
-        let arr = SequenceArray::try_new_typed(10i64, -1, Nullability::NonNullable, 4)?;
+        let arr = Sequence::try_new_typed(10i64, -1, Nullability::NonNullable, 4)?;
 
         let is_sorted = arr
             .statistics()
@@ -538,7 +593,7 @@ mod tests {
     #[test]
     fn test_large_multiplier_sorted() -> VortexResult<()> {
         let large_multiplier = (i64::MAX as u64) + 1;
-        let arr = SequenceArray::try_new_typed(0, large_multiplier, Nullability::NonNullable, 2)?;
+        let arr = Sequence::try_new_typed(0, large_multiplier, Nullability::NonNullable, 2)?;
 
         let is_sorted = arr
             .statistics()

@@ -7,14 +7,13 @@ use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::VarBinViewArray;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl ArrayAccessor<[u8]> for VarBinViewArray {
     fn with_iterator<F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a [u8]>>) -> R, R>(
         &self,
         f: F,
     ) -> R {
-        let bytes = (0..self.nbuffers())
+        let bytes = (0..self.data_buffers().len())
             .map(|i| self.buffer(i))
             .collect::<Vec<_>>();
 

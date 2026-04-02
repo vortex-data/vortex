@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
@@ -20,17 +21,17 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::FSST;
-use crate::FSSTArray;
+use crate::FSSTData;
 
 impl CompareKernel for FSST {
     fn compare(
-        lhs: &FSSTArray,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
-            Some(constant) => compare_fsst_constant(lhs, &constant, operator, ctx),
+            Some(constant) => compare_fsst_constant(&lhs, &constant, operator, ctx),
             // Otherwise, fall back to the default comparison behavior.
             _ => Ok(None),
         }
@@ -39,7 +40,7 @@ impl CompareKernel for FSST {
 
 /// Specialized compare function implementation used when performing against a constant
 fn compare_fsst_constant(
-    left: &FSSTArray,
+    left: &FSSTData,
     right: &Scalar,
     operator: CompareOperator,
     ctx: &mut ExecutionCtx,
@@ -63,7 +64,6 @@ fn compare_fsst_constant(
             CompareOperator::Lt => BitBuffer::new_unset(left.len()),
             _ => left
                 .uncompressed_lengths()
-                .to_array()
                 .binary(
                     ConstantArray::new(
                         Scalar::zero_value(left.uncompressed_lengths().dtype()),
@@ -124,7 +124,6 @@ fn compare_fsst_constant(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
@@ -154,7 +153,9 @@ mod tests {
             DType::Utf8(Nullability::Nullable),
         );
         let compressor = fsst_train_compressor(&lhs);
-        let lhs = fsst_compress(lhs, &compressor);
+        let len = lhs.len();
+        let dtype = lhs.dtype().clone();
+        let lhs = fsst_compress(lhs, len, &dtype, &compressor);
 
         let rhs = ConstantArray::new("world", lhs.len());
 

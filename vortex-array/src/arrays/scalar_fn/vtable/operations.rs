@@ -3,37 +3,41 @@
 
 use vortex_error::VortexResult;
 
-use crate::DynArray;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::ConstantArray;
-use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::columnar::Columnar;
 use crate::scalar::Scalar;
 use crate::scalar_fn::VecExecutionArgs;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
-    fn scalar_at(array: &ScalarFnArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: ArrayView<'_, ScalarFnVTable>,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let inputs: Vec<_> = array
-            .children
+            .children()
             .iter()
             .map(|child| Ok(ConstantArray::new(child.scalar_at(index)?, 1).into_array()))
             .collect::<VortexResult<_>>()?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let args = VecExecutionArgs::new(inputs, 1);
-        let result = array.scalar_fn.execute(&args, &mut ctx)?;
+        let result = array.scalar_fn().execute(&args, &mut ctx)?;
 
         let scalar = match result.execute::<Columnar>(&mut ctx)? {
             Columnar::Canonical(arr) => {
                 tracing::info!(
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
-                    array.scalar_fn,
+                    array.scalar_fn(),
                 );
-                arr.as_ref().scalar_at(0)?
+                arr.into_array().scalar_at(0)?
             }
             Columnar::Constant(constant) => constant.scalar().clone(),
         };
@@ -42,7 +46,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             scalar.dtype(),
             &array.dtype,
             "Scalar function {} returned dtype {:?} but expected {:?}",
-            array.scalar_fn,
+            array.scalar_fn(),
             scalar.dtype(),
             array.dtype
         );
@@ -59,7 +63,7 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::scalar_fn::array::ScalarFnArray;
+    use crate::arrays::ScalarFnArray;
     use crate::assert_arrays_eq;
     use crate::scalar_fn::ScalarFn;
     use crate::scalar_fn::fns::binary::Binary;

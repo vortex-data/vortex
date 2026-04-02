@@ -13,8 +13,6 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::future::try_join_all;
 use vortex_array::ArrayRef;
-use vortex_array::ArrayVisitor;
-use vortex_array::DynArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::buffer::DeviceBuffer;
 use vortex_array::serde::ArrayParts;
@@ -360,7 +358,7 @@ pub async fn materialize_recursive(array: &ArrayRef) -> VortexResult<ArrayRef> {
     let any_child_changed = children
         .iter()
         .zip(new_children.iter())
-        .any(|(child, new_child)| !Arc::ptr_eq(child, new_child));
+        .any(|(child, new_child)| !ArrayRef::ptr_eq(child, new_child));
     let current = if any_child_changed {
         array.with_children(new_children)?
     } else {

@@ -53,8 +53,8 @@ use vortex::expr::root;
 use vortex::expr::stats::Precision;
 use vortex::expr::transform::replace;
 use vortex::io::session::RuntimeSessionExt;
-use vortex::scan::api::DataSourceRef;
-use vortex::scan::api::ScanRequest;
+use vortex::scan::DataSourceRef;
+use vortex::scan::ScanRequest;
 use vortex::session::VortexSession;
 
 use crate::convert::exprs::DefaultExpressionConvertor;

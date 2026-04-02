@@ -53,7 +53,7 @@ impl CudaExecute for FilterExecutor {
             .try_into::<Filter>()
             .map_err(|_| vortex_err!("Expected FilterArray"))?;
 
-        let FilterArrayParts { child, mask } = filter_array.into_parts();
+        let FilterArrayParts { child, mask } = filter_array.into_data().into_parts();
 
         // Early return for trivial cases.
         match mask {

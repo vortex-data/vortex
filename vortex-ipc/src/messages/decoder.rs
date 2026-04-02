@@ -7,8 +7,8 @@ use std::sync::Arc;
 use bytes::Buf;
 use flatbuffers::root;
 use flatbuffers::root_unchecked;
+use vortex_array::ArrayId;
 use vortex_array::serde::ArrayParts;
-use vortex_array::vtable::ArrayId;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -168,7 +168,6 @@ impl MessageDecoder {
 mod test {
     use bytes::BytesMut;
     use vortex_array::ArrayRef;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_buffer::buffer;

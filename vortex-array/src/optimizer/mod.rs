@@ -1,19 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! The optimizer applies metadata-only rewrite rules (`reduce` and `reduce_parent`) in a
+//! fixpoint loop until no more transformations are possible.
+//!
+//! Optimization runs between execution steps, which is what enables cross-step optimizations:
+//! after a child is decoded, new `reduce_parent` rules may match that were previously blocked.
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::DynArray;
-use crate::array::ArrayRef;
+use crate::ArrayRef;
 
 pub mod rules;
 
+/// Extension trait for optimizing array trees using reduce/reduce_parent rules.
 pub trait ArrayOptimizer {
-    /// Optimize the root array node only.
+    /// Optimize the root array node only by running reduce and reduce_parent rules to fixpoint.
     fn optimize(&self) -> VortexResult<ArrayRef>;
 
-    /// Optimize the entire array tree recursively.
+    /// Optimize the entire array tree recursively (root and all descendants).
     fn optimize_recursive(&self) -> VortexResult<ArrayRef>;
 }
 
@@ -45,10 +51,15 @@ fn try_optimize(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
             continue;
         }
 
-        // Apply parent reduction rules to each child in the context of the current array.
-        // Its important to take all children here, as `current_array` can change inside the loop.
-        for (idx, child) in current_array.children().iter().enumerate() {
-            if let Some(new_array) = child.vtable().reduce_parent(child, &current_array, idx)? {
+        // Apply parent reduction rules to each slot in the context of the current array.
+        // Its important to take all slots here, as `current_array` can change inside the loop.
+        for (slot_idx, slot) in current_array.slots().iter().enumerate() {
+            let Some(child) = slot else { continue };
+            if let Some(new_array) =
+                child
+                    .vtable()
+                    .reduce_parent(child, &current_array, slot_idx)?
+            {
                 // If the parent was replaced, then we attempt to reduce it again.
                 current_array = new_array;
                 any_optimizations = true;
@@ -78,19 +89,25 @@ fn try_optimize_recursive(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         any_optimizations = true;
     }
 
-    let mut new_children = Vec::with_capacity(current_array.nchildren());
-    let mut any_child_optimized = false;
-    for child in current_array.children() {
-        if let Some(new_child) = try_optimize_recursive(&child)? {
-            new_children.push(new_child);
-            any_child_optimized = true;
-        } else {
-            new_children.push(child.clone());
+    let mut new_slots = Vec::with_capacity(current_array.slots().len());
+    let mut any_slot_optimized = false;
+    for slot in current_array.slots() {
+        match slot {
+            Some(child) => {
+                if let Some(new_child) = try_optimize_recursive(&child)? {
+                    new_slots.push(Some(new_child));
+                    any_slot_optimized = true;
+                } else {
+                    new_slots.push(Some(child));
+                }
+            }
+            None => new_slots.push(None),
         }
     }
 
-    if any_child_optimized {
-        current_array = current_array.with_children(new_children)?;
+    if any_slot_optimized {
+        let vtable = current_array.vtable().clone_boxed();
+        current_array = vtable.with_slots(current_array, new_slots)?;
         any_optimizations = true;
     }
 

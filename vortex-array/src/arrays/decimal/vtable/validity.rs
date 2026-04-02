@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::decimal::vtable::DecimalArray;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use vortex_error::VortexResult;
 
-impl ValidityHelper for DecimalArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+use crate::array::ArrayView;
+use crate::array::ValidityVTable;
+use crate::arrays::decimal::vtable::Decimal;
+use crate::validity::Validity;
+
+impl ValidityVTable<Decimal> for Decimal {
+    fn validity(array: ArrayView<'_, Decimal>) -> VortexResult<Validity> {
+        Ok(array.data().validity())
     }
 }

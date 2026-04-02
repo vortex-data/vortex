@@ -178,53 +178,100 @@ public final class VortexDataSourceWriteTest {
     }
 
     @Test
-    @DisplayName("Write and read Vortex files from S3")
-    public void testWriteAndReadFromS3() throws IOException {
-        // Skip test if AWS credentials or S3 base URI are not available
-        String awsAccessKey = System.getenv("AWS_ACCESS_KEY_ID");
-        String awsSecretKey = System.getenv("AWS_SECRET_ACCESS_KEY");
-        String s3BaseUri = System.getenv("VORTEX_TEST_S3_BASE_URI");
+    @DisplayName("Write and read partitioned Vortex files")
+    public void testPartitionedWrite() throws IOException {
+        // Given: a DataFrame with a partition column
+        List<Row> rows = Arrays.asList(
+                RowFactory.create(1, "alpha", "A"),
+                RowFactory.create(2, "beta", "B"),
+                RowFactory.create(3, "gamma", "A"),
+                RowFactory.create(4, "delta", "B"),
+                RowFactory.create(5, "epsilon", "A"));
 
-        Assumptions.assumeTrue(
-                awsAccessKey != null && awsSecretKey != null, "Skipping S3 test - AWS credentials not configured");
+        Dataset<Row> df = spark.createDataFrame(
+                rows,
+                DataTypes.createStructType(Arrays.asList(
+                        DataTypes.createStructField("id", DataTypes.IntegerType, false),
+                        DataTypes.createStructField("name", DataTypes.StringType, true),
+                        DataTypes.createStructField("group", DataTypes.StringType, true))));
 
-        Assumptions.assumeTrue(
-                s3BaseUri != null,
-                "Skipping S3 test - VORTEX_TEST_S3_BASE_URI not configured (e.g., s3://bucket/path)");
+        Path outputPath = tempDir.resolve("partitioned_output");
 
-        // Given: Create a test DataFrame
-        int numRows = 100;
-        Dataset<Row> originalDf = createTestDataFrame(numRows);
-
-        // When: Write to S3 (relying on environment credentials)
-        String s3Path = s3BaseUri + "/spark-test-" + System.currentTimeMillis();
-        originalDf
-                .repartition(2) // Force 2 partitions
-                .write()
+        // When: write with partitionBy
+        df.write()
                 .format("vortex")
-                .option("path", s3Path)
+                .partitionBy("group")
+                .option("path", outputPath.toUri().toString())
                 .mode(SaveMode.Overwrite)
                 .save();
 
-        // Then: Read back from S3
-        Dataset<Row> readDf =
-                spark.read().format("vortex").option("path", s3Path).load();
+        // Then: verify partition directories exist
+        assertTrue(Files.exists(outputPath.resolve("group=A")), "Partition directory group=A should exist");
+        assertTrue(Files.exists(outputPath.resolve("group=B")), "Partition directory group=B should exist");
 
-        // Verify schema is preserved
-        assertSchemaEquals(originalDf.schema(), readDf.schema());
+        // Verify vortex files inside partition directories
+        List<Path> filesA = findVortexFiles(outputPath.resolve("group=A"));
+        List<Path> filesB = findVortexFiles(outputPath.resolve("group=B"));
+        assertTrue(!filesA.isEmpty(), "Partition A should have vortex files");
+        assertTrue(!filesB.isEmpty(), "Partition B should have vortex files");
 
-        // Verify row count
-        assertEquals(numRows, readDf.count(), "Read DataFrame should have same number of rows as original");
+        // When: read back
+        Dataset<Row> readDf = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load();
 
-        // Verify data content
-        verifyDataContent(originalDf, readDf);
+        // Then: verify all rows are present
+        assertEquals(5, readDf.count(), "Should read all 5 rows back");
 
-        // Log the S3 path for debugging
-        System.out.println("Successfully wrote and read Vortex files from: " + s3Path);
+        // Verify partition values are correct
+        Dataset<Row> groupA = readDf.filter(readDf.col("group").equalTo("A")).orderBy("id");
+        assertEquals(3, groupA.count(), "Group A should have 3 rows");
+        assertEquals(1, (int) groupA.collectAsList().get(0).getAs("id"));
+        assertEquals(3, (int) groupA.collectAsList().get(1).getAs("id"));
+        assertEquals(5, (int) groupA.collectAsList().get(2).getAs("id"));
+    }
 
-        // Cleanup: Delete the test files from S3
-        // Note: In production, you might want to use AWS SDK for cleanup
-        // For now, we'll rely on a periodic cleanup job for the test folder
+    @Test
+    @DisplayName("Write and read with multiple partition columns")
+    public void testMultiColumnPartitionedWrite() throws IOException {
+        List<Row> rows = Arrays.asList(
+                RowFactory.create(1, "X", 10),
+                RowFactory.create(2, "Y", 20),
+                RowFactory.create(3, "X", 20),
+                RowFactory.create(4, "Y", 10));
+
+        Dataset<Row> df = spark.createDataFrame(
+                rows,
+                DataTypes.createStructType(Arrays.asList(
+                        DataTypes.createStructField("id", DataTypes.IntegerType, false),
+                        DataTypes.createStructField("category", DataTypes.StringType, true),
+                        DataTypes.createStructField("bucket", DataTypes.IntegerType, false))));
+
+        Path outputPath = tempDir.resolve("multi_partition_output");
+
+        df.write()
+                .format("vortex")
+                .partitionBy("category", "bucket")
+                .option("path", outputPath.toUri().toString())
+                .mode(SaveMode.Overwrite)
+                .save();
+
+        // Verify nested partition directories
+        assertTrue(
+                Files.exists(outputPath.resolve("category=X/bucket=10")),
+                "Partition directory category=X/bucket=10 should exist");
+        assertTrue(
+                Files.exists(outputPath.resolve("category=Y/bucket=20")),
+                "Partition directory category=Y/bucket=20 should exist");
+
+        // Read back and verify
+        Dataset<Row> readDf = spark.read()
+                .format("vortex")
+                .option("path", outputPath.toUri().toString())
+                .load();
+
+        assertEquals(4, readDf.count(), "Should read all 4 rows back");
     }
 
     @Test

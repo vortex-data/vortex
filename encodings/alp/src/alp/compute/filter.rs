@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::filter::FilterKernel;
@@ -9,11 +10,10 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ALP;
-use crate::ALPArray;
 
 impl FilterKernel for ALP {
     fn filter(
-        array: &ALPArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -26,7 +26,7 @@ impl FilterKernel for ALP {
         // SAFETY: filtering the values does not change correctness
         unsafe {
             Ok(Some(
-                ALPArray::new_unchecked(
+                ALP::new_unchecked(
                     array.encoded().filter(mask.clone())?,
                     array.exponents(),
                     patches,

@@ -38,7 +38,7 @@ pub(crate) async fn copy_varbinview_to_varbin(
         buffers,
         validity,
         ..
-    } = array.into_parts();
+    } = array.into_data().into_parts();
 
     // TODO(aduffy): handle nulls
     check_validity_empty(&validity)?;

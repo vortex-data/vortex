@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -51,7 +50,7 @@ pub(crate) fn new_exporter(
         offsets,
         validity,
         dtype,
-    } = array.into_parts();
+    } = array.into_data().into_parts();
     let num_elements = elements.len();
     let validity = validity.to_array(array_len).execute::<Mask>(ctx)?;
 
@@ -60,7 +59,7 @@ pub(crate) fn new_exporter(
         return Ok(all_invalid::new_exporter(array_len, &ltype));
     }
 
-    let values_key = Arc::as_ptr(&elements).addr();
+    let values_key = elements.addr();
     // Check if we have a cached vector and extract it if we do.
     let cached_elements = cache
         .values_cache
@@ -160,12 +159,12 @@ impl<O: IntegerPType> ColumnExporter for ListExporter<O> {
 #[cfg(test)]
 mod tests {
     use vortex::array::IntoArray as _;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;

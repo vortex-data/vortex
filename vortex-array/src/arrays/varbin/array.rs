@@ -7,10 +7,14 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ToCanonical;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
+use crate::arrays::VarBin;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -20,32 +24,38 @@ use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
+/// The offsets array defining the start/end of each variable-length binary element.
+pub(super) const OFFSETS_SLOT: usize = 0;
+/// The validity bitmap indicating which elements are non-null.
+pub(super) const VALIDITY_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets", "validity"];
+
 #[derive(Clone, Debug)]
-pub struct VarBinArray {
+pub struct VarBinData {
     pub(super) dtype: DType,
     pub(super) bytes: BufferHandle,
-    pub(super) offsets: ArrayRef,
-    pub(super) validity: Validity,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
-impl VarBinArray {
-    /// Creates a new [`VarBinArray`].
+impl VarBinData {
+    /// Creates a new `VarBinArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`VarBinArray::new_unchecked`].
+    /// in `VarBinArray::new_unchecked`.
     pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
         Self::try_new(offsets, bytes, dtype, validity).vortex_expect("VarBinArray new")
     }
 
-    /// Creates a new [`VarBinArray`].
+    /// Creates a new `VarBinArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`VarBinArray::new_unchecked`].
+    /// in `VarBinArray::new_unchecked`.
     pub fn new_from_handle(
         offset: ArrayRef,
         bytes: BufferHandle,
@@ -57,12 +67,12 @@ impl VarBinArray {
 
     /// Constructs a new `VarBinArray`.
     ///
-    /// See [`VarBinArray::new_unchecked`] for more information.
+    /// See `VarBinArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`VarBinArray::new_unchecked`].
+    /// `VarBinArray::new_unchecked`.
     pub fn try_new(
         offsets: ArrayRef,
         bytes: ByteBuffer,
@@ -79,12 +89,12 @@ impl VarBinArray {
     /// Constructs a new `VarBinArray` from a `BufferHandle` of memory that may exist
     /// on the CPU or GPU.
     ///
-    /// See [`VarBinArray::new_unchecked`] for more information.
+    /// See `VarBinArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`VarBinArray::new_unchecked`].
+    /// `VarBinArray::new_unchecked`.
     pub fn try_new_from_handle(
         offsets: ArrayRef,
         bytes: BufferHandle,
@@ -97,7 +107,7 @@ impl VarBinArray {
         Ok(unsafe { Self::new_unchecked_from_handle(offsets, bytes, dtype, validity) })
     }
 
-    /// Creates a new [`VarBinArray`] without validation from these components:
+    /// Creates a new `VarBinArray` without validation from these components:
     ///
     /// * `offsets` is an array of byte offsets into the `bytes` buffer.
     /// * `bytes` is a buffer containing all the variable-length data concatenated.
@@ -138,7 +148,7 @@ impl VarBinArray {
         }
     }
 
-    /// Creates a new [`VarBinArray`] without validation from its components, with string data
+    /// Creates a new `VarBinArray` without validation from its components, with string data
     /// stored in a `BufferHandle` (CPU or GPU).
     ///
     /// # Safety
@@ -154,18 +164,20 @@ impl VarBinArray {
         Self::validate(&offsets, &bytes, &dtype, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `VarBinArray` parameters");
 
+        let len = offsets.len().saturating_sub(1);
+        let validity_slot = validity_to_child(&validity, len);
+
         Self {
             dtype,
             bytes,
-            offsets,
-            validity,
+            slots: vec![Some(offsets), validity_slot],
             stats_set: Default::default(),
         }
     }
 
-    /// Validates the components that would be used to create a [`VarBinArray`].
+    /// Validates the components that would be used to create a `VarBinArray`.
     ///
-    /// This function checks all the invariants required by [`VarBinArray::new_unchecked`].
+    /// This function checks all the invariants required by `VarBinArray::new_unchecked`.
     pub fn validate(
         offsets: &ArrayRef,
         bytes: &BufferHandle,
@@ -257,9 +269,37 @@ impl VarBinArray {
         Ok(())
     }
 
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.offsets().len().saturating_sub(1)
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the [`Validity`] of this array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
+    /// Returns the validity as a [`Mask`].
+    pub fn validity_mask(&self) -> Mask {
+        self.validity().to_mask(self.len())
+    }
+
     #[inline]
     pub fn offsets(&self) -> &ArrayRef {
-        &self.offsets
+        self.slots[OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("VarBinArray offsets slot")
     }
 
     /// Access the value bytes child buffer
@@ -307,7 +347,7 @@ impl VarBinArray {
         for v in vec {
             builder.append_value(v.as_ref());
         }
-        builder.finish(dtype)
+        builder.finish(dtype).into_data()
     }
 
     #[expect(
@@ -323,7 +363,7 @@ impl VarBinArray {
         for v in iter {
             builder.append(v.as_ref().map(|o| o.as_ref()));
         }
-        builder.finish(dtype)
+        builder.finish(dtype).into_data()
     }
 
     pub fn from_iter_nonnull<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(
@@ -335,9 +375,59 @@ impl VarBinArray {
         for v in iter {
             builder.append_value(v);
         }
-        builder.finish(dtype)
+        builder.finish(dtype).into_data()
+    }
+}
+
+/// Forwarding constructors for `VarBinArray` (= `Array<VarBin>`).
+impl Array<VarBin> {
+    pub fn from_vec<T: AsRef<[u8]>>(vec: Vec<T>, dtype: DType) -> Self {
+        Array::try_from_data(VarBinData::from_vec(vec, dtype))
+            .vortex_expect("VarBinData is always valid")
     }
 
+    #[expect(
+        clippy::same_name_method,
+        reason = "intentionally named from_iter like Iterator::from_iter"
+    )]
+    pub fn from_iter<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
+        iter: I,
+        dtype: DType,
+    ) -> Self {
+        Array::try_from_data(VarBinData::from_iter(iter, dtype))
+            .vortex_expect("VarBinData is always valid")
+    }
+
+    pub fn from_iter_nonnull<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(
+        iter: I,
+        dtype: DType,
+    ) -> Self {
+        Array::try_from_data(VarBinData::from_iter_nonnull(iter, dtype))
+            .vortex_expect("VarBinData is always valid")
+    }
+
+    /// Create from a vector of string slices.
+    pub fn from_strs(value: Vec<&str>) -> Self {
+        Self::from_vec(value, DType::Utf8(Nullability::NonNullable))
+    }
+
+    /// Create from a vector of optional string slices.
+    pub fn from_nullable_strs(value: Vec<Option<&str>>) -> Self {
+        Self::from_iter(value, DType::Utf8(Nullability::Nullable))
+    }
+
+    /// Create from a vector of byte slices.
+    pub fn from_bytes(value: Vec<&[u8]>) -> Self {
+        Self::from_vec(value, DType::Binary(Nullability::NonNullable))
+    }
+
+    /// Create from a vector of optional byte slices.
+    pub fn from_nullable_bytes(value: Vec<Option<&[u8]>>) -> Self {
+        Self::from_iter(value, DType::Binary(Nullability::Nullable))
+    }
+}
+
+impl VarBinData {
     /// Get value offset at a given index
     ///
     /// Note: There's 1 more offsets than the elements in the array, thus last offset is at array length index
@@ -370,79 +460,211 @@ impl VarBinArray {
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
-    pub fn into_parts(self) -> (DType, BufferHandle, ArrayRef, Validity) {
-        (self.dtype, self.bytes, self.offsets, self.validity)
+    pub fn into_parts(mut self) -> (DType, BufferHandle, ArrayRef, Validity) {
+        let validity = self.validity();
+        let offsets = self.slots[OFFSETS_SLOT]
+            .take()
+            .vortex_expect("VarBinArray offsets slot");
+        (self.dtype, self.bytes, offsets, validity)
     }
 }
 
-impl From<Vec<&[u8]>> for VarBinArray {
+impl Array<VarBin> {
+    /// Creates a new `VarBinArray`.
+    pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
+        Array::try_from_data(VarBinData::new(offsets, bytes, dtype, validity))
+            .vortex_expect("VarBinData is always valid")
+    }
+
+    /// Creates a new `VarBinArray` without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`VarBinData::new_unchecked`].
+    pub unsafe fn new_unchecked(
+        offsets: ArrayRef,
+        bytes: ByteBuffer,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Array::try_from_data(unsafe { VarBinData::new_unchecked(offsets, bytes, dtype, validity) })
+            .vortex_expect("VarBinData is always valid")
+    }
+
+    /// Creates a new `VarBinArray` without validation from a [`BufferHandle`].
+    ///
+    /// # Safety
+    ///
+    /// See [`VarBinData::new_unchecked_from_handle`].
+    pub unsafe fn new_unchecked_from_handle(
+        offsets: ArrayRef,
+        bytes: BufferHandle,
+        dtype: DType,
+        validity: Validity,
+    ) -> Self {
+        Array::try_from_data(unsafe {
+            VarBinData::new_unchecked_from_handle(offsets, bytes, dtype, validity)
+        })
+        .vortex_expect("VarBinData is always valid")
+    }
+
+    /// Constructs a new `VarBinArray`.
+    pub fn try_new(
+        offsets: ArrayRef,
+        bytes: ByteBuffer,
+        dtype: DType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Array::try_from_data(VarBinData::try_new(offsets, bytes, dtype, validity)?)
+    }
+}
+
+impl From<Vec<&[u8]>> for VarBinData {
     fn from(value: Vec<&[u8]>) -> Self {
         Self::from_vec(value, DType::Binary(Nullability::NonNullable))
     }
 }
 
-impl From<Vec<Vec<u8>>> for VarBinArray {
+impl From<Vec<Vec<u8>>> for VarBinData {
     fn from(value: Vec<Vec<u8>>) -> Self {
         Self::from_vec(value, DType::Binary(Nullability::NonNullable))
     }
 }
 
-impl From<Vec<String>> for VarBinArray {
+impl From<Vec<String>> for VarBinData {
     fn from(value: Vec<String>) -> Self {
         Self::from_vec(value, DType::Utf8(Nullability::NonNullable))
     }
 }
 
-impl From<Vec<&str>> for VarBinArray {
+impl From<Vec<&str>> for VarBinData {
     fn from(value: Vec<&str>) -> Self {
         Self::from_vec(value, DType::Utf8(Nullability::NonNullable))
     }
 }
 
-impl From<Vec<Option<&[u8]>>> for VarBinArray {
+impl From<Vec<Option<&[u8]>>> for VarBinData {
     fn from(value: Vec<Option<&[u8]>>) -> Self {
         Self::from_iter(value, DType::Binary(Nullability::Nullable))
     }
 }
 
-impl From<Vec<Option<Vec<u8>>>> for VarBinArray {
+impl From<Vec<Option<Vec<u8>>>> for VarBinData {
     fn from(value: Vec<Option<Vec<u8>>>) -> Self {
         Self::from_iter(value, DType::Binary(Nullability::Nullable))
     }
 }
 
-impl From<Vec<Option<String>>> for VarBinArray {
+impl From<Vec<Option<String>>> for VarBinData {
     fn from(value: Vec<Option<String>>) -> Self {
         Self::from_iter(value, DType::Utf8(Nullability::Nullable))
     }
 }
 
-impl From<Vec<Option<&str>>> for VarBinArray {
+impl From<Vec<Option<&str>>> for VarBinData {
     fn from(value: Vec<Option<&str>>) -> Self {
         Self::from_iter(value, DType::Utf8(Nullability::Nullable))
     }
 }
 
-impl<'a> FromIterator<Option<&'a [u8]>> for VarBinArray {
+impl<'a> FromIterator<Option<&'a [u8]>> for VarBinData {
     fn from_iter<T: IntoIterator<Item = Option<&'a [u8]>>>(iter: T) -> Self {
         Self::from_iter(iter, DType::Binary(Nullability::Nullable))
     }
 }
 
-impl FromIterator<Option<Vec<u8>>> for VarBinArray {
+impl FromIterator<Option<Vec<u8>>> for VarBinData {
     fn from_iter<T: IntoIterator<Item = Option<Vec<u8>>>>(iter: T) -> Self {
         Self::from_iter(iter, DType::Binary(Nullability::Nullable))
     }
 }
 
-impl FromIterator<Option<String>> for VarBinArray {
+impl FromIterator<Option<String>> for VarBinData {
     fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
         Self::from_iter(iter, DType::Utf8(Nullability::Nullable))
     }
 }
 
-impl<'a> FromIterator<Option<&'a str>> for VarBinArray {
+impl<'a> FromIterator<Option<&'a str>> for VarBinData {
     fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
         Self::from_iter(iter, DType::Utf8(Nullability::Nullable))
+    }
+}
+
+// --- From and FromIterator forwarding for Array<VarBin> ---
+
+impl From<Vec<&[u8]>> for Array<VarBin> {
+    fn from(value: Vec<&[u8]>) -> Self {
+        Array::try_from_data(VarBinData::from(value)).vortex_expect("VarBinData is always valid")
+    }
+}
+
+impl From<Vec<Vec<u8>>> for Array<VarBin> {
+    fn from(value: Vec<Vec<u8>>) -> Self {
+        Array::try_from_data(VarBinData::from(value)).vortex_expect("VarBinData is always valid")
+    }
+}
+
+impl From<Vec<String>> for Array<VarBin> {
+    fn from(value: Vec<String>) -> Self {
+        Array::try_from_data(VarBinData::from(value)).vortex_expect("VarBinData is always valid")
+    }
+}
+
+impl From<Vec<&str>> for Array<VarBin> {
+    fn from(value: Vec<&str>) -> Self {
+        Array::try_from_data(VarBinData::from(value)).vortex_expect("VarBinData is always valid")
+    }
+}
+
+impl From<Vec<Option<&[u8]>>> for Array<VarBin> {
+    fn from(value: Vec<Option<&[u8]>>) -> Self {
+        Array::try_from_data(VarBinData::from(value)).vortex_expect("VarBinData is always valid")
+    }
+}
+
+impl From<Vec<Option<Vec<u8>>>> for Array<VarBin> {
+    fn from(value: Vec<Option<Vec<u8>>>) -> Self {
+        Array::try_from_data(VarBinData::from(value)).vortex_expect("VarBinData is always valid")
+    }
+}
+
+impl From<Vec<Option<String>>> for Array<VarBin> {
+    fn from(value: Vec<Option<String>>) -> Self {
+        Array::try_from_data(VarBinData::from(value)).vortex_expect("VarBinData is always valid")
+    }
+}
+
+impl From<Vec<Option<&str>>> for Array<VarBin> {
+    fn from(value: Vec<Option<&str>>) -> Self {
+        Array::try_from_data(VarBinData::from(value)).vortex_expect("VarBinData is always valid")
+    }
+}
+
+impl<'a> FromIterator<Option<&'a [u8]>> for Array<VarBin> {
+    fn from_iter<T: IntoIterator<Item = Option<&'a [u8]>>>(iter: T) -> Self {
+        Array::try_from_data(<VarBinData as FromIterator<_>>::from_iter(iter))
+            .vortex_expect("<VarBinData as FromIterator<_> is always valid")
+    }
+}
+
+impl FromIterator<Option<Vec<u8>>> for Array<VarBin> {
+    fn from_iter<T: IntoIterator<Item = Option<Vec<u8>>>>(iter: T) -> Self {
+        Array::try_from_data(<VarBinData as FromIterator<_>>::from_iter(iter))
+            .vortex_expect("<VarBinData as FromIterator<_> is always valid")
+    }
+}
+
+impl FromIterator<Option<String>> for Array<VarBin> {
+    fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
+        Array::try_from_data(<VarBinData as FromIterator<_>>::from_iter(iter))
+            .vortex_expect("<VarBinData as FromIterator<_> is always valid")
+    }
+}
+
+impl<'a> FromIterator<Option<&'a str>> for Array<VarBin> {
+    fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
+        Array::try_from_data(<VarBinData as FromIterator<_>>::from_iter(iter))
+            .vortex_expect("<VarBinData as FromIterator<_> is always valid")
     }
 }

@@ -4,17 +4,17 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::ValidityVTable;
 use crate::arrays::Chunked;
-use crate::arrays::chunked::vtable::ChunkedArray;
+use crate::arrays::chunked::ChunkedData;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::validity::Validity;
-use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<Chunked> for Chunked {
-    fn validity(array: &ChunkedArray) -> VortexResult<Validity> {
+    fn validity(array: ArrayView<'_, Chunked>) -> VortexResult<Validity> {
         let validities: Vec<Validity> =
             array.chunks().iter().map(|c| c.validity()).try_collect()?;
 
@@ -39,10 +39,10 @@ impl ValidityVTable<Chunked> for Chunked {
 
         Ok(Validity::Array(
             unsafe {
-                ChunkedArray::new_unchecked(
+                ChunkedData::new_unchecked(
                     validities
                         .into_iter()
-                        .zip(array.chunks())
+                        .zip(array.iter_chunks())
                         .map(|(v, chunk)| v.to_array(chunk.len()))
                         .collect(),
                     DType::Bool(Nullability::NonNullable),

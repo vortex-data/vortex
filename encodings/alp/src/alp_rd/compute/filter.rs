@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::filter::FilterKernel;
@@ -9,11 +10,10 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ALPRD;
-use crate::ALPRDArray;
 
 impl FilterKernel for ALPRD {
     fn filter(
-        array: &ALPRDArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -24,7 +24,7 @@ impl FilterKernel for ALPRD {
             .flatten();
 
         Ok(Some(
-            ALPRDArray::try_new(
+            ALPRD::try_new(
                 array.dtype().clone(),
                 array.left_parts().filter(mask.clone())?,
                 array.left_parts_dictionary().clone(),

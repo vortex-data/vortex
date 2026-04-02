@@ -22,7 +22,7 @@ pub fn vortex_ipc::iterator::SyncIPCReader<R>::try_new(read: R, session: &vortex
 
 impl<R: std::io::Read> core::iter::traits::iterator::Iterator for vortex_ipc::iterator::SyncIPCReader<R>
 
-pub type vortex_ipc::iterator::SyncIPCReader<R>::Item = core::result::Result<alloc::sync::Arc<dyn vortex_array::array::DynArray>, vortex_error::VortexError>
+pub type vortex_ipc::iterator::SyncIPCReader<R>::Item = core::result::Result<vortex_array::array::erased::ArrayRef, vortex_error::VortexError>
 
 pub fn vortex_ipc::iterator::SyncIPCReader<R>::next(&mut self) -> core::option::Option<Self::Item>
 
@@ -58,7 +58,7 @@ pub fn vortex_ipc::messages::DecoderMessage::fmt(&self, f: &mut core::fmt::Forma
 
 pub enum vortex_ipc::messages::EncoderMessage<'a>
 
-pub vortex_ipc::messages::EncoderMessage::Array(&'a dyn vortex_array::array::DynArray)
+pub vortex_ipc::messages::EncoderMessage::Array(&'a vortex_array::array::erased::ArrayRef)
 
 pub vortex_ipc::messages::EncoderMessage::Buffer(&'a vortex_buffer::ByteBuffer)
 
@@ -176,7 +176,7 @@ impl<'__pin, R> core::marker::Unpin for vortex_ipc::stream::AsyncIPCReader<R> wh
 
 impl<R: futures_io::if_std::AsyncRead> futures_core::stream::Stream for vortex_ipc::stream::AsyncIPCReader<R>
 
-pub type vortex_ipc::stream::AsyncIPCReader<R>::Item = core::result::Result<alloc::sync::Arc<dyn vortex_array::array::DynArray>, vortex_error::VortexError>
+pub type vortex_ipc::stream::AsyncIPCReader<R>::Item = core::result::Result<vortex_array::array::erased::ArrayRef, vortex_error::VortexError>
 
 pub fn vortex_ipc::stream::AsyncIPCReader<R>::poll_next(self: core::pin::Pin<&mut Self>, cx: &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::option::Option<Self::Item>>
 

@@ -12,6 +12,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
@@ -23,7 +24,7 @@ use crate::scalar_fn::fns::zip::ZipKernel;
 // instead of routing through the generic builder (which would redo buffer lookups per mask slice).
 impl ZipKernel for VarBinView {
     fn zip(
-        if_true: &VarBinViewArray,
+        if_true: ArrayView<'_, VarBinView>,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
@@ -45,17 +46,18 @@ impl ZipKernel for VarBinView {
         // to the new buffer index in the result array
         let mut buffers = DeduplicatedBuffers::default();
         let true_lookup =
-            buffers.extend_from_iter(if_true.buffers().iter().map(|b| b.as_host().clone()));
+            buffers.extend_from_iter(if_true.data_buffers().iter().map(|b| b.as_host().clone()));
         let false_lookup =
-            buffers.extend_from_iter(if_false.buffers().iter().map(|b| b.as_host().clone()));
+            buffers.extend_from_iter(if_false.data_buffers().iter().map(|b| b.as_host().clone()));
 
         let mut views_builder = BufferMut::<BinaryView>::with_capacity(len);
         let mut validity_builder = LazyBitBufferBuilder::new(len);
 
-        let true_validity = if_true.validity_mask()?;
-        let false_validity = if_false.validity_mask()?;
+        let true_validity = if_true.validity_mask();
+        let false_validity = if_false.validity_mask();
 
         let mask = mask.try_to_mask_fill_null_false(ctx)?;
+        let if_false_view = if_false;
         match mask.slices() {
             AllOr::All => push_range(
                 if_true,
@@ -66,7 +68,7 @@ impl ZipKernel for VarBinView {
                 &mut validity_builder,
             ),
             AllOr::None => push_range(
-                if_false,
+                if_false_view,
                 &false_lookup,
                 &false_validity,
                 0..len,
@@ -78,7 +80,7 @@ impl ZipKernel for VarBinView {
                 for (start, end) in slices {
                     if pos < *start {
                         push_range(
-                            if_false,
+                            if_false_view,
                             &false_lookup,
                             &false_validity,
                             pos..*start,
@@ -98,7 +100,7 @@ impl ZipKernel for VarBinView {
                 }
                 if pos < len {
                     push_range(
-                        if_false,
+                        if_false_view,
                         &false_lookup,
                         &false_validity,
                         pos..len,
@@ -127,7 +129,7 @@ impl ZipKernel for VarBinView {
 }
 
 fn push_range(
-    array: &VarBinViewArray,
+    array: ArrayView<'_, VarBinView>,
     buffer_lookup: &[u32],
     validity: &Mask,
     range: Range<usize>,

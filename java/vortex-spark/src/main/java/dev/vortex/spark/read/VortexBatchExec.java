@@ -4,6 +4,7 @@
 package dev.vortex.spark.read;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import dev.vortex.jni.NativeFileMethods;
 import dev.vortex.spark.VortexFilePartition;
 import java.util.Map;
@@ -19,7 +20,7 @@ import org.apache.spark.sql.connector.read.PartitionReaderFactory;
 public final class VortexBatchExec implements Batch {
     private final ImmutableList<String> paths;
     private final ImmutableList<Column> columns;
-    private final Map<String, String> formatOptions;
+    private final ImmutableMap<String, String> formatOptions;
 
     /**
      * Creates a new VortexBatchExec for scanning the specified Vortex files.
@@ -28,7 +29,7 @@ public final class VortexBatchExec implements Batch {
      * @param columns the list of columns to read from the files
      */
     public VortexBatchExec(
-            ImmutableList<String> paths, ImmutableList<Column> columns, Map<String, String> formatOptions) {
+            ImmutableList<String> paths, ImmutableList<Column> columns, ImmutableMap<String, String> formatOptions) {
         this.paths = paths;
         this.columns = columns;
         this.formatOptions = formatOptions;
@@ -44,17 +45,20 @@ public final class VortexBatchExec implements Batch {
      */
     @Override
     public InputPartition[] planInputPartitions() {
-        // Scan all paths and assign each file its own partition
+        // Scan all paths and assign each file its own partition.
+        // For each discovered file, parse Hive-style partition values from the path.
         return paths.stream()
                 .flatMap(path -> {
                     if (path.endsWith(".vortex")) {
                         return Stream.of(path);
                     } else {
-                        // Scan and return the paths
                         return NativeFileMethods.listVortexFiles(path, formatOptions).stream();
                     }
                 })
-                .map(path -> new VortexFilePartition(path, columns))
+                .map(path -> {
+                    Map<String, String> partVals = PartitionPathUtils.parsePartitionValues(path);
+                    return new VortexFilePartition(path, columns, formatOptions, ImmutableMap.copyOf(partVals));
+                })
                 .toArray(InputPartition[]::new);
     }
 

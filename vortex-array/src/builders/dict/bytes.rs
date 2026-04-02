@@ -18,7 +18,6 @@ use vortex_utils::aliases::hash_map::RandomState;
 use super::DictConstraints;
 use super::DictEncoder;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
@@ -167,9 +166,9 @@ impl<Code: UnsignedPType> DictEncoder for BytesDictBuilder<Code> {
 
         let len = array.len();
         if let Some(varbinview) = array.as_opt::<VarBinView>() {
-            self.encode_bytes(varbinview, len)
+            self.encode_bytes(&varbinview.into_owned(), len)
         } else if let Some(varbin) = array.as_opt::<VarBin>() {
-            self.encode_bytes(varbin, len)
+            self.encode_bytes(&varbin.into_owned(), len)
         } else {
             // NOTE(aduffy): it is very rare that this path would be taken, only e.g.
             //  if we're performing dictionary encoding downstream of some other compression.

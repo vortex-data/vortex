@@ -95,23 +95,15 @@ struct CurrentTokioRuntime;
 
 impl Executor for CurrentTokioRuntime {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
-        Box::new(tokio::runtime::Handle::current().spawn(fut).abort_handle())
+        Executor::spawn(&tokio::runtime::Handle::current(), fut)
     }
 
     fn spawn_cpu(&self, cpu: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        Box::new(
-            tokio::runtime::Handle::current()
-                .spawn(async move { cpu() })
-                .abort_handle(),
-        )
+        Executor::spawn_cpu(&tokio::runtime::Handle::current(), cpu)
     }
 
     fn spawn_blocking_io(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        Box::new(
-            tokio::runtime::Handle::current()
-                .spawn_blocking(task)
-                .abort_handle(),
-        )
+        Executor::spawn_blocking_io(&tokio::runtime::Handle::current(), task)
     }
 }
 
@@ -159,13 +151,11 @@ impl BlockingRuntime for TokioRuntime {
     }
 }
 
-#[cfg(feature = "tokio")]
 pub struct TokioBlockingIterator<'a, T> {
     handle: Arc<tokio::runtime::Handle>,
     stream: futures::stream::BoxStream<'a, T>,
 }
 
-#[cfg(feature = "tokio")]
 impl<T> Iterator for TokioBlockingIterator<'_, T> {
     type Item = T;
 

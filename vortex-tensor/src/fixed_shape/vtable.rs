@@ -33,7 +33,7 @@ impl ExtVTable for FixedShapeTensor {
         proto::deserialize(metadata)
     }
 
-    fn validate_dtype(&self, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+    fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         let storage_dtype = ext_dtype.storage_dtype();
         let DType::FixedSizeList(element_dtype, list_size, _nullability) = storage_dtype else {
             vortex_bail!(
@@ -64,7 +64,6 @@ impl ExtVTable for FixedShapeTensor {
     }
 
     fn unpack_native<'a>(
-        &self,
         _ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
     ) -> VortexResult<Self::NativeValue<'a>> {

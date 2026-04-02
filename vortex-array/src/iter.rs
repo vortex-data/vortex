@@ -9,7 +9,6 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
@@ -92,14 +91,14 @@ pub trait ArrayIteratorExt: ArrayIterator {
 
 impl<I: ArrayIterator> ArrayIteratorExt for I {}
 
-impl dyn DynArray + '_ {
+impl ArrayRef {
     /// Create an [`ArrayIterator`] over the array.
     pub fn to_array_iterator(&self) -> impl ArrayIterator + 'static {
         let dtype = self.dtype().clone();
         let iter = if let Some(chunked) = self.as_opt::<Chunked>() {
-            ArrayChunkIterator::Chunked(Arc::new(chunked.clone()), 0)
+            ArrayChunkIterator::Chunked(Arc::new(chunked.into_owned()), 0)
         } else {
-            ArrayChunkIterator::Single(Some(self.to_array()))
+            ArrayChunkIterator::Single(Some(self.clone()))
         };
         ArrayIteratorAdapter::new(dtype, iter)
     }

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
@@ -11,15 +11,14 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
-use crate::ALPRDArray;
 
 impl TakeExecute for ALPRD {
     fn take(
-        array: &ALPRDArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let taken_left_parts = array.left_parts().take(indices.to_array())?;
+        let taken_left_parts = array.left_parts().take(indices.clone())?;
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.take(indices, ctx))
@@ -35,11 +34,11 @@ impl TakeExecute for ALPRD {
             .transpose()?;
         let right_parts = array
             .right_parts()
-            .take(indices.to_array())?
+            .take(indices.clone())?
             .fill_null(Scalar::zero_value(array.right_parts().dtype()))?;
 
         Ok(Some(
-            ALPRDArray::try_new(
+            ALPRD::try_new(
                 array
                     .dtype()
                     .with_nullability(taken_left_parts.dtype().nullability()),

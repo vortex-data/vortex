@@ -6,7 +6,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::DecimalArray;
@@ -81,7 +80,7 @@ impl CanonicalCudaExt for Canonical {
                     buffer,
                     validity,
                     ..
-                } = prim.into_parts();
+                } = prim.into_data().into_parts();
                 Ok(Canonical::Primitive(PrimitiveArray::from_byte_buffer(
                     buffer.try_into_host()?.await?,
                     ptype,
@@ -95,7 +94,7 @@ impl CanonicalCudaExt for Canonical {
                     values_type,
                     validity,
                     ..
-                } = decimal.into_parts();
+                } = decimal.into_data().into_parts();
                 Ok(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(
                         BufferHandle::new_host(values.try_into_host()?.await?),
@@ -111,7 +110,7 @@ impl CanonicalCudaExt for Canonical {
                     buffers,
                     validity,
                     dtype,
-                } = varbinview.into_parts();
+                } = varbinview.into_data().into_parts();
 
                 // Copy all device views to host
                 let host_views = views.try_into_host()?.await?;

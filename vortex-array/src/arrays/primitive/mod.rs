@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::PrimitiveArray;
 pub use array::PrimitiveArrayParts;
+pub use array::PrimitiveData;
 pub use array::chunk_range;
 pub use array::patch_chunk;
+pub use vtable::PrimitiveArray;
 
 pub(crate) mod compute;
 

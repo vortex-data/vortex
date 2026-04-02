@@ -9,12 +9,11 @@ use vortex::dtype::DType;
 use vortex::dtype::StructFields;
 use vortex::error::VortexExpect;
 
-use crate::arc_wrapper;
 use crate::box_wrapper;
 use crate::dtype::vx_dtype;
 use crate::string::vx_string;
 
-arc_wrapper!(
+box_wrapper!(
     /// Represents a Vortex struct data type, without top-level nullability.
     StructFields,
     vx_struct_fields
@@ -90,10 +89,10 @@ box_wrapper!(
 /// Create a new struct dtype builder.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_builder_new() -> *mut vx_struct_fields_builder {
-    vx_struct_fields_builder::new(Box::new(StructDTypeBuilder {
+    vx_struct_fields_builder::new(StructDTypeBuilder {
         names: Vec::new(),
         fields: Vec::new(),
-    }))
+    })
 }
 
 /// Add a field to the struct dtype builder.
@@ -119,8 +118,8 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_builder_add_field(
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_builder_finalize(
     builder: *mut vx_struct_fields_builder,
-) -> *const vx_struct_fields {
-    let builder = vx_struct_fields_builder::into_box(builder);
-    let struct_dtype = StructFields::new(builder.names.into(), builder.fields);
-    vx_struct_fields::new(Arc::new(struct_dtype))
+) -> *mut vx_struct_fields {
+    let StructDTypeBuilder { names, fields } = *vx_struct_fields_builder::into_box(builder);
+    let struct_dtype = StructFields::new(names.into(), fields);
+    vx_struct_fields::new(struct_dtype)
 }

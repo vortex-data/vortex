@@ -11,7 +11,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
@@ -31,23 +30,26 @@ use crate::extension::datetime::Timestamp;
 ///
 /// ## Arrow compatibility
 ///
-/// TemporalArray can be created from Arrow arrays containing the following datatypes:
+/// TemporalData can be created from Arrow arrays containing the following datatypes:
 /// * `Time32`
 /// * `Time64`
 /// * `Timestamp`
 /// * `Date32`
 /// * `Date64`
 ///
-/// Anything that can be constructed and held in a `TemporalArray` can also be zero-copy converted
+/// Anything that can be constructed and held in a `TemporalData` can also be zero-copy converted
 /// back to the relevant Arrow datatype.
 #[derive(Clone, Debug)]
-pub struct TemporalArray {
+pub struct TemporalData {
     /// The underlying Vortex extension array holding all the numeric values.
     ext: ExtensionArray,
 }
 
-impl TemporalArray {
-    /// Create a new `TemporalArray` holding either i32 day offsets, or i64 millisecond offsets
+/// Type alias for backward compatibility.
+pub type TemporalArray = TemporalData;
+
+impl TemporalData {
+    /// Create a new `TemporalData` holding either i32 day offsets, or i64 millisecond offsets
     /// that are evenly divisible by the number of 86,400,000.
     ///
     /// This is equivalent to the data described by either of the `Date32` or `Date64` data types
@@ -69,7 +71,7 @@ impl TemporalArray {
         }
     }
 
-    /// Create a new `TemporalArray` holding one of the following values:
+    /// Create a new `TemporalData` holding one of the following values:
     ///
     /// * `i32` values representing seconds since midnight
     /// * `i32` values representing milliseconds since midnight
@@ -97,7 +99,7 @@ impl TemporalArray {
         }
     }
 
-    /// Create a new `TemporalArray` holding Arrow spec compliant Timestamp data, with an
+    /// Create a new `TemporalData` holding Arrow spec compliant Timestamp data, with an
     /// optional timezone.
     ///
     /// # Panics
@@ -119,7 +121,7 @@ impl TemporalArray {
     }
 }
 
-impl TemporalArray {
+impl TemporalData {
     /// Access the underlying temporal values in the underlying ExtensionArray storage.
     ///
     /// These values are to be interpreted based on the time unit and optional time-zone stored
@@ -147,28 +149,22 @@ impl TemporalArray {
     }
 }
 
-impl AsRef<dyn DynArray> for TemporalArray {
-    fn as_ref(&self) -> &dyn DynArray {
-        self.ext.as_ref()
-    }
-}
-
-impl From<TemporalArray> for ArrayRef {
-    fn from(value: TemporalArray) -> Self {
+impl From<TemporalData> for ArrayRef {
+    fn from(value: TemporalData) -> Self {
         value.ext.into_array()
     }
 }
 
-impl IntoArray for TemporalArray {
+impl IntoArray for TemporalData {
     fn into_array(self) -> ArrayRef {
         self.into()
     }
 }
 
-impl TryFrom<ArrayRef> for TemporalArray {
+impl TryFrom<ArrayRef> for TemporalData {
     type Error = VortexError;
 
-    /// Try to specialize a generic Vortex array as a TemporalArray.
+    /// Try to specialize a generic Vortex array as a TemporalData.
     ///
     /// # Errors
     ///
@@ -186,24 +182,26 @@ impl TryFrom<ArrayRef> for TemporalArray {
                 ext.ext_dtype()
             );
         }
-        Ok(Self { ext: ext.clone() })
+        Ok(Self {
+            ext: ext.into_owned(),
+        })
     }
 }
 
 // Conversions to/from ExtensionArray
-impl From<&TemporalArray> for ExtensionArray {
-    fn from(value: &TemporalArray) -> Self {
+impl From<&TemporalData> for ExtensionArray {
+    fn from(value: &TemporalData) -> Self {
         value.ext.clone()
     }
 }
 
-impl From<TemporalArray> for ExtensionArray {
-    fn from(value: TemporalArray) -> Self {
+impl From<TemporalData> for ExtensionArray {
+    fn from(value: TemporalData) -> Self {
         value.ext
     }
 }
 
-impl TryFrom<ExtensionArray> for TemporalArray {
+impl TryFrom<ExtensionArray> for TemporalData {
     type Error = VortexError;
 
     fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {

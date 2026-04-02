@@ -105,6 +105,11 @@ impl ScalarFnVTable for FillNull {
             .as_constant()
             .ok_or_else(|| vortex_err!("fill_null fill_value must be a constant/scalar"))?;
 
+        vortex_ensure!(
+            !fill_scalar.is_null(),
+            "fill_null requires a non-null fill value"
+        );
+
         let Some(columnar) = input.as_opt::<AnyColumnar>() else {
             return input.execute::<ArrayRef>(ctx)?.fill_null(fill_scalar);
         };
@@ -157,7 +162,7 @@ fn fill_null_canonical(
     fill_value: &Scalar,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let arr = canonical.as_ref().to_array();
+    let arr = canonical.to_array_ref();
     if let Some(result) = precondition(&arr, fill_value)? {
         // The result of precondition may return another ScalarFn, in which case we should
         // apply it immediately.
@@ -176,7 +181,7 @@ fn fill_null_canonical(
             .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None")),
         other => vortex_bail!(
             "No FillNullKernel for canonical array {}",
-            other.as_ref().encoding_id()
+            other.to_array_ref().encoding_id()
         ),
     }
 }

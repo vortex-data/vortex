@@ -10,18 +10,18 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
+use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrow::ArrowArrayExecutor;
 
-impl TryFrom<&dyn DynArray> for RecordBatch {
+impl TryFrom<&ArrayRef> for RecordBatch {
     type Error = VortexError;
 
-    fn try_from(value: &dyn DynArray) -> VortexResult<Self> {
+    fn try_from(value: &ArrayRef) -> VortexResult<Self> {
         let Canonical::Struct(struct_array) = value.to_canonical()? else {
             vortex_bail!("RecordBatch can only be constructed from ")
         };

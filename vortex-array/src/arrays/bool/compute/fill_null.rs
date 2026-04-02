@@ -7,16 +7,16 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl FillNullKernel for Bool {
     fn fill_null(
-        array: &BoolArray,
+        array: ArrayView<'_, Bool>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -27,7 +27,7 @@ impl FillNullKernel for Bool {
 
         Ok(Some(match array.validity() {
             Validity::Array(v) => {
-                let v_bool = v.clone().execute::<BoolArray>(ctx)?;
+                let v_bool = v.execute::<BoolArray>(ctx)?;
                 let bool_buffer = if fill {
                     array.to_bit_buffer() | &!v_bool.to_bit_buffer()
                 } else {

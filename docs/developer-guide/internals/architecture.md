@@ -76,12 +76,12 @@ Language bindings expose Vortex to non-Rust environments.
 
 Query engine integrations allow Vortex files to be queried through existing analytics engines.
 
-| Crate / Directory    | Engine     | Notes                                        |
-| -------------------- | ---------- | -------------------------------------------- |
-| `vortex-datafusion/` | DataFusion | `TableProvider` and `FileFormat` integration |
-| `vortex-duckdb/`     | DuckDB     | Table function integration                   |
-| `java/vortex-spark/` | Spark      | DataSource V2 connector via JNI              |
-| `java/vortex-trino/` | Trino      | Trino connector (in development)             |
+| Crate / Directory                | Engine     | Notes                                        |
+|----------------------------------| ---------- |----------------------------------------------|
+| `vortex-datafusion/`             | DataFusion | `TableProvider` and `FileFormat` integration |
+| `vortex-duckdb/`                 | DuckDB     | Table function integration                   |
+| `java/vortex-spark_{2.12,2.13}/` | Spark      | Spark DataSource V2 connector via JNI        |
+| `java/vortex-trino/`             | Trino      | Trino connector (in development)             |
 
 ## Other Crates
 

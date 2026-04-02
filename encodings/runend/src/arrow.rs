@@ -15,10 +15,9 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
-use crate::RunEndArray;
+use crate::RunEndData;
 use crate::ops::find_slice_end_index;
-
-impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndArray
+impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
 where
     R::Native: NativePType,
 {
@@ -31,23 +30,24 @@ where
             .reinterpret_cast(R::Native::PTYPE.to_unsigned());
         let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
 
+        let ends_array = ends.into_array();
         let (ends_slice, values_slice) = if offset == 0 && len == array.run_ends().max_value() {
-            (ends.into_array(), values)
+            (ends_array, values)
         } else {
-            let slice_begin = ends
+            let slice_begin = ends_array
                 .as_primitive_typed()
                 .search_sorted(&PValue::from(offset), SearchSortedSide::Right)?
-                .to_ends_index(ends.len());
-            let slice_end = find_slice_end_index(&ends.clone().into_array(), offset + len)?;
+                .to_ends_index(ends_array.len());
+            let slice_end = find_slice_end_index(&ends_array, offset + len)?;
 
             (
-                ends.slice(slice_begin..slice_end)?,
+                ends_array.slice(slice_begin..slice_end)?,
                 values.slice(slice_begin..slice_end)?,
             )
         };
 
         // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees
-        Ok(unsafe { RunEndArray::new_unchecked(ends_slice, values_slice, offset, len) })
+        Ok(unsafe { RunEndData::new_unchecked(ends_slice, values_slice, offset, len) })
     }
 }
 
@@ -79,7 +79,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::RunEndArray;
+    use crate::RunEndData;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -94,10 +94,10 @@ mod tests {
         let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values).unwrap();
 
         // Convert to Vortex
-        let vortex_array = RunEndArray::from_arrow(&arrow_run_array, false)?;
+        let vortex_array = RunEndData::from_arrow(&arrow_run_array, false)?;
 
         assert_arrays_eq!(
-            vortex_array.as_ref(),
+            vortex_array.into_array(),
             buffer![10i32, 10, 10, 20, 20, 30, 30, 30].into_array()
         );
         Ok(())
@@ -111,10 +111,10 @@ mod tests {
         let arrow_run_array = RunArray::<Int32Type>::try_new(&run_ends, &values).unwrap();
 
         // Convert to Vortex with nullable=true
-        let vortex_array = RunEndArray::from_arrow(&arrow_run_array, true)?;
+        let vortex_array = RunEndData::from_arrow(&arrow_run_array, true)?;
 
         assert_arrays_eq!(
-            vortex_array.as_ref(),
+            vortex_array.into_array(),
             PrimitiveArray::from_option_iter([
                 Some(100i32),
                 Some(100i32),
@@ -135,7 +135,7 @@ mod tests {
         let arrow_run_array = RunArray::<Int64Type>::try_new(&run_ends, &values).unwrap();
 
         // Convert to Vortex
-        let vortex_array = RunEndArray::from_arrow(&arrow_run_array, false)?;
+        let vortex_array = RunEndData::from_arrow(&arrow_run_array, false)?;
 
         assert_arrays_eq!(vortex_array, buffer![1.5f64, 2.5, 2.5, 3.5].into_array());
         Ok(())
@@ -155,7 +155,7 @@ mod tests {
         let sliced_array = arrow_run_array.slice(1, 6);
 
         // Convert the sliced array to Vortex
-        let vortex_array = RunEndArray::from_arrow(&sliced_array, false)?;
+        let vortex_array = RunEndData::from_arrow(&sliced_array, false)?;
         assert_arrays_eq!(
             vortex_array,
             buffer![100, 200, 200, 200, 300, 300].into_array()
@@ -178,7 +178,7 @@ mod tests {
         let sliced_array = arrow_run_array.slice(4, 6);
 
         // Convert to Vortex with nullable=true
-        let vortex_array = RunEndArray::from_arrow(&sliced_array, true)?;
+        let vortex_array = RunEndData::from_arrow(&sliced_array, true)?;
 
         assert_arrays_eq!(
             vortex_array,
@@ -209,7 +209,7 @@ mod tests {
         let sliced_array = arrow_run_array.slice(4, 0);
 
         // Convert to Vortex with nullable=true
-        let vortex_array = RunEndArray::from_arrow(&sliced_array, true)?;
+        let vortex_array = RunEndData::from_arrow(&sliced_array, true)?;
 
         // Verify properties
         assert_eq!(vortex_array.len(), 0);
@@ -240,7 +240,7 @@ mod tests {
             &Int32Array::from(vec![3i32, 5, 8]),
             &Int32Array::from(vec![10, 20, 30]),
         )?;
-        let vortex_array = RunEndArray::from_arrow(&original, false)?;
+        let vortex_array = RunEndData::from_arrow(&original, false)?;
         let target = ree_type(DataType::Int32, DataType::Int32);
         let result = execute(vortex_array.into_array(), &target)?;
 
@@ -274,7 +274,7 @@ mod tests {
         #[case] expected_values: &[i32],
     ) -> VortexResult<()> {
         let array =
-            RunEndArray::encode(PrimitiveArray::from_iter(input.iter().copied()).into_array())?;
+            RunEndData::encode(PrimitiveArray::from_iter(input.iter().copied()).into_array())?;
         let sliced = array.into_array().slice(slice_range.clone())?;
         let target = ree_type(DataType::Int32, DataType::Int32);
         let result = execute(sliced, &target)?;

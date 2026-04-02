@@ -22,8 +22,6 @@ use vortex_mask::MaskMut;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
-use crate::ArrayVisitor;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -45,7 +43,6 @@ use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 /// One patch index offset is stored for each chunk.
 /// This allows for constant time patch index lookups.
@@ -711,7 +708,7 @@ impl Patches {
             return Ok(None);
         }
 
-        let take_indices = take_indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let take_indices = take_indices.clone().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices, true, ctx)
         } else {
@@ -731,7 +728,7 @@ impl Patches {
             return Ok(None);
         }
 
-        let take_indices = take_indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let take_indices = take_indices.clone().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices, false, ctx)
         } else {
@@ -811,7 +808,7 @@ impl Patches {
         Ok(Some(Self {
             array_len: new_array_len,
             offset: 0,
-            indices: new_indices.clone(),
+            indices: new_indices,
             values: self
                 .values()
                 .take(PrimitiveArray::new(values_indices, values_validity).into_array())?,
@@ -913,7 +910,7 @@ impl Patches {
                     patch_indices_slice,
                     self.offset,
                     patch_values_slice,
-                    patches_validity,
+                    &patches_validity,
                     ctx,
                 );
             }

@@ -8,7 +8,6 @@ use itertools::Itertools;
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
 use vortex_array::Canonical;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ChunkedArray;
@@ -46,6 +45,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
     let expected_array = {
         let bool_mask = array_data
+            .clone()
             .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
             .vortex_expect("filter expression evaluation should succeed in fuzz test");
         let mask = bool_mask.to_bool().to_mask_fill_null_false();
@@ -113,7 +113,10 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .to_bool();
     let true_count = bool_result.to_bit_buffer().true_count();
     if true_count != expected_array.len()
-        && (bool_result.all_valid().vortex_expect("all_valid")
+        && (bool_result
+            .into_array()
+            .all_valid()
+            .vortex_expect("all_valid")
             || expected_array.all_valid().vortex_expect("all_valid"))
     {
         vortex_panic!(

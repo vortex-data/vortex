@@ -28,6 +28,10 @@ default = ["extension-module", "tui"]
 # duplicate PyInit__lib symbols.
 extension-module = []
 tui = ["dep:vortex-tui"]
+# Set the default allocator to mimalloc, this is enabled by default
+# for the maturin wheels, but it is not a default feature to not conflict
+# with users that set a different global allocator.
+mimalloc = ["dep:mimalloc"]
 
 [dependencies]
 arrow-array = { workspace = true }
@@ -36,6 +40,7 @@ arrow-schema = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+mimalloc = { workspace = true, optional = true }
 object_store = { workspace = true, features = [
     "fs",
     "aws",

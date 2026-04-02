@@ -3,15 +3,20 @@
 
 use vortex_error::VortexResult;
 
+use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::Decimal;
-use crate::arrays::decimal::vtable::DecimalArray;
 use crate::match_each_decimal_value_type;
 use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Decimal> for Decimal {
-    fn scalar_at(array: &DecimalArray, index: usize) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: ArrayView<'_, Decimal>,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         Ok(match_each_decimal_value_type!(array.values_type(), |D| {
             Scalar::decimal(
                 DecimalValue::from(array.buffer::<D>()[index]),
@@ -26,7 +31,6 @@ impl OperationsVTable<Decimal> for Decimal {
 mod tests {
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::Decimal;
     use crate::arrays::DecimalArray;

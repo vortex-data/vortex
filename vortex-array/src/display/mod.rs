@@ -1,14 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod tree;
+mod extractor;
+mod extractors;
+mod tree_display;
 
 use std::fmt::Display;
 
+pub use extractor::IndentedFormatter;
+pub use extractor::TreeContext;
+pub use extractor::TreeExtractor;
+pub use extractors::BufferExtractor;
+pub use extractors::EncodingSummaryExtractor;
+pub use extractors::MetadataExtractor;
+pub use extractors::NbytesExtractor;
+pub use extractors::StatsExtractor;
 use itertools::Itertools as _;
-use tree::TreeDisplayWrapper;
+pub use tree_display::TreeDisplay;
 
-use crate::DynArray;
+use crate::ArrayRef;
 
 /// Describe how to convert an array to a string.
 ///
@@ -304,7 +314,7 @@ impl Default for DisplayOptions {
 /// See also:
 /// [Array::display_as](../trait.Array.html#method.display_as)
 /// and [DisplayOptions].
-pub struct DisplayArrayAs<'a>(pub &'a dyn DynArray, pub DisplayOptions);
+pub struct DisplayArrayAs<'a>(pub &'a ArrayRef, pub DisplayOptions);
 
 impl Display for DisplayArrayAs<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -324,14 +334,14 @@ impl Display for DisplayArrayAs<'_> {
 ///     "vortex.primitive(i16, len=5)",
 /// );
 /// ```
-impl Display for dyn DynArray + '_ {
+impl Display for ArrayRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.fmt_as(f, &DisplayOptions::MetadataOnly)
     }
 }
 
 const DISPLAY_LIMIT: usize = 16;
-impl dyn DynArray + '_ {
+impl ArrayRef {
     /// Display logical values of the array
     ///
     /// For example, an `i16` typed array containing the first five non-negative integers is displayed
@@ -390,15 +400,8 @@ impl dyn DynArray + '_ {
     /// ";
     /// assert_eq!(format!("{}", array.display_tree_encodings_only()), expected);
     /// ```
-    pub fn display_tree_encodings_only(&self) -> impl Display {
-        DisplayArrayAs(
-            self,
-            DisplayOptions::TreeDisplay {
-                buffers: false,
-                metadata: false,
-                stats: false,
-            },
-        )
+    pub fn display_tree_encodings_only(&self) -> TreeDisplay {
+        self.tree_display_builder().with(EncodingSummaryExtractor)
     }
 
     /// Display the tree of encodings of this array as an indented lists.
@@ -420,15 +423,68 @@ impl dyn DynArray + '_ {
     /// ";
     /// assert_eq!(format!("{}", array.display_tree()), expected);
     /// ```
-    pub fn display_tree(&self) -> impl Display {
-        DisplayArrayAs(
-            self,
-            DisplayOptions::TreeDisplay {
-                buffers: true,
-                metadata: true,
-                stats: true,
-            },
-        )
+    pub fn display_tree(&self) -> TreeDisplay {
+        TreeDisplay::default_display(self.clone())
+    }
+
+    /// Create a tree display with all built-in extractors (nbytes, stats, metadata, buffers).
+    ///
+    /// This is the default, fully-detailed tree display. Use
+    /// `tree_display_builder()` for a blank slate.
+    ///
+    /// # Examples
+    /// ```
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
+    ///   metadata: EmptyMetadata
+    ///   buffer: values host 10 B (align=2) (100.00%)
+    /// ";
+    /// assert_eq!(array.tree_display().to_string(), expected);
+    /// ```
+    pub fn tree_display(&self) -> TreeDisplay {
+        TreeDisplay::default_display(self.clone())
+    }
+
+    /// Create a composable tree display builder with no extractors.
+    ///
+    /// With no extractors, only the node names are shown.
+    /// Add extractors with [`.with()`][TreeDisplay::with] to include additional information.
+    /// Most builders should start with [`EncodingSummaryExtractor`] to include encoding headers.
+    ///
+    /// # Examples
+    /// ```
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// use vortex_array::display::{EncodingSummaryExtractor, NbytesExtractor, MetadataExtractor, BufferExtractor};
+    ///
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    ///
+    /// // Encodings only
+    /// let encodings = array.tree_display_builder()
+    ///     .with(EncodingSummaryExtractor)
+    ///     .to_string();
+    /// assert_eq!(encodings, "root: vortex.primitive(i16, len=5)\n");
+    ///
+    /// // With encoding + nbytes
+    /// let with_nbytes = array.tree_display_builder()
+    ///     .with(EncodingSummaryExtractor)
+    ///     .with(NbytesExtractor)
+    ///     .to_string();
+    /// assert_eq!(with_nbytes, "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)\n");
+    ///
+    /// // With encoding, metadata, and buffers
+    /// let detailed = array.tree_display_builder()
+    ///     .with(EncodingSummaryExtractor)
+    ///     .with(MetadataExtractor)
+    ///     .with(BufferExtractor { show_percent: false })
+    ///     .to_string();
+    /// let expected = "root: vortex.primitive(i16, len=5)\n  metadata: EmptyMetadata\n  buffer: values host 10 B (align=2)\n";
+    /// assert_eq!(detailed, expected);
+    /// ```
+    pub fn tree_display_builder(&self) -> TreeDisplay {
+        TreeDisplay::new(self.clone())
     }
 
     /// Display the array as a formatted table.
@@ -465,48 +521,59 @@ impl dyn DynArray + '_ {
 
     fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
         match options {
-            DisplayOptions::MetadataOnly => {
-                write!(
-                    f,
-                    "{}({}, len={})",
-                    self.encoding_id(),
-                    self.dtype(),
-                    self.len()
-                )
-            }
+            DisplayOptions::MetadataOnly => EncodingSummaryExtractor::write(self, f),
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space,
             } => {
-                write!(f, "{}", if f.alternate() { "[\n" } else { "[" })?;
+                let opening_brace = if f.alternate() { "[\n" } else { "[" };
+                let closing_brace = if f.alternate() { "\n]" } else { "]" };
+
                 let sep = if *omit_comma_after_space { "," } else { ", " };
                 let sep = if f.alternate() { ",\n" } else { sep };
-                let limit = std::cmp::min(self.len(), f.precision().unwrap_or(DISPLAY_LIMIT));
+                let limit = self.len().min(f.precision().unwrap_or(DISPLAY_LIMIT));
+                let is_truncated = self.len() > limit;
+
+                let fmt_scalar = |i| {
+                    self.scalar_at(i)
+                        .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
+                };
                 write!(
                     f,
-                    "{}",
-                    (0..limit)
-                        .map(|i| self
-                            .scalar_at(i)
-                            .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string()))
+                    "{opening_brace}{}{closing_brace}",
+                    (0..limit.saturating_sub(3))
+                        .map(fmt_scalar)
+                        .chain(std::iter::repeat_n(
+                            "...".to_string(),
+                            is_truncated as usize
+                        ))
+                        .chain((self.len().saturating_sub(3)..self.len()).map(fmt_scalar))
                         .format(sep)
-                )?;
-                write!(f, "{}", if f.alternate() { "\n]" } else { "]" })
+                )
             }
             DisplayOptions::TreeDisplay {
                 buffers,
                 metadata,
                 stats,
             } => {
-                write!(
-                    f,
-                    "{}",
-                    TreeDisplayWrapper {
-                        array: self.to_array(),
-                        buffers: *buffers,
-                        metadata: *metadata,
-                        stats: *stats
+                let extractors: [(bool, Box<dyn TreeExtractor>); 5] = [
+                    (true, Box::new(EncodingSummaryExtractor)),
+                    (*stats, Box::new(NbytesExtractor)),
+                    (*stats, Box::new(StatsExtractor)),
+                    (*metadata, Box::new(MetadataExtractor)),
+                    (
+                        *buffers,
+                        Box::new(BufferExtractor {
+                            show_percent: *stats,
+                        }),
+                    ),
+                ];
+                let mut display = TreeDisplay::new(self.clone());
+                for (enabled, extractor) in extractors {
+                    if enabled {
+                        display = display.with_boxed(extractor);
                     }
-                )
+                }
+                write!(f, "{display}")
             }
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
@@ -540,7 +607,7 @@ impl dyn DynArray + '_ {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in struct_.unmasked_fields().iter() {
+                        for field_array in struct_.iter_unmasked_fields() {
                             let value = field_array
                                 .scalar_at(row_idx)
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
@@ -583,6 +650,7 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
     use crate::arrays::StructArray;
+    use crate::display::DISPLAY_LIMIT;
     use crate::dtype::FieldNames;
     use crate::validity::Validity;
 
@@ -596,6 +664,15 @@ mod test {
 
         let x = buffer![1, 2, 3, 4].into_array();
         assert_eq!(x.display_values().to_string(), "[1i32, 2i32, 3i32, 4i32]");
+
+        let x = crate::arrays::PrimitiveArray::from_iter(
+            0i32..i32::try_from(DISPLAY_LIMIT).unwrap() + 1,
+        )
+        .into_array();
+        assert_eq!(
+            x.display_values().to_string(),
+            "[0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32, 11i32, 12i32, ..., 14i32, 15i32, 16i32]"
+        );
     }
 
     #[test]

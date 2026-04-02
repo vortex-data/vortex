@@ -31,7 +31,6 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
-use vortex::array::vtable::ValidityHelper;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
@@ -61,8 +60,7 @@ impl ArrayExporter {
         assert!(validity.all_true());
 
         let fields = array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .map(|field| new_array_exporter(field.clone(), cache, &mut ctx))
             .collect::<VortexResult<Vec<_>>>()?;
 
@@ -146,18 +144,20 @@ fn new_array_exporter_with_flatten(
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<Sequence>() {
-        return sequence::new_exporter(array);
-    }
+    let array = match array.try_into::<Sequence>() {
+        Ok(array) => return sequence::new_exporter(&array),
+        Err(array) => array,
+    };
 
     let array = match array.try_into::<RunEnd>() {
         Ok(array) => return run_end::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<Dict>() {
-        return dict::new_exporter_with_flatten(array, cache, ctx, flatten);
-    }
+    let array = match array.try_into::<Dict>() {
+        Ok(array) => return dict::new_exporter_with_flatten(&array, cache, ctx, flatten),
+        Err(array) => array,
+    };
 
     let array = match array.try_into::<List>() {
         Ok(array) => return list::new_exporter(array, cache, ctx),
@@ -179,6 +179,9 @@ fn new_array_exporter_with_flatten(
                 return temporal::new_exporter(temporal_array, ctx);
             }
             vortex_bail!("no non-temporal extension exporter")
+        }
+        Canonical::Variant(_) => {
+            vortex_bail!("Variant arrays can't be exported to DuckDB")
         }
     }
 }

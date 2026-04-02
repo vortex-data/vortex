@@ -52,6 +52,7 @@ pub const DTYPE_STRUCT: jbyte = 15;
 pub const DTYPE_LIST: jbyte = 16;
 pub const DTYPE_EXTENSION: jbyte = 17;
 pub const DTYPE_DECIMAL: jbyte = 18;
+pub const DTYPE_FIXED_SIZE_LIST: jbyte = 19;
 
 static LONG_CLASS: &str = "java/lang/Long";
 
@@ -94,9 +95,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getVariant(
         DType::Binary(_) => DTYPE_BINARY,
         DType::Struct(..) => DTYPE_STRUCT,
         DType::List(..) => DTYPE_LIST,
-        DType::FixedSizeList(..) => {
-            unimplemented!("TODO(connor)[FixedSizeList]")
-        }
+        DType::FixedSizeList(..) => DTYPE_FIXED_SIZE_LIST,
         DType::Extension(_) => DTYPE_EXTENSION,
         DType::Variant(_) => unimplemented!("Variant DType is not supported in JNI yet"),
     }
@@ -184,8 +183,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getElementType(
     let dtype = unsafe { &*(dtype_ptr as *const DType) };
 
     try_or_throw(&mut env, |_| {
-        let Some(element_type) = dtype.as_list_element_opt() else {
-            throw_runtime!("DType should be LIST, was {dtype}");
+        let element_type = dtype
+            .as_list_element_opt()
+            .or_else(|| dtype.as_fixed_size_list_element_opt());
+        let Some(element_type) = element_type else {
+            throw_runtime!("DType should be LIST or FIXED_SIZE_LIST, was {dtype}");
         };
 
         Ok(element_type.as_ref() as *const DType as jlong)
@@ -504,6 +506,41 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newList(
     let list_type = DType::List(element_dtype, to_nullability(is_nullable));
 
     Box::into_raw(Box::new(list_type)) as jlong
+}
+
+/// FixedSizeList constructor
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newFixedSizeList(
+    _env: JNIEnv,
+    _class: JClass,
+    element_ptr: jlong,
+    size: jint,
+    is_nullable: jboolean,
+) -> jlong {
+    let element_dtype = unsafe { *Box::from_raw(element_ptr as *mut DType) };
+    let element_dtype = Arc::new(element_dtype);
+
+    let fsl_type = DType::FixedSizeList(element_dtype, size as u32, to_nullability(is_nullable));
+
+    Box::into_raw(Box::new(fsl_type)) as jlong
+}
+
+/// Get the fixed size of a FixedSizeList DType.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getFixedSizeListSize(
+    mut env: JNIEnv,
+    _class: JClass,
+    dtype_ptr: jlong,
+) -> jint {
+    let dtype = unsafe { &*(dtype_ptr as *const DType) };
+
+    try_or_throw(&mut env, |_| {
+        let DType::FixedSizeList(_, size, _) = dtype else {
+            throw_runtime!("DType should be FIXED_SIZE_LIST, was {dtype}");
+        };
+
+        Ok(*size as jint)
+    })
 }
 
 /// Struct constructor

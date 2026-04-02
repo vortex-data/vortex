@@ -4,20 +4,20 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::filter::FilterReduce;
 use vortex_array::arrays::slice::SliceReduce;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ByteBool;
-use crate::ByteBoolArray;
+use crate::ByteBoolData;
 
 impl SliceReduce for ByteBool {
-    fn slice(array: &ByteBoolArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ByteBoolArray::new(
+            ByteBoolData::new(
                 array.buffer().slice(range.clone()),
                 array.validity().slice(range)?,
             )
@@ -27,7 +27,7 @@ impl SliceReduce for ByteBool {
 }
 
 impl FilterReduce for ByteBool {
-    fn filter(array: &ByteBoolArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let ranges: Vec<Range<usize>> = mask
             .slices()
             .unwrap_or_else(|| unreachable!(), || unreachable!())
@@ -35,7 +35,7 @@ impl FilterReduce for ByteBool {
             .map(|&(s, e)| s..e)
             .collect();
         Ok(Some(
-            ByteBoolArray::new(
+            ByteBoolData::new(
                 array.buffer().filter_typed::<u8>(&ranges)?,
                 array.validity().filter(mask)?,
             )

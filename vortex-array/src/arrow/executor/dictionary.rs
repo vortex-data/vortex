@@ -78,7 +78,7 @@ fn dict_to_dict(
     values_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let DictArrayParts { codes, values, .. } = array.into_parts();
+    let DictArrayParts { codes, values, .. } = array.into_data().into_parts();
     let codes = codes.execute_arrow(Some(codes_type), ctx)?;
     let values = values.execute_arrow(Some(values_type), ctx)?;
     make_dict_array(codes_type, codes, values)

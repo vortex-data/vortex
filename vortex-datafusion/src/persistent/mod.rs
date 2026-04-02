@@ -7,7 +7,7 @@ mod cache;
 mod format;
 pub mod metrics;
 mod opener;
-mod reader;
+pub mod reader;
 mod sink;
 mod source;
 mod stream;
@@ -69,7 +69,7 @@ mod tests {
 
         let summary = session
             .write_options()
-            .write(&mut writer, st.to_array_stream())
+            .write(&mut writer, st.into_array().to_array_stream())
             .await?;
 
         writer.shutdown().await?;

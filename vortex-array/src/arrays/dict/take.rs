@@ -4,12 +4,12 @@
 use vortex_error::VortexResult;
 
 use super::Dict;
-use super::DictArray;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
@@ -20,7 +20,6 @@ use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::stats::StatsSet;
-use crate::vtable::VTable;
 
 pub trait TakeReduce: VTable {
     /// Take elements from an array at the given indices without reading buffers.
@@ -32,7 +31,7 @@ pub trait TakeReduce: VTable {
     /// # Preconditions
     ///
     /// The indices are guaranteed to be non-empty.
-    fn take(array: &Self::Array, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
+    fn take(array: ArrayView<'_, Self>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
 }
 
 pub trait TakeExecute: VTable {
@@ -45,7 +44,7 @@ pub trait TakeExecute: VTable {
     ///
     /// The indices are guaranteed to be non-empty.
     fn take(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -55,7 +54,7 @@ pub trait TakeExecute: VTable {
 ///
 /// Returns `Some(result)` if the precondition short-circuits the take operation,
 /// or `None` if the take should proceed normally.
-fn precondition<V: VTable>(array: &V::Array, indices: &ArrayRef) -> Option<ArrayRef> {
+fn precondition<V: VTable>(array: ArrayView<'_, V>, indices: &ArrayRef) -> Option<ArrayRef> {
     // Fast-path for empty indices.
     if indices.is_empty() {
         let result_dtype = array
@@ -87,8 +86,8 @@ where
 
     fn reduce_parent(
         &self,
-        array: &V::Array,
-        parent: &DictArray,
+        array: ArrayView<'_, V>,
+        parent: ArrayView<'_, Dict>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle the values child (index 1), not the codes child (index 0).
@@ -100,7 +99,7 @@ where
         }
         let result = <V as TakeReduce>::take(array, parent.codes())?;
         if let Some(ref taken) = result {
-            propagate_take_stats(&array.to_array(), taken, parent.codes())?;
+            propagate_take_stats(array.array(), taken, parent.codes())?;
         }
         Ok(result)
     }
@@ -117,7 +116,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: ArrayView<'_, V>,
         parent: <Self::Parent as Matcher>::Match<'_>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -131,7 +130,7 @@ where
         }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
         if let Some(ref taken) = result {
-            propagate_take_stats(&array.to_array(), taken, parent.codes())?;
+            propagate_take_stats(array.array(), taken, parent.codes())?;
         }
         Ok(result)
     }

@@ -12,16 +12,15 @@ use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::varbinview::build_views::build_views;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
-use crate::FSSTArray;
+use crate::FSSTData;
 
 pub(super) fn canonicalize_fsst(
-    array: &FSSTArray,
+    array: &FSSTData,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let (buffers, views) = fsst_decode_views(array, 0, ctx)?;
@@ -32,14 +31,14 @@ pub(super) fn canonicalize_fsst(
             views,
             Arc::from(buffers),
             array.dtype().clone(),
-            array.codes().validity().clone(),
+            array.codes().validity(),
         )
         .into_array()
     })
 }
 
 pub(crate) fn fsst_decode_views(
-    fsst_array: &FSSTArray,
+    fsst_array: &FSSTData,
     start_buf_index: u32,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
@@ -151,7 +150,10 @@ mod tests {
             .map(|_| {
                 let (array, data) = make_data();
                 let compressor = fsst_train_compressor(&array);
-                (fsst_compress(&array, &compressor).into_array(), data)
+                (
+                    fsst_compress(&array, array.len(), array.dtype(), &compressor).into_array(),
+                    data,
+                )
             })
             .unzip();
 
@@ -167,7 +169,10 @@ mod tests {
 
         let mut builder =
             VarBinViewBuilder::with_capacity(chunked_arr.dtype().clone(), chunked_arr.len());
-        chunked_arr.append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())?;
+        chunked_arr
+            .clone()
+            .into_array()
+            .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())?;
 
         {
             let arr = builder.finish_into_canonical().into_varbinview();
@@ -177,7 +182,7 @@ mod tests {
         };
 
         {
-            let arr2 = chunked_arr.to_varbinview();
+            let arr2 = chunked_arr.as_array().to_varbinview();
             let res2 =
                 arr2.with_iterator(|iter| iter.map(|b| b.map(|v| v.to_vec())).collect::<Vec<_>>());
             assert_eq!(data, res2)

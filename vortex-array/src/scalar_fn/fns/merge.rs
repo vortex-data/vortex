@@ -159,7 +159,7 @@ impl ScalarFnVTable for Merge {
             for (field_name, field_array) in array
                 .names()
                 .iter()
-                .zip_eq(array.unmasked_fields().iter().cloned())
+                .zip_eq(array.iter_unmasked_fields().cloned())
             {
                 // Update or insert field.
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
@@ -289,7 +289,6 @@ mod tests {
     use vortex_error::vortex_bail;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
@@ -490,7 +489,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
+        let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
         assert_eq!(
             actual_array
@@ -531,7 +530,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
+        let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }

@@ -183,9 +183,6 @@ fn nvcc_compile_ptx(
 }
 
 /// Generate bindings for the dynamic dispatch shared header.
-///
-/// `DynamicDispatchPlan` and related types are shared between CUDA kernels
-/// and Rust host code.
 fn generate_dynamic_dispatch_bindings(kernels_src: &Path, out_dir: &Path) {
     let header = kernels_src.join("dynamic_dispatch.h");
     println!("cargo:rerun-if-changed={}", header.display());

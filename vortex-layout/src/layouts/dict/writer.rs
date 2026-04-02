@@ -20,7 +20,6 @@ use futures::stream::once;
 use futures::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::arrays::Dict;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;

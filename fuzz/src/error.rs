@@ -11,7 +11,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;
@@ -114,10 +113,10 @@ impl Display for VortexFuzzError {
                     f,
                     "Mismatch at step {step} at index {idx}\n\
                     Expected scalar:\n{expected_scalar}\n\
-                    Actual scalar:\n{actual_scalar}\n\
+                    Actual scalar:\n{actual_scalar}\n\n\
                     Expected tree:\n{expected_tree}\n\
-                    Current tree:\n{current_tree}\
-                    Expected values:\n{expected_values:#}\n\
+                    Current tree:\n{current_tree}\n\
+                    Expected values:\n{expected_values:#}\n\n\
                     Current values:\n{current_values:#}\
                     \n{backtrace}"
                 )

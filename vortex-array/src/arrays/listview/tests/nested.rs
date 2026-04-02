@@ -3,7 +3,6 @@
 
 use vortex_buffer::buffer;
 
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
@@ -200,12 +199,8 @@ fn test_mixed_offset_size_types() {
     let inner_offsets = buffer![0u32, 10, 20, 30, 40, 50, 100, 150, 200].into_array();
     let inner_sizes = buffer![5u16, 8, 10, 7, 15, 20, 25, 30, 50].into_array();
 
-    let inner_listview = ListViewArray::new(
-        elements,
-        inner_offsets.clone(),
-        inner_sizes.clone(),
-        Validity::NonNullable,
-    );
+    let inner_listview =
+        ListViewArray::new(elements, inner_offsets, inner_sizes, Validity::NonNullable);
 
     // Outer ListView with u64 offsets and u8 sizes.
     // Using small sizes that fit in u8 to test the type difference.

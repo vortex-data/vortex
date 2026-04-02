@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::VarBin;
 use vortex_array::builtins::ArrayBuiltins;
@@ -10,10 +11,9 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::FSST;
-use crate::FSSTArray;
-
+use crate::FSSTData;
 impl CastReduce for FSST {
-    fn cast(array: &FSSTArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FSST is a string compression encoding.
         // For nullability changes, we can cast the codes and symbols arrays
         if array.dtype().eq_ignore_nullability(dtype) {
@@ -25,11 +25,11 @@ impl CastReduce for FSST {
                 .cast(array.codes().dtype().with_nullability(dtype.nullability()))?;
 
             Ok(Some(
-                FSSTArray::try_new(
+                FSSTData::try_new(
                     dtype.clone(),
                     array.symbols().clone(),
                     array.symbol_lengths().clone(),
-                    new_codes.as_::<VarBin>().clone(),
+                    new_codes.as_::<VarBin>().into_owned(),
                     array.uncompressed_lengths().clone(),
                 )?
                 .into_array(),
@@ -61,7 +61,9 @@ mod tests {
         );
 
         let compressor = fsst_train_compressor(&strings);
-        let fsst = fsst_compress(strings, &compressor);
+        let len = strings.len();
+        let dtype = strings.dtype().clone();
+        let fsst = fsst_compress(strings, len, &dtype, &compressor);
 
         // Cast to nullable
         let casted = fsst
@@ -86,7 +88,7 @@ mod tests {
     ))]
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) {
         let compressor = fsst_train_compressor(&array);
-        let fsst = fsst_compress(&array, &compressor);
+        let fsst = fsst_compress(&array, array.len(), array.dtype(), &compressor);
         test_cast_conformance(&fsst.into_array());
     }
 }

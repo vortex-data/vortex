@@ -15,7 +15,6 @@ use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
@@ -33,7 +32,6 @@ use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::executor::MAX_ITERATIONS;
 use crate::match_each_integer_ptype;
-use crate::vtable::ValidityHelper;
 
 /// Reference-counted type-erased grouped accumulator.
 pub type GroupedAccumulatorRef = Box<dyn DynGroupedAccumulator>;
@@ -180,7 +178,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                             elements.clone(),
                             groups.offsets().clone(),
                             groups.sizes().clone(),
-                            groups.validity().clone(),
+                            groups.validity(),
                         )
                     };
                     kernel
@@ -270,7 +268,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                         FixedSizeListArray::new_unchecked(
                             elements.clone(),
                             groups.list_size(),
-                            groups.validity().clone(),
+                            groups.validity(),
                             groups.len(),
                         )
                     };

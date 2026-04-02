@@ -115,11 +115,8 @@ impl ArrayBuilder for BoolBuilder {
         let bool_array = array.to_bool();
 
         self.inner.append_buffer(&bool_array.to_bit_buffer());
-        self.nulls.append_validity_mask(
-            bool_array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
-        );
+        self.nulls
+            .append_validity_mask(bool_array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -152,7 +149,6 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
@@ -163,7 +159,6 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
-    use crate::vtable::ValidityHelper;
 
     fn make_opt_bool_chunks(len: usize, chunk_count: usize) -> ArrayRef {
         let mut rng = StdRng::seed_from_u64(0);
@@ -200,7 +195,7 @@ mod tests {
         assert!(
             canon_into
                 .validity()
-                .mask_eq(into_canon.validity(), &mut ctx)?
+                .mask_eq(&into_canon.validity(), &mut ctx)?
         );
         assert_eq!(canon_into.to_bit_buffer(), into_canon.to_bit_buffer());
         Ok(())

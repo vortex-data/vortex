@@ -166,7 +166,6 @@ mod tests {
     use super::Pack;
     use super::PackOptions;
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
@@ -177,7 +176,6 @@ mod tests {
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::pack::StructArray;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     fn test_array() -> ArrayRef {
         StructArray::from_fields(&[

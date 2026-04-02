@@ -29,9 +29,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayContext;
 use crate::ArrayRef;
-use crate::ArrayVisitor;
-use crate::ArrayVisitorExt;
-use crate::DynArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
@@ -48,7 +45,7 @@ pub struct SerializeOptions {
     pub include_padding: bool,
 }
 
-impl dyn DynArray + '_ {
+impl ArrayRef {
     /// Serialize the array into a sequence of byte buffers that should be written contiguously.
     /// This function returns a vec to avoid copying data buffers.
     ///
@@ -160,12 +157,12 @@ impl dyn DynArray + '_ {
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
     ctx: &'a ArrayContext,
-    array: &'a dyn DynArray,
+    array: &'a ArrayRef,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn try_new(ctx: &'a ArrayContext, array: &'a dyn DynArray) -> VortexResult<Self> {
+    pub fn try_new(ctx: &'a ArrayContext, array: &'a ArrayRef) -> VortexResult<Self> {
         // Depth-first traversal of the array to ensure it supports serialization.
         for child in array.depth_first_traversal() {
             if child.metadata()?.is_none() {
@@ -217,7 +214,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
             .map_err(|_| vortex_err!("Array can have at most u16::MAX buffers"))?;
         let mut child_buffer_idx = self.buffer_idx + nbuffers;
 
-        let children = &self
+        let children = self
             .array
             .children()
             .iter()
@@ -238,7 +235,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 Ok(msg)
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        let children = Some(fbb.create_vector(children));
+        let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
         let stats = Some(self.array.statistics().write_flatbuffer(fbb)?);
@@ -284,7 +281,7 @@ impl ArrayChildren for &[ArrayRef] {
     }
 }
 
-/// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized [`DynArray`].
+/// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized array.
 /// It contains all the information from the serialized form, without anything extra. i.e.
 /// it is missing a [`DType`] and `len`, and the `encoding_id` is not yet resolved to a concrete
 /// vtable.

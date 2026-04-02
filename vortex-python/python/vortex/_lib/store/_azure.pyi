@@ -315,8 +315,8 @@ class AzureStore:
     [`AzureConfig`][vortex.store.AzureConfig] for valid environment variables.
     """
 
-    def __init__(  # type: ignore[misc] # Overlap between argument names and ** TypedDict items: "container_name"
-        self,
+    def __new__(  # type: ignore[misc] # Overlap between argument names and ** TypedDict items: "container_name"
+        cls,
         container_name: str | None = None,
         *,
         prefix: str | None = None,
@@ -325,7 +325,7 @@ class AzureStore:
         retry_config: RetryConfig | None = None,
         credential_provider: AzureCredentialProvider | None = None,
         **kwargs: Unpack[AzureConfig],  # type: ignore # noqa: PGH003 (container_name key overlaps with positional arg)
-    ) -> None:
+    ) -> Self:
         """Construct a new AzureStore.
 
         Args:

@@ -3,10 +3,14 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::ExactScalarFn;
@@ -16,7 +20,6 @@ use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNull as FillNullExpr;
-use crate::vtable::VTable;
 
 /// Fill nulls in an array with a scalar value without reading buffers.
 ///
@@ -29,7 +32,8 @@ use crate::vtable::VTable;
 /// The fill value is guaranteed to be non-null. The array is guaranteed to have mixed
 /// validity (neither all-valid nor all-invalid).
 pub trait FillNullReduce: VTable {
-    fn fill_null(array: &Self::Array, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>>;
+    fn fill_null(array: ArrayView<'_, Self>, fill_value: &Scalar)
+    -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Fill nulls in an array with a scalar value, potentially reading buffers.
@@ -43,7 +47,7 @@ pub trait FillNullReduce: VTable {
 /// validity (neither all-valid nor all-invalid).
 pub trait FillNullKernel: VTable {
     fn fill_null(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -57,9 +61,14 @@ pub(super) fn precondition(
     array: &ArrayRef,
     fill_value: &Scalar,
 ) -> VortexResult<Option<ArrayRef>> {
+    vortex_ensure!(
+        !fill_value.is_null(),
+        "fill_null requires a non-null fill value"
+    );
+
     // If the array has no nulls, fill_null is a no-op (just cast for nullability).
     if !array.dtype().is_nullable() || array.all_valid()? {
-        return array.to_array().cast(fill_value.dtype().clone()).map(Some);
+        return array.clone().cast(fill_value.dtype().clone()).map(Some);
     }
 
     // If all values are null, replace the entire array with the fill value.
@@ -75,7 +84,7 @@ pub(super) fn precondition(
 /// Fill null on a [`ConstantArray`] by replacing null scalars with the fill value,
 /// or casting non-null scalars to the fill value's dtype.
 pub(crate) fn fill_null_constant(
-    array: &ConstantArray,
+    array: ArrayView<Constant>,
     fill_value: &Scalar,
 ) -> VortexResult<ArrayRef> {
     let scalar = if array.scalar().is_null() {
@@ -98,7 +107,7 @@ where
 
     fn reduce_parent(
         &self,
-        array: &V::Array,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, FillNullExpr>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -109,10 +118,11 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let fill_value = scalar_fn_array.children()[1]
+        let fill_value = scalar_fn_array
+            .get_child(1)
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
-        let arr = array.to_array();
+        let arr = array.array().clone();
         if let Some(result) = precondition(&arr, &fill_value)? {
             return Ok(Some(result));
         }
@@ -132,7 +142,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, FillNullExpr>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -144,10 +154,11 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let fill_value = scalar_fn_array.children()[1]
+        let fill_value = scalar_fn_array
+            .get_child(1)
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
-        let arr = array.to_array();
+        let arr = array.array().clone();
         if let Some(result) = precondition(&arr, &fill_value)? {
             return Ok(Some(result));
         }

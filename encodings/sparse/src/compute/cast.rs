@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -10,10 +11,9 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
-use crate::SparseArray;
-
+use crate::SparseData;
 impl CastReduce for Sparse {
-    fn cast(array: &SparseArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let casted_patches = array
             .patches()
             .clone()
@@ -28,7 +28,7 @@ impl CastReduce for Sparse {
         };
 
         Ok(Some(
-            SparseArray::try_new_from_patches(casted_patches, casted_fill)?.into_array(),
+            SparseData::try_new_from_patches(casted_patches, casted_fill)?.into_array(),
         ))
     }
 }
@@ -48,11 +48,12 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_buffer::buffer;
 
+    use crate::Sparse;
     use crate::SparseArray;
 
     #[test]
     fn test_cast_sparse_i32_to_i64() {
-        let sparse = SparseArray::try_new(
+        let sparse = Sparse::try_new(
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             10,
@@ -75,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_cast_sparse_with_null_fill() {
-        let sparse = SparseArray::try_new(
+        let sparse = Sparse::try_new(
             buffer![1u64, 3, 5].into_array(),
             PrimitiveArray::from_option_iter([Some(42i32), Some(84), Some(126)]).into_array(),
             8,
@@ -94,25 +95,25 @@ mod tests {
     }
 
     #[rstest]
-    #[case(SparseArray::try_new(
+    #[case(Sparse::try_new(
         buffer![2u64, 5, 8].into_array(),
         buffer![100i32, 200, 300].into_array(),
         10,
         Scalar::from(0i32)
     ).unwrap())]
-    #[case(SparseArray::try_new(
+    #[case(Sparse::try_new(
         buffer![0u64, 4, 9].into_array(),
         buffer![1.5f32, 2.5, 3.5].into_array(),
         10,
         Scalar::from(0.0f32)
     ).unwrap())]
-    #[case(SparseArray::try_new(
+    #[case(Sparse::try_new(
         buffer![1u64, 3, 7].into_array(),
         PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
         10,
         Scalar::null_native::<i32>()
     ).unwrap())]
-    #[case(SparseArray::try_new(
+    #[case(Sparse::try_new(
         buffer![5u64].into_array(),
         buffer![42u8].into_array(),
         10,
@@ -129,7 +130,7 @@ mod tests {
         // When all positions are patched the null fill is unused, so a cast to
         // non-nullable is valid.  Sparse::cast detects this case, substitutes a
         // zero fill, and keeps the result in the Sparse encoding.
-        let sparse = SparseArray::try_new(
+        let sparse = Sparse::try_new(
             buffer![0u64, 1, 2, 3, 4].into_array(),
             buffer![10u64, 20, 30, 40, 50].into_array(),
             5,
@@ -155,7 +156,7 @@ mod tests {
         // Regression test for https://github.com/vortex-data/vortex/issues/6932
         // fill_null on a sparse array with null fill triggers an internal cast to
         // non-nullable, which must not panic.
-        let sparse = SparseArray::try_new(
+        let sparse = Sparse::try_new(
             buffer![1u64, 3].into_array(),
             buffer![10u64, 20].into_array(),
             5,

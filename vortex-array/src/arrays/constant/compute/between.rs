@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::scalar::Scalar;
@@ -13,14 +14,13 @@ use crate::scalar_fn::fns::between::BetweenReduce;
 
 impl BetweenReduce for Constant {
     fn between(
-        array: &ConstantArray,
+        array: ArrayView<'_, Constant>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
         // Can reduce if everything is constant
-        if let Some(((constant, lower), upper)) = array
-            .as_constant()
+        if let Some(((constant, lower), upper)) = Some(array.scalar().clone())
             .zip(lower.as_constant())
             .zip(upper.as_constant())
         {

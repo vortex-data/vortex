@@ -17,7 +17,6 @@ use vortex_array::match_each_decimal_value_type;
 use vortex_array::match_each_native_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -34,21 +33,22 @@ pub fn fill_null_canonical_array(
 
     Ok(match canonical {
         Canonical::Null(array) => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
-        Canonical::Bool(array) => fill_bool_array(&array, fill_value, result_nullability),
-        Canonical::Primitive(array) => fill_primitive_array(&array, fill_value, result_nullability),
-        Canonical::Decimal(array) => fill_decimal_array(&array, fill_value, result_nullability),
+        Canonical::Bool(array) => fill_bool_array(array, fill_value, result_nullability),
+        Canonical::Primitive(array) => fill_primitive_array(array, fill_value, result_nullability),
+        Canonical::Decimal(array) => fill_decimal_array(array, fill_value, result_nullability),
         Canonical::VarBinView(array) => {
-            fill_varbinview_array(&array, fill_value, result_nullability)
+            fill_varbinview_array(array, fill_value, result_nullability)
         }
         Canonical::Struct(_)
         | Canonical::List(_)
         | Canonical::FixedSizeList(_)
         | Canonical::Extension(_) => canonical.into_array().fill_null(fill_value.clone())?,
+        Canonical::Variant(_) => unreachable!("Variant arrays are not fuzzed"),
     })
 }
 
 fn fill_bool_array(
-    array: &BoolArray,
+    array: BoolArray,
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
@@ -59,28 +59,37 @@ fn fill_bool_array(
 
     match array.validity() {
         Validity::NonNullable | Validity::AllValid => {
-            BoolArray::new(array.to_bit_buffer(), result_nullability.into()).into_array()
+            BoolArray::new(array.into_bit_buffer(), result_nullability.into()).into_array()
         }
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
-            let validity_bool_array = validity_array.to_bool();
-            let validity_bits = validity_bool_array.to_bit_buffer();
-            let data_bits = array.to_bit_buffer();
+            let validity_bits = validity_array.to_bool().into_bit_buffer();
+            let data_bits = array.into_bit_buffer();
 
-            let mut new_bits = data_bits.into_mut();
+            let new_bits = match data_bits.try_into_mut() {
+                Ok(mut buf) => {
+                    (!validity_bits)
+                        .set_indices()
+                        .for_each(|i| buf.set_to(i, fill_bool));
+                    buf.freeze()
+                }
+                Err(data_bits) => {
+                    if fill_bool {
+                        data_bits | !validity_bits
+                    } else {
+                        data_bits & validity_bits
+                    }
+                }
+            };
 
-            (!validity_bits)
-                .set_indices()
-                .for_each(|i| new_bits.set_to(i, fill_bool));
-
-            BoolArray::new(new_bits.freeze(), result_nullability.into()).into_array()
+            BoolArray::new(new_bits, result_nullability.into()).into_array()
         }
     }
 }
 
 #[expect(clippy::cognitive_complexity)]
 fn fill_primitive_array(
-    array: &PrimitiveArray,
+    array: PrimitiveArray,
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
@@ -117,7 +126,7 @@ fn fill_primitive_array(
 }
 
 fn fill_decimal_array(
-    array: &DecimalArray,
+    array: DecimalArray,
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
@@ -161,12 +170,13 @@ fn fill_decimal_array(
 }
 
 fn fill_varbinview_array(
-    array: &VarBinViewArray,
+    array: VarBinViewArray,
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
+    let array_ref = array.clone().into_array();
     match array.validity() {
-        Validity::NonNullable | Validity::AllValid => array.clone().into_array(),
+        Validity::NonNullable | Validity::AllValid => array.into_array(),
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
             let validity_bool_array = validity_array.to_bool();
@@ -181,7 +191,7 @@ fn fill_varbinview_array(
                     let strings: Vec<String> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
-                                array
+                                array_ref
                                     .scalar_at(i)
                                     .vortex_expect("scalar_at")
                                     .as_utf8()
@@ -198,7 +208,7 @@ fn fill_varbinview_array(
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new_handle(
                             result.to_varbinview().views_handle().clone(),
-                            result.to_varbinview().buffers().clone(),
+                            result.to_varbinview().data_buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )
@@ -215,7 +225,7 @@ fn fill_varbinview_array(
                     let binaries: Vec<Vec<u8>> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
-                                array
+                                array_ref
                                     .scalar_at(i)
                                     .vortex_expect("scalar_at")
                                     .as_binary()
@@ -232,7 +242,7 @@ fn fill_varbinview_array(
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new_handle(
                             result.to_varbinview().views_handle().clone(),
-                            result.to_varbinview().buffers().clone(),
+                            result.to_varbinview().data_buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )
@@ -249,7 +259,6 @@ fn fill_varbinview_array(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;

@@ -38,7 +38,7 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let offset = array.offset();
-    let RunEndArrayParts { ends, values } = array.into_parts();
+    let RunEndArrayParts { ends, values } = array.into_data().into_parts();
     let ends = ends.execute::<PrimitiveArray>(ctx)?;
     let values_exporter = new_array_exporter(values.clone(), cache, ctx)?;
 

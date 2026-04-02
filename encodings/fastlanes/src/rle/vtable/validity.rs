@@ -6,15 +6,15 @@ use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityChildSliceHelper;
 
 use super::RLE;
-use crate::RLEArray;
+use crate::RLEData;
 
 impl ValidityChild<RLE> for RLE {
-    fn validity_child(array: &RLEArray) -> &ArrayRef {
+    fn validity_child(array: &RLEData) -> &ArrayRef {
         array.indices()
     }
 }
 
-impl ValidityChildSliceHelper for RLEArray {
+impl ValidityChildSliceHelper for RLEData {
     fn unsliced_child_and_slice(&self) -> (&ArrayRef, usize, usize) {
         let (start, len) = (self.offset(), self.len());
         (self.indices(), start, start + len)
