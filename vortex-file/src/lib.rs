@@ -155,7 +155,7 @@ mod forever_constant {
 ///
 /// NOTE: this function will be changed in the future to encapsulate logic for using different
 /// Vortex "Editions" that may support different sets of encodings.
-pub fn register_default_encodings(session: &mut VortexSession) {
+pub fn register_default_encodings(session: &VortexSession) {
     {
         let arrays = session.arrays();
         arrays.register(ByteBool);

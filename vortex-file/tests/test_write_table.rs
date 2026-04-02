@@ -31,13 +31,13 @@ use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let mut session = VortexSession::empty()
+    let session = VortexSession::empty()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ScalarFnSession>()
         .with::<RuntimeSession>();
 
-    vortex_file::register_default_encodings(&mut session);
+    vortex_file::register_default_encodings(&session);
 
     session
 });

@@ -416,4 +416,4 @@ impl<S: vortex_session::SessionExt> vortex_file::WriteOptionsSessionExt for S
 
 pub fn S::write_options(&self) -> vortex_file::VortexWriteOptions
 
-pub fn vortex_file::register_default_encodings(session: &mut vortex_session::VortexSession)
+pub fn vortex_file::register_default_encodings(session: &vortex_session::VortexSession)

@@ -237,8 +237,8 @@ mod tests {
         use vortex::encodings::zstd::ZstdBuffers;
         use vortex::encodings::zstd::ZstdBuffersData;
 
-        let mut session = VortexSession::empty();
-        fastlanes::initialize(&mut session);
+        let session = VortexSession::empty();
+        fastlanes::initialize(&session);
         session.arrays().register(ZstdBuffers);
         let mut ctx = CudaSession::create_execution_ctx(&session).vortex_expect("ctx");
 

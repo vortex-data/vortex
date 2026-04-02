@@ -162,6 +162,6 @@ pub fn vortex_decimal_byte_parts::DecimalBytesPartsMetadata::clear(&mut self)
 
 pub fn vortex_decimal_byte_parts::DecimalBytesPartsMetadata::encoded_len(&self) -> usize
 
-pub fn vortex_decimal_byte_parts::initialize(session: &mut vortex_session::VortexSession)
+pub fn vortex_decimal_byte_parts::initialize(session: &vortex_session::VortexSession)
 
 pub type vortex_decimal_byte_parts::DecimalBytePartsArray = vortex_array::array::typed::Array<vortex_decimal_byte_parts::DecimalByteParts>
