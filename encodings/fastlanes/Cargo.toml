@@ -17,7 +17,6 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
-arrayref = { workspace = true }
 fastlanes = { workspace = true }
 itertools = { workspace = true }
 lending-iterator = { workspace = true }
