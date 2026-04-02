@@ -18,8 +18,8 @@ use vortex_array::buffer::DeviceBuffer;
 use vortex_array::serde::ArrayParts;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_error::vortex_err;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -332,8 +332,9 @@ pub fn create_lazy_array_parts(
             let buffer_len = fb_buf.length() as usize;
             let alignment = Alignment::from_exponent(fb_buf.alignment_exponent());
 
-            let lazy = LazyBufferHandle::new(Arc::clone(&source), segment_id, segment_len, alignment)
-                .slice(offset..offset + buffer_len);
+            let lazy =
+                LazyBufferHandle::new(Arc::clone(&source), segment_id, segment_len, alignment)
+                    .slice(offset..offset + buffer_len);
 
             offset += buffer_len;
             BufferHandle::new_device(Arc::new(lazy))
@@ -377,7 +378,7 @@ pub async fn materialize_recursive(array: &ArrayRef) -> VortexResult<ArrayRef> {
     }
 
     // 3. Materialize lazy buffers, ensuring proper alignment.
-    let materialized = try_join_all(handles.iter().cloned().map(|handle| async move {
+    let materialized = try_join_all(handles.iter().map(|handle| async move {
         if let Some(lazy) = handle
             .as_device_opt()
             .and_then(|d| d.as_any().downcast_ref::<LazyBufferHandle>())
@@ -386,7 +387,7 @@ pub async fn materialize_recursive(array: &ArrayRef) -> VortexResult<ArrayRef> {
             let buf = lazy.materialize().await?;
             buf.ensure_aligned(lazy.alignment())
         } else {
-            Ok(handle)
+            Ok(handle.clone())
         }
     }))
     .await?;

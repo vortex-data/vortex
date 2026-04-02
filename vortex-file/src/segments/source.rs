@@ -47,7 +47,10 @@ pub enum ReadEvent {
 fn apply_ranges(buffer: BufferHandle, ranges: &[Range<usize>]) -> VortexResult<BufferHandle> {
     match ranges {
         [] => buffer.filter(&[]),
-        [range] => Ok(buffer.slice(range.clone())),
+        [range] if range.start.is_multiple_of(*buffer.alignment()) => {
+            Ok(buffer.slice(range.clone()))
+        }
+        [range] => buffer.filter(std::slice::from_ref(range)),
         _ => buffer.filter(ranges),
     }
 }
@@ -180,7 +183,9 @@ impl FileSegmentSource {
 
 impl SegmentSource for FileSegmentSource {
     fn segment_len(&self, id: SegmentId) -> Option<usize> {
-        self.segments.get(*id as usize).map(|spec| spec.length as usize)
+        self.segments
+            .get(*id as usize)
+            .map(|spec| spec.length as usize)
     }
 
     fn request(&self, id: SegmentId) -> SegmentFuture {
@@ -377,7 +382,9 @@ impl BufferSegmentSource {
 
 impl SegmentSource for BufferSegmentSource {
     fn segment_len(&self, id: SegmentId) -> Option<usize> {
-        self.segments.get(*id as usize).map(|spec| spec.length as usize)
+        self.segments
+            .get(*id as usize)
+            .map(|spec| spec.length as usize)
     }
 
     fn request(&self, id: SegmentId) -> SegmentFuture {

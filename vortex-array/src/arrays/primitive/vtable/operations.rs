@@ -17,7 +17,7 @@ impl OperationsVTable<Primitive> for Primitive {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(match_each_native_ptype!(array.ptype(), |T| {
-            Scalar::primitive(array.as_slice::<T>()[index], array.dtype().nullability())
+            Scalar::primitive(array.to_buffer::<T>()[index], array.dtype().nullability())
         }))
     }
 }

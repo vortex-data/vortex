@@ -27,9 +27,5 @@ object_store = { workspace = true, optional = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 
-[dev-dependencies]
-serial_test = { version = "3.3.1" }
-temp-env = "0.3"
-
 [lints]
 workspace = true

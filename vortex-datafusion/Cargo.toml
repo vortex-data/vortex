@@ -37,14 +37,5 @@ tracing = { workspace = true, features = ["std", "attributes"] }
 vortex = { workspace = true, features = ["object_store", "tokio", "files"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
-[dev-dependencies]
-anyhow = { workspace = true }
-datafusion = { workspace = true }
-insta = { workspace = true }
-rstest = { workspace = true }
-tempfile = { workspace = true }
-tokio = { workspace = true, features = ["test-util", "rt-multi-thread", "fs"] }
-url = { workspace = true }
-
 [lints]
 workspace = true

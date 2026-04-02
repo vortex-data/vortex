@@ -29,12 +29,6 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
-[dev-dependencies]
-divan = { workspace = true }
-rand = { workspace = true }
-rstest = { workspace = true }
-vortex-array = { workspace = true, features = ["_test-harness"] }
-
 [[bench]]
 name = "alp_compress"
 harness = false

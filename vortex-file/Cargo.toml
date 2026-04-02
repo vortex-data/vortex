@@ -58,13 +58,6 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
-[dev-dependencies]
-tokio = { workspace = true, features = ["full"] }
-vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-io = { workspace = true, features = ["tokio"] }
-vortex-layout = { workspace = true, features = ["_test-harness"] }
-vortex-scan = { workspace = true }
-
 [lints]
 workspace = true
 

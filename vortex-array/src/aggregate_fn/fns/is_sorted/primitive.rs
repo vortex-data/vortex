@@ -16,11 +16,11 @@ pub(super) fn check_primitive_sorted(array: &PrimitiveArray, strict: bool) -> Vo
 }
 
 fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> VortexResult<bool> {
+    let values = array.to_buffer::<T>();
     match array.validity_mask()? {
         Mask::AllFalse(_) => Ok(!strict),
         Mask::AllTrue(_) => {
-            let slice = array.as_slice::<T>();
-            let iter = slice.iter().copied().map(NativeValue);
+            let iter = values.iter().copied().map(NativeValue);
 
             Ok(if strict {
                 iter.is_strict_sorted()
@@ -32,7 +32,7 @@ fn compute_is_sorted<T: NativePType>(array: &PrimitiveArray, strict: bool) -> Vo
             let iter = mask_values
                 .bit_buffer()
                 .iter()
-                .zip_eq(array.as_slice::<T>())
+                .zip_eq(values.iter())
                 .map(|(is_valid, value)| is_valid.then_some(NativeValue(*value)));
 
             Ok(if strict {

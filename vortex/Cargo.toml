@@ -48,20 +48,6 @@ vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
-[dev-dependencies]
-anyhow = { workspace = true }
-arrow-array = { workspace = true }
-divan = { workspace = true }
-fastlanes = { workspace = true }
-mimalloc = { workspace = true }
-parquet = { workspace = true }
-rand = { workspace = true }
-serde_json = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-vortex = { path = ".", features = ["tokio"] }
-
 [features]
 default = ["files", "zstd"]
 files = ["dep:vortex-file"]

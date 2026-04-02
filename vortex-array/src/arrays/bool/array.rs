@@ -106,13 +106,13 @@ impl BoolData {
 
     /// Returns the underlying [`BitBuffer`] of the array.
     pub fn to_bit_buffer(&self) -> BitBuffer {
-        let buffer = self.bits.as_host().clone();
+        let buffer = self.bits.to_host_sync();
         BitBuffer::new_with_offset(buffer, self.len, self.offset)
     }
 
     /// Returns the underlying [`BitBuffer`] of the array
     pub fn into_bit_buffer(self) -> BitBuffer {
-        let buffer = self.bits.unwrap_host();
+        let buffer = self.bits.into_host_sync();
         BitBuffer::new_with_offset(buffer, self.len, self.offset)
     }
 

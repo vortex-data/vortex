@@ -32,10 +32,6 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true, features = [] }
 vortex = { workspace = true, features = ["object_store"] }
 
-[dev-dependencies]
-tempfile = { workspace = true }
-vortex-array = { workspace = true, features = ["_test-harness"] }
-
 [build-dependencies]
 cbindgen = { workspace = true }
 

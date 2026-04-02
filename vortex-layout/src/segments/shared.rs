@@ -88,7 +88,7 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
                 Entry::Vacant(e) => {
                     let future = self
                         .inner
-                        .request_ranges(id, ranges.clone())
+                        .request_ranges(id, ranges)
                         .map_err(Arc::new)
                         .boxed()
                         .shared();

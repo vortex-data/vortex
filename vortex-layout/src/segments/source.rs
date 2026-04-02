@@ -19,7 +19,10 @@ pub(crate) fn apply_ranges(
 ) -> VortexResult<BufferHandle> {
     match ranges {
         [] => buffer.filter(&[]),
-        [range] => Ok(buffer.slice(range.clone())),
+        [range] if range.start.is_multiple_of(*buffer.alignment()) => {
+            Ok(buffer.slice(range.clone()))
+        }
+        [range] => buffer.filter(std::slice::from_ref(range)),
         _ => buffer.filter(ranges),
     }
 }
