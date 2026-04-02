@@ -57,9 +57,7 @@ where
 
     let (chunks, remainder) = values.as_chunks::<FL_CHUNK_SIZE>();
 
-    let mut process_chunk = |chunk_start_idx: usize,
-                             input: &[T; FL_CHUNK_SIZE],
-                             rle_idxs: &mut [u16; FL_CHUNK_SIZE]| {
+    let mut process_chunk = |input: &[T; FL_CHUNK_SIZE], rle_idxs: &mut [u16; FL_CHUNK_SIZE]| {
         // SAFETY: NativeValue is repr(transparent)
         let input: &[NativeValue<T>; FL_CHUNK_SIZE] = unsafe { std::mem::transmute(input) };
 
@@ -80,12 +78,12 @@ where
         value_count_acc += value_count;
     };
 
-    for (chunk_idx, (chunk_slice, rle_idxs)) in
-        chunks.iter().zip(indices_uninit.iter_mut()).enumerate()
-    {
+    for (chunk_slice, rle_idxs) in chunks.iter().zip(indices_uninit.iter_mut()) {
         // SAFETY: `MaybeUninit<u16>` and `u16` have the same layout.
-        process_chunk(chunk_idx * FL_CHUNK_SIZE, chunk_slice, unsafe {
-            std::mem::transmute(rle_idxs)
+        process_chunk(chunk_slice, unsafe {
+            std::mem::transmute::<&mut [std::mem::MaybeUninit<u16>; 1024], &mut [u16; 1024]>(
+                rle_idxs,
+            )
         });
     }
 
@@ -97,11 +95,11 @@ where
         let last_idx_chunk = indices_uninit
             .last_mut()
             .vortex_expect("Must have the trailing chunk");
-        process_chunk(
-            (len / FL_CHUNK_SIZE) * FL_CHUNK_SIZE,
-            &padded_chunk,
-            unsafe { std::mem::transmute(last_idx_chunk) },
-        );
+        process_chunk(&padded_chunk, unsafe {
+            std::mem::transmute::<&mut [std::mem::MaybeUninit<u16>; 1024], &mut [u16; 1024]>(
+                last_idx_chunk,
+            )
+        });
     }
 
     unsafe {
@@ -360,6 +358,111 @@ mod tests {
         let rle = RLEData::encode(&original)?;
         let decoded = with_masked_constant_indices(&rle)?;
         assert_arrays_eq!(decoded, original);
+        Ok(())
+    }
+
+    /// Replaces indices at invalid (null) positions with random garbage values.
+    ///
+    /// This simulates a compressor that doesn't preserve index values at null
+    /// positions, which can happen when indices are further compressed and the
+    /// compressor clobbers invalid entries with arbitrary data.
+    fn with_random_invalid_indices(rle: &RLEArray) -> VortexResult<RLEArray> {
+        let indices_prim = rle.indices().to_primitive();
+        let mut indices_data: Vec<u16> = indices_prim.as_slice::<u16>().to_vec();
+
+        // Use a simple deterministic "random" sequence.
+        let mut rng_state: u32 = 0xDEAD_BEEF;
+        let validity = indices_prim.validity();
+        for (i, idx) in indices_data.iter_mut().enumerate() {
+            if !validity.is_valid(i).unwrap_or(true) {
+                // xorshift32
+                rng_state ^= rng_state << 13;
+                rng_state ^= rng_state >> 17;
+                rng_state ^= rng_state << 5;
+                *idx = rng_state as u16;
+            }
+        }
+
+        let clobbered_indices =
+            PrimitiveArray::new(Buffer::from(indices_data), indices_prim.validity()).into_array();
+
+        Ok(unsafe {
+            RLEArra::new_unchecked(
+                rle.values().clone(),
+                clobbered_indices,
+                rle.values_idx_offsets().clone(),
+                rle.dtype().clone(),
+                rle.offset(),
+                rle.len(),
+            )
+        })
+    }
+
+    #[test]
+    fn test_random_invalid_indices_all_null_chunk() -> VortexResult<()> {
+        let values: Vec<Option<u32>> = vec![None; FL_CHUNK_SIZE];
+        let original = PrimitiveArray::from_option_iter(values);
+        let rle = RLEData::encode(&original)?;
+        let clobbered = with_random_invalid_indices(&rle)?;
+        assert_arrays_eq!(clobbered, original);
+        Ok(())
+    }
+
+    #[test]
+    fn test_random_invalid_indices_sparse_values() -> VortexResult<()> {
+        let mut values: Vec<Option<u32>> = vec![None; FL_CHUNK_SIZE];
+        values[0] = Some(10);
+        values[500] = Some(20);
+        values[1000] = Some(30);
+        let original = PrimitiveArray::from_option_iter(values);
+        let rle = RLEData::encode(&original)?;
+        let clobbered = with_random_invalid_indices(&rle)?;
+        assert_arrays_eq!(clobbered, original);
+        Ok(())
+    }
+
+    #[test]
+    fn test_random_invalid_indices_multi_chunk() -> VortexResult<()> {
+        // Two chunks: first has scattered values, second is all null.
+        let mut values: Vec<Option<i16>> = vec![None; 2 * FL_CHUNK_SIZE];
+        values[0] = Some(10);
+        values[500] = Some(20);
+        values[FL_CHUNK_SIZE + 100] = Some(42);
+        let original = PrimitiveArray::from_option_iter(values);
+        let rle = RLEData::encode(&original)?;
+        let clobbered = with_random_invalid_indices(&rle)?;
+        assert_arrays_eq!(clobbered, original);
+        Ok(())
+    }
+
+    #[test]
+    fn test_random_invalid_indices_partial_last_chunk() -> VortexResult<()> {
+        // 1085 elements: chunk 0 has values at scattered positions, chunk 1 is
+        // a partial (61 elements padded to 1024) that is entirely null.
+        let mut values: Vec<Option<u32>> = vec![None; 1085];
+        for i in (100..200).step_by(7) {
+            values[i] = Some(i as u32);
+        }
+        let original = PrimitiveArray::from_option_iter(values);
+        let rle = RLEData::encode(&original)?;
+        let clobbered = with_random_invalid_indices(&rle)?;
+        assert_arrays_eq!(clobbered, original);
+        Ok(())
+    }
+
+    #[test]
+    fn test_random_invalid_indices_mostly_valid() -> VortexResult<()> {
+        // Most positions are valid, only a few are null with garbage indices.
+        let mut values: Vec<Option<u64>> =
+            (0..FL_CHUNK_SIZE).map(|i| Some((i / 100) as u64)).collect();
+        // Sprinkle in some nulls.
+        for i in (0..FL_CHUNK_SIZE).step_by(37) {
+            values[i] = None;
+        }
+        let original = PrimitiveArray::from_option_iter(values);
+        let rle = RLEData::encode(&original)?;
+        let clobbered = with_random_invalid_indices(&rle)?;
+        assert_arrays_eq!(clobbered, original);
         Ok(())
     }
 

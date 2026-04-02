@@ -24,6 +24,10 @@ use crate::rle::RLEArrayExt;
     reason = "complexity is from nested match_each_* macros"
 )]
 pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    if array.all_invalid()? {
+        return Ok(Canonical::empty(array.dtype()).into_primitive());
+    }
+
     match_each_native_ptype!(array.values().dtype().as_ptype(), |V| {
         match_each_unsigned_integer_ptype!(array.values_idx_offsets().dtype().as_ptype(), |O| {
             // RLE indices are always u16 (or u8 if downcasted).
@@ -54,6 +58,7 @@ where
 
     let indices = array.indices().clone().execute::<PrimitiveArray>(ctx)?;
     assert!(indices.len().is_multiple_of(FL_CHUNK_SIZE));
+    let has_invalid = !indices.all_valid()?;
     let (indices_sl, _) = indices.as_slice::<I>().as_chunks::<FL_CHUNK_SIZE>();
 
     let chunk_start_idx = array.offset() / FL_CHUNK_SIZE;
@@ -93,6 +98,17 @@ where
             // access. The indices may contain values other than 0 when they
             // have been further compressed (e.g., as a masked constant).
             buffer_values.fill(chunk_values[0]);
+        } else if has_invalid {
+            // When the indices array has invalid (null) positions, those
+            // positions may contain arbitrary garbage values after further
+            // compression. Clamp all indices into [0, num_chunk_values) to
+            // prevent out-of-bounds access in the fastlanes decoder.
+            let mut sanitized = *chunk_indices;
+            for idx in sanitized.iter_mut() {
+                let v: usize = (*idx).into();
+                *idx = NumCast::from(v % num_chunk_values).unwrap_or_default();
+            }
+            V::decode(chunk_values, &sanitized, buffer_values);
         } else {
             V::decode(chunk_values, chunk_indices, buffer_values);
         }
