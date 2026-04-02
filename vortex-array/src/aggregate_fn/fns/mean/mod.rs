@@ -77,7 +77,10 @@ impl AggregateFnVTable for Mean {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+        // This function is not serializable until:
+        // - we decide on algo for compilation (and hence what should be the intermediate state)
+        // - we decide on return type (should mean(decimals) be a decimal?)
+        Ok(None)
     }
 
     fn deserialize(
@@ -85,7 +88,7 @@ impl AggregateFnVTable for Mean {
         _metadata: &[u8],
         _session: &vortex_session::VortexSession,
     ) -> VortexResult<Self::Options> {
-        Ok(EmptyOptions)
+        unimplemented!("Mean is not deserializable")
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod count;
 pub mod is_constant;
 pub mod is_sorted;
 pub mod mean;
