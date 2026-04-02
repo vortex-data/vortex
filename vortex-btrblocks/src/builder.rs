@@ -120,7 +120,7 @@ impl BtrBlocksCompressorBuilder {
     /// Adds compact encoding schemes (Zstd for strings, Pco for numerics).
     ///
     /// This provides better compression ratios than the default, especially for floating-point
-    /// heavy datasets. Requires the `zstd` feature. When the `pco` feature is also enabled,
+    /// heavy datasets. Requires the `zstd` feature. When the `pco` rfeature is also enabled,
     /// Pco schemes for integers and floats are included.
     ///
     /// # Panics
@@ -136,6 +136,23 @@ impl BtrBlocksCompressorBuilder {
             .with_new_scheme(&float::PcoScheme);
 
         builder
+    }
+
+    /// Adds the TurboQuant lossy vector quantization scheme.
+    ///
+    /// When enabled, [`Vector`] extension arrays are compressed using the TurboQuant algorithm with
+    /// QJL correction for unbiased inner product estimation.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the TurboQuant scheme is already present.
+    ///
+    /// [`Vector`]: vortex_tensor::vector::Vector
+    /// [`FixedShapeTensor`]: vortex_tensor::fixed_shape::FixedShapeTensor
+    #[cfg(feature = "unstable_encodings")]
+    pub fn with_turboquant(self) -> Self {
+        use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;
+        self.with_new_scheme(&TURBOQUANT_SCHEME)
     }
 
     /// Excludes schemes without CUDA kernel support and adds Zstd for string compression.

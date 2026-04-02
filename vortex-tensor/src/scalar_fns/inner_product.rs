@@ -29,6 +29,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::compute::cosine_similarity;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extension_element_ptype;
@@ -137,7 +139,7 @@ impl ScalarFnVTable for InnerProduct {
 
     fn execute(
         &self,
-        _options: &Self::Options,
+        options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
@@ -159,6 +161,16 @@ impl ScalarFnVTable for InnerProduct {
         // than the extension array to avoid canonicalizing the extension wrapper.
         let lhs_storage = lhs.data().storage_array();
         let rhs_storage = rhs.data().storage_array();
+
+        // TurboQuant approximate path: norm_a * norm_b * quantized unit-norm dot.
+        if *options == ApproxOptions::Approximate
+            && let (Some(lhs_tq), Some(rhs_tq)) = (
+                lhs_storage.as_opt::<TurboQuant>(),
+                rhs_storage.as_opt::<TurboQuant>(),
+            )
+        {
+            return cosine_similarity::dot_product_quantized_column(lhs_tq, rhs_tq, ctx);
+        }
 
         let lhs_flat = extract_flat_elements(lhs_storage, list_size, ctx)?;
         let rhs_flat = extract_flat_elements(rhs_storage, list_size, ctx)?;

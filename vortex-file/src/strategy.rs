@@ -56,6 +56,8 @@ use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
+#[cfg(feature = "unstable_encodings")]
+use vortex_tensor::encodings::turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_zigzag::ZigZag;
 #[cfg(feature = "zstd")]
@@ -104,6 +106,8 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
     session.register(RunEnd);
     session.register(Sequence);
     session.register(Sparse);
+    #[cfg(feature = "unstable_encodings")]
+    session.register(TurboQuant);
     session.register(ZigZag);
 
     #[cfg(feature = "zstd")]
