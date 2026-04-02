@@ -319,6 +319,28 @@ Rules of thumb:
 - Treat `execute` as the fallback. If no reduce rule or parent kernel applies, the encoding
   decodes itself and uses `ExecuteChild` to request child execution when needed.
 
+## In-Place Mutation via Owned Arrays and Buffers
+
+Vortex execution passes arrays by owned `ArrayRef` (`Arc<dyn DynArray>`) wherever possible.
+When the `Arc` reference count is 1, the executor can mutate the array and its buffers in place,
+avoiding unnecessary allocations and copies. This is a key performance optimization that threads
+through two levels of the stack: **arrays** and **buffers**.
+
+At the array level, `take_slot` and `put_slot` use `Arc::get_mut` to check for unique
+ownership. When the refcount is 1, the slot is modified in place without cloning the parent.
+At the buffer level, `Buffer::try_into_mut` converts an immutable `Buffer<T>` into a
+`BufferMut<T>` without copying when the underlying allocation has a single reference. Kernels
+use this to write results directly into their input buffers.
+
+The execution loop is structured so that this works naturally. When the scheduler pushes a
+parent onto the work stack via `ExecuteSlot`, it takes the child out with `take_slot` and
+moves the parent onto the stack — giving it refcount 1. The child is then executed
+independently. Crucially, leaf arrays (the ones that actually touch buffers) are produced
+fresh by decode steps — they are new allocations with no other references. As results propagate
+back up the stack, each `put_slot` finds its parent with refcount 1 (it was owned on the
+stack), and each buffer produced by a leaf kernel has refcount 1 (it was just created). So
+the in-place mutation path is hit at every level by construction, not by accident.
+
 ## Future Work
 
 The execution model is designed to support additional function types beyond scalar functions:
