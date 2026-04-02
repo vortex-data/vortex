@@ -414,7 +414,7 @@ pub unsafe extern "C" fn vx_array_apply(
         vortex_ensure!(!expression.is_null());
         let array = vx_array::as_ref(array);
         let expression = vx_expression::as_ref(expression);
-        Ok(vx_array::new(Arc::new(array.clone().apply(expression)?)))
+        Ok(vx_array::new(array.clone().apply(expression)?))
     })
 }
 
