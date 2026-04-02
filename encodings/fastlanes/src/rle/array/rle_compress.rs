@@ -386,16 +386,16 @@ mod tests {
         let clobbered_indices =
             PrimitiveArray::new(Buffer::from(indices_data), indices_prim.validity()).into_array();
 
-        Ok(unsafe {
-            RLEArra::new_unchecked(
+        unsafe {
+            RLEArray::try_from_data(RLEData::new_unchecked(
                 rle.values().clone(),
                 clobbered_indices,
                 rle.values_idx_offsets().clone(),
                 rle.dtype().clone(),
                 rle.offset(),
                 rle.len(),
-            )
-        })
+            ))
+        }
     }
 
     #[test]

@@ -3,6 +3,7 @@
 
 use fastlanes::RLE;
 use num_traits::AsPrimitive;
+use num_traits::NumCast;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -24,10 +25,6 @@ use crate::rle::RLEArrayExt;
     reason = "complexity is from nested match_each_* macros"
 )]
 pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-    if array.all_invalid()? {
-        return Ok(Canonical::empty(array.dtype()).into_primitive());
-    }
-
     match_each_native_ptype!(array.values().dtype().as_ptype(), |V| {
         match_each_unsigned_integer_ptype!(array.values_idx_offsets().dtype().as_ptype(), |O| {
             // RLE indices are always u16 (or u8 if downcasted).
