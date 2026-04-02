@@ -3,8 +3,8 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::stats::ArrayStats;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -33,12 +33,9 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["values", "indices", "values_i
 
 #[derive(Clone, Debug)]
 pub struct RLEData {
-    pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats_set: ArrayStats,
     // Offset relative to the start of the chunk.
     pub(super) offset: usize,
-    pub(super) length: usize,
 }
 
 impl RLEData {
@@ -47,6 +44,37 @@ impl RLEData {
         indices: &ArrayRef,
         value_idx_offsets: &ArrayRef,
         offset: usize,
+        length: usize,
+    ) -> VortexResult<()> {
+        Self::validate_parts(values, indices, value_idx_offsets, offset, length)?;
+        Ok(())
+    }
+
+    pub(crate) fn validate_against_outer(&self, dtype: &DType, length: usize) -> VortexResult<()> {
+        Self::validate_parts(
+            self.values(),
+            self.indices(),
+            self.values_idx_offsets(),
+            self.offset,
+            length,
+        )?;
+        let expected_dtype = DType::Primitive(
+            self.values().dtype().as_ptype(),
+            self.indices().dtype().nullability(),
+        );
+        vortex_ensure!(
+            dtype == &expected_dtype,
+            "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
+        );
+        Ok(())
+    }
+
+    fn validate_parts(
+        values: &ArrayRef,
+        indices: &ArrayRef,
+        value_idx_offsets: &ArrayRef,
+        offset: usize,
+        length: usize,
     ) -> VortexResult<()> {
         vortex_ensure!(
             offset < 1024,
@@ -55,8 +83,8 @@ impl RLEData {
         );
 
         vortex_ensure!(
-            values.dtype().is_primitive(),
-            "RLE values must be a primitive type, got {}",
+            matches!(values.dtype(), DType::Primitive(_, Nullability::NonNullable)),
+            "RLE values must be a non-nullable primitive type, got {}",
             values.dtype()
         );
 
@@ -70,6 +98,16 @@ impl RLEData {
             value_idx_offsets.dtype().is_unsigned_int() && !value_idx_offsets.dtype().is_nullable(),
             "RLE value idx offsets must be non-nullable unsigned integer, got {}",
             value_idx_offsets.dtype()
+        );
+        vortex_ensure!(
+            indices.len().is_multiple_of(FL_CHUNK_SIZE),
+            "RLE indices length must be a multiple of {FL_CHUNK_SIZE}, got {}",
+            indices.len()
+        );
+        vortex_ensure!(
+            offset + length <= indices.len(),
+            "RLE offset + length, {offset} + {length}, must not exceed the indices length {}",
+            indices.len()
         );
 
         vortex_ensure!(
@@ -104,18 +142,11 @@ impl RLEData {
         offset: usize,
         length: usize,
     ) -> VortexResult<Self> {
-        assert_eq!(indices.len() % FL_CHUNK_SIZE, 0);
-        Self::validate(&values, &indices, &values_idx_offsets, offset)?;
-
-        // Ensure that the DType has the same nullability as the indices array.
-        let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
+        Self::validate(&values, &indices, &values_idx_offsets, offset, length)?;
 
         Ok(Self {
-            dtype,
             slots: vec![Some(values), Some(indices), Some(values_idx_offsets)],
-            stats_set: ArrayStats::default(),
             offset,
-            length,
         })
     }
 
@@ -124,40 +155,18 @@ impl RLEData {
     /// # Safety
     /// The caller must ensure that:
     /// - `offset + length` does not exceed the length of the indices array
-    /// - The `dtype` is consistent with the values array's primitive type and validity nullability
     /// - The `indices` array contains valid indices into chunks of the `values` array
     /// - The `values_idx_offsets` array contains valid chunk start offsets
-    /// - The `validity` array has the same length as `length`
     pub unsafe fn new_unchecked(
         values: ArrayRef,
         indices: ArrayRef,
         values_idx_offsets: ArrayRef,
-        dtype: DType,
         offset: usize,
-        length: usize,
     ) -> Self {
         Self {
-            dtype,
             slots: vec![Some(values), Some(indices), Some(values_idx_offsets)],
-            stats_set: ArrayStats::default(),
             offset,
-            length,
         }
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.length == 0
-    }
-
-    #[inline]
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
     }
 
     #[inline]
@@ -210,10 +219,6 @@ impl RLEData {
     #[inline]
     pub fn offset(&self) -> usize {
         self.offset
-    }
-
-    pub(crate) fn stats_set(&self) -> &ArrayStats {
-        &self.stats_set
     }
 }
 

@@ -107,7 +107,7 @@ pub(crate) fn fused_decompress<
     let mut uninit_range = builder.uninit_range(bp.len());
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(bp.validity_mask());
+        uninit_range.append_mask(bp.validity_mask(bp.len(), bp.dtype().nullability()));
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -116,7 +116,7 @@ pub(crate) fn fused_decompress<
     // Decode all chunks (initial, full, and trailer) in one call.
     unpacked.decode_into(uninit_slice);
 
-    if let Some(ref patches) = bp.patches() {
+    if let Some(ref patches) = bp.patches(bp.len()) {
         bitpack_decompress::apply_patches_to_uninit_range_fn(
             &mut uninit_range,
             patches,

@@ -34,14 +34,16 @@ impl CastReduce for Zstd {
             (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity
                 Ok(Some(
-                    ZstdData::new(
-                        array.dictionary.clone(),
-                        array.frames.clone(),
+                    Zstd::try_new(
                         dtype.clone(),
-                        array.metadata.clone(),
-                        array.unsliced_n_rows(),
-                        array.unsliced_validity.clone(),
-                    )
+                        ZstdData::new(
+                            array.dictionary.clone(),
+                            array.frames.clone(),
+                            array.metadata.clone(),
+                            array.unsliced_n_rows(),
+                            array.unsliced_validity.clone(),
+                        ),
+                    )?
                     .into_array()
                     .slice(array.slice_start()..array.slice_stop())?,
                 ))
@@ -60,14 +62,16 @@ impl CastReduce for Zstd {
 
                 // If there are no nulls, the cast is trivial
                 Ok(Some(
-                    ZstdData::new(
-                        array.dictionary.clone(),
-                        array.frames.clone(),
+                    Zstd::try_new(
                         dtype.clone(),
-                        array.metadata.clone(),
-                        array.unsliced_n_rows(),
-                        array.unsliced_validity.clone(),
-                    )
+                        ZstdData::new(
+                            array.dictionary.clone(),
+                            array.frames.clone(),
+                            array.metadata.clone(),
+                            array.unsliced_n_rows(),
+                            array.unsliced_validity.clone(),
+                        ),
+                    )?
                     .into_array()
                     .slice(array.slice_start()..array.slice_stop())?,
                 ))

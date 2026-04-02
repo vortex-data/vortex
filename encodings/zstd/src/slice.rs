@@ -13,6 +13,9 @@ use crate::Zstd;
 
 impl SliceReduce for Zstd {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(array._slice(range.start, range.end).into_array()))
+        Ok(Some(
+            Zstd::try_new(array.dtype().clone(), array.data().with_slice(range.start, range.end))?
+                .into_array(),
+        ))
     }
 }

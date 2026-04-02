@@ -16,12 +16,12 @@ impl OperationsVTable<BitPacked> for BitPacked {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(
-            if let Some(patches) = array.patches()
+            if let Some(patches) = array.patches(array.len())
                 && let Some(patch) = patches.get_patched(index)?
             {
                 patch
             } else {
-                bitpack_decompress::unpack_single(&array, index)
+                bitpack_decompress::unpack_single(array, index)
             },
         )
     }

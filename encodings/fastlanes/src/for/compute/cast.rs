@@ -9,7 +9,6 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
-use crate::FoRData;
 use crate::r#for::FoR;
 impl CastReduce for FoR {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -22,9 +21,7 @@ impl CastReduce for FoR {
         let casted_child = array.encoded().cast(dtype.clone())?;
         let casted_reference = array.reference_scalar().cast(dtype)?;
 
-        Ok(Some(
-            FoRData::try_new(casted_child, casted_reference)?.into_array(),
-        ))
+        Ok(Some(FoR::try_new(casted_child, casted_reference)?.into_array()))
     }
 }
 
@@ -44,12 +41,11 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
+    use crate::FoR;
     use crate::FoRArray;
-    use crate::FoRData;
 
     fn for_arr(encoded: ArrayRef, reference: Scalar) -> FoRArray {
-        FoRArray::try_from_data(FoRData::try_new(encoded, reference).unwrap())
-            .vortex_expect("FoRData is always valid")
+        FoR::try_new(encoded, reference).vortex_expect("FoR array construction should succeed")
     }
 
     #[test]

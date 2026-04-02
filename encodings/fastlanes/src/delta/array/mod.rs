@@ -9,7 +9,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::stats::ArrayStats;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -37,11 +36,11 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 /// use vortex_array::VortexSessionExecute;
 /// use vortex_array::session::ArraySession;
 /// use vortex_session::VortexSession;
-/// use vortex_fastlanes::DeltaData;
+/// use vortex_fastlanes::Delta;
 ///
 /// let session = VortexSession::empty().with::<ArraySession>();
 /// let primitive = PrimitiveArray::from_iter([1_u32, 2, 3, 5, 10, 11]);
-/// let array = DeltaData::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
+/// let array = Delta::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
 /// ```
 ///
 /// # Details
@@ -66,14 +65,11 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 #[derive(Clone, Debug)]
 pub struct DeltaData {
     pub(super) offset: usize,
-    pub(super) len: usize,
-    pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats_set: ArrayStats,
 }
 
 impl DeltaData {
-    pub fn try_from_primitive_array(
+    pub(crate) fn try_from_primitive_array(
         array: &PrimitiveArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
@@ -91,6 +87,31 @@ impl DeltaData {
         offset: usize,
         len: usize,
     ) -> VortexResult<Self> {
+        Self::validate_parts(&bases, &deltas, offset, len)?;
+
+        // SAFETY: validation done above
+        Ok(unsafe { Self::new_unchecked(bases, deltas, offset) })
+    }
+
+    pub(crate) fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
+        Self::validate_parts(self.bases(), self.deltas(), self.offset, len)?;
+        let expected_dtype = self
+            .bases()
+            .dtype()
+            .with_nullability(self.deltas().dtype().nullability());
+        vortex_ensure!(
+            dtype == &expected_dtype,
+            "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"
+        );
+        Ok(())
+    }
+
+    fn validate_parts(
+        bases: &ArrayRef,
+        deltas: &ArrayRef,
+        offset: usize,
+        len: usize,
+    ) -> VortexResult<()> {
         vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
         vortex_ensure!(
             offset + len <= deltas.len(),
@@ -105,8 +126,8 @@ impl DeltaData {
         );
 
         vortex_ensure!(
-            bases.dtype().is_int(),
-            "DeltaArray: dtype must be an integer, got {}",
+            bases.dtype().is_unsigned_int(),
+            "DeltaArray: dtype must be an unsigned integer, got {}",
             bases.dtype()
         );
 
@@ -122,24 +143,13 @@ impl DeltaData {
             "bases length ({}) must be a multiple of LANES ({lanes})",
             bases.len(),
         );
-
-        // SAFETY: validation done above
-        Ok(unsafe { Self::new_unchecked(bases, deltas, offset, len) })
+        Ok(())
     }
 
-    pub(crate) unsafe fn new_unchecked(
-        bases: ArrayRef,
-        deltas: ArrayRef,
-        offset: usize,
-        logical_len: usize,
-    ) -> Self {
-        let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
+    pub(crate) unsafe fn new_unchecked(bases: ArrayRef, deltas: ArrayRef, offset: usize) -> Self {
         Self {
             offset,
-            len: logical_len,
-            dtype,
             slots: vec![Some(bases), Some(deltas)],
-            stats_set: Default::default(),
         }
     }
 
@@ -157,25 +167,6 @@ impl DeltaData {
             .vortex_expect("DeltaArray deltas slot")
     }
 
-    pub(crate) fn lanes(&self) -> usize {
-        lane_count(self.dtype().as_ptype())
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    #[inline]
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
     #[inline]
     /// The logical offset into the first chunk of [`Self::deltas`].
     pub fn offset(&self) -> usize {
@@ -188,10 +179,6 @@ impl DeltaData {
 
     pub(crate) fn deltas_len(&self) -> usize {
         self.deltas().len()
-    }
-
-    pub(crate) fn stats_set(&self) -> &ArrayStats {
-        &self.stats_set
     }
 }
 

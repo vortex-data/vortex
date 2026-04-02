@@ -11,7 +11,6 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::DeltaData;
 use crate::delta::Delta;
 impl CastReduce for Delta {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -38,7 +37,7 @@ impl CastReduce for Delta {
 
         // Create a new DeltaArray with the casted components, preserving offset and logical length
         Ok(Some(
-            DeltaData::try_new(casted_bases, casted_deltas, array.offset(), array.len())?
+            Delta::try_new(casted_bases, casted_deltas, array.offset(), array.len())?
                 .into_array(),
         ))
     }
@@ -62,16 +61,15 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
-    use crate::DeltaData;
+    use crate::Delta;
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_cast_delta_u8_to_u32() {
         let primitive = PrimitiveArray::from_iter([10u8, 20, 30, 40, 50]);
-        let array =
-            DeltaData::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
-                .unwrap();
+        let array = Delta::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
+            .unwrap();
 
         let casted = array
             .into_array()
@@ -94,9 +92,8 @@ mod tests {
             buffer![100u16, 0, 200, 300, 0],
             vortex_array::validity::Validity::NonNullable,
         );
-        let array =
-            DeltaData::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx())
-                .unwrap();
+        let array = Delta::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx())
+            .unwrap();
 
         let casted = array
             .into_array()
@@ -135,7 +132,7 @@ mod tests {
     )]
     fn test_cast_delta_conformance(#[case] primitive: PrimitiveArray) {
         let delta_array =
-            DeltaData::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
+            Delta::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
                 .unwrap();
         test_cast_conformance(&delta_array.into_array());
     }

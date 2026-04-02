@@ -10,7 +10,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
-use crate::DeltaData;
+use crate::delta::array::lane_count;
 use crate::delta::vtable::Delta;
 
 impl SliceReduce for Delta {
@@ -23,7 +23,7 @@ impl SliceReduce for Delta {
 
         let bases = array.bases();
         let deltas = array.deltas();
-        let lanes = array.lanes();
+        let lanes = lane_count(array.dtype().as_ptype());
 
         let new_bases = bases.slice(
             min(start_chunk * lanes, array.bases_len())..min(stop_chunk * lanes, array.bases_len()),
@@ -33,10 +33,9 @@ impl SliceReduce for Delta {
             min(start_chunk * 1024, array.deltas_len())..min(stop_chunk * 1024, array.deltas_len()),
         )?;
 
-        // SAFETY: slicing valid bases/deltas preserves correctness
-        Ok(Some(unsafe {
-            DeltaData::new_unchecked(new_bases, new_deltas, physical_start % 1024, range.len())
-                .into_array()
-        }))
+        Ok(Some(
+            Delta::try_new(new_bases, new_deltas, physical_start % 1024, range.len())?
+                .into_array(),
+        ))
     }
 }

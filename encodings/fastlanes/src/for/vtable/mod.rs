@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::Array;
+use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
@@ -20,7 +21,6 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -48,29 +48,15 @@ vtable!(FoR, FoR, FoRData);
 impl VTable for FoR {
     type ArrayData = FoRData;
 
-    type Metadata = Scalar;
-
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-
-    fn vtable(_array: &FoRData) -> &Self {
-        &FoR
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &FoRData) -> usize {
-        array.encoded().len()
-    }
-
-    fn dtype(array: &FoRData) -> &DType {
-        array.reference_scalar().dtype()
-    }
-
-    fn stats(array: &FoRData) -> &ArrayStats {
-        array.stats_set()
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+        data.validate(dtype, len)
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &FoRData, state: &mut H, precision: Precision) {
@@ -114,33 +100,23 @@ impl VTable for FoR {
         Ok(())
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(array.reference_scalar().clone())
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         // Note that we **only** serialize the optional scalar value (not including the dtype).
-        Ok(Some(ScalarValue::to_proto_bytes(metadata.value())))
+        Ok(Some(ScalarValue::to_proto_bytes(
+            array.reference_scalar().value(),
+        )))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
-        Scalar::try_new(dtype.clone(), scalar_value)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
-        _buffers: &[BufferHandle],
+        metadata: &[u8],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        session: &VortexSession,
     ) -> VortexResult<FoRData> {
+        vortex_ensure!(buffers.is_empty(), "FoRArray expects 0 buffers, got {}", buffers.len());
         if children.len() != 1 {
             vortex_bail!(
                 "Expected 1 child for FoR encoding, found {}",
@@ -148,9 +124,11 @@ impl VTable for FoR {
             )
         }
 
+        let scalar_value = ScalarValue::from_proto_bytes(metadata, dtype, session)?;
+        let reference = Scalar::try_new(dtype.clone(), scalar_value)?;
         let encoded = children.get(0, dtype, len)?;
 
-        FoRData::try_new(encoded, metadata.clone())
+        FoRData::try_new(encoded, reference)
     }
 
     fn reduce_parent(
@@ -183,7 +161,14 @@ impl FoR {
 
     /// Construct a new FoR array from an encoded array and a reference scalar.
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<FoRArray> {
-        Array::try_from_data(FoRData::try_new(encoded, reference)?)
+        vortex_ensure!(!reference.is_null(), "Reference value cannot be null");
+        let dtype = reference
+            .dtype()
+            .with_nullability(encoded.dtype().nullability());
+        let reference = reference.cast(&dtype)?;
+        let len = encoded.len();
+        let data = FoRData::try_new(encoded, reference)?;
+        Array::try_from_parts(ArrayNew::new(FoR, dtype, len, data))
     }
 
     /// Encode a primitive array using Frame of Reference encoding.

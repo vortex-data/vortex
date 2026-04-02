@@ -89,13 +89,13 @@ pub struct UnpackedChunks<T: PhysicalPType, S: UnpackStrategy<T>> {
 pub type BitUnpackedChunks<T> = UnpackedChunks<T, BitPackingStrategy>;
 
 impl<T: BitPacked> BitUnpackedChunks<T> {
-    pub fn new(array: &BitPackedData) -> Self {
+    pub fn new(array: &BitPackedData, len: usize) -> Self {
         Self::new_with_strategy(
             BitPackingStrategy,
             array.packed().clone().unwrap_host(),
             array.bit_width() as usize,
             array.offset() as usize,
-            array.len(),
+            len,
         )
     }
 

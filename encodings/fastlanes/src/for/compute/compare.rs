@@ -23,7 +23,6 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
 use crate::FoR;
-use crate::FoRData;
 
 impl CompareKernel for FoR {
     fn compare(
@@ -37,7 +36,7 @@ impl CompareKernel for FoR {
         {
             match_each_integer_ptype!(constant.ptype(), |T| {
                 return compare_constant(
-                    &lhs,
+                    lhs,
                     constant
                         .typed_value::<T>()
                         .vortex_expect("null scalar handled in adaptor"),
@@ -52,7 +51,7 @@ impl CompareKernel for FoR {
 }
 
 fn compare_constant<T>(
-    lhs: &FoRData,
+    lhs: ArrayView<'_, FoR>,
     mut rhs: T,
     nullability: Nullability,
     operator: CompareOperator,
@@ -81,10 +80,7 @@ where
     let rhs = Scalar::primitive(rhs, nullability);
 
     lhs.encoded()
-        .binary(
-            ConstantArray::new(rhs, lhs.len()).into_array(),
-            Operator::from(operator),
-        )
+        .binary(ConstantArray::new(rhs, lhs.len()).into_array(), Operator::from(operator))
         .map(Some)
 }
 
@@ -99,12 +95,11 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::FoR;
     use crate::FoRArray;
-    use crate::FoRData;
 
     fn for_arr(encoded: ArrayRef, reference: Scalar) -> FoRArray {
-        FoRArray::try_from_data(FoRData::try_new(encoded, reference).unwrap())
-            .vortex_expect("FoRData is always valid")
+        FoR::try_new(encoded, reference).vortex_expect("FoR array construction should succeed")
     }
 
     #[test]
@@ -116,13 +111,18 @@ mod tests {
             reference,
         );
 
-        let result = compare_constant(&lhs, 30i32, Nullability::NonNullable, CompareOperator::Eq)
+        let result = compare_constant(
+            lhs.as_view(),
+            30i32,
+            Nullability::NonNullable,
+            CompareOperator::Eq,
+        )
             .unwrap()
             .unwrap();
         assert_arrays_eq!(result, BoolArray::from_iter([false, true, false].map(Some)));
 
         let result = compare_constant(
-            &lhs,
+            lhs.as_view(),
             12i32,
             Nullability::NonNullable,
             CompareOperator::NotEq,
@@ -138,7 +138,7 @@ mod tests {
             CompareOperator::Gte,
         ] {
             assert!(
-                compare_constant(&lhs, 30i32, Nullability::NonNullable, op)
+                compare_constant(lhs.as_view(), 30i32, Nullability::NonNullable, op)
                     .unwrap()
                     .is_none()
             );
@@ -155,14 +155,24 @@ mod tests {
         );
 
         assert_eq!(
-            compare_constant(&lhs, 30i32, Nullability::Nullable, CompareOperator::Eq)
+            compare_constant(
+                lhs.as_view(),
+                30i32,
+                Nullability::Nullable,
+                CompareOperator::Eq,
+            )
                 .unwrap()
                 .unwrap()
                 .dtype(),
             &DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
-            compare_constant(&lhs, 30i32, Nullability::NonNullable, CompareOperator::Eq)
+            compare_constant(
+                lhs.as_view(),
+                30i32,
+                Nullability::NonNullable,
+                CompareOperator::Eq,
+            )
                 .unwrap()
                 .unwrap()
                 .dtype(),
@@ -179,7 +189,12 @@ mod tests {
             reference,
         );
 
-        let result = compare_constant(&lhs, -1i32, Nullability::NonNullable, CompareOperator::Eq)
+        let result = compare_constant(
+            lhs.as_view(),
+            -1i32,
+            Nullability::NonNullable,
+            CompareOperator::Eq,
+        )
             .unwrap()
             .unwrap();
         assert_arrays_eq!(
@@ -188,7 +203,7 @@ mod tests {
         );
 
         let result = compare_constant(
-            &lhs,
+            lhs.as_view(),
             -1i32,
             Nullability::NonNullable,
             CompareOperator::NotEq,
@@ -212,7 +227,7 @@ mod tests {
         );
 
         let result = compare_constant(
-            &lhs,
+            lhs.as_view(),
             435090932899640449i64,
             Nullability::Nullable,
             CompareOperator::Eq,
@@ -222,7 +237,7 @@ mod tests {
         assert_arrays_eq!(result, BoolArray::from_iter([Some(false), Some(true)]));
 
         let result = compare_constant(
-            &lhs,
+            lhs.as_view(),
             435090932899640449i64,
             Nullability::Nullable,
             CompareOperator::NotEq,

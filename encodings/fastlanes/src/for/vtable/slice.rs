@@ -10,17 +10,12 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::FoR;
-use crate::FoRData;
 
 impl SliceReduce for FoR {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: Just slicing encoded data does not affect FOR.
-        Ok(Some(unsafe {
-            FoRData::new_unchecked(
-                array.encoded().slice(range)?,
-                array.reference_scalar().clone(),
-            )
-            .into_array()
-        }))
+        Ok(Some(
+            FoR::try_new(array.encoded().slice(range)?, array.reference_scalar().clone())?
+                .into_array(),
+        ))
     }
 }

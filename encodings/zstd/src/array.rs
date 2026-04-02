@@ -8,6 +8,7 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use prost::Message as _;
 use vortex_array::Array;
+use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
@@ -19,7 +20,6 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
@@ -32,7 +32,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
@@ -85,28 +84,15 @@ vtable!(Zstd, Zstd, ZstdData);
 impl VTable for Zstd {
     type ArrayData = ZstdData;
 
-    type Metadata = ProstMetadata<ZstdMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
-
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Zstd
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &ZstdData) -> usize {
-        array.slice_stop - array.slice_start
-    }
-
-    fn dtype(array: &ZstdData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ZstdData) -> &ArrayStats {
-        &array.stats_set
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+        data.validate(dtype, len)
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &ZstdData, state: &mut H, precision: Precision) {
@@ -179,31 +165,20 @@ impl VTable for Zstd {
         }
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(array.metadata.clone()))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.0.encode_to_vec()))
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(array.metadata.clone().encode_to_vec()))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ZstdMetadata::decode(bytes)?))
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
+        metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<ZstdData> {
+        let metadata = ZstdMetadata::decode(metadata)?;
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
@@ -213,7 +188,7 @@ impl VTable for Zstd {
             vortex_bail!("ZstdArray expected 0 or 1 child, got {}", children.len());
         };
 
-        let (dictionary_buffer, compressed_buffers) = if metadata.0.dictionary_size == 0 {
+        let (dictionary_buffer, compressed_buffers) = if metadata.dictionary_size == 0 {
             // no dictionary
             (
                 None,
@@ -236,8 +211,7 @@ impl VTable for Zstd {
         Ok(ZstdData::new(
             dictionary_buffer,
             compressed_buffers,
-            dtype.clone(),
-            metadata.0.clone(),
+            metadata,
             len,
             validity,
         ))
@@ -261,7 +235,7 @@ impl VTable for Zstd {
 
         array.unsliced_validity = match &slots[VALIDITY_SLOT] {
             Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
+            None => Validity::from(array.unsliced_validity.nullability()),
         };
 
         array.slots = slots;
@@ -269,8 +243,7 @@ impl VTable for Zstd {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        array
-            .decompress(ctx)?
+        Zstd::decompress(&array, ctx)?
             .execute::<ArrayRef>(ctx)
             .map(ExecutionResult::done)
     }
@@ -290,17 +263,21 @@ pub struct Zstd;
 impl Zstd {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
 
+    pub fn try_new(dtype: DType, data: ZstdData) -> VortexResult<ZstdArray> {
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Zstd, dtype, len, data))
+    }
+
     /// Compress a [`VarBinViewArray`] using Zstd without a dictionary.
     pub fn from_var_bin_view_without_dict(
         vbv: &VarBinViewArray,
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
-        Array::try_from_data(ZstdData::from_var_bin_view_without_dict(
-            vbv,
-            level,
-            values_per_frame,
-        )?)
+        Self::try_new(
+            vbv.dtype().clone(),
+            ZstdData::from_var_bin_view_without_dict(vbv, level, values_per_frame)?,
+        )
     }
 
     /// Compress a [`PrimitiveArray`] using Zstd.
@@ -309,7 +286,10 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
-        Array::try_from_data(ZstdData::from_primitive(parray, level, values_per_frame)?)
+        Self::try_new(
+            parray.dtype().clone(),
+            ZstdData::from_primitive(parray, level, values_per_frame)?,
+        )
     }
 
     /// Compress a [`VarBinViewArray`] using Zstd.
@@ -318,7 +298,30 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
-        Array::try_from_data(ZstdData::from_var_bin_view(vbv, level, values_per_frame)?)
+        Self::try_new(
+            vbv.dtype().clone(),
+            ZstdData::from_var_bin_view(vbv, level, values_per_frame)?,
+        )
+    }
+
+    pub fn decompress(array: &ZstdArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        array.data().decompress(array.dtype(), ctx)
+    }
+
+    pub fn into_parts(array: ZstdArray) -> ZstdArrayParts {
+        let dtype = array.dtype().clone();
+        let data = array.into_data();
+
+        ZstdArrayParts {
+            dictionary: data.dictionary,
+            frames: data.frames,
+            metadata: data.metadata,
+            dtype,
+            validity: data.unsliced_validity,
+            n_rows: data.unsliced_n_rows,
+            slice_start: data.slice_start,
+            slice_stop: data.slice_stop,
+        }
     }
 }
 
@@ -332,11 +335,9 @@ pub struct ZstdData {
     pub(crate) dictionary: Option<ByteBuffer>,
     pub(crate) frames: Vec<ByteBuffer>,
     pub(crate) metadata: ZstdMetadata,
-    dtype: DType,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
 }
@@ -462,7 +463,6 @@ impl ZstdData {
     pub fn new(
         dictionary: Option<ByteBuffer>,
         frames: Vec<ByteBuffer>,
-        dtype: DType,
         metadata: ZstdMetadata,
         n_rows: usize,
         validity: Validity,
@@ -472,13 +472,88 @@ impl ZstdData {
             dictionary,
             frames,
             metadata,
-            dtype,
             unsliced_validity: validity,
             unsliced_n_rows: n_rows,
             slots: vec![validity_slot],
-            stats_set: Default::default(),
             slice_start: 0,
             slice_stop: n_rows,
+        }
+    }
+
+    pub fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            matches!(dtype, DType::Primitive(..) | DType::Binary(_) | DType::Utf8(_)),
+            "Unsupported dtype for Zstd array: {dtype}"
+        );
+        vortex_ensure!(
+            self.slice_start <= self.slice_stop,
+            "Invalid slice range {}..{}",
+            self.slice_start,
+            self.slice_stop
+        );
+        vortex_ensure!(
+            self.slice_stop <= self.unsliced_n_rows,
+            "Slice stop {} exceeds unsliced row count {}",
+            self.slice_stop,
+            self.unsliced_n_rows
+        );
+        vortex_ensure!(
+            self.slice_stop - self.slice_start == len,
+            "Slice length {} does not match array length {}",
+            self.slice_stop - self.slice_start,
+            len
+        );
+        if let Some(validity_len) = self.unsliced_validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == self.unsliced_n_rows,
+                "Validity length {} does not match unsliced row count {}",
+                validity_len,
+                self.unsliced_n_rows
+            );
+        }
+
+        match &self.dictionary {
+            Some(dictionary) => vortex_ensure!(
+                usize::try_from(self.metadata.dictionary_size)? == dictionary.len(),
+                "Dictionary size metadata {} does not match buffer size {}",
+                self.metadata.dictionary_size,
+                dictionary.len()
+            ),
+            None => vortex_ensure!(
+                self.metadata.dictionary_size == 0,
+                "Dictionary metadata present without dictionary buffer"
+            ),
+        }
+        vortex_ensure!(
+            self.frames.len() == self.metadata.frames.len(),
+            "Frame count {} does not match metadata frame count {}",
+            self.frames.len(),
+            self.metadata.frames.len()
+        );
+
+        Ok(())
+    }
+
+    pub(crate) fn with_slice(&self, start: usize, stop: usize) -> Self {
+        let new_start = self.slice_start + start;
+        let new_stop = self.slice_start + stop;
+
+        assert!(
+            new_start <= self.slice_stop,
+            "new slice start {new_start} exceeds end {}",
+            self.slice_stop
+        );
+
+        assert!(
+            new_stop <= self.slice_stop,
+            "new slice stop {new_stop} exceeds end {}",
+            self.slice_stop
+        );
+
+        Self {
+            slice_start: new_start,
+            slice_stop: new_stop,
+            ..self.clone()
         }
     }
 
@@ -585,7 +660,6 @@ impl ZstdData {
         values_per_frame: usize,
         use_dictionary: bool,
     ) -> VortexResult<Self> {
-        let dtype = parray.dtype().clone();
         let byte_width = parray.ptype().byte_width();
 
         // We compress only the valid elements.
@@ -629,7 +703,6 @@ impl ZstdData {
         Ok(ZstdData::new(
             dictionary,
             frames,
-            dtype,
             metadata,
             parray.len(),
             parray.validity(),
@@ -682,8 +755,6 @@ impl ZstdData {
         // to separate the binary data and lengths as two separate streams, but
         // this approach is simpler and can be best in cases when there is
         // mutual information between strings and their lengths.
-        let dtype = vbv.dtype().clone();
-
         // We compress only the valid elements.
         let (value_bytes, value_byte_indices) = collect_valid_vbv(vbv)?;
         let n_values = value_byte_indices.len();
@@ -720,7 +791,6 @@ impl ZstdData {
         Ok(ZstdData::new(
             dictionary,
             frames,
-            dtype,
             metadata,
             vbv.len(),
             vbv.validity(),
@@ -752,18 +822,18 @@ impl ZstdData {
             .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }
 
-    fn byte_width(&self) -> usize {
-        if self.dtype.is_primitive() {
-            self.dtype.as_ptype().byte_width()
+    fn byte_width(dtype: &DType) -> usize {
+        if dtype.is_primitive() {
+            dtype.as_ptype().byte_width()
         } else {
             1
         }
     }
 
-    pub fn decompress(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn decompress(&self, dtype: &DType, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
-        let byte_width = self.byte_width();
+        let byte_width = Self::byte_width(dtype);
         let slice_n_rows = self.slice_stop - self.slice_start;
         let slice_value_indices = self
             .unsliced_validity
@@ -845,21 +915,21 @@ impl ZstdData {
         //
         // We ensure that the validity of the decompressed array ALWAYS matches the validity
         // implied by the DType.
-        if !self.dtype().is_nullable() && !matches!(slice_validity, Validity::NonNullable) {
+        if !dtype.is_nullable() && !matches!(slice_validity, Validity::NonNullable) {
             assert!(
                 matches!(slice_validity, Validity::AllValid),
                 "ZSTD array expects to be non-nullable but there are nulls after decompression"
             );
 
             slice_validity = Validity::NonNullable;
-        } else if self.dtype.is_nullable() && matches!(slice_validity, Validity::NonNullable) {
+        } else if dtype.is_nullable() && matches!(slice_validity, Validity::NonNullable) {
             slice_validity = Validity::AllValid;
         }
         //
         // END OF IMPORTANT BLOCK
         //
 
-        match &self.dtype {
+        match dtype {
             DType::Primitive(..) => {
                 let slice_values_buffer = decompressed.slice(
                     (slice_value_idx_start - n_skipped_values) * byte_width
@@ -867,7 +937,7 @@ impl ZstdData {
                 );
                 let primitive = PrimitiveArray::from_values_byte_buffer(
                     slice_values_buffer,
-                    self.dtype.as_ptype(),
+                    dtype.as_ptype(),
                     slice_validity,
                     slice_n_rows,
                 );
@@ -888,14 +958,14 @@ impl ZstdData {
                             VarBinViewArray::new_unchecked(
                                 valid_views,
                                 Arc::from(buffers),
-                                self.dtype.clone(),
+                                dtype.clone(),
                                 slice_validity,
                             )
                         }
                         .into_array())
                     }
                     AllOr::None => Ok(ConstantArray::new(
-                        Scalar::null(self.dtype.clone()),
+                        Scalar::null(dtype.clone()),
                         slice_n_rows,
                     )
                     .into_array()),
@@ -916,7 +986,7 @@ impl ZstdData {
                             VarBinViewArray::new_unchecked(
                                 views.freeze(),
                                 Arc::from(buffers),
-                                self.dtype.clone(),
+                                dtype.clone(),
                                 slice_validity,
                             )
                         }
@@ -924,46 +994,7 @@ impl ZstdData {
                     }
                 }
             }
-            _ => vortex_panic!("Unsupported dtype for Zstd array: {}", self.dtype),
-        }
-    }
-
-    pub(crate) fn _slice(&self, start: usize, stop: usize) -> ZstdArray {
-        let new_start = self.slice_start + start;
-        let new_stop = self.slice_start + stop;
-
-        assert!(
-            new_start <= self.slice_stop,
-            "new slice start {new_start} exceeds end {}",
-            self.slice_stop
-        );
-
-        assert!(
-            new_stop <= self.slice_stop,
-            "new slice stop {new_stop} exceeds end {}",
-            self.slice_stop
-        );
-
-        Array::try_from_data(ZstdData {
-            slice_start: self.slice_start + start,
-            slice_stop: self.slice_start + stop,
-            stats_set: Default::default(),
-            ..self.clone()
-        })
-        .vortex_expect("ZstdData is always valid")
-    }
-
-    /// Consumes the array and returns its parts.
-    pub fn into_parts(self) -> ZstdArrayParts {
-        ZstdArrayParts {
-            dictionary: self.dictionary,
-            frames: self.frames,
-            metadata: self.metadata,
-            dtype: self.dtype,
-            validity: self.unsliced_validity,
-            n_rows: self.unsliced_n_rows,
-            slice_start: self.slice_start,
-            slice_stop: self.slice_stop,
+            _ => vortex_panic!("Unsupported dtype for Zstd array: {}", dtype),
         }
     }
 
@@ -977,12 +1008,6 @@ impl ZstdData {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.slice_stop == self.slice_start
-    }
-
-    /// Returns the logical data type of the array.
-    #[inline]
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
     }
 
     pub(crate) fn slice_start(&self) -> usize {
@@ -1011,10 +1036,8 @@ impl OperationsVTable<Zstd> for Zstd {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        array
-            ._slice(index, index + 1)
-            .decompress(&mut ctx)?
-            .scalar_at(0)
+        let sliced = Zstd::try_new(array.dtype().clone(), array.data().with_slice(index, index + 1))?;
+        Zstd::decompress(&sliced, &mut ctx)?.scalar_at(0)
     }
 }
 

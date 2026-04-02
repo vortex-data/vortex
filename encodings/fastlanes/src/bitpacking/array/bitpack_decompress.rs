@@ -4,6 +4,7 @@
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
@@ -17,28 +18,31 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::BitPackedData;
-use crate::unpack_iter::BitPacked;
+use crate::BitPacked;
+use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
 /// Unpacks a bit-packed array into a primitive array.
-pub fn unpack_array(array: &BitPackedData, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-    match_each_integer_ptype!(array.ptype(), |P| {
+pub fn unpack_array(
+    array: ArrayView<'_, BitPacked>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    match_each_integer_ptype!(array.dtype().as_ptype(), |P| {
         unpack_primitive_array::<P>(array, ctx)
     })
 }
 
-pub fn unpack_primitive_array<T: BitPacked>(
-    array: &BitPackedData,
+pub fn unpack_primitive_array<T: BitPackedUnpack>(
+    array: ArrayView<'_, BitPacked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
-    unpack_into_primitive_builder::<T>(array, &mut builder, ctx)?;
+    unpack_into_primitive_builder::<T>(&array, &mut builder, ctx)?;
     assert_eq!(builder.len(), array.len());
     Ok(builder.finish_into_primitive())
 }
 
-pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
-    array: &BitPackedData,
+pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
+    array: &ArrayView<'_, BitPacked>,
     // TODO(ngates): do we want to use fastlanes alignment for this buffer?
     builder: &mut PrimitiveBuilder<T>,
     ctx: &mut ExecutionCtx,
@@ -53,16 +57,16 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     // SAFETY: We later initialize the the uninitialized range of values with `copy_from_slice`.
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(array.validity_mask());
+        uninit_range.append_mask(array.validity_mask(array.len(), array.dtype().nullability()));
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, array.len()) };
 
-    let mut bit_packed_iter = array.unpacked_chunks();
+    let mut bit_packed_iter = array.unpacked_chunks(array.dtype(), array.len());
     bit_packed_iter.decode_into(uninit_slice);
 
-    if let Some(ref patches) = array.patches() {
+    if let Some(ref patches) = array.patches(array.len()) {
         apply_patches_to_uninit_range(&mut uninit_range, patches, ctx)?;
     };
 
@@ -106,9 +110,9 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
     Ok(())
 }
 
-pub fn unpack_single(array: &BitPackedData, index: usize) -> Scalar {
+pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> Scalar {
     let bit_width = array.bit_width() as usize;
-    let ptype = array.ptype();
+    let ptype = array.dtype().as_ptype();
     // let packed = array.packed().into_primitive()?;
     let index_in_encoded = index + array.offset() as usize;
     let scalar: Scalar = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |P| {
