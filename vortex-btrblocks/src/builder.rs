@@ -67,7 +67,7 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 ///
 /// By default, all schemes in [`ALL_SCHEMES`] are enabled. Feature-gated schemes (Pco, Zstd)
 /// are not in `ALL_SCHEMES` and must be added explicitly via
-/// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or
+/// [`with_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or
 /// [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
 ///
 /// # Examples
@@ -79,9 +79,9 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
 /// // Default compressor with all schemes in ALL_SCHEMES.
 /// let compressor = BtrBlocksCompressorBuilder::default().build();
 ///
-/// // Exclude specific schemes.
+/// // Remove specific schemes.
 /// let compressor = BtrBlocksCompressorBuilder::default()
-///     .exclude([IntDictScheme.id()])
+///     .exclude_schemes([IntDictScheme.id()])
 ///     .build();
 /// ```
 #[derive(Debug, Clone)]
@@ -100,8 +100,8 @@ impl Default for BtrBlocksCompressorBuilder {
 impl BtrBlocksCompressorBuilder {
     /// Adds an external compression scheme not in [`ALL_SCHEMES`].
     ///
-    /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes with
-    /// the compressor.
+    /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes
+    /// with the compressor.
     ///
     /// # Panics
     ///
@@ -128,7 +128,6 @@ impl BtrBlocksCompressorBuilder {
     /// Panics if any of the compact schemes are already present.
     #[cfg(feature = "zstd")]
     pub fn with_compact(self) -> Self {
-        // This should be fast since we don't have that many schemes.
         let builder = self.with_new_scheme(&string::ZstdScheme);
 
         #[cfg(feature = "pco")]
@@ -139,8 +138,32 @@ impl BtrBlocksCompressorBuilder {
         builder
     }
 
-    /// Excludes the specified compression schemes by their [`SchemeId`].
-    pub fn exclude(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
+    /// Excludes schemes without CUDA kernel support and adds Zstd for string compression.
+    ///
+    /// With the `unstable_encodings` feature, buffer-level Zstd compression is used which
+    /// preserves the array buffer layout for zero-conversion GPU decompression. Without it,
+    /// interleaved Zstd compression is used.
+    #[cfg(feature = "zstd")]
+    pub fn only_cuda_compatible(self) -> Self {
+        let builder = self.exclude_schemes([
+            integer::SparseScheme.id(),
+            rle::RLE_INTEGER_SCHEME.id(),
+            rle::RLE_FLOAT_SCHEME.id(),
+            float::NullDominatedSparseScheme.id(),
+            string::StringDictScheme.id(),
+            string::FSSTScheme.id(),
+        ]);
+
+        #[cfg(feature = "unstable_encodings")]
+        let builder = builder.with_new_scheme(&string::ZstdBuffersScheme);
+        #[cfg(not(feature = "unstable_encodings"))]
+        let builder = builder.with_new_scheme(&string::ZstdScheme);
+
+        builder
+    }
+
+    /// Removes the specified compression schemes by their [`SchemeId`].
+    pub fn exclude_schemes(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
         let ids: HashSet<_> = ids.into_iter().collect();
         self.schemes.retain(|s| !ids.contains(&s.id()));
         self

@@ -46,9 +46,9 @@
 //! // Default compressor with all schemes enabled.
 //! let compressor = BtrBlocksCompressor::default();
 //!
-//! // Configure with builder to exclude specific schemes.
+//! // Remove specific schemes using the builder.
 //! let compressor = BtrBlocksCompressorBuilder::default()
-//!     .exclude([IntDictScheme.id()])
+//!     .exclude_schemes([IntDictScheme.id()])
 //!     .build();
 //! ```
 //!

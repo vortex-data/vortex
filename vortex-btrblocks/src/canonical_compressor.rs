@@ -25,9 +25,9 @@ use crate::CascadingCompressor;
 /// // Default compressor - all schemes allowed.
 /// let compressor = BtrBlocksCompressor::default();
 ///
-/// // Exclude specific schemes using the builder.
+/// // Remove specific schemes using the builder.
 /// let compressor = BtrBlocksCompressorBuilder::default()
-///     .exclude([IntDictScheme.id()])
+///     .exclude_schemes([IntDictScheme.id()])
 ///     .build();
 /// ```
 #[derive(Clone)]

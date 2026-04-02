@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::file::WriteStrategyBuilder;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -135,7 +136,7 @@ impl Fixture for DatasetFixtureAdapter {
         let path = dir.join(self.name());
         if self.compact {
             let strategy = WriteStrategyBuilder::default()
-                .with_compact_encodings()
+                .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
                 .build();
             adapter::write_compressed(&path, array, strategy)?;
         } else {
