@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::dtype::DType;
-use vortex::dtype::extension::ExtDType;
-use vortex::dtype::extension::ExtId;
-use vortex::dtype::extension::ExtVTable;
-use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
-use vortex::error::vortex_ensure;
-use vortex::error::vortex_ensure_eq;
-use vortex::scalar::ScalarValue;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::ExtId;
+use vortex_array::dtype::extension::ExtVTable;
+use vortex_array::scalar::ScalarValue;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::fixed_shape::FixedShapeTensor;
 use crate::fixed_shape::FixedShapeTensorMetadata;
@@ -77,8 +77,8 @@ impl ExtVTable for FixedShapeTensor {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex::dtype::extension::ExtVTable;
-    use vortex::error::VortexResult;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_error::VortexResult;
 
     use crate::fixed_shape::FixedShapeTensor;
     use crate::fixed_shape::FixedShapeTensorMetadata;

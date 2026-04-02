@@ -206,7 +206,7 @@ pub fn vortex_runend::RunEndMetadata::clear(&mut self)
 
 pub fn vortex_runend::RunEndMetadata::encoded_len(&self) -> usize
 
-pub fn vortex_runend::initialize(session: &mut vortex_session::VortexSession)
+pub fn vortex_runend::initialize(session: &vortex_session::VortexSession)
 
 pub fn vortex_runend::trimmed_ends_iter<E: vortex_array::dtype::ptype::IntegerPType>(run_ends: &[E], offset: usize, length: usize) -> impl core::iter::traits::iterator::Iterator<Item = usize> + use<'_, E>
 

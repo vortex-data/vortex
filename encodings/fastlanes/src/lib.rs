@@ -31,7 +31,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 /// Initialize fastlanes encodings in the given session.
-pub fn initialize(session: &mut VortexSession) {
+pub fn initialize(session: &VortexSession) {
     session.arrays().register(BitPacked);
     session.arrays().register(Delta);
     session.arrays().register(FoR);

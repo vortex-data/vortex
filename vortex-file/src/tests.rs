@@ -74,13 +74,13 @@ use crate::WriteOptionsSessionExt;
 use crate::footer::SegmentSpec;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-    let mut session = VortexSession::empty()
+    let session = VortexSession::empty()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ScalarFnSession>()
         .with::<RuntimeSession>();
 
-    crate::register_default_encodings(&mut session);
+    crate::register_default_encodings(&session);
 
     session
 });

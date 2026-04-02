@@ -658,7 +658,7 @@ pub fn vortex_fastlanes::RLEData::unsliced_child_and_slice(&self) -> (&vortex_ar
 
 pub fn vortex_fastlanes::delta_compress(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<(vortex_array::arrays::primitive::vtable::PrimitiveArray, vortex_array::arrays::primitive::vtable::PrimitiveArray)>
 
-pub fn vortex_fastlanes::initialize(session: &mut vortex_session::VortexSession)
+pub fn vortex_fastlanes::initialize(session: &vortex_session::VortexSession)
 
 pub type vortex_fastlanes::BitPackedArray = vortex_array::array::typed::Array<vortex_fastlanes::BitPacked>
 

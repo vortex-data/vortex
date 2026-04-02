@@ -159,9 +159,8 @@ pub trait VortexSessionDefault {
 }
 
 impl VortexSessionDefault for VortexSession {
-    #[allow(unused_mut)]
     fn default() -> VortexSession {
-        let mut session = VortexSession::empty()
+        let session = VortexSession::empty()
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
@@ -170,7 +169,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<RuntimeSession>();
 
         #[cfg(feature = "files")]
-        file::register_default_encodings(&mut session);
+        file::register_default_encodings(&session);
 
         session
     }

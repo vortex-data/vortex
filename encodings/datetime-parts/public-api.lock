@@ -216,7 +216,7 @@ pub vortex_datetime_parts::TemporalParts::seconds: vortex_array::array::erased::
 
 pub vortex_datetime_parts::TemporalParts::subseconds: vortex_array::array::erased::ArrayRef
 
-pub fn vortex_datetime_parts::initialize(session: &mut vortex_session::VortexSession)
+pub fn vortex_datetime_parts::initialize(session: &vortex_session::VortexSession)
 
 pub fn vortex_datetime_parts::split_temporal(array: vortex_array::arrays::datetime::TemporalArray) -> vortex_error::VortexResult<vortex_datetime_parts::TemporalParts>
 

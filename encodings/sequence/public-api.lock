@@ -152,7 +152,7 @@ impl vortex_array::array::IntoArray for vortex_sequence::SequenceData
 
 pub fn vortex_sequence::SequenceData::into_array(self) -> vortex_array::array::erased::ArrayRef
 
-pub fn vortex_sequence::initialize(session: &mut vortex_session::VortexSession)
+pub fn vortex_sequence::initialize(session: &vortex_session::VortexSession)
 
 pub fn vortex_sequence::sequence_encode(primitive_array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 

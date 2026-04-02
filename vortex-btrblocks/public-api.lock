@@ -616,7 +616,9 @@ pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::build(self) -> vortex_btrbl
 
 pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::exclude(self, ids: impl core::iter::traits::collect::IntoIterator<Item = vortex_compressor::scheme::SchemeId>) -> Self
 
-pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::include(self, ids: impl core::iter::traits::collect::IntoIterator<Item = vortex_compressor::scheme::SchemeId>) -> Self
+pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::with_compact(self) -> Self
+
+pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::with_new_scheme(self, scheme: &'static dyn vortex_compressor::scheme::Scheme) -> Self
 
 impl core::clone::Clone for vortex_btrblocks::BtrBlocksCompressorBuilder
 
@@ -633,5 +635,3 @@ pub fn vortex_btrblocks::BtrBlocksCompressorBuilder::fmt(&self, f: &mut core::fm
 pub const vortex_btrblocks::ALL_SCHEMES: &[&dyn vortex_compressor::scheme::Scheme]
 
 pub fn vortex_btrblocks::compress_patches(patches: vortex_array::patches::Patches) -> vortex_error::VortexResult<vortex_array::patches::Patches>
-
-pub fn vortex_btrblocks::default_excluded() -> vortex_utils::aliases::hash_set::HashSet<vortex_compressor::scheme::SchemeId>

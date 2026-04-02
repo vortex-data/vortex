@@ -9,9 +9,6 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
-use vortex_btrblocks::SchemeExt;
-use vortex_btrblocks::schemes::integer::IntDictScheme;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
@@ -60,32 +57,11 @@ pub struct CompressingStrategy {
 }
 
 impl CompressingStrategy {
-    /// Create a new writer that uses the BtrBlocks-style cascading compressor to compress chunks.
-    ///
-    /// This provides a good balance between decoding speed and small file size.
-    ///
-    /// Set `exclude_int_dict_encoding` to true to prevent dictionary encoding of integer arrays,
-    /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
-    pub fn new_btrblocks<S: LayoutStrategy>(child: S, exclude_int_dict_encoding: bool) -> Self {
-        let compressor = if exclude_int_dict_encoding {
-            BtrBlocksCompressorBuilder::default()
-                .exclude([IntDictScheme.id()])
-                .build()
-        } else {
-            BtrBlocksCompressor::default()
-        };
-        Self::new(child, Arc::new(compressor))
-    }
-
-    /// Create a new compressor from a plugin interface.
-    pub fn new_opaque<S: LayoutStrategy, C: CompressorPlugin>(child: S, compressor: C) -> Self {
-        Self::new(child, Arc::new(compressor))
-    }
-
-    fn new<S: LayoutStrategy>(child: S, compressor: Arc<dyn CompressorPlugin>) -> Self {
+    /// Create a new compressing layout strategy with the given child strategy and compressor.
+    pub fn new<S: LayoutStrategy, C: CompressorPlugin>(child: S, compressor: C) -> Self {
         Self {
             child: Arc::new(child),
-            compressor,
+            compressor: Arc::new(compressor),
             concurrency: std::thread::available_parallelism()
                 .map(|v| v.get())
                 .unwrap_or(1),

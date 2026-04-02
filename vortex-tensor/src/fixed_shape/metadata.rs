@@ -4,10 +4,10 @@
 use std::fmt;
 
 use itertools::Either;
-use vortex::error::VortexExpect;
-use vortex::error::VortexResult;
-use vortex::error::vortex_ensure;
-use vortex::error::vortex_ensure_eq;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 /// Metadata for a `FixedShapeTensor` extension type.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

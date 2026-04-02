@@ -584,7 +584,7 @@ pub fn vortex_alp::alp_rd_decode<T: vortex_alp::ALPRDFloat>(left_parts: vortex_b
 
 pub fn vortex_alp::decompress_into_array(array: vortex_alp::ALPArray, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
 
-pub fn vortex_alp::initialize(session: &mut vortex_session::VortexSession)
+pub fn vortex_alp::initialize(session: &vortex_session::VortexSession)
 
 pub type vortex_alp::ALPArray = vortex_array::array::typed::Array<vortex_alp::ALP>
 

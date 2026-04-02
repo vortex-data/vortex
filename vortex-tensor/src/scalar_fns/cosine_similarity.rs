@@ -8,23 +8,24 @@
 use std::fmt::Formatter;
 
 use num_traits::Float;
-use vortex::array::ArrayRef;
-use vortex::array::ExecutionCtx;
-use vortex::array::IntoArray;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::array::match_each_float_ptype;
-use vortex::dtype::DType;
-use vortex::dtype::NativePType;
-use vortex::dtype::Nullability;
-use vortex::error::VortexResult;
-use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
-use vortex::expr::Expression;
-use vortex::scalar_fn::Arity;
-use vortex::scalar_fn::ChildName;
-use vortex::scalar_fn::ExecutionArgs;
-use vortex::scalar_fn::ScalarFnId;
-use vortex::scalar_fn::ScalarFnVTable;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
+use vortex_array::expr::Expression;
+use vortex_array::expr::and;
+use vortex_array::match_each_float_ptype;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
@@ -156,7 +157,7 @@ impl ScalarFnVTable for CosineSimilarity {
         let lhs_validity = expression.child(0).validity()?;
         let rhs_validity = expression.child(1).validity()?;
 
-        Ok(Some(vortex::expr::and(lhs_validity, rhs_validity)))
+        Ok(Some(and(lhs_validity, rhs_validity)))
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
@@ -188,11 +189,11 @@ fn cosine_similarity_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex::array::ArrayRef;
-    use vortex::array::ToCanonical;
-    use vortex::array::arrays::ScalarFnArray;
-    use vortex::error::VortexResult;
-    use vortex::scalar_fn::ScalarFn;
+    use vortex_array::ArrayRef;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::ScalarFnArray;
+    use vortex_array::scalar_fn::ScalarFn;
+    use vortex_error::VortexResult;
 
     use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
