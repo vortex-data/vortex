@@ -345,27 +345,6 @@ impl dyn DynArray + '_ {
         self.is::<AnyCanonical>()
     }
 
-    /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
-    ///
-    /// Takes ownership to allow in-place mutation when the refcount is 1.
-    pub fn with_slot(
-        self: ArrayRef,
-        slot_idx: usize,
-        replacement: ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let nslots = self.slots().len();
-        vortex_ensure!(
-            slot_idx < nslots,
-            "slot index {} out of bounds for array with {} slots",
-            slot_idx,
-            nslots
-        );
-        let vtable = self.vtable().clone_boxed();
-        vtable.with_slots_mut(self, &mut |slots| {
-            slots[slot_idx] = Some(replacement.clone());
-        })
-    }
-
     /// Take a child out of a slot, setting it to `None`.
     ///
     /// Requires unique ownership of the `ArrayRef` (panics if Arc refcount > 1).

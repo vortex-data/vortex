@@ -204,7 +204,7 @@ fn mask_validity_variant(
     mask: &Mask,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VariantArray> {
-    let child = array.child().clone();
+    let mut child = array.child().clone();
     let len = child.len();
     let child_validity = child.validity()?;
 
@@ -223,8 +223,8 @@ fn mask_validity_variant(
             // Child has an array-backed validity stored as its first child.
             // Combine with the mask and replace that child via with_children.
             let combined = combine_validity(&child_validity, mask, len, ctx)?;
-            let new_child = child.with_slot(0, combined.to_array(len))?;
-            Ok(VariantArray::new(new_child))
+            child.put_slot(0, combined.to_array(len));
+            Ok(VariantArray::new(child))
         }
     }
 }
