@@ -113,11 +113,9 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
-        // TODO(ngates): blergh!
-        let array_ref = array.array().clone();
         if let Some(reduced) = array
             .scalar_fn()
-            .reduce(&array_ref, &ArrayReduceCtx { len: array.len })?
+            .reduce(array.as_ref(), &ArrayReduceCtx { len: array.len })?
         {
             return Ok(Some(
                 reduced
