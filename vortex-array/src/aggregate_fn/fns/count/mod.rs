@@ -112,8 +112,12 @@ impl AggregateFnVTable for Count {
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
-    use vortex_error::{VortexExpect, VortexResult};
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
 
+    use crate::ArrayRef;
+    use crate::ExecutionCtx;
+    use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
@@ -129,7 +133,6 @@ mod tests {
     use crate::dtype::PType;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::{ArrayRef, ExecutionCtx, IntoArray};
 
     pub fn count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
         let mut acc = Accumulator::try_new(Count, EmptyOptions, array.dtype().clone())?;
