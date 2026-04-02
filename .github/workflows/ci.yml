@@ -395,7 +395,7 @@ jobs:
     name: "Rust tests (${{ matrix.sanitizer }})"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=rust-test-sanitizer', github.run_id)
+          && format('runs-on={0}/pool=amd64-medium-pre-v2/tag=rust-test-sanitizer', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 40
     env:
@@ -699,7 +699,7 @@ jobs:
     name: "Java"
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=java', github.run_id)
+          && format('runs-on={0}/pool=amd64-medium-pre-v2/tag=java', github.run_id)
           || 'ubuntu-latest' }}
     timeout-minutes: 40
     steps:
@@ -746,7 +746,7 @@ jobs:
           tool: cargo-codspeed
       - name: Build benchmarks
         env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
+          RUSTFLAGS: "-C target-feature=+avx2"
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2

@@ -119,7 +119,7 @@ macro_rules! arc_wrapper {
             impl $ffi_ident {
                 /// Wrap an owned object into a raw pointer.
                 pub(crate) fn new(obj: std::sync::Arc<$T>) -> *const $ffi_ident {
-                    std::sync::Arc::into_raw(obj).cast()
+                     std::sync::Arc::into_raw(obj).cast::<$ffi_ident>()
                 }
 
                 /// Wrap a borrowed object into a raw pointer.
@@ -246,12 +246,12 @@ macro_rules! box_wrapper {
             impl $ffi_ident {
                 /// Wrap an owned object into a raw pointer.
                 pub(crate) fn new_box(obj: Box<$T>) -> *mut $ffi_ident {
-                    Box::into_raw(obj).cast()
+                    Box::into_raw(obj).cast::<$ffi_ident>()
                 }
 
                 /// Wrap an owned object into a raw pointer.
                 pub(crate) fn new(obj: $T) -> *mut $ffi_ident {
-                    Box::into_raw(Box::new(obj)).cast()
+                    Box::into_raw(Box::new(obj)).cast::<$ffi_ident>()
                 }
 
                 /// Wrap a borrowed object into a raw pointer.

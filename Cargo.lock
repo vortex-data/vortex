@@ -10547,6 +10547,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "vortex",
+ "vortex-array",
 ]
 
 [[package]]

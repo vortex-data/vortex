@@ -147,11 +147,6 @@ impl TemporalData {
     pub fn dtype(&self) -> &DType {
         self.ext.dtype()
     }
-
-    /// Convert to an [`ArrayRef`].
-    pub fn to_array_ref(&self) -> ArrayRef {
-        self.ext.clone().into_array()
-    }
 }
 
 impl From<TemporalData> for ArrayRef {

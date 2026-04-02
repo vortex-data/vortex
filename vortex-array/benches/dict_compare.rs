@@ -130,7 +130,8 @@ fn bench_compare_sliced_dict_primitive(
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
-            dict.apply(&eq(root(), lit(value)))
+            dict.clone()
+                .apply(&eq(root(), lit(value)))
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
@@ -152,7 +153,8 @@ fn bench_compare_sliced_dict_varbinview(
     bencher
         .with_inputs(|| (&dict, session.create_execution_ctx()))
         .bench_refs(|(dict, ctx)| {
-            dict.apply(&eq(root(), lit(value)))
+            dict.clone()
+                .apply(&eq(root(), lit(value)))
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
                 .unwrap()
