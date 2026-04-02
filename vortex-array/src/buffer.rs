@@ -93,6 +93,10 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Unlike [`slice`](DeviceBuffer::slice), this method allocates new memory and copies the
     /// selected ranges into a contiguous buffer.
     ///
+    /// Follow-up: introduce a lazy/composite device-buffer representation for deferred multi-range
+    /// gathers. That would let accelerators accumulate slice/filter plans and realize them later
+    /// with a device-native gather/compaction kernel instead of eagerly copying here.
+    ///
     /// # Errors
     ///
     /// Returns an error if the device cannot allocate memory or copy the data.

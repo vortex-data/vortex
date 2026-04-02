@@ -42,6 +42,17 @@ pub trait SegmentSource: 'static + Send + Sync {
     /// Follow-up: push scatter/gather support into the lower I/O API so sources can fill a
     /// caller-owned destination buffer directly and avoid the gather copy that this interface may
     /// currently require.
+    ///
+    /// The intended split is:
+    /// - this API continues to describe the logical bytes to materialize;
+    /// - sources may normalize/merge ranges before issuing physical reads;
+    /// - lower I/O backends may optionally expose vectored reads into output slices.
+    ///
+    /// That lets local files eventually use `preadv`/`preadv2`-style reads for sparse ranges,
+    /// while remote/object-store backends can still choose a smaller number of coalesced
+    /// contiguous reads when that is cheaper. A later follow-up should also thread through
+    /// alignment requirements for `DIRECT_IO`, since that may force padded physical reads even
+    /// when the logical request stays sparse.
     fn request_ranges(&self, id: SegmentId, ranges: Vec<Range<usize>>) -> SegmentFuture {
         let future = self.request(id);
         async move {

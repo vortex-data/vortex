@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -32,12 +33,14 @@ impl SliceReduce for Primitive {
 
 impl FilterReduce for Primitive {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        let ranges: Vec<Range<usize>> = mask
-            .slices()
-            .unwrap_or_else(|| unreachable!(), || unreachable!())
-            .iter()
-            .map(|&(s, e)| s..e)
-            .collect();
+        let ranges = match mask.slices() {
+            AllOr::Some(slices) => slices,
+            // Precondition: FilterReduce only runs for non-trivial masks.
+            AllOr::All | AllOr::None => {
+                unreachable!("precondition violated: expected a Mask::Values slice list")
+            }
+        };
+        let ranges: Vec<Range<usize>> = ranges.iter().map(|&(s, e)| s..e).collect();
         let result = match_each_native_ptype!(array.ptype(), |T| {
             PrimitiveArray::from_buffer_handle(
                 array.buffer_handle().filter_typed::<T>(&ranges)?,

@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -46,9 +47,14 @@ impl FilterReduce for FixedSizeList {
             array.elements().clone()
         } else {
             let elements_len = array.elements().len();
-            let expanded_slices: Vec<(usize, usize)> = mask
-                .slices()
-                .unwrap_or_else(|| unreachable!(), || unreachable!())
+            let slices = match mask.slices() {
+                AllOr::Some(slices) => slices,
+                // Precondition: FilterReduce only runs for non-trivial masks.
+                AllOr::All | AllOr::None => {
+                    unreachable!("precondition violated: expected a Mask::Values slice list")
+                }
+            };
+            let expanded_slices: Vec<(usize, usize)> = slices
                 .iter()
                 .map(|&(s, e)| (s * list_size, e * list_size))
                 .collect();

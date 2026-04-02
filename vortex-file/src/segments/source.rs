@@ -261,6 +261,10 @@ impl SegmentSource for FileSegmentSource {
                     .await?;
                     // Follow-up: teach the lower I/O API to support scatter/gather into a
                     // caller-owned destination buffer so this gather copy can be removed.
+                    // Local files should be able to use vectored `preadv`/`preadv2`-style reads
+                    // into the final output slices, while other backends can continue to issue a
+                    // smaller number of merged contiguous reads. A later follow-up should thread
+                    // through `DIRECT_IO` alignment/padding constraints for local files as well.
                     let mut gathered =
                         ByteBufferMut::with_capacity_aligned(total_len, Alignment::none());
                     for chunk in chunks {

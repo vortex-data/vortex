@@ -306,6 +306,9 @@ impl DeviceBuffer for CudaDeviceBuffer {
         }
 
         // Allocate new device memory for the filtered result.
+        // Follow-up: represent multi-range device selections lazily so CUDA can defer this gather
+        // and realize it later with a dedicated gather/compaction kernel (for example via CUB or
+        // a custom kernel) instead of eagerly issuing one memcpy per selected range here.
         let dst_slice: CudaSlice<u8> = unsafe {
             stream
                 .alloc::<u8>(total_len)
