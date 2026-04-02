@@ -12,6 +12,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::InstrumentedSegmentCache;
@@ -205,6 +206,11 @@ impl VortexOpenOptions {
             .metrics_registry
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultMetricsRegistry::default()));
+        let reader = InstrumentedReadAt::new_with_labels(
+            reader,
+            metrics_registry.as_ref(),
+            self.labels.clone(),
+        );
 
         let footer = if let Some(footer) = self.footer {
             footer

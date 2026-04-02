@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -21,6 +22,7 @@ use vortex_metrics::MetricsRegistry;
 use crate::segments::SegmentFuture;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::segments::apply_ranges;
 
 /// A cache for storing and retrieving individual segment data.
 #[async_trait]
@@ -136,16 +138,20 @@ impl SegmentCacheSourceAdapter {
 }
 
 impl SegmentSource for SegmentCacheSourceAdapter {
+    fn segment_len(&self, id: SegmentId) -> Option<usize> {
+        self.source.segment_len(id)
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let cache = self.cache.clone();
-        let delegate = self.source.request(id);
+        let source = self.source.clone();
 
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
                 tracing::debug!("Resolved segment {} from cache", id);
                 return Ok(BufferHandle::new_host(segment));
             }
-            let result = delegate.await?;
+            let result = source.request(id).await?;
             // Cache only CPU buffers; device buffers are not cached.
             if let Some(buffer) = result.as_host_opt()
                 && let Err(e) = cache.put(id, buffer.clone()).await
@@ -155,5 +161,89 @@ impl SegmentSource for SegmentCacheSourceAdapter {
             Ok(result)
         }
         .boxed()
+    }
+
+    fn request_ranges(&self, id: SegmentId, ranges: Vec<Range<usize>>) -> SegmentFuture {
+        let cache = self.cache.clone();
+        let source = self.source.clone();
+
+        async move {
+            if let Ok(Some(segment)) = cache.get(id).await {
+                tracing::debug!("Resolved segment {} from cache for ranged read", id);
+                return apply_ranges(BufferHandle::new_host(segment), &ranges);
+            }
+            source.request_ranges(id, ranges).await
+        }
+        .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use futures::FutureExt;
+
+    use super::*;
+
+    struct FixedCache(ByteBuffer);
+
+    #[async_trait]
+    impl SegmentCache for FixedCache {
+        async fn get(&self, _id: SegmentId) -> VortexResult<Option<ByteBuffer>> {
+            Ok(Some(self.0.clone()))
+        }
+
+        async fn put(&self, _id: SegmentId, _buffer: ByteBuffer) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct CountingSource {
+        requests: AtomicUsize,
+        ranged_requests: AtomicUsize,
+    }
+
+    impl SegmentSource for CountingSource {
+        fn segment_len(&self, _id: SegmentId) -> Option<usize> {
+            Some(4)
+        }
+
+        fn request(&self, _id: SegmentId) -> SegmentFuture {
+            self.requests.fetch_add(1, Ordering::Relaxed);
+            async { Ok(BufferHandle::new_host(ByteBuffer::from(vec![9, 9, 9, 9]))) }.boxed()
+        }
+
+        fn request_ranges(&self, _id: SegmentId, ranges: Vec<Range<usize>>) -> SegmentFuture {
+            self.ranged_requests.fetch_add(1, Ordering::Relaxed);
+            async move {
+                let full = BufferHandle::new_host(ByteBuffer::from(vec![9, 9, 9, 9]));
+                apply_ranges(full, &ranges)
+            }
+            .boxed()
+        }
+    }
+
+    #[tokio::test]
+    async fn cache_hit_skips_underlying_requests() {
+        let source = Arc::new(CountingSource::default());
+        let adapter = SegmentCacheSourceAdapter::new(
+            Arc::new(FixedCache(ByteBuffer::from(vec![1, 2, 3, 4]))),
+            source.clone(),
+        );
+
+        let full = adapter.request(SegmentId::from(0)).await.unwrap();
+        assert_eq!(full.unwrap_host().as_slice(), &[1, 2, 3, 4]);
+
+        let ranges = adapter
+            .request_ranges(SegmentId::from(0), vec![1..3])
+            .await
+            .unwrap();
+        assert_eq!(ranges.unwrap_host().as_slice(), &[2, 3]);
+
+        assert_eq!(source.requests.load(Ordering::Relaxed), 0);
+        assert_eq!(source.ranged_requests.load(Ordering::Relaxed), 0);
     }
 }

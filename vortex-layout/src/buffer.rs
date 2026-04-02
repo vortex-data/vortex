@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::future::try_join_all;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVisitor;
 use vortex_array::DynArray;
@@ -19,8 +20,8 @@ use vortex_array::buffer::DeviceBuffer;
 use vortex_array::serde::ArrayParts;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
+use vortex_error::vortex_err;
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
@@ -36,6 +37,7 @@ pub struct LazyBufferHandle {
     source: Arc<dyn SegmentSource>,
     segment_id: SegmentId,
     selection: Selection,
+    len: usize,
     alignment: Alignment,
 }
 
@@ -53,33 +55,26 @@ enum Selection {
 #[allow(clippy::same_name_method)]
 impl LazyBufferHandle {
     /// Create a new lazy handle selecting the entire segment.
+    ///
+    /// `segment_len` is the full logical length of the segment in bytes.
     pub fn new(
         source: Arc<dyn SegmentSource>,
         segment_id: SegmentId,
+        segment_len: usize,
         alignment: Alignment,
     ) -> Self {
         Self {
             source,
             segment_id,
             selection: Selection::All,
+            len: segment_len,
             alignment,
         }
     }
 
     /// Returns the length of the selected byte range(s).
-    ///
-    /// # Panics
-    ///
-    /// Panics if the entire segment is selected ([`Selection::All`]) since the
-    /// length is not known without performing I/O.
     pub fn len(&self) -> usize {
-        match &self.selection {
-            Selection::All => {
-                vortex_panic!("len() is not available for Selection::All; slice first")
-            }
-            Selection::Range(r) => r.len(),
-            Selection::Ranges(rs) => rs.iter().map(|r| r.len()).sum(),
-        }
+        self.len
     }
 
     /// Returns whether the buffer is empty.
@@ -118,6 +113,8 @@ impl LazyBufferHandle {
     /// Panics if the range exceeds the bounds of the current selection (when
     /// those bounds are known).
     pub fn slice(&self, range: Range<usize>) -> Self {
+        validate_slice_range(&range, self.len);
+        let new_len = range.len();
         let selection = match &self.selection {
             Selection::All => Selection::Range(range),
             Selection::Range(base) => {
@@ -138,6 +135,7 @@ impl LazyBufferHandle {
             source: Arc::clone(&self.source),
             segment_id: self.segment_id,
             selection,
+            len: new_len,
             alignment: self.alignment,
         }
     }
@@ -152,6 +150,7 @@ impl LazyBufferHandle {
     /// Panics if any range exceeds the bounds of the current selection (when
     /// those bounds are known).
     pub fn filter(&self, ranges: &[Range<usize>]) -> Self {
+        validate_filter_ranges(ranges, self.len);
         let selection = match &self.selection {
             Selection::All => Selection::Ranges(Arc::from(ranges)),
             Selection::Range(base) => {
@@ -189,6 +188,7 @@ impl LazyBufferHandle {
             source: Arc::clone(&self.source),
             segment_id: self.segment_id,
             selection,
+            len: ranges.iter().map(Range::len).sum(),
             alignment: self.alignment,
         }
     }
@@ -200,11 +200,18 @@ impl LazyBufferHandle {
     /// Returns an error if the segment cannot be loaded or the selection cannot be
     /// applied.
     pub async fn materialize(&self) -> VortexResult<BufferHandle> {
-        let buffer = self.source.request(self.segment_id).await?;
         match &self.selection {
-            Selection::All => Ok(buffer),
-            Selection::Range(range) => Ok(buffer.slice(range.clone())),
-            Selection::Ranges(ranges) => buffer.filter(ranges),
+            Selection::All => self.source.request(self.segment_id).await,
+            Selection::Range(range) => {
+                self.source
+                    .request_ranges(self.segment_id, vec![range.clone()])
+                    .await
+            }
+            Selection::Ranges(ranges) => {
+                self.source
+                    .request_ranges(self.segment_id, ranges.iter().cloned().collect())
+                    .await
+            }
         }
     }
 }
@@ -214,6 +221,7 @@ impl Debug for LazyBufferHandle {
         f.debug_struct("LazyBufferHandle")
             .field("segment_id", &self.segment_id)
             .field("selection", &self.selection)
+            .field("len", &self.len)
             .field("alignment", &self.alignment)
             .finish()
     }
@@ -223,6 +231,7 @@ impl PartialEq for LazyBufferHandle {
     fn eq(&self, other: &Self) -> bool {
         self.segment_id == other.segment_id
             && self.selection == other.selection
+            && self.len == other.len
             && self.alignment == other.alignment
     }
 }
@@ -233,6 +242,7 @@ impl Hash for LazyBufferHandle {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.segment_id.hash(state);
         self.selection.hash(state);
+        self.len.hash(state);
         self.alignment.hash(state);
     }
 }
@@ -285,6 +295,7 @@ impl DeviceBuffer for LazyBufferHandle {
                 source: Arc::clone(&self.source),
                 segment_id: self.segment_id,
                 selection: self.selection.clone(),
+                len: self.len,
                 alignment,
             }))
         }
@@ -307,6 +318,9 @@ pub fn create_lazy_array_parts(
     use vortex_flatbuffers::FlatBuffer;
     use vortex_flatbuffers::array as fba;
 
+    let segment_len = source
+        .segment_len(segment_id)
+        .ok_or_else(|| vortex_err!("Segment {} length is not available", segment_id))?;
     let fb_aligned = FlatBuffer::align_from(array_tree.clone());
     let fb_array = root::<fba::Array>(fb_aligned.as_ref())?;
 
@@ -320,7 +334,7 @@ pub fn create_lazy_array_parts(
             let buffer_len = fb_buf.length() as usize;
             let alignment = Alignment::from_exponent(fb_buf.alignment_exponent());
 
-            let lazy = LazyBufferHandle::new(Arc::clone(&source), segment_id, alignment)
+            let lazy = LazyBufferHandle::new(Arc::clone(&source), segment_id, segment_len, alignment)
                 .slice(offset..offset + buffer_len);
 
             offset += buffer_len;
@@ -337,13 +351,16 @@ pub fn create_lazy_array_parts(
 pub async fn materialize_recursive(array: &ArrayRef) -> VortexResult<ArrayRef> {
     // 1. Recursively materialize children.
     let children = array.children();
-    let mut new_children = Vec::with_capacity(children.len());
-    let mut any_child_changed = false;
-    for child in &children {
-        let new_child = Box::pin(materialize_recursive(child)).await?;
-        any_child_changed |= !Arc::ptr_eq(child, &new_child);
-        new_children.push(new_child);
-    }
+    let new_children = try_join_all(
+        children
+            .iter()
+            .map(|child| Box::pin(materialize_recursive(child))),
+    )
+    .await?;
+    let any_child_changed = children
+        .iter()
+        .zip(new_children.iter())
+        .any(|(child, new_child)| !Arc::ptr_eq(child, new_child));
     let current = if any_child_changed {
         array.with_children(new_children)?
     } else {
@@ -362,18 +379,19 @@ pub async fn materialize_recursive(array: &ArrayRef) -> VortexResult<ArrayRef> {
     }
 
     // 3. Materialize lazy buffers, ensuring proper alignment.
-    let mut materialized = Vec::with_capacity(handles.len());
-    for handle in &handles {
+    let materialized = try_join_all(handles.iter().cloned().map(|handle| async move {
         if let Some(lazy) = handle
             .as_device_opt()
             .and_then(|d| d.as_any().downcast_ref::<LazyBufferHandle>())
+            .cloned()
         {
             let buf = lazy.materialize().await?;
-            materialized.push(buf.ensure_aligned(lazy.alignment())?);
+            buf.ensure_aligned(lazy.alignment())
         } else {
-            materialized.push(handle.clone());
+            Ok(handle)
         }
-    }
+    }))
+    .await?;
     current.with_buffers(materialized)
 }
 
@@ -422,10 +440,42 @@ fn slice_into_ranges(existing: &[Range<usize>], range: Range<usize>) -> Selectio
     }
 }
 
+fn validate_slice_range(range: &Range<usize>, len: usize) {
+    assert!(
+        range.start <= range.end && range.end <= len,
+        "slice range {}..{} exceeds current selection 0..{}",
+        range.start,
+        range.end,
+        len,
+    );
+}
+
+fn validate_filter_ranges(ranges: &[Range<usize>], len: usize) {
+    let mut prev_end = 0;
+    for range in ranges {
+        assert!(
+            range.start <= range.end && range.end <= len,
+            "filter range {}..{} exceeds current selection 0..{}",
+            range.start,
+            range.end,
+            len,
+        );
+        assert!(
+            range.start >= prev_end,
+            "filter ranges must be sorted and non-overlapping: {}..{} follows byte {}",
+            range.start,
+            range.end,
+            prev_end,
+        );
+        prev_end = range.end;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
     use std::sync::Arc;
+    use std::sync::Mutex;
 
     use futures::FutureExt;
     use vortex_array::buffer::BufferHandle;
@@ -438,23 +488,52 @@ mod tests {
     use crate::segments::SegmentFuture;
     use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
+    use crate::segments::apply_ranges;
 
     /// A trivial in-memory segment source for tests.
-    struct SingleSegment(BufferHandle);
+    struct SingleSegment {
+        buffer: BufferHandle,
+        ranged_requests: Arc<Mutex<Vec<Vec<Range<usize>>>>>,
+    }
 
     impl SegmentSource for SingleSegment {
+        fn segment_len(&self, _id: SegmentId) -> Option<usize> {
+            Some(self.buffer.len())
+        }
+
         fn request(&self, _id: SegmentId) -> SegmentFuture {
-            let handle = self.0.clone();
+            let handle = self.buffer.clone();
             async move { Ok(handle) }.boxed()
+        }
+
+        fn request_ranges(&self, _id: SegmentId, ranges: Vec<Range<usize>>) -> SegmentFuture {
+            self.ranged_requests
+                .lock()
+                .expect("range request log poisoned")
+                .push(ranges.clone());
+            let handle = self.buffer.clone();
+            async move { apply_ranges(handle, &ranges) }.boxed()
         }
     }
 
     fn lazy(data: &[u8]) -> LazyBufferHandle {
+        lazy_with_requests(data).0
+    }
+
+    fn lazy_with_requests(data: &[u8]) -> (LazyBufferHandle, Arc<Mutex<Vec<Vec<Range<usize>>>>>) {
         let buf = BufferHandle::new_host(ByteBuffer::copy_from(data));
-        LazyBufferHandle::new(
-            Arc::new(SingleSegment(buf)),
-            SegmentId::from(0u32),
-            Alignment::none(),
+        let ranged_requests = Arc::new(Mutex::new(Vec::new()));
+        (
+            LazyBufferHandle::new(
+                Arc::new(SingleSegment {
+                    buffer: buf,
+                    ranged_requests: ranged_requests.clone(),
+                }),
+                SegmentId::from(0u32),
+                data.len(),
+                Alignment::none(),
+            ),
+            ranged_requests,
         )
     }
 
@@ -553,6 +632,13 @@ mod tests {
     }
 
     #[test]
+    fn len_for_all_is_known_without_materialization() {
+        let lazy = lazy(&[1, 2, 3, 4, 5]);
+        assert_eq!(lazy.len(), 5);
+        assert!(!lazy.is_empty());
+    }
+
+    #[test]
     fn byte_ranges_after_slice() {
         let lazy = lazy(&[1, 2, 3, 4, 5]).slice(1..4);
         let expected = [Range { start: 1, end: 4 }];
@@ -564,5 +650,28 @@ mod tests {
         let lazy = lazy(&[1, 2, 3, 4, 5]).filter(&[0..2, 3..5]);
         let expected = [Range { start: 0, end: 2 }, Range { start: 3, end: 5 }];
         assert_eq!(lazy.byte_ranges(), Some(expected.as_slice()));
+    }
+
+    #[test]
+    fn materialize_uses_request_ranges_for_sliced_buffer() -> VortexResult<()> {
+        block_on(|_| async {
+            let (lazy, ranged_requests) = lazy_with_requests(&[1, 2, 3, 4, 5, 6]);
+            let handle = lazy.slice(1..5).materialize().await?;
+            assert_eq!(handle.unwrap_host().as_slice(), &[2, 3, 4, 5]);
+            assert_eq!(
+                ranged_requests
+                    .lock()
+                    .expect("range request log poisoned")
+                    .as_slice(),
+                &[vec![1..5]]
+            );
+            Ok(())
+        })
+    }
+
+    #[test]
+    #[should_panic(expected = "slice range 0..10 exceeds current selection 0..5")]
+    fn slice_from_all_checks_bounds() {
+        drop(lazy(&[1, 2, 3, 4, 5]).slice(0..10));
     }
 }

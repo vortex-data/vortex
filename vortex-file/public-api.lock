@@ -40,6 +40,10 @@ impl vortex_layout::segments::source::SegmentSource for vortex_file::segments::F
 
 pub fn vortex_file::segments::FileSegmentSource::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::source::SegmentFuture
 
+pub fn vortex_file::segments::FileSegmentSource::request_ranges(&self, id: vortex_layout::segments::SegmentId, ranges: alloc::vec::Vec<core::ops::range::Range<usize>>) -> vortex_layout::segments::source::SegmentFuture
+
+pub fn vortex_file::segments::FileSegmentSource::segment_len(&self, id: vortex_layout::segments::SegmentId) -> core::option::Option<usize>
+
 pub struct vortex_file::segments::InitialReadSegmentCache
 
 pub vortex_file::segments::InitialReadSegmentCache::fallback: alloc::sync::Arc<dyn vortex_layout::segments::cache::SegmentCache>
@@ -58,11 +62,17 @@ pub vortex_file::segments::RequestMetrics::coalesced_requests: vortex_metrics::c
 
 pub vortex_file::segments::RequestMetrics::individual_requests: vortex_metrics::counter::Counter
 
+pub vortex_file::segments::RequestMetrics::logical_requested_bytes: vortex_metrics::counter::Counter
+
 pub vortex_file::segments::RequestMetrics::num_requests_coalesced: vortex_metrics::histogram::Histogram
 
 impl vortex_file::segments::RequestMetrics
 
 pub fn vortex_file::segments::RequestMetrics::new(metrics_registry: &dyn vortex_metrics::MetricsRegistry, labels: alloc::vec::Vec<vortex_metrics::Label>) -> Self
+
+impl core::clone::Clone for vortex_file::segments::RequestMetrics
+
+pub fn vortex_file::segments::RequestMetrics::clone(&self) -> vortex_file::segments::RequestMetrics
 
 pub mod vortex_file::v2
 

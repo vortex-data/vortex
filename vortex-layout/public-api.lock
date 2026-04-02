@@ -24,7 +24,7 @@ pub fn vortex_layout::buffer::LazyBufferHandle::len(&self) -> usize
 
 pub async fn vortex_layout::buffer::LazyBufferHandle::materialize(&self) -> vortex_error::VortexResult<vortex_array::buffer::BufferHandle>
 
-pub fn vortex_layout::buffer::LazyBufferHandle::new(source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, segment_id: vortex_layout::segments::SegmentId, alignment: vortex_buffer::alignment::Alignment) -> Self
+pub fn vortex_layout::buffer::LazyBufferHandle::new(source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, segment_id: vortex_layout::segments::SegmentId, segment_len: usize, alignment: vortex_buffer::alignment::Alignment) -> Self
 
 pub fn vortex_layout::buffer::LazyBufferHandle::segment_id(&self) -> vortex_layout::segments::SegmentId
 
@@ -1076,6 +1076,10 @@ impl vortex_layout::segments::SegmentSource for vortex_layout::segments::Segment
 
 pub fn vortex_layout::segments::SegmentCacheSourceAdapter::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::SegmentFuture
 
+pub fn vortex_layout::segments::SegmentCacheSourceAdapter::request_ranges(&self, id: vortex_layout::segments::SegmentId, ranges: alloc::vec::Vec<core::ops::range::Range<usize>>) -> vortex_layout::segments::SegmentFuture
+
+pub fn vortex_layout::segments::SegmentCacheSourceAdapter::segment_len(&self, id: vortex_layout::segments::SegmentId) -> core::option::Option<usize>
+
 pub struct vortex_layout::segments::SegmentId(_)
 
 impl core::clone::Clone for vortex_layout::segments::SegmentId
@@ -1142,6 +1146,10 @@ impl<S: vortex_layout::segments::SegmentSource> vortex_layout::segments::Segment
 
 pub fn vortex_layout::segments::SharedSegmentSource<S>::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::SegmentFuture
 
+pub fn vortex_layout::segments::SharedSegmentSource<S>::request_ranges(&self, id: vortex_layout::segments::SegmentId, ranges: alloc::vec::Vec<core::ops::range::Range<usize>>) -> vortex_layout::segments::SegmentFuture
+
+pub fn vortex_layout::segments::SharedSegmentSource<S>::segment_len(&self, id: vortex_layout::segments::SegmentId) -> core::option::Option<usize>
+
 pub trait vortex_layout::segments::SegmentCache: core::marker::Send + core::marker::Sync
 
 pub fn vortex_layout::segments::SegmentCache::get<'life0, 'async_trait>(&'life0 self, id: vortex_layout::segments::SegmentId) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<core::option::Option<vortex_buffer::ByteBuffer>>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
@@ -1174,13 +1182,25 @@ pub trait vortex_layout::segments::SegmentSource: 'static + core::marker::Send +
 
 pub fn vortex_layout::segments::SegmentSource::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::SegmentFuture
 
+pub fn vortex_layout::segments::SegmentSource::request_ranges(&self, id: vortex_layout::segments::SegmentId, ranges: alloc::vec::Vec<core::ops::range::Range<usize>>) -> vortex_layout::segments::SegmentFuture
+
+pub fn vortex_layout::segments::SegmentSource::segment_len(&self, _id: vortex_layout::segments::SegmentId) -> core::option::Option<usize>
+
 impl vortex_layout::segments::SegmentSource for vortex_layout::segments::SegmentCacheSourceAdapter
 
 pub fn vortex_layout::segments::SegmentCacheSourceAdapter::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::SegmentFuture
 
+pub fn vortex_layout::segments::SegmentCacheSourceAdapter::request_ranges(&self, id: vortex_layout::segments::SegmentId, ranges: alloc::vec::Vec<core::ops::range::Range<usize>>) -> vortex_layout::segments::SegmentFuture
+
+pub fn vortex_layout::segments::SegmentCacheSourceAdapter::segment_len(&self, id: vortex_layout::segments::SegmentId) -> core::option::Option<usize>
+
 impl<S: vortex_layout::segments::SegmentSource> vortex_layout::segments::SegmentSource for vortex_layout::segments::SharedSegmentSource<S>
 
 pub fn vortex_layout::segments::SharedSegmentSource<S>::request(&self, id: vortex_layout::segments::SegmentId) -> vortex_layout::segments::SegmentFuture
+
+pub fn vortex_layout::segments::SharedSegmentSource<S>::request_ranges(&self, id: vortex_layout::segments::SegmentId, ranges: alloc::vec::Vec<core::ops::range::Range<usize>>) -> vortex_layout::segments::SegmentFuture
+
+pub fn vortex_layout::segments::SharedSegmentSource<S>::segment_len(&self, id: vortex_layout::segments::SegmentId) -> core::option::Option<usize>
 
 pub type vortex_layout::segments::SegmentFuture = futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
 

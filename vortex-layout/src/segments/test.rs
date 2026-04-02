@@ -26,6 +26,10 @@ pub struct TestSegments {
 }
 
 impl SegmentSource for TestSegments {
+    fn segment_len(&self, id: SegmentId) -> Option<usize> {
+        self.segments.lock().get(*id as usize).map(ByteBuffer::len)
+    }
+
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let buffer = self.segments.lock().get(*id as usize).cloned();
         async move {
