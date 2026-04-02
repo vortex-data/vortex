@@ -224,7 +224,7 @@ fn test222() -> VortexResult<()> {
         )),
     );
 
-    let _result = temporal.as_ref().apply(&filter_expr);
+    let _result = temporal.into_array().apply(&filter_expr);
 
     // let err = result.is_err().unwrap();
     // println!("Expected error: {}", err);

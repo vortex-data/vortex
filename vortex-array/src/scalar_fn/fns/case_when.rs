@@ -406,6 +406,7 @@ mod tests {
     fn evaluate_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {
         let mut ctx = SESSION.create_execution_ctx();
         array
+            .clone()
             .apply(expr)
             .unwrap()
             .execute::<Canonical>(&mut ctx)

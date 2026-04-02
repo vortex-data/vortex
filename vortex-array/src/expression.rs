@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
@@ -16,7 +18,7 @@ use crate::scalar_fn::fns::root::Root;
 
 impl dyn DynArray + '_ {
     /// Apply the expression to this array, producing a new array in constant time.
-    pub fn apply(&self, expr: &Expression) -> VortexResult<ArrayRef> {
+    pub fn apply(self: Arc<Self>, expr: &Expression) -> VortexResult<ArrayRef> {
         // If the expression is a root, return self.
         if expr.is::<Root>() {
             return Ok(self.to_array());
@@ -31,7 +33,7 @@ impl dyn DynArray + '_ {
         let children: Vec<_> = expr
             .children()
             .iter()
-            .map(|e| self.apply(e))
+            .map(|e| self.clone().apply(e))
             .try_collect()?;
 
         // And wrap the scalar function up in an array.

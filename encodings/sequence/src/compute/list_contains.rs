@@ -51,6 +51,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::DynArray;
+    use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::Nullability;
@@ -77,7 +78,7 @@ mod tests {
             let array = SequenceArray::try_new_typed(1, 1, Nullability::NonNullable, 3).unwrap();
 
             let expr = list_contains(lit(list_scalar.clone()), root());
-            let result = array.apply(&expr).unwrap();
+            let result = array.into_array().apply(&expr).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
             assert_arrays_eq!(result, expected);
         }
@@ -89,7 +90,7 @@ mod tests {
             let array = SequenceArray::try_new_typed(1, 2, Nullability::NonNullable, 3).unwrap();
 
             let expr = list_contains(lit(list_scalar), root());
-            let result = array.apply(&expr).unwrap();
+            let result = array.into_array().apply(&expr).unwrap();
             let expected = BoolArray::from_iter([Some(true), Some(true), Some(false)]);
             assert_arrays_eq!(result, expected);
         }
