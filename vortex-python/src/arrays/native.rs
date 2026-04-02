@@ -5,6 +5,7 @@ use std::ops::Deref;
 
 use pyo3::PyClass;
 use pyo3::prelude::*;
+use vortex::array::ArrayRef;
 use vortex::array::VTable;
 use vortex::array::arrays::Bool;
 use vortex::array::arrays::Chunked;
@@ -32,7 +33,6 @@ use vortex::encodings::sequence::Sequence;
 use vortex::encodings::sparse::Sparse;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::error::VortexExpect;
-use vortex_array::ArrayRef;
 
 use crate::arrays::PyArray;
 use crate::arrays::builtins::PyBoolArray;

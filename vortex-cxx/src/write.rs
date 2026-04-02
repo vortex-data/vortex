@@ -5,6 +5,7 @@ use anyhow::Result;
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
+use vortex::array::ArrayRef;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
@@ -16,7 +17,6 @@ use vortex::file::VortexWriteOptions as WriteOptions;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::VortexWrite;
 use vortex::io::runtime::BlockingRuntime;
-use vortex_array::ArrayRef;
 
 use crate::RUNTIME;
 use crate::SESSION;

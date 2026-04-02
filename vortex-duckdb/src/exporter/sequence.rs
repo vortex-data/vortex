@@ -43,9 +43,9 @@ impl ColumnExporter for SequenceExporter {
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::VortexSessionExecute;
     use vortex::dtype::Nullability;
     use vortex::encodings::sequence::Sequence;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;

@@ -42,8 +42,8 @@ impl ColumnExporter for AllInvalidExporter {
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;

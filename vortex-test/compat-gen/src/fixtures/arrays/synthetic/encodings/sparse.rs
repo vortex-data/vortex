@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayId;
+use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::ConstantArray;
@@ -13,8 +15,6 @@ use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity;
 use vortex::encodings::sparse::Sparse;
 use vortex::error::VortexResult;
-use vortex_array::ArrayId;
-use vortex_array::ArrayRef;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;

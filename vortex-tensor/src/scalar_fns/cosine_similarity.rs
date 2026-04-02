@@ -8,6 +8,7 @@
 use std::fmt::Formatter;
 
 use num_traits::Float;
+use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -24,7 +25,6 @@ use vortex::scalar_fn::ChildName;
 use vortex::scalar_fn::ExecutionArgs;
 use vortex::scalar_fn::ScalarFnId;
 use vortex::scalar_fn::ScalarFnVTable;
-use vortex_array::ArrayRef;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
@@ -188,11 +188,11 @@ fn cosine_similarity_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex::array::ArrayRef;
     use vortex::array::ToCanonical;
     use vortex::array::arrays::ScalarFnArray;
     use vortex::error::VortexResult;
     use vortex::scalar_fn::ScalarFn;
-    use vortex_array::ArrayRef;
 
     use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;

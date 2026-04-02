@@ -23,6 +23,7 @@ use bitvec::prelude::Lsb0;
 use bitvec::view::BitView;
 pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
+use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::Constant;
@@ -34,7 +35,6 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex_array::ArrayRef;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::LogicalType;

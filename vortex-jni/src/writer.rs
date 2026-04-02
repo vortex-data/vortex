@@ -21,6 +21,7 @@ use jni::sys::jboolean;
 use jni::sys::jlong;
 use object_store::path::Path;
 use url::Url;
+use vortex::array::ArrayRef;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
@@ -34,7 +35,6 @@ use vortex::io::object_store::ObjectStoreWrite;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_array::ArrayRef;
 
 use crate::SESSION;
 use crate::TOKIO_RUNTIME;

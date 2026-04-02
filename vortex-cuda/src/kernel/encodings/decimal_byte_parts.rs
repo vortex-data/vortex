@@ -5,6 +5,7 @@ use std::fmt::Debug;
 
 use async_trait::async_trait;
 use tracing::instrument;
+use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
@@ -12,7 +13,6 @@ use vortex::encodings::decimal_byte_parts::DecimalByteParts;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsArrayParts;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex_array::ArrayRef;
 
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;

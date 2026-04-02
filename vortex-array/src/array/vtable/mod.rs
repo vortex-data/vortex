@@ -346,7 +346,7 @@ macro_rules! vtable {
             impl $crate::IntoArray for [<$Base Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
                     use $crate::aliases::vortex_error::VortexExpect;
-                    $crate::ArrayRef::from($crate::array::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
+                    $crate::ArrayRef::from($crate::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
                 }
             }
 

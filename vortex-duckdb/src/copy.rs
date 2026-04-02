@@ -9,6 +9,7 @@ use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
 use parking_lot::Mutex;
+use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability::NonNullable;
@@ -23,7 +24,6 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::runtime::current::CurrentThreadWorkerPool;
 use vortex::io::session::RuntimeSessionExt;
-use vortex_array::ArrayRef;
 
 use crate::RUNTIME;
 use crate::SESSION;

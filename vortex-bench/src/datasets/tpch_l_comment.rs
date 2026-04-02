@@ -7,6 +7,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use glob::glob;
+use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ChunkedArray;
@@ -14,7 +15,6 @@ use vortex::dtype::Nullability::NonNullable;
 use vortex::expr::col;
 use vortex::expr::pack;
 use vortex::file::OpenOptionsSessionExt;
-use vortex_array::ArrayRef;
 
 use crate::Format;
 use crate::IdempotentPath;

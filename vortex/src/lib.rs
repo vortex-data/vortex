@@ -214,9 +214,9 @@ mod test {
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
         use vortex::array::arrays::ChunkedArray;
+        use vortex::array::arrow::FromArrowArray;
         use vortex::dtype::DType;
         use vortex::dtype::arrow::FromArrowType;
-        use vortex_array::arrow::FromArrowArray;
 
         let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(
             "../docs/_static/example.parquet",

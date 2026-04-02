@@ -19,6 +19,7 @@ use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use serde::Serialize;
 use vortex::VortexSessionDefault;
+use vortex::array::ArrayRef;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
@@ -42,7 +43,6 @@ use vortex::layout::layouts::flat::Flat;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
-use vortex_array::ArrayRef;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 

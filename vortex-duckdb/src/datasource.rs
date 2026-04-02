@@ -18,6 +18,7 @@ use futures::StreamExt;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use tracing::debug;
+use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ScalarFnVTable;
@@ -42,7 +43,6 @@ use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSourceRef;
 use vortex::scan::ScanRequest;
-use vortex_array::ArrayRef;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::RUNTIME;

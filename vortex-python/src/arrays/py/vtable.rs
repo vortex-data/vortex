@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use vortex::array::Array;
 use vortex::array::ArrayId;
+use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
 use vortex::array::ExecutionCtx;
 use vortex::array::ExecutionResult;
@@ -30,7 +31,6 @@ use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
-use vortex_array::ArrayRef;
 
 use crate::arrays::py::PythonArray;
 

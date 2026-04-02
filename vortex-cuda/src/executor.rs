@@ -15,6 +15,7 @@ use cudarc::driver::LaunchConfig;
 use futures::future::BoxFuture;
 use tracing::debug;
 use tracing::trace;
+use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
@@ -25,7 +26,6 @@ use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex_array::ArrayRef;
 
 use crate::CudaSession;
 use crate::ExportDeviceArray;

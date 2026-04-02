@@ -24,6 +24,7 @@ use jni::sys::jlong;
 use jni::sys::jobject;
 use jni::sys::jshort;
 use jni::sys::jstring;
+use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::VarBin;
@@ -35,7 +36,6 @@ use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::scalar::DecimalValue;
-use vortex_array::ArrayRef;
 
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;

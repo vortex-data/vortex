@@ -8,6 +8,7 @@
 
 use itertools::zip_eq;
 use tracing::trace;
+use vortex::array::ArrayRef;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Slice;
@@ -23,7 +24,6 @@ use vortex::encodings::zigzag::ZigZag;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex_array::ArrayRef;
 
 use super::CudaDispatchPlan;
 use super::MaterializedStage;

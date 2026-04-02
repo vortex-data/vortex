@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Constant;
@@ -16,7 +17,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex_array::ArrayRef;
 
 /// Extracts the list size from a tensor-like extension dtype.
 ///
@@ -123,6 +123,7 @@ pub fn extract_flat_elements(
 
 #[cfg(test)]
 pub mod test_helpers {
+    use vortex::array::ArrayRef;
     use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
     use vortex::array::arrays::ConstantArray;
@@ -137,7 +138,6 @@ pub mod test_helpers {
     use vortex::error::vortex_err;
     use vortex::extension::EmptyMetadata;
     use vortex::scalar::Scalar;
-    use vortex_array::ArrayRef;
 
     use super::extension_list_size;
     use super::extension_storage;

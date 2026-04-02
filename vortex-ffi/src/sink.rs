@@ -8,6 +8,7 @@ use futures::SinkExt;
 use futures::TryStreamExt;
 use futures::channel::mpsc;
 use futures::channel::mpsc::Sender;
+use vortex::array::ArrayRef;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -18,7 +19,6 @@ use vortex::file::WriteSummary;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::io::session::RuntimeSessionExt;
-use vortex_array::ArrayRef;
 
 use crate::RUNTIME;
 use crate::array::vx_array;

@@ -26,11 +26,11 @@ use ratatui::widgets::StatefulWidget;
 use ratatui::widgets::Table;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
+use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::error::VortexExpect;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::zoned::Zoned;
-use vortex_array::ArrayRef;
 
 use crate::browse::app::AppState;
 

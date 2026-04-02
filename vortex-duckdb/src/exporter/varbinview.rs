@@ -139,10 +139,10 @@ fn to_ptr_binary_view<'a>(
 #[cfg(test)]
 mod tests {
     use Nullability::Nullable;
+    use vortex::array::VortexSessionExecute;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
     use vortex::error::VortexResult;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
 
     use crate::SESSION;

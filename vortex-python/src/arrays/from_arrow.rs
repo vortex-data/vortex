@@ -10,6 +10,7 @@ use arrow_schema::Field;
 use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
+use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrow::FromArrowArray;
@@ -17,7 +18,6 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
-use vortex_array::ArrayRef;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;

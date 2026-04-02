@@ -14,6 +14,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
 use vortex::array::ArrayContext;
+use vortex::array::ArrayRef;
 use vortex::array::DeserializeMetadata;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
@@ -62,7 +63,6 @@ use vortex::scalar::upper_bound;
 use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_array::ArrayRef;
 
 /// A buffer inlined into layout metadata for host-side access.
 #[derive(Clone, prost::Message)]

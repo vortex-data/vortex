@@ -157,13 +157,13 @@ mod tests {
     use vortex::VortexSessionDefault;
     use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::buffer::Buffer;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
-    use vortex_array::VortexSessionExecute;
 
     use crate::SESSION;
     use crate::cpp;

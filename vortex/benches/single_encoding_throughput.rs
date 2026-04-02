@@ -22,6 +22,8 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::builders::dict::dict_encode;
 use vortex::array::builtins::ArrayBuiltins;
+use vortex::array::dtype::Nullability;
+use vortex::array::session::ArraySession;
 use vortex::dtype::PType;
 use vortex::encodings::alp::RDEncoder;
 use vortex::encodings::alp::alp_encode;
@@ -35,8 +37,6 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::sequence_encode;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::ZstdData;
-use vortex_array::dtype::Nullability;
-use vortex_array::session::ArraySession;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
 

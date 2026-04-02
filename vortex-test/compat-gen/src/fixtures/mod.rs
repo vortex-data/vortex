@@ -6,9 +6,9 @@ mod arrays;
 use std::path::Path;
 use std::sync::Arc;
 
+use vortex::array::ArrayId;
+use vortex::array::ArrayRef;
 use vortex::file::WriteStrategyBuilder;
-use vortex_array::ArrayId;
-use vortex_array::ArrayRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 

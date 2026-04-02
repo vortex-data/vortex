@@ -343,8 +343,8 @@ impl ValidityRef<'_> {
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::LEGACY_SESSION;
     use vortex::mask::Mask;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
 
     use super::*;

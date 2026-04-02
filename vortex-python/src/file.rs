@@ -8,6 +8,7 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use pyo3_object_store::PyObjectStore;
+use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::dtype::DType;
@@ -23,7 +24,6 @@ use vortex::file::VortexFile;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
-use vortex_array::ArrayRef;
 
 use crate::RUNTIME;
 use crate::SESSION;

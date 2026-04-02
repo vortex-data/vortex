@@ -68,12 +68,12 @@ mod common_tests {
     use object_store::memory::InMemory;
     use url::Url;
     use vortex::VortexSessionDefault;
+    use vortex::array::ArrayRef;
     use vortex::array::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
     use vortex::io::object_store::ObjectStoreWrite;
     use vortex::session::VortexSession;
-    use vortex_array::ArrayRef;
 
     use crate::VortexFormatFactory;
     use crate::VortexTableOptions;

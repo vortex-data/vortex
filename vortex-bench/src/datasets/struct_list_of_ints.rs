@@ -11,6 +11,7 @@ use parquet::arrow::ArrowWriter;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ListArray;
@@ -19,7 +20,6 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::listview::recursive_list_from_list_view;
 use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
-use vortex_array::ArrayRef;
 
 use crate::IdempotentPath;
 use crate::datasets::Dataset;
