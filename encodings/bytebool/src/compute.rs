@@ -25,7 +25,8 @@ impl CastReduce for ByteBool {
 
         // If just changing nullability, we can optimize
         if array.dtype().eq_ignore_nullability(dtype) {
-            let new_validity = array._validity()
+            let new_validity = array
+                ._validity()
                 .cast_nullability(dtype.nullability(), array.len())?;
 
             return Ok(Some(
@@ -43,8 +44,7 @@ impl MaskReduce for ByteBool {
         Ok(Some(
             ByteBoolArray::new(
                 array.buffer().clone(),
-                array._validity()
-                    .and(Validity::Array(mask.clone()))?,
+                array._validity().and(Validity::Array(mask.clone()))?,
             )
             .into_array(),
         ))
@@ -61,8 +61,7 @@ impl TakeExecute for ByteBool {
         let bools = array.as_slice();
 
         // This handles combining validity from both source array and nullable indices
-        let validity = array._validity()
-            .take(&indices.clone().into_array())?;
+        let validity = array._validity().take(&indices.clone().into_array())?;
 
         let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
             indices

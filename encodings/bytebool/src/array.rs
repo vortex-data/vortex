@@ -80,9 +80,7 @@ impl VTable for ByteBool {
     fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.buffer.array_eq(&other.buffer, precision)
-            && array
-                ._validity()
-                .array_eq(&other._validity(), precision)
+            && array._validity().array_eq(&other._validity(), precision)
     }
 
     fn nbuffers(_array: &ByteBoolArray) -> usize {

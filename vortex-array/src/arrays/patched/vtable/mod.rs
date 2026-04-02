@@ -655,15 +655,13 @@ mod tests {
         let indices = array.patch_indices().clone();
         let values = array.patch_values().clone();
 
-        // Create new PatchedArray with same children using with_slots_mut
-        let array_ref = array.clone().into_array();
-        let vtable = array_ref.vtable().clone_boxed();
-        let new_array = vtable.with_slots_mut(array_ref, &mut |slots| {
-            slots[0] = Some(inner.clone());
-            slots[1] = Some(lane_offsets.clone());
-            slots[2] = Some(indices.clone());
-            slots[3] = Some(values.clone());
-        })?;
+        // Create new PatchedArray with same children using put_slot
+        let mut new_array = array.clone().into_array();
+        let vtable = new_array.vtable().clone_boxed();
+        vtable.put_slot(&mut new_array, 0, inner.clone());
+        vtable.put_slot(&mut new_array, 1, lane_offsets.clone());
+        vtable.put_slot(&mut new_array, 2, indices.clone());
+        vtable.put_slot(&mut new_array, 3, values.clone());
 
         assert!(new_array.is::<Patched>());
         assert_eq!(array.len(), new_array.len());
@@ -692,14 +690,12 @@ mod tests {
         let indices = array.patch_indices().clone();
         let values = array.patch_values().clone();
 
-        let array_ref = array.into_array();
-        let vtable = array_ref.vtable().clone_boxed();
-        let new_array = vtable.with_slots_mut(array_ref, &mut |slots| {
-            slots[0] = Some(new_inner.clone());
-            slots[1] = Some(lane_offsets.clone());
-            slots[2] = Some(indices.clone());
-            slots[3] = Some(values.clone());
-        })?;
+        let mut new_array = array.into_array();
+        let vtable = new_array.vtable().clone_boxed();
+        vtable.put_slot(&mut new_array, 0, new_inner.clone());
+        vtable.put_slot(&mut new_array, 1, lane_offsets.clone());
+        vtable.put_slot(&mut new_array, 2, indices.clone());
+        vtable.put_slot(&mut new_array, 3, values.clone());
 
         // Execute and verify the inner values changed (except at patch positions)
         let mut ctx = ExecutionCtx::new(VortexSession::empty());

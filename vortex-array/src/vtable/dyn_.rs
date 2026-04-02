@@ -48,16 +48,6 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
-    /// Unwrap the Arc, get mutable access to slots, apply a mutation, and re-wrap.
-    ///
-    /// The callback receives `&mut [Option<ArrayRef>]` so callers can modify individual
-    /// slots in-place without cloning all children.
-    fn with_slots_mut(
-        &self,
-        array: ArrayRef,
-        f: &mut dyn FnMut(&mut [Option<ArrayRef>]),
-    ) -> VortexResult<ArrayRef>;
-
     /// Remove a child from a slot, returning it.
     ///
     /// With unique ownership (Arc refcount == 1), the slot is set to `None` in-place.
@@ -134,17 +124,6 @@ impl<V: VTable> DynVTable for V {
             )
         };
         Ok(array.into_array())
-    }
-
-    fn with_slots_mut(
-        &self,
-        array: ArrayRef,
-        f: &mut dyn FnMut(&mut [Option<ArrayRef>]),
-    ) -> VortexResult<ArrayRef> {
-        let arc = downcast_owned::<V>(array);
-        let mut inner = Arc::try_unwrap(arc).unwrap_or_else(|arc| arc.as_ref().clone());
-        f(V::slots_mut(&mut inner.array));
-        Ok(inner.into_array())
     }
 
     fn take_slot(&self, array: &mut ArrayRef, slot_idx: usize) -> Option<ArrayRef> {
