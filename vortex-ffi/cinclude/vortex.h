@@ -766,7 +766,7 @@ const vx_dtype *vx_dtype_new_fixed_size_list(const vx_dtype *element, uint32_t s
  *
  * Takes ownership of the `struct_dtype` pointer.
  */
-const vx_dtype *vx_dtype_new_struct(const vx_struct_fields *struct_dtype, bool is_nullable);
+const vx_dtype *vx_dtype_new_struct(vx_struct_fields *struct_dtype, bool is_nullable);
 
 /**
  * Create a new decimal data type.
@@ -1106,17 +1106,9 @@ size_t vx_string_len(const vx_string *ptr);
 const char *vx_string_ptr(const vx_string *ptr);
 
 /**
- * Clone a borrowed [`vx_struct_fields`], returning an owned [`vx_struct_fields`].
- *
- *
- * Must be released with [`vx_struct_fields_free`].
- */
-const vx_struct_fields *vx_struct_fields_clone(const vx_struct_fields *ptr);
-
-/**
  * Free an owned [`vx_struct_fields`] object.
  */
-void vx_struct_fields_free(const vx_struct_fields *ptr);
+void vx_struct_fields_free(vx_struct_fields *ptr);
 
 /**
  * Return the number of fields in the struct dtype.
@@ -1167,7 +1159,7 @@ void vx_struct_fields_builder_add_field(vx_struct_fields_builder *builder,
  *
  * Takes ownership of the `builder`.
  */
-const vx_struct_fields *vx_struct_fields_builder_finalize(vx_struct_fields_builder *builder);
+vx_struct_fields *vx_struct_fields_builder_finalize(vx_struct_fields_builder *builder);
 
 #ifdef __cplusplus
 } // extern "C"
