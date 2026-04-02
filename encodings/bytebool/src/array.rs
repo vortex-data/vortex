@@ -27,6 +27,7 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
+use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
@@ -73,15 +74,15 @@ impl VTable for ByteBool {
     ) {
         array.dtype.hash(state);
         array.buffer.array_hash(state, precision);
-        array.unsliced_validity().array_hash(state, precision);
+        array._validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &ByteBoolArray, other: &ByteBoolArray, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.buffer.array_eq(&other.buffer, precision)
             && array
-                .unsliced_validity()
-                .array_eq(&other.unsliced_validity(), precision)
+                ._validity()
+                .array_eq(&other._validity(), precision)
     }
 
     fn nbuffers(_array: &ByteBoolArray) -> usize {
@@ -245,18 +246,15 @@ impl ByteBoolArray {
         unsafe { std::mem::transmute(self.buffer().as_host().as_slice()) }
     }
 
-    /// Returns the validity derived on demand from the validity slot.
-    pub(crate) fn unsliced_validity(&self) -> Validity {
-        match &self.slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(self.dtype.nullability()),
-        }
+    /// Returns the validity derived from the validity slot.
+    pub(crate) fn _validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 }
 
 impl ValidityVTable<ByteBool> for ByteBool {
     fn validity(array: &ByteBoolArray) -> VortexResult<Validity> {
-        Ok(array.unsliced_validity())
+        Ok(array._validity())
     }
 }
 

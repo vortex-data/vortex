@@ -45,6 +45,7 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
+use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
@@ -549,10 +550,7 @@ impl PcoArray {
 
     /// Returns the validity of the full (unsliced) array, derived from the validity slot.
     pub(crate) fn unsliced_validity(&self) -> Validity {
-        match &self.slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(self.dtype.nullability()),
-        }
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 }
 

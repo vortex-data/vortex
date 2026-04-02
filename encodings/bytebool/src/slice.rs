@@ -16,7 +16,7 @@ impl SliceReduce for ByteBool {
         Ok(Some(
             ByteBoolArray::new(
                 array.buffer().slice(range.clone()),
-                array.unsliced_validity().slice(range)?,
+                array._validity().slice(range)?,
             )
             .into_array(),
         ))

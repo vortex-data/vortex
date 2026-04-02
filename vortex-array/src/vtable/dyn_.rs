@@ -58,14 +58,20 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
         f: &mut dyn FnMut(&mut [Option<ArrayRef>]),
     ) -> VortexResult<ArrayRef>;
 
-    /// Take a child out of a slot, setting it to `None`.
+    /// Remove a child from a slot, returning it.
     ///
-    /// Requires unique ownership of the `ArrayRef` (Arc refcount == 1).
+    /// With unique ownership (Arc refcount == 1), the slot is set to `None` in-place.
+    /// With shared ownership, the child is cloned out and the original array is unchanged.
+    ///
+    /// Callers must not read the slot after `take_slot` without a preceding `put_slot` —
+    /// the slot's state is undefined until a value is put back.
     fn take_slot(&self, array: &mut ArrayRef, slot_idx: usize) -> Option<ArrayRef>;
 
-    /// Put a child back into a slot.
+    /// Put a child into a slot, replacing any existing value.
     ///
-    /// Requires unique ownership of the `ArrayRef` (Arc refcount == 1).
+    /// With unique ownership (Arc refcount == 1), the slot is mutated in-place.
+    /// With shared ownership, the inner array is cloned, the slot is set on the clone,
+    /// and `*array` is replaced with the new copy.
     fn put_slot(&self, array: &mut ArrayRef, slot_idx: usize, value: ArrayRef);
 
     /// See [`VTable::reduce`]
@@ -151,15 +157,13 @@ impl<V: VTable> DynVTable for V {
     }
 
     fn put_slot(&self, array: &mut ArrayRef, slot_idx: usize, value: ArrayRef) {
-        // If we have unique ownership, put in-place. Otherwise, rebuild via with_slots_mut.
+        // If we have unique ownership, put in-place. Otherwise, clone the inner and rebuild.
         if let Some(inner) = downcast_mut::<V>(array) {
             V::slots_mut(&mut inner.array)[slot_idx] = Some(value);
         } else {
-            *array = self
-                .with_slots_mut(array.clone(), &mut |slots| {
-                    slots[slot_idx] = Some(value.clone());
-                })
-                .vortex_expect("put_slot with_slots_mut failed");
+            let mut inner = downcast::<V>(array).clone();
+            V::slots_mut(&mut inner.array)[slot_idx] = Some(value);
+            *array = inner.into_array();
         }
     }
 
