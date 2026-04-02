@@ -676,7 +676,7 @@ mod tests {
 
         // Test contains false
         let expr = list_contains(lit(list_scalar), lit(42i32));
-        let result = arr.clone().apply(&expr).unwrap();
+        let result = arr.apply(&expr).unwrap();
         assert_eq!(
             result.scalar_at(0).unwrap(),
             Scalar::bool(false, Nullability::NonNullable)
