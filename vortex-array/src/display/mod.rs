@@ -19,7 +19,6 @@ use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
 use crate::ArrayRef;
-use crate::DynArray;
 
 /// Describe how to convert an array to a string.
 ///
@@ -335,15 +334,9 @@ impl Display for DisplayArrayAs<'_> {
 ///     "vortex.primitive(i16, len=5)",
 /// );
 /// ```
-impl Display for dyn DynArray + '_ {
+impl Display for ArrayRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}({}, len={})",
-            self.encoding_id(),
-            self.dtype(),
-            self.len()
-        )
+        self.fmt_as(f, &DisplayOptions::MetadataOnly)
     }
 }
 
@@ -407,15 +400,8 @@ impl ArrayRef {
     /// ";
     /// assert_eq!(format!("{}", array.display_tree_encodings_only()), expected);
     /// ```
-    pub fn display_tree_encodings_only(&self) -> impl Display {
-        DisplayArrayAs(
-            self,
-            DisplayOptions::TreeDisplay {
-                buffers: false,
-                metadata: false,
-                stats: false,
-            },
-        )
+    pub fn display_tree_encodings_only(&self) -> TreeDisplay {
+        self.tree_display_builder().with(EncodingSummaryExtractor)
     }
 
     /// Display the tree of encodings of this array as an indented lists.
@@ -437,15 +423,68 @@ impl ArrayRef {
     /// ";
     /// assert_eq!(format!("{}", array.display_tree()), expected);
     /// ```
-    pub fn display_tree(&self) -> impl Display {
-        DisplayArrayAs(
-            self,
-            DisplayOptions::TreeDisplay {
-                buffers: true,
-                metadata: true,
-                stats: true,
-            },
-        )
+    pub fn display_tree(&self) -> TreeDisplay {
+        TreeDisplay::default_display(self.clone())
+    }
+
+    /// Create a tree display with all built-in extractors (nbytes, stats, metadata, buffers).
+    ///
+    /// This is the default, fully-detailed tree display. Use
+    /// `tree_display_builder()` for a blank slate.
+    ///
+    /// # Examples
+    /// ```
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
+    ///   metadata: EmptyMetadata
+    ///   buffer: values host 10 B (align=2) (100.00%)
+    /// ";
+    /// assert_eq!(array.tree_display().to_string(), expected);
+    /// ```
+    pub fn tree_display(&self) -> TreeDisplay {
+        TreeDisplay::default_display(self.clone())
+    }
+
+    /// Create a composable tree display builder with no extractors.
+    ///
+    /// With no extractors, only the node names are shown.
+    /// Add extractors with [`.with()`][TreeDisplay::with] to include additional information.
+    /// Most builders should start with [`EncodingSummaryExtractor`] to include encoding headers.
+    ///
+    /// # Examples
+    /// ```
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// use vortex_array::display::{EncodingSummaryExtractor, NbytesExtractor, MetadataExtractor, BufferExtractor};
+    ///
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    ///
+    /// // Encodings only
+    /// let encodings = array.tree_display_builder()
+    ///     .with(EncodingSummaryExtractor)
+    ///     .to_string();
+    /// assert_eq!(encodings, "root: vortex.primitive(i16, len=5)\n");
+    ///
+    /// // With encoding + nbytes
+    /// let with_nbytes = array.tree_display_builder()
+    ///     .with(EncodingSummaryExtractor)
+    ///     .with(NbytesExtractor)
+    ///     .to_string();
+    /// assert_eq!(with_nbytes, "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)\n");
+    ///
+    /// // With encoding, metadata, and buffers
+    /// let detailed = array.tree_display_builder()
+    ///     .with(EncodingSummaryExtractor)
+    ///     .with(MetadataExtractor)
+    ///     .with(BufferExtractor { show_percent: false })
+    ///     .to_string();
+    /// let expected = "root: vortex.primitive(i16, len=5)\n  metadata: EmptyMetadata\n  buffer: values host 10 B (align=2)\n";
+    /// assert_eq!(detailed, expected);
+    /// ```
+    pub fn tree_display_builder(&self) -> TreeDisplay {
+        TreeDisplay::new(self.clone())
     }
 
     /// Display the array as a formatted table.
@@ -479,22 +518,10 @@ impl ArrayRef {
     pub fn display_table(&self) -> impl Display {
         DisplayArrayAs(self, DisplayOptions::TableDisplay)
     }
-}
 
-impl ArrayRef {
-    pub(crate) fn fmt_as(
-        &self,
-        f: &mut std::fmt::Formatter,
-        options: &DisplayOptions,
-    ) -> std::fmt::Result {
+    fn fmt_as(&self, f: &mut std::fmt::Formatter, options: &DisplayOptions) -> std::fmt::Result {
         match options {
-            DisplayOptions::MetadataOnly => write!(
-                f,
-                "{}({}, len={})",
-                self.encoding_id(),
-                self.dtype(),
-                self.len()
-            ),
+            DisplayOptions::MetadataOnly => EncodingSummaryExtractor::write(self, f),
             DisplayOptions::CommaSeparatedScalars {
                 omit_comma_after_space,
             } => {
@@ -506,9 +533,8 @@ impl ArrayRef {
                 let limit = self.len().min(f.precision().unwrap_or(DISPLAY_LIMIT));
                 let is_truncated = self.len() > limit;
 
-                let this = self;
                 let fmt_scalar = |i| {
-                    this.scalar_at(i)
+                    self.scalar_at(i)
                         .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string())
                 };
                 write!(
@@ -554,14 +580,13 @@ impl ArrayRef {
                 use crate::canonical::ToCanonical;
                 use crate::dtype::DType;
 
-                let this = self;
                 let mut builder = tabled::builder::Builder::default();
 
                 // Special logic for struct arrays.
                 let DType::Struct(sf, _) = self.dtype() else {
                     // For non-struct arrays, simply display a single column table without header.
                     for row_idx in 0..self.len() {
-                        let value = this
+                        let value = self
                             .scalar_at(row_idx)
                             .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
                         builder.push_record([value]);
@@ -577,7 +602,7 @@ impl ArrayRef {
                 builder.push_record(sf.names().iter().map(|name| name.to_string()));
 
                 for row_idx in 0..self.len() {
-                    if !this.is_valid(row_idx).unwrap_or(false) {
+                    if !self.is_valid(row_idx).unwrap_or(false) {
                         let null_row = vec!["null".to_string(); sf.names().len()];
                         builder.push_record(null_row);
                     } else {
@@ -601,7 +626,7 @@ impl ArrayRef {
                 }
 
                 for row_idx in 0..self.len() {
-                    if !this.is_valid(row_idx).unwrap_or(false) {
+                    if !self.is_valid(row_idx).unwrap_or(false) {
                         table.modify(
                             (1 + row_idx, 0),
                             tabled::settings::Span::column(sf.names().len() as isize),

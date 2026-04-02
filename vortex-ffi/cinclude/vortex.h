@@ -1148,7 +1148,7 @@ void vx_struct_column_builder_add_field(vx_struct_column_builder *builder,
  * vx_array_free(field_array);
  *
  */
-const vx_array *vx_struct_column_builder_finalize(vx_struct_column_builder *builder, vx_error **error);
+vx_array *vx_struct_column_builder_finalize(vx_struct_column_builder *builder, vx_error **error);
 
 /**
  * Free an owned [`vx_struct_fields`] object.

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ptr;
+use std::sync::Arc;
 
 use vortex::array::iter::ArrayIterator;
 
@@ -35,13 +36,13 @@ box_dyn_wrapper!(
 pub unsafe extern "C-unwind" fn vx_array_iterator_next(
     iter: *mut vx_array_iterator,
     error_out: *mut *mut vx_error,
-) -> *mut vx_array {
+) -> *const vx_array {
     let iter = vx_array_iterator::as_mut(iter);
     try_or_default(error_out, || {
         let element = iter.next();
 
         if let Some(element) = element {
-            Ok(vx_array::new(element?))
+            Ok(vx_array::new(Arc::new(element?)))
         } else {
             // Drop the iter pointer.
             Ok(ptr::null_mut())

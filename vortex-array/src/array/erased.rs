@@ -105,12 +105,6 @@ impl Debug for ArrayRef {
     }
 }
 
-impl std::fmt::Display for ArrayRef {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&*self.0, f)
-    }
-}
-
 impl ArrayHash for ArrayRef {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
         self.0.dyn_array_hash(state as &mut dyn Hasher, precision);

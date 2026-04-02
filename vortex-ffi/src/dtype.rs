@@ -643,7 +643,7 @@ mod tests {
     #[test]
     fn test_struct_introspection_simple() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(array);
+        let vx_arr = vx_array::new(Arc::new(array));
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
@@ -659,7 +659,7 @@ mod tests {
     #[test]
     fn test_field_name_access() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(array);
+        let vx_arr = vx_array::new(Arc::new(array));
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
@@ -684,7 +684,7 @@ mod tests {
     #[test]
     fn test_comprehensive_struct_introspection() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(array);
+        let vx_arr = vx_array::new(Arc::new(array));
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
