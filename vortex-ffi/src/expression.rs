@@ -9,6 +9,7 @@ use std::slice;
 use std::sync::Arc;
 
 use vortex::dtype::FieldName;
+use vortex::error::VortexExpect;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
@@ -21,6 +22,8 @@ use vortex::expr::select;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
+
+use crate::to_field_names;
 
 // Expressions are Arc'ed inside
 crate::box_wrapper!(
@@ -80,19 +83,8 @@ pub unsafe extern "C" fn vx_expression_select(
     if child.is_null() {
         return ptr::null_mut();
     }
-
-    #[expect(clippy::expect_used)]
-    let names: Vec<FieldName> = (0..len)
-        .map(|i| unsafe {
-            let name = *names.offset(i.try_into().expect("pointer offset overflow"));
-            let name = CStr::from_ptr(name)
-                .to_str()
-                .expect("converting pointer to str");
-            let name: Arc<str> = Arc::from(name);
-            name.into()
-        })
-        .collect();
-
+    let names =
+        unsafe { to_field_names(names, len) }.vortex_expect("converting names to field names");
     let expr = select(names, vx_expression::as_ref(child).clone());
     vx_expression::new(Box::new(expr))
 }

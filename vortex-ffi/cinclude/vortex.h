@@ -413,6 +413,8 @@ typedef struct vx_session vx_session;
  */
 typedef struct vx_string vx_string;
 
+typedef struct vx_struct_column_builder vx_struct_column_builder;
+
 /**
  * Represents a Vortex struct data type, without top-level nullability.
  */
@@ -588,7 +590,7 @@ const vx_array *vx_array_new_null(size_t len);
  *
  * Example:
  *
- * const vx_error* error = nullptr;
+ * const vx_error* error = NULL;
  * vx_validity validity = {};
  * validity.type = VX_VALIDITY_NON_NULLABLE;
  * uint32_t buffer[] = {1, 2, 3};
@@ -1104,6 +1106,57 @@ size_t vx_string_len(const vx_string *ptr);
  * Return the pointer to the string data.
  */
 const char *vx_string_ptr(const vx_string *ptr);
+
+/**
+ * Free an owned [`vx_struct_column_builder`] object.
+ */
+void vx_struct_column_builder_free(vx_struct_column_builder *ptr);
+
+/**
+ * Create a new column-wise struct array builder with given validity and a
+ * capacity hint. validity can't be NULL.
+ * If you don't know capacity, pass 0.
+ * if validity is NULL, returns NULL.
+ */
+vx_struct_column_builder *vx_struct_column_builder_new(const vx_validity *validity, size_t capacity);
+
+/**
+ * Add a named field to a struct array builder.
+ * All arguments must be non-NULL.
+ * If field's length doesn't match lengths of previous fields, sets error.
+ * If an error is returned, the builder is still valid, and caller must
+ * deallocate it using vx_struct_column_builder_free.
+ */
+void vx_struct_column_builder_add_field(vx_struct_column_builder *builder,
+                                        const char *name,
+                                        const vx_array *field,
+                                        vx_error **error);
+
+/**
+ * Finalize a struct array builder, returning a struct array.
+ * Consumes the builder. Caller doesn't need to free the builder after calling
+ * this function.
+ *
+ * Example:
+ *
+ * vx_error* error = NULL;
+ *
+ * vx_validity validity = {};
+ * validity.type = VX_VALIDITY_NON_NULLABLE;
+ *
+ * const vx_array* field_array = vx_array_new_null(5);
+ * const vx_struct_column_builder* builder =
+ *     vx_struct_column_builder_new(&validity, 1);
+ *
+ * vx_struct_column_builder_add_field(builder, "age", field_array, &error);
+ *
+ * vx_array* struct_array = vx_struct_column_builder_finalize(builder, &error);
+ *
+ * vx_array_free(struct_array);
+ * vx_array_free(field_array);
+ *
+ */
+const vx_array *vx_struct_column_builder_finalize(vx_struct_column_builder *builder, vx_error **error);
 
 /**
  * Free an owned [`vx_struct_fields`] object.
