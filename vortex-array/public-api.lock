@@ -14858,6 +14858,14 @@ pub mod vortex_array::extension::uuid
 
 pub struct vortex_array::extension::uuid::Uuid
 
+impl vortex_array::extension::uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::default(nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
+
+pub fn vortex_array::extension::uuid::Uuid::new(metadata: vortex_array::extension::uuid::UuidMetadata, nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::extension::ExtDType<Self>
+
+pub fn vortex_array::extension::uuid::Uuid::storage_dtype(nullability: vortex_array::dtype::Nullability) -> vortex_array::dtype::DType
+
 impl core::clone::Clone for vortex_array::extension::uuid::Uuid
 
 pub fn vortex_array::extension::uuid::Uuid::clone(&self) -> vortex_array::extension::uuid::Uuid

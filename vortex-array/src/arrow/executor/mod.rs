@@ -6,6 +6,7 @@ mod byte;
 pub mod byte_view;
 mod decimal;
 mod dictionary;
+mod fixed_size_binary;
 mod fixed_size_list;
 mod list;
 mod list_view;
@@ -38,6 +39,7 @@ use crate::arrow::executor::byte::to_arrow_byte_array;
 use crate::arrow::executor::byte_view::to_arrow_byte_view;
 use crate::arrow::executor::decimal::to_arrow_decimal;
 use crate::arrow::executor::dictionary::to_arrow_dictionary;
+use crate::arrow::executor::fixed_size_binary::to_arrow_fixed_size_binary;
 use crate::arrow::executor::fixed_size_list::to_arrow_fixed_list;
 use crate::arrow::executor::list::to_arrow_list;
 use crate::arrow::executor::list_view::to_arrow_list_view;
@@ -156,8 +158,8 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::RunEndEncoded(ends_type, values_type) => {
                 to_arrow_run_end(self, ends_type.data_type(), values_type, ctx)
             }
-            DataType::FixedSizeBinary(_)
-            | DataType::Map(..)
+            DataType::FixedSizeBinary(size) => to_arrow_fixed_size_binary(self, *size, ctx),
+            DataType::Map(..)
             | DataType::Duration(_)
             | DataType::Interval(_)
             | DataType::Union(..) => {

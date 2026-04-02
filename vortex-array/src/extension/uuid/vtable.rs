@@ -182,9 +182,11 @@ mod tests {
     #[case::non_nullable(Nullability::NonNullable)]
     #[case::nullable(Nullability::Nullable)]
     fn validate_correct_storage_dtype(#[case] nullability: Nullability) -> VortexResult<()> {
-        let metadata = UuidMetadata::default();
-        let storage_dtype = uuid_storage_dtype(nullability);
-        ExtDType::try_with_vtable(Uuid, metadata, storage_dtype)?;
+        ExtDType::try_with_vtable(
+            Uuid,
+            UuidMetadata::default(),
+            Uuid::storage_dtype(nullability),
+        )?;
         Ok(())
     }
 
@@ -229,10 +231,7 @@ mod tests {
         let expected = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
             .map_err(|e| vortex_error::vortex_err!("{e}"))?;
 
-        let ext_dtype = ExtDType::try_new(
-            UuidMetadata::default(),
-            uuid_storage_dtype(Nullability::NonNullable),
-        )?;
+        let ext_dtype = Uuid::default(Nullability::NonNullable);
         let children: Vec<Scalar> = expected
             .as_bytes()
             .iter()
@@ -261,13 +260,12 @@ mod tests {
         assert_eq!(v4_uuid.get_version(), Some(Version::Random));
 
         // Metadata says v7, but the UUID is v4.
-        let ext_dtype = ExtDType::try_with_vtable(
-            Uuid,
+        let ext_dtype = Uuid::new(
             UuidMetadata {
                 version: Some(Version::SortRand),
             },
-            uuid_storage_dtype(Nullability::NonNullable),
-        )?;
+            Nullability::NonNullable,
+        );
         let children: Vec<Scalar> = v4_uuid
             .as_bytes()
             .iter()
@@ -307,13 +305,12 @@ mod tests {
         let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
             .map_err(|e| vortex_error::vortex_err!("{e}"))?;
 
-        let ext_dtype = ExtDType::try_new(
+        let ext_dtype = Uuid::new(
             UuidMetadata {
                 version: Some(Version::Random),
             },
-            uuid_storage_dtype(Nullability::NonNullable),
-        )
-        .unwrap();
+            Nullability::NonNullable,
+        );
         let storage_value = uuid_storage_scalar(&v4_uuid);
 
         let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
@@ -327,23 +324,11 @@ mod tests {
         let v4_uuid = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000")
             .map_err(|e| vortex_error::vortex_err!("{e}"))?;
 
-        let ext_dtype = ExtDType::try_new(
-            UuidMetadata::default(),
-            uuid_storage_dtype(Nullability::NonNullable),
-        )
-        .unwrap();
+        let ext_dtype = Uuid::default(Nullability::NonNullable);
         let storage_value = uuid_storage_scalar(&v4_uuid);
 
         let result = Uuid::unpack_native(&ext_dtype, &storage_value)?;
         assert_eq!(result, v4_uuid);
         Ok(())
-    }
-
-    fn uuid_storage_dtype(nullability: Nullability) -> DType {
-        DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            UUID_BYTE_LEN as u32,
-            nullability,
-        )
     }
 }

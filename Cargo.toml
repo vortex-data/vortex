@@ -97,7 +97,7 @@ arrow-cast = "58"
 arrow-data = "58"
 arrow-ipc = "58"
 arrow-ord = "58"
-arrow-schema = "58"
+arrow-schema = { version = "58", features = ["canonical_extension_types"] }
 arrow-select = "58"
 arrow-string = "58"
 async-fs = "2.2.0"
