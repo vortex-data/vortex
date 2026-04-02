@@ -15,6 +15,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Decimal;
@@ -450,7 +451,10 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(DecimalData::new(buffer, decimal_dtype, validity))
+        let data = DecimalData::new(buffer, decimal_dtype, validity);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Decimal, dtype, len, data))
             .vortex_expect("DecimalData is always valid")
     }
 
@@ -464,7 +468,10 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) })
+        let data = unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) };
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Decimal, dtype, len, data))
             .vortex_expect("DecimalData is always valid")
     }
 
@@ -474,7 +481,10 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Array::try_from_data(DecimalData::try_new(buffer, decimal_dtype, validity)?)
+        let data = DecimalData::try_new(buffer, decimal_dtype, validity)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Decimal, dtype, len, data))
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.
@@ -486,7 +496,10 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        Array::try_from_data(DecimalData::from_iter(iter, decimal_dtype))
+        let data = DecimalData::from_iter(iter, decimal_dtype);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Decimal, dtype, len, data))
             .vortex_expect("DecimalData is always valid")
     }
 
@@ -495,7 +508,10 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        Array::try_from_data(DecimalData::from_option_iter(iter, decimal_dtype))
+        let data = DecimalData::from_option_iter(iter, decimal_dtype);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Decimal, dtype, len, data))
             .vortex_expect("DecimalData is always valid")
     }
 
@@ -506,12 +522,10 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(DecimalData::new_handle(
-            values,
-            values_type,
-            decimal_dtype,
-            validity,
-        ))
+        let data = DecimalData::new_handle(values, values_type, decimal_dtype, validity);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Decimal, dtype, len, data))
         .vortex_expect("DecimalData is always valid")
     }
 
@@ -526,9 +540,12 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(unsafe {
+        let data = unsafe {
             DecimalData::new_unchecked_handle(values, values_type, decimal_dtype, validity)
-        })
+        };
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Decimal, dtype, len, data))
         .vortex_expect("DecimalData is always valid")
     }
 }

@@ -51,27 +51,11 @@ impl Filter {
 
 impl VTable for Filter {
     type ArrayData = FilterData;
-    type Metadata = FilterMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &FilterData) -> &Self {
-        &Filter
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &FilterData) -> usize {
-        array.mask.true_count()
-    }
-
-    fn dtype(array: &FilterData) -> &DType {
-        array.child().dtype()
-    }
-
-    fn stats(array: &FilterData) -> &ArrayStats {
-        &array.stats
     }
 
     fn array_hash<H: Hasher>(array: &FilterData, state: &mut H, precision: Precision) {
@@ -104,35 +88,21 @@ impl VTable for Filter {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(FilterMetadata(array.mask.clone()))
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         // TODO(joe): make this configurable
         vortex_bail!("Filter array is not serializable")
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        vortex_bail!("Filter array is not serializable")
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        metadata: &FilterMetadata,
+        len: usize,        _metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<FilterData> {
-        assert_eq!(len, metadata.0.true_count());
-        let child = children.get(0, dtype, metadata.0.len())?;
-        FilterData::try_new(child, metadata.0.clone())
+        vortex_bail!("Filter array is not serializable")
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

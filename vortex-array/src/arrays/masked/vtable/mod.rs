@@ -19,7 +19,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::constant::ConstantData;
+use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedData;
 use crate::arrays::masked::array::NUM_SLOTS;
 use crate::arrays::masked::array::SLOT_NAMES;
@@ -48,28 +48,11 @@ impl Masked {
 impl VTable for Masked {
     type ArrayData = MaskedData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Masked
-    }
-
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &MaskedData) -> usize {
-        array.child().len()
-    }
-
-    fn dtype(array: &MaskedData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &MaskedData) -> &ArrayStats {
-        &array.stats
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &MaskedData, state: &mut H, precision: Precision) {
@@ -94,31 +77,20 @@ impl VTable for Masked {
         None
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        _metadata: &Self::Metadata,
+        len: usize,        metadata: &[u8],
+
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<MaskedData> {
+        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
         if !buffers.is_empty() {
             vortex_bail!("Expected 0 buffer, got {}", buffers.len());
         }
@@ -147,7 +119,7 @@ impl VTable for Masked {
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
             return Ok(ExecutionResult::done(
-                ConstantData::new(Scalar::null(array.dtype().as_nullable()), array.len())
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),
             ));
         }

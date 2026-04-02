@@ -14,6 +14,7 @@ use crate::ExecutionResult;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
+use crate::array::ArrayNew;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
@@ -36,28 +37,11 @@ vtable!(Null, Null, NullData);
 impl VTable for Null {
     type ArrayData = NullData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Null
-    }
-
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &NullData) -> usize {
-        array.len
-    }
-
-    fn dtype(_array: &NullData) -> &DType {
-        &DType::Null
-    }
-
-    fn stats(array: &NullData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(_array: &NullData, _state: &mut H, _precision: Precision) {
@@ -99,31 +83,20 @@ impl VTable for Null {
         Ok(())
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
+        &self,
         _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
+        len: usize,        metadata: &[u8],
 
-    fn build(
-        _dtype: &DType,
-        len: usize,
-        _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<NullData> {
+        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
         Ok(NullData::new(len))
     }
 
@@ -183,7 +156,8 @@ impl Null {
 
 impl Array<Null> {
     pub fn new(len: usize) -> Self {
-        Array::try_from_data(NullData::new(len)).vortex_expect("NullData is always valid")
+        Array::try_from_parts(ArrayNew::new(Null, DType::Null, len, NullData::new(len)))
+            .vortex_expect("NullData is always valid")
     }
 }
 

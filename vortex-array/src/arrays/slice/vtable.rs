@@ -51,27 +51,11 @@ impl Slice {
 
 impl VTable for Slice {
     type ArrayData = SliceData;
-    type Metadata = SliceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &SliceData) -> &Self {
-        &Slice
-    }
 
     fn id(&self) -> ArrayId {
         Slice::ID
-    }
-
-    fn len(array: &SliceData) -> usize {
-        array.range.len()
-    }
-
-    fn dtype(array: &SliceData) -> &DType {
-        array.child().dtype()
-    }
-
-    fn stats(array: &SliceData) -> &ArrayStats {
-        &array.stats
     }
 
     fn array_hash<H: Hasher>(array: &SliceData, state: &mut H, precision: Precision) {
@@ -104,35 +88,21 @@ impl VTable for Slice {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(SliceMetadata(array.range.clone()))
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         // TODO(joe): make this configurable
         vortex_bail!("Slice array is not serializable")
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        vortex_bail!("Slice array is not serializable")
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        metadata: &SliceMetadata,
+        len: usize,        _metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<Self::ArrayData> {
-        assert_eq!(len, metadata.0.len());
-        let child = children.get(0, dtype, metadata.0.end)?;
-        SliceData::try_new(child, metadata.0.clone())
+        vortex_bail!("Slice array is not serializable")
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

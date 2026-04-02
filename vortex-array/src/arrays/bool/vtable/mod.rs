@@ -50,28 +50,11 @@ pub struct BoolMetadata {
 impl VTable for Bool {
     type ArrayData = BoolData;
 
-    type Metadata = ProstMetadata<BoolMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Bool
-    }
-
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &BoolData) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &BoolData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &BoolData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &BoolData, state: &mut H, precision: Precision) {
@@ -104,35 +87,24 @@ impl VTable for Bool {
         }
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
-        Ok(ProstMetadata(BoolMetadata {
+        Ok(Some(ProstMetadata(BoolMetadata {
             offset: u32::try_from(array.offset).vortex_expect("checked"),
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+        })
+        .serialize()))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
-        Ok(ProstMetadata(metadata))
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
+        len: usize,        metadata: &[u8],
+
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<BoolData> {
+        let metadata = ProstMetadata::<BoolMetadata>::deserialize(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }

@@ -17,7 +17,6 @@ use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndData;
 use crate::compute::take_from::RunEndTakeFrom;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<RunEnd> = ParentKernelSet::new(&[
@@ -45,11 +44,11 @@ impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        slice(&array, parent.slice_range().clone()).map(Some)
+        slice(array, parent.slice_range().clone()).map(Some)
     }
 }
 
-fn slice(array: &RunEndData, range: Range<usize>) -> VortexResult<ArrayRef> {
+fn slice(array: ArrayView<'_, RunEnd>, range: Range<usize>) -> VortexResult<ArrayRef> {
     let new_length = range.len();
 
     let slice_begin = array.find_physical_index(range.start)?;
@@ -63,7 +62,7 @@ fn slice(array: &RunEndData, range: Range<usize>) -> VortexResult<ArrayRef> {
 
     // SAFETY: we maintain the ends invariant in our slice implementation
     Ok(unsafe {
-        RunEndData::new_unchecked(
+        RunEnd::new_unchecked(
             array.ends().slice(slice_begin..slice_end)?,
             array.values().slice(slice_begin..slice_end)?,
             range.start + array.offset(),

@@ -14,7 +14,10 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::Patched;
 use crate::arrays::patched::TransposedPatches;
 use crate::arrays::patched::patch_lanes;
 use crate::buffer::BufferHandle;
@@ -128,6 +131,23 @@ pub struct PatchedArray {
     pub(super) len: usize,
 
     pub(super) stats_set: ArrayStats,
+}
+
+impl IntoArray for PatchedArray {
+    fn into_array(self) -> ArrayRef {
+        let dtype = self.base_array().dtype().clone();
+        let len = self.len;
+        let stats = self.stats_set.clone();
+        Array::<Patched>::try_from_parts(ArrayNew::new(Patched, dtype, len, self).with_stats(stats))
+            .vortex_expect("PatchedArray is always valid")
+            .into_array()
+    }
+}
+
+impl From<PatchedArray> for ArrayRef {
+    fn from(value: PatchedArray) -> Self {
+        value.into_array()
+    }
 }
 
 impl PatchedArray {

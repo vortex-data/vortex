@@ -24,6 +24,33 @@ use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
+
+/// Construction parameters for [`ArrayInner`] / [`Array`].
+pub struct ArrayNew<V: VTable> {
+    pub vtable: V,
+    pub dtype: DType,
+    pub len: usize,
+    pub data: V::ArrayData,
+    pub stats: ArrayStats,
+}
+
+impl<V: VTable> ArrayNew<V> {
+    pub fn new(vtable: V, dtype: DType, len: usize, data: V::ArrayData) -> Self {
+        Self {
+            vtable,
+            dtype,
+            len,
+            data,
+            stats: ArrayStats::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_stats(mut self, stats: ArrayStats) -> Self {
+        self.stats = stats;
+        self
+    }
+}
 // =============================================================================
 // ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
 // =============================================================================
@@ -43,14 +70,11 @@ pub(crate) struct ArrayInner<V: VTable> {
 }
 
 impl<V: VTable> ArrayInner<V> {
-    /// Create a new inner array from encoding-specific data.
+    /// Create a new inner array from explicit construction parameters.
     #[doc(hidden)]
-    pub fn try_from_data(data: V::ArrayData) -> VortexResult<Self> {
-        let vtable = V::vtable(&data).clone();
-        let dtype = V::dtype(&data).clone();
-        let len = V::len(&data);
-        let stats = V::stats(&data).clone();
-        Ok(unsafe { Self::from_data_unchecked(vtable, dtype, len, data, stats) })
+    pub fn try_new(new: ArrayNew<V>) -> VortexResult<Self> {
+        new.vtable.validate(&new.data, &new.dtype, new.len)?;
+        Ok(unsafe { Self::from_data_unchecked(new.vtable, new.dtype, new.len, new.data, new.stats) })
     }
 
     /// Create without validation.
@@ -140,13 +164,33 @@ pub struct Array<V: VTable> {
 
 #[allow(clippy::same_name_method)]
 impl<V: VTable> Array<V> {
-    /// Create a typed array from encoding-specific data.
-    pub fn try_from_data(data: V::ArrayData) -> VortexResult<Self> {
-        let inner = ArrayRef::from_inner(Arc::new(ArrayInner::<V>::try_from_data(data)?));
+    /// Create a typed array from explicit construction parameters.
+    pub fn try_from_parts(new: ArrayNew<V>) -> VortexResult<Self> {
+        let inner = ArrayRef::from_inner(Arc::new(ArrayInner::<V>::try_new(new)?));
         Ok(Self {
             inner,
             _phantom: PhantomData,
         })
+    }
+
+    /// Create a typed array from explicit construction parameters without validation.
+    ///
+    /// # Safety
+    /// Caller must ensure the provided parts are logically consistent.
+    pub(crate) unsafe fn from_parts_unchecked(new: ArrayNew<V>) -> Self {
+        let inner = ArrayRef::from_inner(Arc::new(unsafe {
+            ArrayInner::<V>::from_data_unchecked(
+                new.vtable,
+                new.dtype,
+                new.len,
+                new.data,
+                new.stats,
+            )
+        }));
+        Self {
+            inner,
+            _phantom: PhantomData,
+        }
     }
 
     /// Create from an existing `ArrayRef`, trusting that it contains `ArrayInner<V>`.

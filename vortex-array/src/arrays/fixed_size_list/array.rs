@@ -9,6 +9,7 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::FixedSizeList;
@@ -265,7 +266,10 @@ impl FixedSizeListData {
 impl Array<FixedSizeList> {
     /// Creates a new `FixedSizeListArray`.
     pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
-        Array::try_from_data(FixedSizeListData::new(elements, list_size, validity, len))
+        let data = FixedSizeListData::new(elements, list_size, validity, len);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(FixedSizeList, dtype, len, data))
             .vortex_expect("FixedSizeListData is always valid")
     }
 
@@ -276,9 +280,10 @@ impl Array<FixedSizeList> {
         validity: Validity,
         len: usize,
     ) -> VortexResult<Self> {
-        Array::try_from_data(FixedSizeListData::try_new(
-            elements, list_size, validity, len,
-        )?)
+        let data = FixedSizeListData::try_new(elements, list_size, validity, len)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(FixedSizeList, dtype, len, data))
     }
 
     /// Creates a new `FixedSizeListArray` without validation.
@@ -292,9 +297,10 @@ impl Array<FixedSizeList> {
         validity: Validity,
         len: usize,
     ) -> Self {
-        Array::try_from_data(unsafe {
-            FixedSizeListData::new_unchecked(elements, list_size, validity, len)
-        })
+        let data = unsafe { FixedSizeListData::new_unchecked(elements, list_size, validity, len) };
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(FixedSizeList, dtype, len, data))
         .vortex_expect("FixedSizeListData is always valid")
     }
 }

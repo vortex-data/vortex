@@ -13,6 +13,7 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Struct;
@@ -529,7 +530,10 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(StructData::new(names, fields, length, validity))
+        let data = StructData::new(names, fields, length, validity);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
             .vortex_expect("StructData is always valid")
     }
 
@@ -540,7 +544,10 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Array::try_from_data(StructData::try_new(names, fields, length, validity)?)
+        let data = StructData::try_new(names, fields, length, validity)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
     }
 
     /// Creates a new `StructArray` without validation.
@@ -554,7 +561,10 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(unsafe { StructData::new_unchecked(fields, dtype, length, validity) })
+        let data = unsafe { StructData::new_unchecked(fields, dtype, length, validity) };
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
             .vortex_expect("StructData is always valid")
     }
 
@@ -565,14 +575,18 @@ impl Array<Struct> {
         length: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Array::try_from_data(StructData::try_new_with_dtype(
-            fields, dtype, length, validity,
-        )?)
+        let data = StructData::try_new_with_dtype(fields, dtype, length, validity)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
     }
 
     /// Construct a `StructArray` from named fields.
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
-        Array::try_from_data(StructData::from_fields(items)?)
+        let data = StructData::from_fields(items)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
     }
 
     /// Decompose this struct array into its constituent parts.
@@ -589,19 +603,28 @@ impl Array<Struct> {
         iter: T,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Array::try_from_data(StructData::try_from_iter_with_validity(iter, validity)?)
+        let data = StructData::try_from_iter_with_validity(iter, validity)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
     }
 
     /// Create a `StructArray` from an iterator of (name, array) pairs.
     pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
         iter: T,
     ) -> VortexResult<Self> {
-        Array::try_from_data(StructData::try_from_iter(iter)?)
+        let data = StructData::try_from_iter(iter)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
     }
 
     /// Create a fieldless `StructArray` with the given length.
     pub fn new_fieldless_with_len(len: usize) -> Self {
-        Array::try_from_data(StructData::new_fieldless_with_len(len))
+        let data = StructData::new_fieldless_with_len(len);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
             .vortex_expect("StructData is always valid")
     }
 }

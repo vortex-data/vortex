@@ -7,6 +7,7 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::arrays::ScalarFnVTable;
 use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;
@@ -116,6 +117,10 @@ impl Array<ScalarFnVTable> {
         children: Vec<ArrayRef>,
         len: usize,
     ) -> VortexResult<Self> {
-        Array::try_from_data(ScalarFnData::try_new(scalar_fn, children, len)?)
+        let data = ScalarFnData::try_new(scalar_fn, children, len)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        let vtable = data.vtable.clone();
+        Array::try_from_parts(ArrayNew::new(vtable, dtype, len, data))
     }
 }

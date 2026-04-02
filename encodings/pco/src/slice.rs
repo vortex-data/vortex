@@ -13,6 +13,8 @@ use crate::Pco;
 
 impl SliceReduce for Pco {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(array._slice(range.start, range.end).into_array()))
+        Ok(Some(
+            Pco::try_new(array.dtype().clone(), array._slice(range.start, range.end))?.into_array(),
+        ))
     }
 }

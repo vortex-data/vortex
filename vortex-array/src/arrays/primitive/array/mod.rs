@@ -15,6 +15,7 @@ use vortex_error::vortex_panic;
 
 use crate::ToCanonical;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::arrays::Primitive;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -197,7 +198,10 @@ impl PrimitiveData {
 
 impl Array<Primitive> {
     pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
-        Array::try_from_data(PrimitiveData::empty::<T>(nullability))
+        let data = PrimitiveData::empty::<T>(nullability);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Primitive, dtype, len, data))
             .vortex_expect("PrimitiveData is always valid")
     }
 
@@ -207,13 +211,19 @@ impl Array<Primitive> {
     ///
     /// Panics if the provided components do not satisfy the invariants.
     pub fn new<T: NativePType>(buffer: impl Into<Buffer<T>>, validity: Validity) -> Self {
-        Array::try_from_data(PrimitiveData::new(buffer, validity))
+        let data = PrimitiveData::new(buffer, validity);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Primitive, dtype, len, data))
             .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Constructs a new `PrimitiveArray`.
     pub fn try_new<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> VortexResult<Self> {
-        Array::try_from_data(PrimitiveData::try_new(buffer, validity)?)
+        let data = PrimitiveData::try_new(buffer, validity)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Primitive, dtype, len, data))
     }
 
     /// Creates a new `PrimitiveArray` without validation.
@@ -222,7 +232,10 @@ impl Array<Primitive> {
     ///
     /// See [`PrimitiveData::new_unchecked`].
     pub unsafe fn new_unchecked<T: NativePType>(buffer: Buffer<T>, validity: Validity) -> Self {
-        Array::try_from_data(unsafe { PrimitiveData::new_unchecked(buffer, validity) })
+        let data = unsafe { PrimitiveData::new_unchecked(buffer, validity) };
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Primitive, dtype, len, data))
             .vortex_expect("PrimitiveData is always valid")
     }
 
@@ -236,21 +249,28 @@ impl Array<Primitive> {
         ptype: PType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(unsafe {
-            PrimitiveData::new_unchecked_from_handle(handle, ptype, validity)
-        })
+        let data = unsafe { PrimitiveData::new_unchecked_from_handle(handle, ptype, validity) };
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Primitive, dtype, len, data))
         .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Creates a new `PrimitiveArray` from a [`BufferHandle`].
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
-        Array::try_from_data(PrimitiveData::from_buffer_handle(handle, ptype, validity))
+        let data = PrimitiveData::from_buffer_handle(handle, ptype, validity);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Primitive, dtype, len, data))
             .vortex_expect("PrimitiveData is always valid")
     }
 
     /// Creates a new `PrimitiveArray` from a [`ByteBuffer`].
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
-        Array::try_from_data(PrimitiveData::from_byte_buffer(buffer, ptype, validity))
+        let data = PrimitiveData::from_byte_buffer(buffer, ptype, validity);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Primitive, dtype, len, data))
             .vortex_expect("PrimitiveData is always valid")
     }
 
@@ -261,12 +281,15 @@ impl Array<Primitive> {
         validity: Validity,
         n_rows: usize,
     ) -> Self {
-        Array::try_from_data(PrimitiveData::from_values_byte_buffer(
+        let data = PrimitiveData::from_values_byte_buffer(
             valid_elems_buffer,
             ptype,
             validity,
             n_rows,
-        ))
+        );
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Primitive, dtype, len, data))
         .vortex_expect("PrimitiveData is always valid")
     }
 

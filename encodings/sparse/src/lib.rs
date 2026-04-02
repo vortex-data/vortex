@@ -7,6 +7,7 @@ use std::hash::Hash;
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
 use vortex_array::Array;
+use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
@@ -28,7 +29,6 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
@@ -57,12 +57,6 @@ mod slice;
 
 vtable!(Sparse, Sparse, SparseData);
 
-#[derive(Debug)]
-pub struct SparseMetadata {
-    patches: PatchesMetadata,
-    fill_value: Scalar,
-}
-
 #[derive(Clone, prost::Message)]
 #[repr(C)]
 pub struct ProstPatchesMetadata {
@@ -73,28 +67,15 @@ pub struct ProstPatchesMetadata {
 impl VTable for Sparse {
     type ArrayData = SparseData;
 
-    type Metadata = SparseMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Sparse
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &SparseData) -> usize {
-        array.patches.array_len()
-    }
-
-    fn dtype(array: &SparseData) -> &DType {
-        array.fill_scalar().dtype()
-    }
-
-    fn stats(array: &SparseData) -> &ArrayStats {
-        &array.stats_set
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+        SparseData::validate(data.patches(), data.fill_scalar(), dtype, len)
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &SparseData, state: &mut H, precision: Precision) {
@@ -128,18 +109,10 @@ impl VTable for Sparse {
         }
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         let patches = array.patches().to_metadata(array.len(), array.dtype())?;
-
-        Ok(SparseMetadata {
-            patches,
-            fill_value: array.fill_value.clone(),
-        })
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
         let prost_patches = ProstPatchesMetadata {
-            patches: metadata.patches,
+            patches,
         };
 
         // Note that we DO NOT serialize the fill value since that is stored in the buffers.
@@ -147,13 +120,15 @@ impl VTable for Sparse {
     }
 
     fn deserialize(
-        bytes: &[u8],
+        &self,
         dtype: &DType,
-        _len: usize,
+        len: usize,
+        metadata: &[u8],
         buffers: &[BufferHandle],
+        children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        let prost_patches = ProstPatchesMetadata::decode(bytes)?;
+    ) -> VortexResult<Self::ArrayData> {
+        let prost_patches = ProstPatchesMetadata::decode(metadata)?;
 
         // Once we have the patches metadata, we need to get the fill value from the buffers.
 
@@ -165,19 +140,6 @@ impl VTable for Sparse {
         let scalar_value = ScalarValue::from_proto_bytes(scalar_bytes, dtype, session)?;
         let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        Ok(SparseMetadata {
-            patches: prost_patches.patches,
-            fill_value,
-        })
-    }
-
-    fn build(
-        dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<SparseData> {
         vortex_ensure_eq!(
             children.len(),
             2,
@@ -187,20 +149,20 @@ impl VTable for Sparse {
 
         let patch_indices = children.get(
             0,
-            &metadata.patches.indices_dtype()?,
-            metadata.patches.len()?,
+            &prost_patches.patches.indices_dtype()?,
+            prost_patches.patches.len()?,
         )?;
-        let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
+        let patch_values = children.get(1, dtype, prost_patches.patches.len()?)?;
 
         SparseData::try_new_from_patches(
             Patches::new(
                 len,
-                metadata.patches.offset()?,
+                prost_patches.patches.offset()?,
                 patch_indices,
                 patch_values,
                 None,
             )?,
-            metadata.fill_value.clone(),
+            fill_value,
         )
     }
 
@@ -276,7 +238,6 @@ pub struct SparseData {
     pub(crate) slots: Vec<Option<ArrayRef>>,
     patches: Patches,
     fill_value: Scalar,
-    stats_set: ArrayStats,
 }
 
 #[derive(Clone, Debug)]
@@ -292,7 +253,24 @@ impl Sparse {
         len: usize,
         fill_value: Scalar,
     ) -> VortexResult<SparseArray> {
-        Array::try_from_data(SparseData::try_new(indices, values, len, fill_value)?)
+        let dtype = fill_value.dtype().clone();
+        let data = SparseData::try_new(indices, values, len, fill_value)?;
+        Array::try_from_parts(ArrayNew::new(Sparse, dtype, len, data))
+    }
+
+    pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<SparseArray> {
+        let dtype = fill_value.dtype().clone();
+        let len = patches.array_len();
+        let data = SparseData::try_new_from_patches(patches, fill_value)?;
+        Array::try_from_parts(ArrayNew::new(Sparse, dtype, len, data))
+    }
+
+    pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> SparseArray {
+        let dtype = fill_value.dtype().clone();
+        let len = patches.array_len();
+        let data = unsafe { SparseData::new_unchecked(patches, fill_value) };
+        Array::try_from_parts(ArrayNew::new(Sparse, dtype, len, data))
+            .vortex_expect("pre-validated SparseArray parts must be valid")
     }
 
     /// Encode the given array as a [`SparseArray`].
@@ -302,6 +280,33 @@ impl Sparse {
 }
 
 impl SparseData {
+    pub fn validate(
+        patches: &Patches,
+        fill_value: &Scalar,
+        dtype: &DType,
+        len: usize,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            fill_value.dtype() == dtype,
+            "fill value dtype {} does not match array dtype {}",
+            fill_value.dtype(),
+            dtype,
+        );
+        vortex_ensure!(
+            patches.array_len() == len,
+            "patches length {} does not match array length {}",
+            patches.array_len(),
+            len
+        );
+        vortex_ensure!(
+            patches.values().dtype() == dtype,
+            "patch values dtype {} does not match array dtype {}",
+            patches.values().dtype(),
+            dtype,
+        );
+        Ok(())
+    }
+
     fn make_slots(patches: &Patches) -> Vec<Option<ArrayRef>> {
         vec![
             Some(patches.indices().clone()),
@@ -343,14 +348,7 @@ impl SparseData {
 
         // TODO(0ax1): handle chunk offsets
         let patches = Patches::new(len, 0, indices, values, None)?;
-        let slots = Self::make_slots(&patches);
-
-        Ok(Self {
-            slots,
-            patches,
-            fill_value,
-            stats_set: Default::default(),
-        })
+        Self::try_new_from_patches(patches, fill_value)
     }
 
     /// Build a new SparseArray from an existing set of patches.
@@ -369,7 +367,6 @@ impl SparseData {
             slots,
             patches,
             fill_value,
-            stats_set: Default::default(),
         })
     }
 
@@ -380,7 +377,6 @@ impl SparseData {
             slots,
             patches,
             fill_value,
-            stats_set: Default::default(),
         }
     }
 
@@ -474,13 +470,13 @@ impl SparseData {
                 }
             };
 
-            return Ok(SparseData::try_new(
+            return Sparse::try_new(
                 non_null_indices,
                 non_null_values,
                 array.len(),
                 Scalar::null(array.dtype().clone()),
-            )?
-            .into_array());
+            )
+            .map(IntoArray::into_array);
         }
 
         let fill = if let Some(fill) = fill_value {
@@ -521,8 +517,8 @@ impl SparseData {
             Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
         };
 
-        SparseData::try_new(indices.into_array(), non_top_values, array.len(), fill)
-            .map(|a| a.into_array())
+        Sparse::try_new(indices.into_array(), non_top_values, array.len(), fill)
+            .map(IntoArray::into_array)
     }
 }
 
@@ -544,7 +540,7 @@ impl ValidityVTable<Sparse> for Sparse {
         };
 
         Ok(Validity::Array(
-            unsafe { SparseData::new_unchecked(patches, array.fill_value.is_valid().into()) }
+            unsafe { Sparse::new_unchecked(patches, array.fill_value.is_valid().into()) }
                 .into_array(),
         ))
     }

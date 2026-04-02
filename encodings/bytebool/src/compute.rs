@@ -16,7 +16,6 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use super::ByteBool;
-use super::ByteBoolData;
 
 impl CastReduce for ByteBool {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -31,9 +30,7 @@ impl CastReduce for ByteBool {
                 .clone()
                 .cast_nullability(dtype.nullability(), array.len())?;
 
-            return Ok(Some(
-                ByteBoolData::new(array.buffer().clone(), new_validity).into_array(),
-            ));
+            return Ok(Some(ByteBool::new(array.buffer().clone(), new_validity).into_array()));
         }
 
         // For other casts, decode to canonical and let BoolArray handle it
@@ -44,7 +41,7 @@ impl CastReduce for ByteBool {
 impl MaskReduce for ByteBool {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ByteBoolData::new(
+            ByteBool::new(
                 array.buffer().clone(),
                 array
                     .validity()
@@ -79,9 +76,7 @@ impl TakeExecute for ByteBool {
                 .collect::<Vec<bool>>()
         });
 
-        Ok(Some(
-            ByteBoolData::from_vec(taken_bools, validity).into_array(),
-        ))
+        Ok(Some(ByteBool::from_vec(taken_bools, validity).into_array()))
     }
 }
 

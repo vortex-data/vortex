@@ -18,6 +18,9 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::Array;
+use crate::array::ArrayNew;
+use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -160,7 +163,11 @@ impl ScalarFnVTable for Select {
             }
         }?;
 
-        result.into_array().execute(ctx)
+        let dtype = result.dtype().clone();
+        let len = result.len();
+        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, result))?
+            .into_array()
+            .execute(ctx)
     }
 
     fn simplify(

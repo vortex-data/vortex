@@ -40,27 +40,11 @@ vtable!(Struct, Struct, StructData);
 impl VTable for Struct {
     type ArrayData = StructData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Struct
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &StructData) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &StructData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &StructData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &StructData, state: &mut H, precision: Precision) {
@@ -91,31 +75,20 @@ impl VTable for Struct {
         vortex_panic!("StructArray buffer_name index {idx} out of bounds")
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        _metadata: &Self::Metadata,
+        len: usize,        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<StructData> {
+        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
         let DType::Struct(struct_dtype, nullability) = dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", dtype)
         };

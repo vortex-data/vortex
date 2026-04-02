@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
+use std::fmt::Debug;
 
 use crate::ArrayRef;
 use crate::display::extractor::IndentedFormatter;
@@ -20,7 +21,11 @@ impl TreeExtractor for MetadataExtractor {
     ) -> fmt::Result {
         let (indent, f) = f.parts();
         write!(f, "{indent}metadata: ")?;
-        array.metadata_fmt(f)?;
+        match array.metadata() {
+            Ok(Some(metadata)) => Debug::fmt(&metadata, f)?,
+            Ok(None) => write!(f, "<unsupported>")?,
+            Err(err) => write!(f, "<serde error: {err}>")?,
+        }
         writeln!(f)
     }
 }

@@ -17,6 +17,7 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::arrays::Chunked;
 use crate::arrays::primitive::PrimitiveData;
 use crate::dtype::DType;
@@ -49,7 +50,16 @@ impl ChunkedData {
         chunks: &[ArrayRef],
     ) -> Vec<Option<ArrayRef>> {
         let mut slots = Vec::with_capacity(1 + chunks.len());
-        slots.push(Some(chunk_offsets.clone().into_array()));
+        slots.push(Some(
+            Array::try_from_parts(ArrayNew::new(
+                crate::arrays::Primitive,
+                chunk_offsets.dtype().clone(),
+                chunk_offsets.len(),
+                chunk_offsets.clone(),
+            ))
+            .vortex_expect("chunk offsets are always valid")
+            .into_array(),
+        ));
         slots.extend(chunks.iter().map(|c| Some(c.clone())));
         slots
     }
@@ -219,7 +229,7 @@ impl ChunkedData {
                 new_chunks.push(
                     // SAFETY: chunks_to_combine contains valid chunks of the same dtype as self.
                     // All chunks are guaranteed to be valid arrays matching self.dtype().
-                    unsafe { ChunkedData::new_unchecked(chunks_to_combine, self.dtype().clone()) }
+                    unsafe { Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone()) }
                         .into_array()
                         .to_canonical()?
                         .into_array(),
@@ -243,7 +253,7 @@ impl ChunkedData {
             new_chunks.push(
                 // SAFETY: chunks_to_combine contains valid chunks of the same dtype as self.
                 // All chunks are guaranteed to be valid arrays matching self.dtype().
-                unsafe { ChunkedData::new_unchecked(chunks_to_combine, self.dtype().clone()) }
+                unsafe { Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone()) }
                     .into_array()
                     .to_canonical()?
                     .into_array(),
@@ -259,7 +269,10 @@ impl ChunkedData {
 impl Array<Chunked> {
     /// Constructs a new `ChunkedArray`.
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
-        Array::try_from_data(ChunkedData::try_new(chunks, dtype)?)
+        let data = ChunkedData::try_new(chunks, dtype)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Chunked, dtype, len, data))
     }
 
     /// Creates a new `ChunkedArray` without validation.
@@ -268,7 +281,10 @@ impl Array<Chunked> {
     ///
     /// See [`ChunkedData::new_unchecked`].
     pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
-        Array::try_from_data(unsafe { ChunkedData::new_unchecked(chunks, dtype) })
+        let data = unsafe { ChunkedData::new_unchecked(chunks, dtype) };
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Chunked, dtype, len, data))
             .vortex_expect("ChunkedData is always valid")
     }
 }

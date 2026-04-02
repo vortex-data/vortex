@@ -21,6 +21,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::CHUNK_OFFSETS_SLOT;
 use crate::arrays::chunked::array::CHUNKS_OFFSET;
@@ -54,33 +55,15 @@ impl Chunked {
 impl VTable for Chunked {
     type ArrayData = ChunkedData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Chunked
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &ChunkedData) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &ChunkedData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ChunkedData) -> &ArrayStats {
-        &array.stats_set
-    }
-
     fn array_hash<H: std::hash::Hasher>(array: &ChunkedData, state: &mut H, precision: Precision) {
-        array
-            .chunk_offsets
-            .clone()
+        PrimitiveArray::new(array.chunk_offsets.to_buffer::<u64>(), Validity::NonNullable)
             .into_array()
             .array_hash(state, precision);
         for chunk in &array.chunks {
@@ -89,11 +72,16 @@ impl VTable for Chunked {
     }
 
     fn array_eq(array: &ChunkedData, other: &ChunkedData, precision: Precision) -> bool {
-        array
-            .chunk_offsets
-            .clone()
+        PrimitiveArray::new(array.chunk_offsets.to_buffer::<u64>(), Validity::NonNullable)
             .into_array()
-            .array_eq(&other.chunk_offsets.clone().into_array(), precision)
+            .array_eq(
+                &PrimitiveArray::new(
+                    other.chunk_offsets.to_buffer::<u64>(),
+                    Validity::NonNullable,
+                )
+                .into_array(),
+                precision,
+            )
             && array.chunks.len() == other.chunks.len()
             && array
                 .iter_chunks()
@@ -113,31 +101,20 @@ impl VTable for Chunked {
         vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        _len: usize,
-        _metadata: &Self::Metadata,
+        _len: usize,        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<ChunkedData> {
+        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
         if children.is_empty() {
             vortex_bail!("Chunked array needs at least one child");
         }

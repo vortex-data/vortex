@@ -80,28 +80,11 @@ pub struct PatchedMetadata {
 
 impl VTable for Patched {
     type ArrayData = PatchedArray;
-    type Metadata = ProstMetadata<PatchedMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Patched
-    }
-
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.patched")
-    }
-
-    fn len(array: &Self::ArrayData) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &Self::ArrayData) -> &DType {
-        array.base_array().dtype()
-    }
-
-    fn stats(array: &Self::ArrayData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: Hasher>(array: &PatchedArray, state: &mut H, precision: Precision) {
@@ -150,27 +133,45 @@ impl VTable for Patched {
         }
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(PatchedMetadata {
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(ProstMetadata(PatchedMetadata {
             n_patches: u32::try_from(array.patch_indices().len())?,
             n_lanes: u32::try_from(array.n_lanes)?,
             offset: u32::try_from(array.offset)?,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+        })
+        .serialize()))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
         _buffers: &[BufferHandle],
+        children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        let inner = <ProstMetadata<PatchedMetadata> as DeserializeMetadata>::deserialize(bytes)?;
-        Ok(ProstMetadata(inner))
+    ) -> VortexResult<PatchedArray> {
+        let metadata = ProstMetadata::<PatchedMetadata>::deserialize(metadata)?;
+        let n_patches = metadata.n_patches as usize;
+        let n_lanes = metadata.n_lanes as usize;
+        let offset = metadata.offset as usize;
+
+        // n_chunks should correspond to the chunk in the `inner`.
+        // After slicing when offset > 0, there may be additional chunks.
+        let n_chunks = (len + offset).div_ceil(1024);
+
+        let inner = children.get(0, dtype, len)?;
+        let lane_offsets = children.get(1, PType::U32.into(), n_chunks * n_lanes + 1)?;
+        let indices = children.get(2, PType::U16.into(), n_patches)?;
+        let values = children.get(3, dtype, n_patches)?;
+
+        Ok(PatchedArray {
+            slots: vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
+            n_lanes,
+            offset,
+            len,
+            stats_set: ArrayStats::default(),
+        })
     }
 
     fn append_to_builder(
@@ -234,35 +235,6 @@ impl VTable for Patched {
         });
 
         Ok(())
-    }
-
-    fn build(
-        dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<PatchedArray> {
-        let n_patches = metadata.n_patches as usize;
-        let n_lanes = metadata.n_lanes as usize;
-        let offset = metadata.offset as usize;
-
-        // n_chunks should correspond to the chunk in the `inner`.
-        // After slicing when offset > 0, there may be additional chunks.
-        let n_chunks = (len + offset).div_ceil(1024);
-
-        let inner = children.get(0, dtype, len)?;
-        let lane_offsets = children.get(1, PType::U32.into(), n_chunks * n_lanes + 1)?;
-        let indices = children.get(2, PType::U16.into(), n_patches)?;
-        let values = children.get(3, dtype, n_patches)?;
-
-        Ok(PatchedArray {
-            slots: vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
-            n_lanes,
-            offset,
-            len,
-            stats_set: ArrayStats::default(),
-        })
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

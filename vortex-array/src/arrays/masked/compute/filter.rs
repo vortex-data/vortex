@@ -8,8 +8,8 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Masked;
+use crate::arrays::MaskedArray;
 use crate::arrays::filter::FilterReduce;
-use crate::arrays::masked::MaskedData;
 
 impl FilterReduce for Masked {
     fn filter(array: ArrayView<'_, Masked>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
@@ -21,9 +21,7 @@ impl FilterReduce for Masked {
         let filtered_child = array.child().filter(mask.clone())?;
 
         // Construct new MaskedArray
-        Ok(Some(
-            MaskedData::try_new(filtered_child, filtered_validity)?.into_array(),
-        ))
+        Ok(Some(MaskedArray::try_new(filtered_child, filtered_validity)?.into_array()))
     }
 }
 

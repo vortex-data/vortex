@@ -19,7 +19,6 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::Slice;
 use crate::arrays::StructArray;
-use crate::arrays::scalar_fn::ScalarFnData;
 use crate::dtype::DType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
@@ -104,7 +103,7 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
             .collect::<VortexResult<_>>()?;
 
         Ok(Some(
-            ScalarFnData::try_new(array.scalar_fn().clone(), children, range.len())?.into_array(),
+            ScalarFnArray::try_new(array.scalar_fn().clone(), children, range.len())?.into_array(),
         ))
     }
 }

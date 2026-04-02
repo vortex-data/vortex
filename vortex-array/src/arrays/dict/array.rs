@@ -11,6 +11,7 @@ use vortex_mask::AllOr;
 use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::arrays::Dict;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -204,12 +205,19 @@ impl DictData {
 impl Array<Dict> {
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
-        Array::try_from_data(DictData::new(codes, values)).vortex_expect("DictData is always valid")
+        let data = DictData::new(codes, values);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Dict, dtype, len, data))
+            .vortex_expect("DictData is always valid")
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
-        Array::try_from_data(DictData::try_new(codes, values)?)
+        let data = DictData::try_new(codes, values)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Dict, dtype, len, data))
     }
 
     /// Build a new `DictArray` without validating the codes or values.
@@ -218,7 +226,10 @@ impl Array<Dict> {
     ///
     /// See [`DictData::new_unchecked`].
     pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
-        Array::try_from_data(unsafe { DictData::new_unchecked(codes, values) })
+        let data = unsafe { DictData::new_unchecked(codes, values) };
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Dict, dtype, len, data))
             .vortex_expect("DictData is always valid")
     }
 
@@ -228,10 +239,13 @@ impl Array<Dict> {
     ///
     /// See [`DictData::set_all_values_referenced`].
     pub unsafe fn set_all_values_referenced(self, all_values_referenced: bool) -> Self {
-        Array::try_from_data(unsafe {
+        let dtype = self.dtype().clone();
+        let len = self.len();
+        let data = unsafe {
             self.into_data()
                 .set_all_values_referenced(all_values_referenced)
-        })
+        };
+        Array::try_from_parts(ArrayNew::new(Dict, dtype, len, data))
         .vortex_expect("data is always valid")
     }
 }

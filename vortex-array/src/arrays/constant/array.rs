@@ -5,6 +5,7 @@ use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::arrays::Constant;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
@@ -64,7 +65,10 @@ impl Array<Constant> {
     where
         S: Into<Scalar>,
     {
-        Array::try_from_data(ConstantData::new(scalar, len))
+        let scalar = scalar.into();
+        let dtype = scalar.dtype().clone();
+        let data = ConstantData::new(scalar, len);
+        Array::try_from_parts(ArrayNew::new(Constant, dtype, len, data))
             .vortex_expect("ConstantData is always valid")
     }
 }

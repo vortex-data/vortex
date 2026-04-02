@@ -8,6 +8,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::arrays::Filter;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
@@ -93,13 +94,19 @@ impl FilterData {
 impl Array<Filter> {
     /// Creates a new `FilterArray`.
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
-        Array::try_from_data(FilterData::new(array, mask))
+        let dtype = array.dtype().clone();
+        let len = mask.true_count();
+        let data = FilterData::new(array, mask);
+        Array::try_from_parts(ArrayNew::new(Filter, dtype, len, data))
             .vortex_expect("FilterData is always valid")
     }
 
     /// Constructs a new `FilterArray`.
     pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
-        Array::try_from_data(FilterData::try_new(array, mask)?)
+        let dtype = array.dtype().clone();
+        let len = mask.true_count();
+        let data = FilterData::try_new(array, mask)?;
+        Array::try_from_parts(ArrayNew::new(Filter, dtype, len, data))
     }
 }
 

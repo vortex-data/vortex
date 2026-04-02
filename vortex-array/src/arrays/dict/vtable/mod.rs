@@ -28,7 +28,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Primitive;
-use crate::arrays::constant::ConstantData;
+use crate::arrays::ConstantArray;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -59,28 +59,11 @@ impl Dict {
 impl VTable for Dict {
     type ArrayData = DictData;
 
-    type Metadata = ProstMetadata<DictMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Dict
-    }
-
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &DictData) -> usize {
-        array.codes().len()
-    }
-
-    fn dtype(array: &DictData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &DictData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &DictData, state: &mut H, precision: Precision) {
@@ -105,8 +88,8 @@ impl VTable for Dict {
         None
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(DictMetadata {
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(ProstMetadata(DictMetadata {
             codes_ptype: PType::try_from(array.codes().dtype())? as i32,
             values_len: u32::try_from(array.values().len()).map_err(|_| {
                 vortex_err!(
@@ -116,31 +99,20 @@ impl VTable for Dict {
             })?,
             is_nullable_codes: Some(array.codes().dtype().is_nullable()),
             all_values_referenced: Some(array.all_values_referenced),
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+        })
+        .serialize()))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
-        Ok(ProstMetadata(metadata))
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
+        len: usize,        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<DictData> {
+        let metadata = ProstMetadata::<DictMetadata>::deserialize(metadata)?;
         if children.len() != 2 {
             vortex_bail!(
                 "Expected 2 children for dict encoding, found {}",
@@ -197,7 +169,7 @@ impl VTable for Dict {
         // Also not the check to do here it take value validity using code validity, but this approx
         // is correct.
         if array.codes().all_invalid()? {
-            return Ok(ExecutionResult::done(ConstantData::new(
+            return Ok(ExecutionResult::done(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 array.codes().len(),
             )));

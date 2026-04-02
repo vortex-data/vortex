@@ -9,6 +9,7 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::arrays::Slice;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
@@ -81,12 +82,18 @@ impl SliceData {
 impl Array<Slice> {
     /// Constructs a new `SliceArray`.
     pub fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
-        Array::try_from_data(SliceData::try_new(child, range)?)
+        let len = range.len();
+        let dtype = child.dtype().clone();
+        let data = SliceData::try_new(child, range)?;
+        Array::try_from_parts(ArrayNew::new(Slice, dtype, len, data))
     }
 
     /// Constructs a new `SliceArray`.
     pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
-        Array::try_from_data(SliceData::new(child, range))
+        let len = range.len();
+        let dtype = child.dtype().clone();
+        let data = SliceData::new(child, range);
+        Array::try_from_parts(ArrayNew::new(Slice, dtype, len, data))
             .vortex_expect("SliceData is always valid")
     }
 }

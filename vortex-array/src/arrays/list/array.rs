@@ -16,6 +16,7 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::ConstantArray;
@@ -363,7 +364,10 @@ impl ListData {
 impl Array<List> {
     /// Creates a new `ListArray`.
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
-        Array::try_from_data(ListData::new(elements, offsets, validity))
+        let data = ListData::new(elements, offsets, validity);
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(List, dtype, len, data))
             .vortex_expect("ListData is always valid")
     }
 
@@ -373,7 +377,10 @@ impl Array<List> {
         offsets: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Array::try_from_data(ListData::try_new(elements, offsets, validity)?)
+        let data = ListData::try_new(elements, offsets, validity)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(List, dtype, len, data))
     }
 
     /// Creates a new `ListArray` without validation.
@@ -382,7 +389,10 @@ impl Array<List> {
     ///
     /// See [`ListData::new_unchecked`].
     pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
-        Array::try_from_data(unsafe { ListData::new_unchecked(elements, offsets, validity) })
+        let data = unsafe { ListData::new_unchecked(elements, offsets, validity) };
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(List, dtype, len, data))
             .vortex_expect("ListData is always valid")
     }
 }
@@ -393,7 +403,10 @@ impl ListData {
         if recurse && elements.is_canonical() {
             elements = elements.to_canonical()?.compact()?.into_array();
         } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
-            elements = child_list_array.reset_offsets(recurse)?.into_array();
+            let data = child_list_array.reset_offsets(recurse)?;
+            let dtype = data.dtype().clone();
+            let len = data.len();
+            elements = Array::try_from_parts(ArrayNew::new(List, dtype, len, data))?.into_array();
         }
 
         let offsets = self.offsets();

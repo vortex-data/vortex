@@ -54,27 +54,11 @@ pub struct VarBinMetadata {
 impl VTable for VarBin {
     type ArrayData = VarBinData;
 
-    type Metadata = ProstMetadata<VarBinMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &VarBinData) -> &Self {
-        &VarBin
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &VarBinData) -> usize {
-        array.offsets().len().saturating_sub(1)
-    }
-
-    fn dtype(array: &VarBinData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &VarBinData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &VarBinData, state: &mut H, precision: Precision) {
@@ -107,36 +91,24 @@ impl VTable for VarBin {
         }
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(VarBinMetadata {
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(ProstMetadata(VarBinMetadata {
             offsets_ptype: PType::try_from(array.offsets().dtype())
                 .vortex_expect("Must be a valid PType") as i32,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+        })
+        .serialize()))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ProstMetadata::<VarBinMetadata>::deserialize(
-            bytes,
-        )?))
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
+        len: usize,        metadata: &[u8],
+
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<VarBinData> {
+        let metadata = ProstMetadata::<VarBinMetadata>::deserialize(metadata)?;
         let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
         } else if children.len() == 2 {

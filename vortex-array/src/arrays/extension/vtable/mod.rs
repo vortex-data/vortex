@@ -39,28 +39,11 @@ vtable!(Extension, Extension, ExtensionData);
 impl VTable for Extension {
     type ArrayData = ExtensionData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Extension
-    }
-
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &ExtensionData) -> usize {
-        array.storage_array().len()
-    }
-
-    fn dtype(array: &ExtensionData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ExtensionData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -97,31 +80,20 @@ impl VTable for Extension {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        _metadata: &Self::Metadata,
+        len: usize,        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<ExtensionData> {
+        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
         let DType::Extension(ext_dtype) = dtype else {
             vortex_bail!("Not an extension DType");
         };

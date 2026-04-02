@@ -42,30 +42,12 @@ impl Variant {
 impl VTable for Variant {
     type ArrayData = VariantData;
 
-    type Metadata = EmptyMetadata;
-
     type OperationsVTable = Self;
 
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Variant
-    }
-
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &Self::ArrayData) -> usize {
-        array.child().len()
-    }
-
-    fn dtype(array: &Self::ArrayData) -> &DType {
-        array.child().dtype()
-    }
-
-    fn stats(array: &Self::ArrayData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: Hasher>(array: &VariantData, state: &mut H, precision: Precision) {
@@ -88,31 +70,20 @@ impl VTable for Variant {
         None
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        _metadata: &Self::Metadata,
+        len: usize,        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &vortex_session::VortexSession,
     ) -> VortexResult<Self::ArrayData> {
+        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         vortex_ensure!(
             children.len() == 1,

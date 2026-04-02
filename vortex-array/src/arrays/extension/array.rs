@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::arrays::Extension;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
@@ -154,12 +155,18 @@ impl Array<Extension> {
     ///
     /// Panics if the storage array is not compatible with the extension dtype.
     pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
-        Array::try_from_data(ExtensionData::new(ext_dtype, storage_array))
+        let dtype = DType::Extension(ext_dtype.clone());
+        let len = storage_array.len();
+        let data = ExtensionData::new(ext_dtype, storage_array);
+        Array::try_from_parts(ArrayNew::new(Extension, dtype, len, data))
             .vortex_expect("ExtensionData is always valid")
     }
 
     /// Tries to construct a new `ExtensionArray`.
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
-        Array::try_from_data(ExtensionData::try_new(ext_dtype, storage_array)?)
+        let dtype = DType::Extension(ext_dtype.clone());
+        let len = storage_array.len();
+        let data = ExtensionData::try_new(ext_dtype, storage_array)?;
+        Array::try_from_parts(ArrayNew::new(Extension, dtype, len, data))
     }
 }

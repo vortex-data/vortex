@@ -50,27 +50,11 @@ pub struct ListMetadata {
 impl VTable for List {
     type ArrayData = ListData;
 
-    type Metadata = ProstMetadata<ListMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &ListData) -> &Self {
-        &List
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &ListData) -> usize {
-        array.offsets().len().saturating_sub(1)
-    }
-
-    fn dtype(array: &ListData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ListData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &ListData, state: &mut H, precision: Precision) {
@@ -105,36 +89,24 @@ impl VTable for List {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ListMetadata {
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(ProstMetadata(ListMetadata {
             elements_len: array.elements().len() as u64,
             offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(SerializeMetadata::serialize(metadata)))
+        })
+        .serialize()))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(
-            <ProstMetadata<ListMetadata> as DeserializeMetadata>::deserialize(bytes)?,
-        ))
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
+        len: usize,        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<ListData> {
+        let metadata = ProstMetadata::<ListMetadata>::deserialize(metadata)?;
         let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
         } else if children.len() == 3 {
@@ -150,12 +122,12 @@ impl VTable for List {
         let elements = children.get(
             0,
             element_dtype.as_ref(),
-            usize::try_from(metadata.0.elements_len)?,
+            usize::try_from(metadata.elements_len)?,
         )?;
 
         let offsets = children.get(
             1,
-            &DType::Primitive(metadata.0.offset_ptype(), Nullability::NonNullable),
+            &DType::Primitive(metadata.offset_ptype(), Nullability::NonNullable),
             len + 1,
         )?;
 

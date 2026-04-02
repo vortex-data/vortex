@@ -53,36 +53,11 @@ pub struct DecimalMetadata {
 impl VTable for Decimal {
     type ArrayData = DecimalData;
 
-    type Metadata = ProstMetadata<DecimalMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Decimal
-    }
-
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &DecimalData) -> usize {
-        let divisor = match array.values_type {
-            DecimalType::I8 => 1,
-            DecimalType::I16 => 2,
-            DecimalType::I32 => 4,
-            DecimalType::I64 => 8,
-            DecimalType::I128 => 16,
-            DecimalType::I256 => 32,
-        };
-        array.values.len() / divisor
-    }
-
-    fn dtype(array: &DecimalData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &DecimalData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &DecimalData, state: &mut H, precision: Precision) {
@@ -115,34 +90,23 @@ impl VTable for Decimal {
         }
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(DecimalMetadata {
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(ProstMetadata(DecimalMetadata {
             values_type: array.values_type() as i32,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+        })
+        .serialize()))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        let metadata = ProstMetadata::<DecimalMetadata>::deserialize(bytes)?;
-        Ok(ProstMetadata(metadata))
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
+        len: usize,        metadata: &[u8],
+
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<DecimalData> {
+        let metadata = ProstMetadata::<DecimalMetadata>::deserialize(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }

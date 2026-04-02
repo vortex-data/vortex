@@ -12,6 +12,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Bool;
@@ -186,7 +187,10 @@ impl Array<Bool> {
     ///
     /// Returns an error if the provided components do not satisfy the invariants.
     pub fn try_new(bits: BitBuffer, validity: Validity) -> VortexResult<Self> {
-        Array::try_from_data(BoolData::try_new(bits, validity)?)
+        let data = BoolData::try_new(bits, validity)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Bool, dtype, len, data))
     }
 
     /// Build a new bool array from a `BufferHandle`, returning an error if the offset is
@@ -197,7 +201,10 @@ impl Array<Bool> {
         len: usize,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Array::try_from_data(BoolData::try_new_from_handle(bits, offset, len, validity)?)
+        let data = BoolData::try_new_from_handle(bits, offset, len, validity)?;
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Bool, dtype, len, data))
     }
 
     /// Creates a new [`BoolArray`] without validation.
@@ -207,7 +214,10 @@ impl Array<Bool> {
     /// The caller must ensure that the validity length is equal to the bit buffer length.
     pub unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {
         // SAFETY: caller guarantees validity length equals bit buffer length.
-        Array::try_from_data(unsafe { BoolData::new_unchecked(bits, validity) })
+        let data = unsafe { BoolData::new_unchecked(bits, validity) };
+        let dtype = data.dtype().clone();
+        let len = data.len();
+        Array::try_from_parts(ArrayNew::new(Bool, dtype, len, data))
             .vortex_expect("BoolData is always valid")
     }
 

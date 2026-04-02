@@ -9,6 +9,7 @@ pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 
@@ -65,6 +66,10 @@ impl VariantData {
 impl Array<Variant> {
     /// Creates a new `VariantArray`.
     pub fn new(child: ArrayRef) -> Self {
-        Array::try_from_data(VariantData::new(child)).vortex_expect("VariantData is always valid")
+        let dtype = child.dtype().clone();
+        let len = child.len();
+        let stats = child.statistics().to_array_stats();
+        Array::try_from_parts(ArrayNew::new(Variant, dtype, len, VariantData::new(child)).with_stats(stats))
+            .vortex_expect("VariantData is always valid")
     }
 }

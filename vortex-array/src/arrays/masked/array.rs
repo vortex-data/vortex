@@ -7,6 +7,7 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Masked;
@@ -93,6 +94,9 @@ impl MaskedData {
 impl Array<Masked> {
     /// Constructs a new `MaskedArray`.
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
-        Array::try_from_data(MaskedData::try_new(child, validity)?)
+        let dtype = child.dtype().as_nullable();
+        let len = child.len();
+        let data = MaskedData::try_new(child, validity)?;
+        Array::try_from_parts(ArrayNew::new(Masked, dtype, len, data))
     }
 }

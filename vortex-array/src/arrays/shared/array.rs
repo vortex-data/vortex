@@ -14,6 +14,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::Array;
+use crate::array::ArrayNew;
 use crate::arrays::Shared;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
@@ -125,7 +126,10 @@ impl SharedData {
 impl Array<Shared> {
     /// Creates a new `SharedArray`.
     pub fn new(source: ArrayRef) -> Self {
-        Array::try_from_data(SharedData::new(source)).vortex_expect("SharedData is always valid")
+        let dtype = source.dtype().clone();
+        let len = source.len();
+        Array::try_from_parts(ArrayNew::new(Shared, dtype, len, SharedData::new(source)))
+            .vortex_expect("SharedData is always valid")
     }
 }
 

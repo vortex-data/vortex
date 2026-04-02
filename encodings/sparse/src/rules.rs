@@ -12,7 +12,6 @@ use vortex_array::scalar_fn::fns::not::NotReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
-use crate::SparseData;
 
 pub(crate) static RULES: ParentRuleSet<Sparse> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(Sparse)),
@@ -23,8 +22,6 @@ impl NotReduce for Sparse {
     fn invert(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         let inverted_fill = array.fill_scalar().as_bool().invert().into_scalar();
         let inverted_patches = array.patches().clone().map_values(|values| values.not())?;
-        Ok(Some(
-            SparseData::try_new_from_patches(inverted_patches, inverted_fill)?.into_array(),
-        ))
+        Ok(Some(Sparse::try_new_from_patches(inverted_patches, inverted_fill)?.into_array()))
     }
 }

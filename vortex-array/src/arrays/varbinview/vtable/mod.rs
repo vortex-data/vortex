@@ -50,27 +50,11 @@ impl VarBinView {
 impl VTable for VarBinView {
     type ArrayData = VarBinViewData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &VarBinViewData) -> &Self {
-        &VarBinView
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &VarBinViewData) -> usize {
-        array.views_handle().len() / size_of::<BinaryView>()
-    }
-
-    fn dtype(array: &VarBinViewData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &VarBinViewData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -122,31 +106,20 @@ impl VTable for VarBinView {
         }
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
-        len: usize,
-        _metadata: &Self::Metadata,
+        len: usize,        metadata: &[u8],
+
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<VarBinViewData> {
+        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
         let Some((views_handle, data_handles)) = buffers.split_last() else {
             vortex_bail!("Expected at least 1 buffer, got 0");
         };
