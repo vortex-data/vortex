@@ -41,8 +41,6 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &integer::RunEndScheme,
     &integer::SequenceScheme,
     &rle::RLE_INTEGER_SCHEME,
-    #[cfg(feature = "pco")]
-    &integer::PcoScheme,
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Float schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -52,8 +50,6 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &float::FloatDictScheme,
     &float::NullDominatedSparseScheme,
     &rle::RLE_FLOAT_SCHEME,
-    #[cfg(feature = "pco")]
-    &float::PcoScheme,
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // String schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -61,36 +57,18 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &string::FSSTScheme,
     &string::StringConstantScheme,
     &string::NullDominatedSparseScheme,
-    #[cfg(feature = "zstd")]
-    &string::ZstdScheme,
-    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-    &string::ZstdBuffersScheme,
     // Decimal schemes.
     &decimal::DecimalScheme,
     // Temporal schemes.
     &temporal::TemporalScheme,
 ];
 
-/// Returns the set of scheme IDs excluded by default (behind feature gates or known-expensive).
-pub fn default_excluded() -> HashSet<SchemeId> {
-    #[allow(unused_mut, reason = "depends on enabled feature flags")]
-    let mut excluded = HashSet::new();
-    #[cfg(feature = "pco")]
-    {
-        excluded.insert(integer::PcoScheme.id());
-        excluded.insert(float::PcoScheme.id());
-    }
-    #[cfg(feature = "zstd")]
-    excluded.insert(string::ZstdScheme.id());
-    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-    excluded.insert(string::ZstdBuffersScheme.id());
-    excluded
-}
-
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
-/// Use this builder to configure which compression schemes are allowed.
-/// By default, all schemes are enabled except those in [`default_excluded`].
+/// By default, all schemes in [`ALL_SCHEMES`] are enabled. Feature-gated schemes (Pco, Zstd)
+/// are not in `ALL_SCHEMES` and must be added explicitly via
+/// [`with_new_scheme`](BtrBlocksCompressorBuilder::with_new_scheme) or
+/// [`with_compact`](BtrBlocksCompressorBuilder::with_compact).
 ///
 /// # Examples
 ///
@@ -98,50 +76,67 @@ pub fn default_excluded() -> HashSet<SchemeId> {
 /// use vortex_btrblocks::{BtrBlocksCompressorBuilder, Scheme, SchemeExt};
 /// use vortex_btrblocks::schemes::integer::IntDictScheme;
 ///
-/// // Default compressor - all non-excluded schemes allowed.
+/// // Default compressor with all schemes in ALL_SCHEMES.
 /// let compressor = BtrBlocksCompressorBuilder::default().build();
 ///
 /// // Exclude specific schemes.
 /// let compressor = BtrBlocksCompressorBuilder::default()
 ///     .exclude([IntDictScheme.id()])
 ///     .build();
-///
-/// // Exclude then re-include.
-/// let compressor = BtrBlocksCompressorBuilder::default()
-///     .exclude([IntDictScheme.id()])
-///     .include([IntDictScheme.id()])
-///     .build();
 /// ```
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
-    schemes: HashSet<&'static dyn Scheme>,
+    schemes: Vec<&'static dyn Scheme>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
-        let excluded = default_excluded();
         Self {
-            schemes: ALL_SCHEMES
-                .iter()
-                .copied()
-                .filter(|s| !excluded.contains(&s.id()))
-                .collect(),
+            schemes: ALL_SCHEMES.to_vec(),
         }
     }
 }
 
 impl BtrBlocksCompressorBuilder {
-    /// Includes the specified compression schemes by their [`SchemeId`].
+    /// Adds an external compression scheme not in [`ALL_SCHEMES`].
     ///
-    /// Only schemes present in [`ALL_SCHEMES`] can be included.
-    pub fn include(mut self, ids: impl IntoIterator<Item = SchemeId>) -> Self {
-        let ids: HashSet<_> = ids.into_iter().collect();
-        for scheme in ALL_SCHEMES {
-            if ids.contains(&scheme.id()) {
-                self.schemes.insert(*scheme);
-            }
-        }
+    /// This allows encoding crates outside of `vortex-btrblocks` to register their own schemes with
+    /// the compressor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a scheme with the same [`SchemeId`] is already present.
+    pub fn with_new_scheme(mut self, scheme: &'static dyn Scheme) -> Self {
+        assert!(
+            !self.schemes.iter().any(|s| s.id() == scheme.id()),
+            "scheme {:?} is already present in the builder",
+            scheme.id(),
+        );
+
+        self.schemes.push(scheme);
         self
+    }
+
+    /// Adds compact encoding schemes (Zstd for strings, Pco for numerics).
+    ///
+    /// This provides better compression ratios than the default, especially for floating-point
+    /// heavy datasets. Requires the `zstd` feature. When the `pco` feature is also enabled,
+    /// Pco schemes for integers and floats are included.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any of the compact schemes are already present.
+    #[cfg(feature = "zstd")]
+    pub fn with_compact(self) -> Self {
+        // This should be fast since we don't have that many schemes.
+        let builder = self.with_new_scheme(&string::ZstdScheme);
+
+        #[cfg(feature = "pco")]
+        let builder = builder
+            .with_new_scheme(&integer::PcoScheme)
+            .with_new_scheme(&float::PcoScheme);
+
+        builder
     }
 
     /// Excludes the specified compression schemes by their [`SchemeId`].
@@ -152,15 +147,7 @@ impl BtrBlocksCompressorBuilder {
     }
 
     /// Builds the configured [`BtrBlocksCompressor`].
-    ///
-    /// The resulting scheme list preserves the order of [`ALL_SCHEMES`] for deterministic
-    /// tie-breaking.
     pub fn build(self) -> BtrBlocksCompressor {
-        let schemes = ALL_SCHEMES
-            .iter()
-            .copied()
-            .filter(|s| self.schemes.contains(s))
-            .collect();
-        BtrBlocksCompressor(CascadingCompressor::new(schemes))
+        BtrBlocksCompressor(CascadingCompressor::new(self.schemes))
     }
 }
