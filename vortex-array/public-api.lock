@@ -23100,11 +23100,15 @@ impl vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::display_as(&self, options: vortex_array::display::DisplayOptions) -> impl core::fmt::Display
 
-pub fn vortex_array::ArrayRef::display_tree(&self) -> impl core::fmt::Display
+pub fn vortex_array::ArrayRef::display_tree(&self) -> vortex_array::display::TreeDisplay
 
-pub fn vortex_array::ArrayRef::display_tree_encodings_only(&self) -> impl core::fmt::Display
+pub fn vortex_array::ArrayRef::display_tree_encodings_only(&self) -> vortex_array::display::TreeDisplay
 
 pub fn vortex_array::ArrayRef::display_values(&self) -> impl core::fmt::Display
+
+pub fn vortex_array::ArrayRef::tree_display(&self) -> vortex_array::display::TreeDisplay
+
+pub fn vortex_array::ArrayRef::tree_display_builder(&self) -> vortex_array::display::TreeDisplay
 
 impl vortex_array::ArrayRef
 
