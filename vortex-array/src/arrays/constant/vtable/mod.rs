@@ -113,16 +113,22 @@ impl VTable for Constant {
         }
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        0
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn child(_array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        vortex_panic!("ConstantArray child index {idx} out of bounds")
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
 
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        vortex_panic!("ConstantArray child_name index {idx} out of bounds")
+    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ConstantArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        Ok(())
     }
 
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
@@ -165,24 +171,6 @@ impl VTable for Constant {
         _children: &dyn ArrayChildren,
     ) -> VortexResult<ConstantData> {
         Ok(ConstantData::new(metadata.clone(), len))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
-    }
-
-    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ConstantArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        Ok(())
     }
 
     fn reduce_parent(
@@ -264,7 +252,7 @@ impl VTable for Constant {
             // TODO: add fast paths for DType::Struct, DType::List, DType::FixedSizeList, DType::Extension.
             _ => {
                 let canonical = array
-                    .array_ref()
+                    .array()
                     .clone()
                     .execute::<Canonical>(ctx)?
                     .into_array();

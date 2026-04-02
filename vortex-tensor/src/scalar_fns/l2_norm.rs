@@ -171,7 +171,7 @@ mod tests {
     fn eval_l2_norm(input: vortex::array::ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
         let scalar_fn = ScalarFn::new(L2Norm, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![input], len)?;
-        let prim = result.to_array_ref().to_primitive();
+        let prim = result.as_array().to_primitive();
         Ok(prim.as_slice::<f64>().to_vec())
     }
 

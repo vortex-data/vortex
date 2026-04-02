@@ -30,10 +30,11 @@ impl<'a, V: VTable> ArrayView<'a, V> {
     /// # Safety
     /// Caller must ensure `data` is the `V::ArrayData` stored inside `array`.
     pub(crate) unsafe fn new_unchecked(array: &'a ArrayRef, data: &'a V::ArrayData) -> Self {
+        debug_assert!(array.is::<V>());
         Self { array, data }
     }
 
-    pub fn array_ref(&self) -> &'a ArrayRef {
+    pub fn array(&self) -> &'a ArrayRef {
         self.array
     }
 
@@ -75,6 +76,12 @@ where
     #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> &'a crate::validity::Validity {
         crate::vtable::ValidityHelper::validity(self.data)
+    }
+}
+
+impl<V: VTable> AsRef<ArrayRef> for ArrayView<'_, V> {
+    fn as_ref(&self) -> &ArrayRef {
+        self.array
     }
 }
 

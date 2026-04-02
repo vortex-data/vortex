@@ -11,6 +11,6 @@ use crate::scalar_fn::fns::mask::MaskReduce;
 impl MaskReduce for Null {
     fn mask(array: ArrayView<'_, Null>, _mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // Null array is already all nulls, masking has no effect.
-        Ok(Some(array.array_ref().clone()))
+        Ok(Some(array.array().clone()))
     }
 }

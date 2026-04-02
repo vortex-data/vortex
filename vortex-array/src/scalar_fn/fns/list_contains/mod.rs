@@ -710,7 +710,7 @@ mod tests {
 
         ListArray::try_new(elements, offsets, Validity::NonNullable)
             .unwrap()
-            .to_array_ref()
+            .as_array()
             .to_listview()
             .into_array()
     }

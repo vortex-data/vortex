@@ -16,7 +16,7 @@ impl OperationsVTable<Delta> for Delta {
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let decompressed = array.array_ref().slice(index..index + 1)?.to_primitive();
+        let decompressed = array.array().slice(index..index + 1)?.to_primitive();
         decompressed.into_array().scalar_at(0)
     }
 }

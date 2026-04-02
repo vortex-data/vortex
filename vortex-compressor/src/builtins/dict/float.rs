@@ -146,7 +146,7 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array()),
         )
         .into_array();
-        let undict = dict_array.to_array_ref().to_primitive().into_array();
+        let undict = dict_array.as_array().to_primitive().into_array();
         assert_arrays_eq!(undict, expected);
     }
 }

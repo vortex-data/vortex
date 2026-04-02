@@ -19,7 +19,7 @@ impl CastReduce for Null {
             vortex_bail!("Cannot cast Null to {}", dtype);
         }
         if dtype == &DType::Null {
-            return Ok(Some(array.array_ref().clone()));
+            return Ok(Some(array.array().clone()));
         }
 
         let scalar = Scalar::null(dtype.clone());

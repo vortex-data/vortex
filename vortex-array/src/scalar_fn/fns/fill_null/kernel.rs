@@ -121,7 +121,7 @@ where
             .get_child(1)
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
-        let arr = array.array_ref().clone();
+        let arr = array.array().clone();
         if let Some(result) = precondition(&arr, &fill_value)? {
             return Ok(Some(result));
         }
@@ -157,7 +157,7 @@ where
             .get_child(1)
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
-        let arr = array.array_ref().clone();
+        let arr = array.array().clone();
         if let Some(result) = precondition(&arr, &fill_value)? {
             return Ok(Some(result));
         }

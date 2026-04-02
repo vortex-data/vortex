@@ -79,7 +79,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
         if array.is_empty() {
             Ok(Some(Canonical::empty(array.dtype()).into_array()))
         } else {
-            let result = array.array_ref().scalar_at(0)?;
+            let result = array.array().scalar_at(0)?;
             Ok(Some(ConstantArray::new(result, array.len).into_array()))
         }
     }
@@ -114,7 +114,7 @@ struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
         // TODO(ngates): blergh!
-        let array_ref = array.array_ref().clone();
+        let array_ref = array.array().clone();
         if let Some(reduced) = array
             .scalar_fn()
             .reduce(&array_ref, &ArrayReduceCtx { len: array.len })?

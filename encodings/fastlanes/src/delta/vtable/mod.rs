@@ -104,26 +104,6 @@ impl VTable for Delta {
         None
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        2
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.bases().clone(),
-            1 => array.deltas().clone(),
-            _ => vortex_panic!("DeltaArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "bases".to_string(),
-            1 => "deltas".to_string(),
-            _ => vortex_panic!("DeltaArray child name index {idx} out of bounds"),
-        }
-    }
-
     fn reduce_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,

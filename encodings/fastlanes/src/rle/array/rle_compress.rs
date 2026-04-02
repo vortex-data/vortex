@@ -150,7 +150,7 @@ mod tests {
         let array_u8: Buffer<u8> = buffer![1, 1, 2, 2, 3, 3];
         let encoded_u8 =
             RLEData::encode(&PrimitiveArray::new(array_u8, Validity::NonNullable)).unwrap();
-        let decoded_u8 = encoded_u8.to_array_ref().to_primitive();
+        let decoded_u8 = encoded_u8.as_array().to_primitive();
         let expected_u8 = PrimitiveArray::from_iter(vec![1u8, 1, 2, 2, 3, 3]);
         assert_arrays_eq!(decoded_u8, expected_u8);
 
@@ -158,7 +158,7 @@ mod tests {
         let array_u16: Buffer<u16> = buffer![100, 100, 200, 200];
         let encoded_u16 =
             RLEData::encode(&PrimitiveArray::new(array_u16, Validity::NonNullable)).unwrap();
-        let decoded_u16 = encoded_u16.to_array_ref().to_primitive();
+        let decoded_u16 = encoded_u16.as_array().to_primitive();
         let expected_u16 = PrimitiveArray::from_iter(vec![100u16, 100, 200, 200]);
         assert_arrays_eq!(decoded_u16, expected_u16);
 
@@ -166,7 +166,7 @@ mod tests {
         let array_u64: Buffer<u64> = buffer![1000, 1000, 2000];
         let encoded_u64 =
             RLEData::encode(&PrimitiveArray::new(array_u64, Validity::NonNullable)).unwrap();
-        let decoded_u64 = encoded_u64.to_array_ref().to_primitive();
+        let decoded_u64 = encoded_u64.as_array().to_primitive();
         let expected_u64 = PrimitiveArray::from_iter(vec![1000u64, 1000, 2000]);
         assert_arrays_eq!(decoded_u64, expected_u64);
     }
@@ -194,7 +194,7 @@ mod tests {
         let encoded = RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap();
         assert_eq!(encoded.values().len(), 2); // 2 chunks, each storing value 42
 
-        let decoded = encoded.to_array_ref().to_primitive(); // Verify round-trip
+        let decoded = encoded.as_array().to_primitive(); // Verify round-trip
         let expected = PrimitiveArray::from_iter(vec![42u16; 2000]);
         assert_arrays_eq!(decoded, expected);
     }
@@ -206,7 +206,7 @@ mod tests {
         let encoded = RLEData::encode(&PrimitiveArray::new(values, Validity::NonNullable)).unwrap();
         assert_eq!(encoded.values().len(), 256);
 
-        let decoded = encoded.to_array_ref().to_primitive(); // Verify round-trip
+        let decoded = encoded.as_array().to_primitive(); // Verify round-trip
         let expected = PrimitiveArray::from_iter((0u8..=255).collect::<Vec<_>>());
         assert_arrays_eq!(decoded, expected);
     }
@@ -253,7 +253,7 @@ mod tests {
     fn test_roundtrip_primitive_types<T: NativePType>(#[case] values: Buffer<T>) {
         let primitive = values.clone().into_array().to_primitive();
         let result = RLEData::encode(&primitive).unwrap();
-        let decoded = result.to_array_ref().to_primitive();
+        let decoded = result.as_array().to_primitive();
         let expected = PrimitiveArray::new(values, primitive.validity());
         assert_arrays_eq!(decoded, expected);
     }
@@ -267,7 +267,7 @@ mod tests {
     fn test_float_zeros<T: NativePType + RLE>(#[case] values: Vec<T>) {
         let primitive = PrimitiveArray::from_iter(values);
         let rle = RLEData::encode(&primitive).unwrap();
-        let decoded = rle.to_array_ref().to_primitive();
+        let decoded = rle.as_array().to_primitive();
         assert_arrays_eq!(primitive, decoded);
     }
 }

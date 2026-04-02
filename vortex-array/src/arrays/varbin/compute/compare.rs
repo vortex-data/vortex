@@ -79,7 +79,7 @@ impl CompareKernel for VarBin {
                 ));
             }
 
-            let lhs = Datum::try_new(lhs.array_ref())?;
+            let lhs = Datum::try_new(lhs.array())?;
 
             // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
             // produced by Datum::try_new (which uses into_arrow_preferred())
@@ -116,7 +116,7 @@ impl CompareKernel for VarBin {
             // Arrow doesn't support comparing VarBin to VarBinView arrays, so we convert ourselves
             // to VarBinView and re-invoke.
             Ok(Some(
-                lhs.array_ref()
+                lhs.array()
                     .clone()
                     .execute::<VarBinViewArray>(ctx)?
                     .into_array()

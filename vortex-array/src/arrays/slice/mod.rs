@@ -65,7 +65,7 @@ pub trait SliceKernel: VTable {
 
 fn precondition<V: VTable>(array: ArrayView<'_, V>, range: &Range<usize>) -> Option<ArrayRef> {
     if range.start == 0 && range.end == array.len() {
-        return Some(array.array_ref().clone());
+        return Some(array.array().clone());
     };
     if range.start == range.end {
         return Some(Canonical::empty(array.dtype()).into_array());

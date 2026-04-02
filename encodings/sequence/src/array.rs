@@ -310,18 +310,6 @@ impl VTable for Sequence {
         vortex_panic!("SequenceArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        0
-    }
-
-    fn child(_array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        vortex_panic!("SequenceArray child index {idx} out of bounds")
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        vortex_panic!("SequenceArray child_name index {idx} out of bounds")
-    }
-
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(SequenceMetadata {
             base: array.base(),

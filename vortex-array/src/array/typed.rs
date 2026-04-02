@@ -16,13 +16,14 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::ValidityHelper;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
-
+use crate::validity::Validity;
 // =============================================================================
 // ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
 // =============================================================================
@@ -172,16 +173,6 @@ impl<V: VTable> Array<V> {
         }
     }
 
-    /// Returns a reference to the underlying [`ArrayRef`].
-    pub fn array_ref(&self) -> &ArrayRef {
-        &self.inner
-    }
-
-    /// Consumes this typed array and returns the underlying [`ArrayRef`].
-    pub fn into_array_ref(self) -> ArrayRef {
-        self.inner
-    }
-
     /// Returns the dtype.
     pub fn dtype(&self) -> &DType {
         self.inner.dtype()
@@ -217,9 +208,10 @@ impl<V: VTable> Array<V> {
         self.downcast_inner().data.clone()
     }
 
-    /// Returns a cloned [`ArrayRef`].
-    pub fn to_array_ref(&self) -> ArrayRef {
-        self.inner.clone()
+    /// Returns the internal [`ArrayRef`].
+    #[inline(always)]
+    pub fn as_array(&self) -> &ArrayRef {
+        &self.inner
     }
 
     /// Returns an [`ArrayView`] borrowing this array's data.
@@ -242,12 +234,12 @@ impl<V: VTable> Array<V> {
 
 impl<V: VTable> Array<V>
 where
-    V::ArrayData: crate::vtable::ValidityHelper,
+    V::ArrayData: ValidityHelper,
 {
     /// Returns a reference to the validity.
     #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &crate::validity::Validity {
-        crate::vtable::ValidityHelper::validity(self.data())
+    pub fn validity(&self) -> &Validity {
+        ValidityHelper::validity(self.data())
     }
 }
 

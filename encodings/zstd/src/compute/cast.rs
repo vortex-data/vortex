@@ -29,7 +29,7 @@ impl CastReduce for Zstd {
             // completeness of the match arms we also handle it here.
             (Nullability::Nullable, Nullability::Nullable)
             | (Nullability::NonNullable, Nullability::NonNullable) => {
-                Ok(Some(array.array_ref().clone()))
+                Ok(Some(array.array().clone()))
             }
             (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity

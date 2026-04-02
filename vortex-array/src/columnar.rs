@@ -94,7 +94,7 @@ impl ColumnarView<'_> {
     pub fn to_array_ref(&self) -> ArrayRef {
         match self {
             ColumnarView::Canonical(canonical) => canonical.to_array_ref(),
-            ColumnarView::Constant(constant) => constant.array_ref().clone(),
+            ColumnarView::Constant(constant) => constant.array().clone(),
         }
     }
 }

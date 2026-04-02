@@ -51,23 +51,23 @@ impl CompareKernel for DateTimeParts {
         let ts_parts = timestamp::split(timestamp, options.unit)?;
 
         match operator {
-            CompareOperator::Eq => compare_eq(&lhs, &ts_parts, nullability),
-            CompareOperator::NotEq => compare_ne(&lhs, &ts_parts, nullability),
+            CompareOperator::Eq => compare_eq(lhs, &ts_parts, nullability),
+            CompareOperator::NotEq => compare_ne(lhs, &ts_parts, nullability),
             // lt and lte have identical behavior, as we optimize
             // for the case that all days on the lhs are smaller.
             // If that special case is not hit, we return `Ok(None)` to
             // signal that the comparison wasn't handled within dtp.
-            CompareOperator::Lt => compare_lt(&lhs, &ts_parts, nullability),
-            CompareOperator::Lte => compare_lt(&lhs, &ts_parts, nullability),
+            CompareOperator::Lt => compare_lt(lhs, &ts_parts, nullability),
+            CompareOperator::Lte => compare_lt(lhs, &ts_parts, nullability),
             // (Like for lt, lte)
-            CompareOperator::Gt => compare_gt(&lhs, &ts_parts, nullability),
-            CompareOperator::Gte => compare_gt(&lhs, &ts_parts, nullability),
+            CompareOperator::Gt => compare_gt(lhs, &ts_parts, nullability),
+            CompareOperator::Gte => compare_gt(lhs, &ts_parts, nullability),
         }
     }
 }
 
 fn compare_eq(
-    lhs: &DateTimePartsData,
+    lhs: ArrayView<DateTimeParts>,
     ts_parts: &timestamp::TimestampParts,
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -102,7 +102,7 @@ fn compare_eq(
 }
 
 fn compare_ne(
-    lhs: &DateTimePartsData,
+    lhs: ArrayView<DateTimeParts>,
     ts_parts: &timestamp::TimestampParts,
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -142,7 +142,7 @@ fn compare_ne(
 }
 
 fn compare_lt(
-    lhs: &DateTimePartsData,
+    lhs: ArrayView<DateTimeParts>,
     ts_parts: &timestamp::TimestampParts,
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -156,7 +156,7 @@ fn compare_lt(
 }
 
 fn compare_gt(
-    lhs: &DateTimePartsData,
+    lhs: ArrayView<DateTimeParts>,
     ts_parts: &timestamp::TimestampParts,
     nullability: Nullability,
 ) -> VortexResult<Option<ArrayRef>> {

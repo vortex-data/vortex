@@ -88,24 +88,6 @@ impl VTable for Variant {
         None
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        1
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.child().clone(),
-            _ => vortex_panic!("VariantArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "child".to_string(),
-            _ => vortex_panic!("VariantArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }

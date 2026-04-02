@@ -81,16 +81,22 @@ impl VTable for Null {
         None
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        0
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn child(_array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        vortex_panic!("NullArray child index {idx} out of bounds")
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        vortex_panic!("NullArray slot_name index {idx} out of bounds")
     }
 
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        vortex_panic!("NullArray child_name index {idx} out of bounds")
+    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "NullArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        Ok(())
     }
 
     fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
@@ -119,24 +125,6 @@ impl VTable for Null {
         _children: &dyn ArrayChildren,
     ) -> VortexResult<NullData> {
         Ok(NullData::new(len))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        vortex_panic!("NullArray slot_name index {idx} out of bounds")
-    }
-
-    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "NullArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        Ok(())
     }
 
     fn reduce_parent(

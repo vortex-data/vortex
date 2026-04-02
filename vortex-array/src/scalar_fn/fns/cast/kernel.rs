@@ -58,7 +58,7 @@ where
     ) -> VortexResult<Option<ArrayRef>> {
         let dtype = parent.options;
         if array.dtype() == dtype {
-            return Ok(Some(array.array_ref().clone()));
+            return Ok(Some(array.array().clone()));
         }
         <V as CastReduce>::cast(array, dtype)
     }
@@ -83,7 +83,7 @@ where
     ) -> VortexResult<Option<ArrayRef>> {
         let dtype = parent.options;
         if array.dtype() == dtype {
-            return Ok(Some(array.array_ref().clone()));
+            return Ok(Some(array.array().clone()));
         }
         <V as CastKernel>::cast(array, dtype, ctx)
     }

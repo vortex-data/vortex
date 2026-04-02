@@ -12,10 +12,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::VTable;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
@@ -519,6 +521,44 @@ impl ToCanonical for ArrayRef {
     }
 }
 
+impl<V: VTable> ToCanonical for Array<V> {
+    fn to_null(&self) -> NullArray {
+        self.as_ref().to_null()
+    }
+
+    fn to_bool(&self) -> BoolArray {
+        todo!()
+    }
+
+    fn to_primitive(&self) -> PrimitiveArray {
+        todo!()
+    }
+
+    fn to_decimal(&self) -> DecimalArray {
+        todo!()
+    }
+
+    fn to_struct(&self) -> StructArray {
+        todo!()
+    }
+
+    fn to_listview(&self) -> ListViewArray {
+        todo!()
+    }
+
+    fn to_fixed_size_list(&self) -> FixedSizeListArray {
+        todo!()
+    }
+
+    fn to_varbinview(&self) -> VarBinViewArray {
+        todo!()
+    }
+
+    fn to_extension(&self) -> ExtensionArray {
+        todo!()
+    }
+}
+
 impl From<Canonical> for ArrayRef {
     fn from(value: Canonical) -> Self {
         match_each_canonical!(value, |arr| arr.into_array())
@@ -977,16 +1017,16 @@ impl CanonicalView<'_> {
     /// Convert to a type-erased [`ArrayRef`].
     pub fn to_array_ref(&self) -> ArrayRef {
         match self {
-            CanonicalView::Null(a) => a.array_ref().clone(),
-            CanonicalView::Bool(a) => a.array_ref().clone(),
-            CanonicalView::Primitive(a) => a.array_ref().clone(),
-            CanonicalView::Decimal(a) => a.array_ref().clone(),
-            CanonicalView::VarBinView(a) => a.array_ref().clone(),
-            CanonicalView::List(a) => a.array_ref().clone(),
-            CanonicalView::FixedSizeList(a) => a.array_ref().clone(),
-            CanonicalView::Struct(a) => a.array_ref().clone(),
-            CanonicalView::Extension(a) => a.array_ref().clone(),
-            CanonicalView::Variant(a) => a.array_ref().clone(),
+            CanonicalView::Null(a) => a.array().clone(),
+            CanonicalView::Bool(a) => a.array().clone(),
+            CanonicalView::Primitive(a) => a.array().clone(),
+            CanonicalView::Decimal(a) => a.array().clone(),
+            CanonicalView::VarBinView(a) => a.array().clone(),
+            CanonicalView::List(a) => a.array().clone(),
+            CanonicalView::FixedSizeList(a) => a.array().clone(),
+            CanonicalView::Struct(a) => a.array().clone(),
+            CanonicalView::Extension(a) => a.array().clone(),
+            CanonicalView::Variant(a) => a.array().clone(),
         }
     }
 }

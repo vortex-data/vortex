@@ -110,24 +110,6 @@ impl VTable for DecimalByteParts {
         vortex_panic!("DecimalBytePartsArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        1
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.msp().clone(),
-            _ => vortex_panic!("DecimalBytePartsArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "msp".to_string(),
-            _ => vortex_panic!("DecimalBytePartsArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DecimalBytesPartsMetadata {
             zeroth_child_ptype: PType::try_from(array.msp().dtype())? as i32,
@@ -176,7 +158,7 @@ impl VTable for DecimalByteParts {
         &array.data().slots
     }
 
-    fn slot_name(__array: ArrayView<'_, Self>, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 

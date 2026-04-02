@@ -105,26 +105,6 @@ impl VTable for Dict {
         None
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        2
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.codes().clone(),
-            1 => array.values().clone(),
-            _ => vortex_panic!("DictArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "codes".to_string(),
-            1 => "values".to_string(),
-            _ => vortex_panic!("DictArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DictMetadata {
             codes_ptype: PType::try_from(array.codes().dtype())? as i32,
@@ -188,7 +168,7 @@ impl VTable for Dict {
         &array.data().slots
     }
 
-    fn slot_name(__array: ArrayView<'_, Self>, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 

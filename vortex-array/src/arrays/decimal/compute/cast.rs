@@ -56,7 +56,7 @@ impl CastKernel for Decimal {
 
         // If the dtype is exactly the same, return self
         if array.dtype() == dtype {
-            return Ok(Some(array.array_ref().clone()));
+            return Ok(Some(array.array().clone()));
         }
 
         // Cast the validity to the new nullability
@@ -69,7 +69,7 @@ impl CastKernel for Decimal {
         let array = if target_values_type > array.values_type() {
             upcast_decimal_values(array, target_values_type)?
         } else {
-            array.array_ref().as_::<Decimal>().into_owned()
+            array.array().as_::<Decimal>().into_owned()
         };
 
         // SAFETY: new_validity same length as previous validity, just cast
@@ -106,7 +106,7 @@ pub fn upcast_decimal_values(
 
     // If already the target type, just clone
     if from_values_type == to_values_type {
-        return Ok(array.array_ref().as_::<Decimal>().into_owned());
+        return Ok(array.array().as_::<Decimal>().into_owned());
     }
 
     // Only allow upcasting (widening)

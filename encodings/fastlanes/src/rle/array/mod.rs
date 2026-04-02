@@ -447,7 +447,7 @@ mod tests {
         let rle_array = RLEData::encode(&primitive).unwrap();
         assert_eq!(rle_array.len(), 2048);
 
-        let original_data = rle_array.to_array_ref().to_primitive();
+        let original_data = rle_array.as_array().to_primitive();
 
         let ctx = ArrayContext::empty();
         let serialized = rle_array
@@ -517,7 +517,7 @@ mod tests {
             )
             .unwrap();
 
-        let original_data = sliced.to_array_ref().to_primitive();
+        let original_data = sliced.as_array().to_primitive();
         let decoded_data = decoded.to_primitive();
 
         assert_arrays_eq!(original_data, decoded_data);
@@ -562,7 +562,7 @@ mod tests {
         })?;
 
         // Decompress — panicked before the fill_forward_nulls chunk-boundary fix.
-        let decoded = reconstructed.to_array_ref().to_primitive();
+        let decoded = reconstructed.as_array().to_primitive();
         assert_arrays_eq!(decoded, original);
         Ok(())
     }

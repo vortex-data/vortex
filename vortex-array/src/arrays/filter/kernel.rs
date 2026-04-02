@@ -71,7 +71,7 @@ fn precondition<V: VTable>(array: ArrayView<'_, V>, mask: &Mask) -> Option<Array
 
     // Fast-path for full mask (all true).
     if true_count == mask.len() {
-        return Some(array.array_ref().clone());
+        return Some(array.array().clone());
     }
 
     None

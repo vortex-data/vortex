@@ -86,24 +86,6 @@ impl VTable for ZigZag {
         vortex_panic!("ZigZagArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        1
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.encoded().clone(),
-            _ => vortex_panic!("ZigZagArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "encoded".to_string(),
-            _ => vortex_panic!("ZigZagArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
@@ -144,7 +126,7 @@ impl VTable for ZigZag {
         &array.data().slots
     }
 
-    fn slot_name(__array: ArrayView<'_, Self>, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
@@ -321,7 +303,7 @@ mod test {
         let sliced = zigzag.slice(0..2).unwrap();
         let sliced = sliced.as_::<ZigZag>();
         assert_eq!(
-            sliced.array_ref().scalar_at(sliced.len() - 1).unwrap(),
+            sliced.array().scalar_at(sliced.len() - 1).unwrap(),
             Scalar::from(-5i32)
         );
 

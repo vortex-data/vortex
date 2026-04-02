@@ -68,7 +68,7 @@ where
         let children = scalar_fn_array.children();
         let lower = &children[1];
         let upper = &children[2];
-        let arr = array.array_ref().clone();
+        let arr = array.array().clone();
         if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));
         }
@@ -103,7 +103,7 @@ where
         let children = scalar_fn_array.children();
         let lower = &children[1];
         let upper = &children[2];
-        let arr = array.array_ref().clone();
+        let arr = array.array().clone();
         if let Some(result) = precondition(&arr, lower, upper)? {
             return Ok(Some(result));
         }

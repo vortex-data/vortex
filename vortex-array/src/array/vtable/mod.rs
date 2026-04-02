@@ -153,7 +153,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let canonical = array
-            .array_ref()
+            .array()
             .clone()
             .execute::<Canonical>(ctx)?
             .into_array();

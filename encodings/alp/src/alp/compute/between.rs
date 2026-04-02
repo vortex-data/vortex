@@ -18,7 +18,6 @@ use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_error::VortexResult;
 
 use crate::ALP;
-use crate::ALPData;
 use crate::ALPFloat;
 use crate::match_each_alp_float_ptype;
 
@@ -41,7 +40,7 @@ impl BetweenReduce for ALP {
             array.dtype().nullability() | lower.dtype().nullability() | upper.dtype().nullability();
         match_each_alp_float_ptype!(array.ptype(), |F| {
             between_impl::<F>(
-                &array,
+                array,
                 F::try_from(&lower)?,
                 F::try_from(&upper)?,
                 nullability,
@@ -112,7 +111,8 @@ mod tests {
         options: &BetweenOptions,
         expected: bool,
     ) {
-        let res = between_impl(arr, lower, upper, Nullability::Nullable, options).unwrap();
+        let res =
+            between_impl(arr.as_view(), lower, upper, Nullability::Nullable, options).unwrap();
         assert_arrays_eq!(res, BoolArray::from_iter([Some(expected)]));
     }
 

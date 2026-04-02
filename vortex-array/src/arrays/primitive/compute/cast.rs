@@ -97,7 +97,7 @@ fn values_fit_in(
     ctx: &mut ExecutionCtx,
 ) -> bool {
     let target_dtype = DType::Primitive(target_ptype, Nullability::NonNullable);
-    aggregate_fn::fns::min_max::min_max(array.array_ref(), ctx)
+    aggregate_fn::fns::min_max::min_max(array.array(), ctx)
         .ok()
         .flatten()
         .is_none_or(|mm| mm.min.cast(&target_dtype).is_ok() && mm.max.cast(&target_dtype).is_ok())

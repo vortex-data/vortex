@@ -99,7 +99,7 @@ where
         }
         let result = <V as TakeReduce>::take(array, parent.codes())?;
         if let Some(ref taken) = result {
-            propagate_take_stats(array.array_ref(), taken, parent.codes())?;
+            propagate_take_stats(array.array(), taken, parent.codes())?;
         }
         Ok(result)
     }
@@ -130,7 +130,7 @@ where
         }
         let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
         if let Some(ref taken) = result {
-            propagate_take_stats(array.array_ref(), taken, parent.codes())?;
+            propagate_take_stats(array.array(), taken, parent.codes())?;
         }
         Ok(result)
     }

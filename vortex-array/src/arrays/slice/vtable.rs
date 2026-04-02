@@ -96,22 +96,12 @@ impl VTable for Slice {
         None
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        1
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.child().clone(),
-            _ => vortex_panic!("SliceArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "child".to_string(),
-            _ => vortex_panic!("SliceArray child_name index {idx} out of bounds"),
-        }
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
@@ -143,14 +133,6 @@ impl VTable for Slice {
         assert_eq!(len, metadata.0.len());
         let child = children.get(0, dtype, metadata.0.end)?;
         SliceData::try_new(child, metadata.0.clone())
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

@@ -43,7 +43,7 @@ impl FillNullKernel for Dict {
             // No fill values found, so we must canonicalize and fill_null.
             return Ok(Some(
                 array
-                    .array_ref()
+                    .array()
                     .clone()
                     .execute::<Canonical>(ctx)?
                     .into_array()

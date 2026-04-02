@@ -97,49 +97,6 @@ impl VTable for ALP {
         None
     }
 
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        let patch_children = array
-            .patches()
-            .map_or(0, |p| 2 + if p.chunk_offsets().is_some() { 1 } else { 0 });
-        1 + patch_children
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.encoded().clone(),
-            _ => {
-                let patches = array
-                    .patches()
-                    .unwrap_or_else(|| vortex_panic!("ALPArray child index {idx} out of bounds"));
-                match idx - 1 {
-                    0 => patches.indices().clone(),
-                    1 => patches.values().clone(),
-                    2 => patches.chunk_offsets().clone().unwrap_or_else(|| {
-                        vortex_panic!("ALPArray child index {idx} out of bounds")
-                    }),
-                    _ => vortex_panic!("ALPArray child index {idx} out of bounds"),
-                }
-            }
-        }
-    }
-
-    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "encoded".to_string(),
-            _ => {
-                if array.patches().is_none() {
-                    vortex_panic!("ALPArray child_name index {idx} out of bounds");
-                }
-                match idx - 1 {
-                    0 => "patch_indices".to_string(),
-                    1 => "patch_values".to_string(),
-                    2 => "patch_chunk_offsets".to_string(),
-                    _ => vortex_panic!("ALPArray child_name index {idx} out of bounds"),
-                }
-            }
-        }
-    }
-
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         let exponents = array.exponents();
         Ok(ProstMetadata(ALPMetadata {
@@ -222,22 +179,10 @@ impl VTable for ALP {
             slots.len()
         );
 
-        // Reconstruct patches from slots + existing metadata
-        array.patches = match (&slots[PATCH_INDICES_SLOT], &slots[PATCH_VALUES_SLOT]) {
-            (Some(indices), Some(values)) => {
-                let old = array
-                    .patches
-                    .as_ref()
-                    .vortex_expect("ALPArray had patch slots but no patches metadata");
-                Some(Patches::new(
-                    old.array_len(),
-                    old.offset(),
-                    indices.clone(),
-                    values.clone(),
-                    slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
-                )?)
-            }
-            _ => None,
+        // If patch slots are being cleared, clear the metadata too
+        if slots[PATCH_INDICES_SLOT].is_none() || slots[PATCH_VALUES_SLOT].is_none() {
+            array.patch_offset = None;
+            array.patch_offset_within_chunk = None;
         };
 
         array.slots = slots;
@@ -259,6 +204,14 @@ impl VTable for ALP {
         ))
     }
 
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+
     fn execute_parent(
         array: ArrayView<'_, Self>,
         parent: &ArrayRef,
@@ -266,14 +219,6 @@ impl VTable for ALP {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -296,7 +241,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
 #[derive(Clone, Debug)]
 pub struct ALPData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    patches: Option<Patches>,
+    patch_offset: Option<usize>,
+    patch_offset_within_chunk: Option<usize>,
     dtype: DType,
     exponents: Exponents,
     stats_set: ArrayStats,
@@ -465,12 +411,17 @@ impl ALPData {
         };
 
         let slots = Self::make_slots(&encoded, &patches);
+        let (patch_offset, patch_offset_within_chunk) = match &patches {
+            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
+            None => (None, None),
+        };
 
         Ok(Self {
             dtype,
             slots,
-            patches,
             exponents,
+            patch_offset,
+            patch_offset_within_chunk,
             stats_set: Default::default(),
         })
     }
@@ -486,12 +437,17 @@ impl ALPData {
         dtype: DType,
     ) -> Self {
         let slots = Self::make_slots(&encoded, &patches);
+        let (patch_offset, patch_offset_within_chunk) = match &patches {
+            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
+            None => (None, None),
+        };
 
         Self {
             dtype,
             slots,
-            patches,
             exponents,
+            patch_offset,
+            patch_offset_within_chunk,
             stats_set: Default::default(),
         }
     }
@@ -574,7 +530,27 @@ impl ALPData {
     }
 
     pub fn patches(&self) -> Option<Patches> {
-        self.patches.clone()
+        match (
+            &self.slots[PATCH_INDICES_SLOT],
+            &self.slots[PATCH_VALUES_SLOT],
+        ) {
+            (Some(indices), Some(values)) => {
+                let patch_offset = self
+                    .patch_offset
+                    .vortex_expect("has patch slots but no patch_offset");
+                Some(unsafe {
+                    Patches::new_unchecked(
+                        self.encoded().len(),
+                        patch_offset,
+                        indices.clone(),
+                        values.clone(),
+                        self.slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                        self.patch_offset_within_chunk,
+                    )
+                })
+            }
+            _ => None,
+        }
     }
 
     /// Consumes the array and returns its parts.

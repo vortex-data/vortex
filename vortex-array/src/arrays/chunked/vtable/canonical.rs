@@ -40,7 +40,7 @@ pub(super) fn _canonicalize(
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
                 &owned_chunks,
-                Validity::copy_from_array(array.array_ref())?,
+                Validity::copy_from_array(array.array())?,
                 struct_dtype,
                 ctx,
             )?;
@@ -48,13 +48,13 @@ pub(super) fn _canonicalize(
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             &owned_chunks,
-            Validity::copy_from_array(array.array_ref())?,
+            Validity::copy_from_array(array.array())?,
             elem_dtype,
             ctx,
         )?),
         _ => {
             let mut builder = builder_with_capacity(array.dtype(), array.len());
-            array.array_ref().append_to_builder(builder.as_mut(), ctx)?;
+            array.array().append_to_builder(builder.as_mut(), ctx)?;
             builder.finish_into_canonical()
         }
     })
@@ -256,7 +256,7 @@ mod tests {
             List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_array_ref().to_listview();
+        let canon_values = chunked_list.unwrap().as_array().to_listview();
 
         assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
         assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());

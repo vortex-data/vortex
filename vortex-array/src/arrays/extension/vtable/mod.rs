@@ -89,22 +89,12 @@ impl VTable for Extension {
         None
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        1
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.storage_array().clone(),
-            _ => vortex_panic!("ExtensionArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "storage".to_string(),
-            _ => vortex_panic!("ExtensionArray child_name index {idx} out of bounds"),
-        }
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
@@ -140,14 +130,6 @@ impl VTable for Extension {
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
         Ok(ExtensionData::new(ext_dtype.clone(), storage))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

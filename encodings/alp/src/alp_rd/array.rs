@@ -677,7 +677,7 @@ mod test {
 
         let rd_array = encoder.encode(&real_array);
 
-        let decoded = rd_array.to_array_ref().to_primitive();
+        let decoded = rd_array.as_array().to_primitive();
 
         assert_arrays_eq!(decoded, PrimitiveArray::from_option_iter(reals));
     }

@@ -161,62 +161,12 @@ impl VTable for ParquetVariant {
         None
     }
 
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        let validity_children = if matches!(array.validity, Validity::Array(_)) {
-            1
-        } else {
-            0
-        };
-        1 + validity_children
-            + array.value_array().is_some() as usize
-            + array.typed_value_array().is_some() as usize
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        let vc = if matches!(array.validity, Validity::Array(_)) {
-            1
-        } else {
-            0
-        };
-        if idx < vc {
-            validity_to_child(&array.validity, array.metadata_array().len())
-                .vortex_expect("ParquetVariantArray validity child out of bounds")
-        } else {
-            match idx - vc {
-                0 => array.metadata_array().clone(),
-                1 if array.value_array().is_some() => array
-                    .value_array()
-                    .cloned()
-                    .vortex_expect("ParquetVariantArray missing value child"),
-                1 => array
-                    .typed_value_array()
-                    .cloned()
-                    .vortex_expect("ParquetVariantArray missing typed_value child"),
-                2 => array
-                    .typed_value_array()
-                    .cloned()
-                    .vortex_expect("ParquetVariantArray missing typed_value child"),
-                _ => vortex_panic!("ParquetVariantArray child index {idx} out of bounds"),
-            }
-        }
-    }
-
-    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        let vc = if matches!(array.validity, Validity::Array(_)) {
-            1
-        } else {
-            0
-        };
-        match idx {
-            idx if idx < vc => "validity".to_string(),
-            idx => match idx - vc {
-                0 => "metadata".to_string(),
-                1 if array.value_array().is_some() => "value".to_string(),
-                1 => "typed_value".to_string(),
-                2 => "typed_value".to_string(),
-                _ => vortex_panic!("ParquetVariantArray child_name index {idx} out of bounds"),
-            },
-        }
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
     fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
@@ -319,14 +269,6 @@ impl VTable for ParquetVariant {
         };
 
         ParquetVariantData::try_new(validity, variant_metadata, value, typed_value)
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

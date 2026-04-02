@@ -88,22 +88,26 @@ impl VTable for Shared {
         None
     }
 
-    fn nchildren(_array: ArrayView<'_, Self>) -> usize {
-        1
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.current_array_ref().clone(),
-            _ => vortex_panic!("SharedArray child index {idx} out of bounds"),
-        }
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
     }
 
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "source".to_string(),
-            _ => vortex_panic!("SharedArray child_name index {idx} out of bounds"),
-        }
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_error::vortex_ensure!(
+            slots.len() == 1,
+            "SharedArray expects exactly 1 slot, got {}",
+            slots.len()
+        );
+        let slot = slots
+            .into_iter()
+            .next()
+            .vortex_expect("slots length already validated");
+        array.set_source(slot);
+        Ok(())
     }
 
     fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
@@ -133,28 +137,6 @@ impl VTable for Shared {
     ) -> VortexResult<SharedData> {
         let child = children.get(0, dtype, len)?;
         Ok(SharedData::new(child))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_error::vortex_ensure!(
-            slots.len() == 1,
-            "SharedArray expects exactly 1 slot, got {}",
-            slots.len()
-        );
-        let slot = slots
-            .into_iter()
-            .next()
-            .vortex_expect("slots length already validated");
-        array.set_source(slot);
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

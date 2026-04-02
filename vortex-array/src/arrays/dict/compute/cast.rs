@@ -172,8 +172,8 @@ mod tests {
         );
 
         // Verify values are unchanged
-        let original_values = dict.to_array_ref().to_primitive();
-        let final_values = back_dict.array_ref().to_primitive();
+        let original_values = dict.as_array().to_primitive();
+        let final_values = back_dict.array().to_primitive();
         assert_arrays_eq!(original_values, final_values);
     }
 

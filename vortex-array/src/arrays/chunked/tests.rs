@@ -191,7 +191,7 @@ pub fn pack_nested_lists() {
         ),
     );
 
-    let canon_values = chunked_list.unwrap().to_array_ref().to_listview();
+    let canon_values = chunked_list.unwrap().as_array().to_listview();
 
     assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
     assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());

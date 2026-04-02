@@ -58,7 +58,7 @@ fn test_slice_comprehensive() {
     for i in 0..4 {
         // Compare the sliced elements
         assert_eq!(
-            full_list.array_ref().scalar_at(i).unwrap(),
+            full_list.array().scalar_at(i).unwrap(),
             listview.scalar_at(i).unwrap(),
             "Mismatch at index {}",
             i
@@ -147,8 +147,8 @@ fn test_slice_with_nulls() {
     let sliced_list = sliced.as_::<ListView>();
 
     assert_eq!(sliced_list.len(), 2);
-    assert!(sliced_list.array_ref().is_invalid(0).unwrap()); // Original index 1 was null.
-    assert!(sliced_list.array_ref().is_valid(1).unwrap()); // Original index 2 was valid.
+    assert!(sliced_list.array().is_invalid(0).unwrap()); // Original index 1 was null.
+    assert!(sliced_list.array().is_valid(1).unwrap()); // Original index 2 was valid.
 
     // Verify offsets and sizes are preserved.
     assert_eq!(sliced_list.offset_at(0), 2);

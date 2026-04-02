@@ -178,7 +178,7 @@ impl VTable for FSST {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
             builder.extend_from_array(
                 &array
-                    .array_ref()
+                    .array()
                     .clone()
                     .execute::<Canonical>(ctx)?
                     .into_array(),
@@ -190,11 +190,7 @@ impl VTable for FSST {
         // from it instead.
         let (buffers, views) = fsst_decode_views(&array, builder.completed_block_count(), ctx)?;
 
-        builder.push_buffer_and_adjusted_views(
-            &buffers,
-            &views,
-            array.array_ref().validity_mask()?,
-        );
+        builder.push_buffer_and_adjusted_views(&buffers, &views, array.array().validity_mask()?);
         Ok(())
     }
 
@@ -298,7 +294,7 @@ impl VTable for FSST {
         &array.data().slots
     }
 
-    fn slot_name(__array: ArrayView<'_, Self>, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 

@@ -178,12 +178,12 @@ impl VTable for Patched {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let dtype = array.array_ref().dtype();
+        let dtype = array.array().dtype();
 
         if !dtype.is_primitive() {
             // Default pathway: canonicalize and propagate.
             let canonical = array
-                .array_ref()
+                .array()
                 .clone()
                 .execute::<Canonical>(ctx)?
                 .into_array();

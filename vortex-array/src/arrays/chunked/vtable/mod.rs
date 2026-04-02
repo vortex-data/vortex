@@ -113,24 +113,6 @@ impl VTable for Chunked {
         vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        1 + array.chunks().len()
-    }
-
-    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.chunk_offsets.clone().into_array(),
-            n => array.chunks()[n - 1].clone(),
-        }
-    }
-
-    fn child_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            0 => "chunk_offsets".to_string(),
-            n => format!("chunks[{}]", n - 1),
-        }
-    }
-
     fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }

@@ -176,7 +176,7 @@ impl VTable for Masked {
         &array.data().slots
     }
 
-    fn slot_name(__array: ArrayView<'_, Self>, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 

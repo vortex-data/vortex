@@ -153,7 +153,7 @@ mod test {
 
         assert!(
             date_times
-                .to_array_ref()
+                .as_array()
                 .validity()?
                 .mask_eq(&validity, &mut ctx)?
         );

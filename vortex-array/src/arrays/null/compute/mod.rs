@@ -30,7 +30,7 @@ mod test {
 
         assert_eq!(sliced.len(), 4);
         assert!(matches!(
-            sliced.to_array_ref().validity_mask().unwrap(),
+            sliced.as_array().validity_mask().unwrap(),
             Mask::AllFalse(4)
         ));
     }
@@ -45,7 +45,7 @@ mod test {
 
         assert_eq!(taken.len(), 5);
         assert!(matches!(
-            taken.to_array_ref().validity_mask().unwrap(),
+            taken.as_array().validity_mask().unwrap(),
             Mask::AllFalse(5)
         ));
     }

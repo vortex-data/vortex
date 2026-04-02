@@ -453,7 +453,7 @@ mod tests {
         )
         .unwrap();
 
-        let actual = zipped.array_ref().clone().into_arrow_preferred().unwrap();
+        let actual = zipped.array().clone().into_arrow_preferred().unwrap();
         assert_eq!(actual.as_ref(), expected.as_ref());
     }
 }
