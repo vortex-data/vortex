@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -19,6 +18,9 @@ use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ListViewArray;
+use crate::arrays::listview::array::NUM_SLOTS;
+use crate::arrays::listview::array::SLOT_NAMES;
+use crate::arrays::listview::array::VALIDITY_SLOT;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -34,8 +36,6 @@ use crate::vtable::Array;
 use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod operations;
 mod validity;
 vtable!(ListView);
@@ -116,31 +116,6 @@ impl VTable for ListView {
         vortex_panic!("ListViewArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(array: &ListViewArray) -> usize {
-        3 + validity_nchildren(&array.validity)
-    }
-
-    fn child(array: &ListViewArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.elements().clone(),
-            1 => array.offsets().clone(),
-            2 => array.sizes().clone(),
-            3 => validity_to_child(&array.validity, array.len())
-                .vortex_expect("ListViewArray validity child out of bounds"),
-            _ => vortex_panic!("ListViewArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &ListViewArray, idx: usize) -> String {
-        match idx {
-            0 => "elements".to_string(),
-            1 => "offsets".to_string(),
-            2 => "sizes".to_string(),
-            3 => "validity".to_string(),
-            _ => vortex_panic!("ListViewArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(ListViewMetadata {
             elements_len: array.elements().len() as u64,
@@ -216,31 +191,26 @@ impl VTable for ListView {
         ListViewArray::try_new(elements, offsets, sizes, validity)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: &ListViewArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
+
+    fn slot_name(_array: &ListViewArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut ListViewArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 3 || children.len() == 4,
-            "ListViewArray expects 3 or 4 children, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "ListViewArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        let mut iter = children.into_iter();
-        let elements = iter
-            .next()
-            .vortex_expect("children length already validated");
-        let offsets = iter
-            .next()
-            .vortex_expect("children length already validated");
-        let sizes = iter
-            .next()
-            .vortex_expect("children length already validated");
-        let validity = if let Some(validity_array) = iter.next() {
-            Validity::Array(validity_array)
-        } else {
-            Validity::from(array.dtype.nullability())
+        array.validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
         };
-
-        let new_array = ListViewArray::try_new(elements, offsets, sizes, validity)?;
-        *array = new_array;
+        array.slots = slots;
         Ok(())
     }
 

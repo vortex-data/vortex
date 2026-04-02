@@ -36,9 +36,8 @@ pub mod buffer {
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
     pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
-    pub use vortex_btrblocks::FloatCode;
-    pub use vortex_btrblocks::IntCode;
-    pub use vortex_btrblocks::StringCode;
+    pub use vortex_btrblocks::Scheme;
+    pub use vortex_btrblocks::SchemeId;
 }
 
 pub mod dtype {
@@ -197,7 +196,6 @@ mod test {
     use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
@@ -340,7 +338,7 @@ mod test {
         assert!(
             recovered_primitive
                 .validity()
-                .mask_eq(array.validity(), &mut ctx)?
+                .mask_eq(&array.validity(), &mut ctx)?
         );
         assert_eq!(
             recovered_primitive.to_buffer::<u64>(),

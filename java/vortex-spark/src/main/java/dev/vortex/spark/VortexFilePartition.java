@@ -21,17 +21,25 @@ public final class VortexFilePartition implements InputPartition, Serializable {
     private final String path;
     private final ImmutableList<Column> columns;
     private final ImmutableMap<String, String> formatOptions;
+    private final ImmutableMap<String, String> partitionValues;
 
     /**
      * Creates a new Vortex file partition.
      *
      * @param path the file system path to the Vortex file
      * @param columns the list of columns to read from the file
+     * @param formatOptions options for accessing the file (S3/Azure credentials, etc.)
+     * @param partitionValues Hive-style partition column values extracted from the file path
      */
-    public VortexFilePartition(String path, ImmutableList<Column> columns, ImmutableMap<String, String> formatOptions) {
+    public VortexFilePartition(
+            String path,
+            ImmutableList<Column> columns,
+            ImmutableMap<String, String> formatOptions,
+            ImmutableMap<String, String> partitionValues) {
         this.path = path;
         this.columns = columns;
         this.formatOptions = formatOptions;
+        this.partitionValues = partitionValues;
     }
 
     /**
@@ -54,5 +62,15 @@ public final class VortexFilePartition implements InputPartition, Serializable {
 
     public Map<String, String> getFormatOptions() {
         return formatOptions;
+    }
+
+    /**
+     * Returns the partition column values parsed from this file's Hive-style directory path.
+     * Keys are column names, values are the string-encoded partition values.
+     *
+     * @return the partition values, empty if the file is not in a partitioned directory
+     */
+    public ImmutableMap<String, String> getPartitionValues() {
+        return partitionValues;
     }
 }

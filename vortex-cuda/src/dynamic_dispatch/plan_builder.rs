@@ -1,63 +1,36 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Walks an encoding tree and produces a dispatch plan for a single GPU kernel launch.
-//! [`UnmaterializedPlan::new`] builds the plan without a CUDA context, then
-//! [`materialize`](UnmaterializedPlan::materialize) copies buffers to the device.
-//!
-//! For partially-fusable trees (where some nodes can't be fused into the
-//! dispatch plan), the free function [`with_subtree_inputs`] builds a plan
-//! that incorporates pre-executed subtree outputs as `LOAD` sources.
-//!
-//! The two-phase design allows callers to query shared memory requirements
-//! before committing to device allocation, and keeps the bulk of the logic
-//! independent of the CUDA runtime.
-//!
-//! # Known limitations
-//!
-//! TODO(0ax1): Optimize device buffer allocation and copying.
-//!
-//! Ideally, there would be a buffer pool of preallocated device memory such
-//! that retrieving a device pointer is O(1) during materialization. In the
-//! current setup, we allocate via the global allocator, which does not pin
-//! host memory to physical addresses (unlike `cudaHostAlloc`). This means
-//! the host-to-device copy is synchronous and cannot be pushed to the CUDA
-//! stream as an async operation.
+//! Walks an encoding tree and produces a [`DispatchPlan`] for a single GPU
+//! kernel launch. The tree is inspected in a single pass, identifying unfusable
+//! subtrees and computing shared memory requirements upfront — before any
+//! device allocation or kernel work.
 
-use std::sync::Arc;
-
+use itertools::zip_eq;
+use tracing::trace;
 use vortex::array::ArrayRef;
-use vortex::array::ArrayVisitor;
 use vortex::array::DynArray;
-use vortex::array::ExecutionCtx;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Slice;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::session::ArraySession;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::fastlanes::BitPacked;
-use vortex::encodings::fastlanes::BitPackedArrayParts;
 use vortex::encodings::fastlanes::FoR;
-use vortex::encodings::fastlanes::FoRArray;
 use vortex::encodings::runend::RunEnd;
-use vortex::encodings::runend::RunEndArrayParts;
 use vortex::encodings::sequence::Sequence;
-use vortex::encodings::sequence::SequenceArrayParts;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
-use vortex::session::VortexSession;
 
 use super::CudaDispatchPlan;
+use super::MaterializedStage;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
 use super::SourceOp;
-use super::Stage;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 
@@ -71,70 +44,39 @@ pub struct MaterializedPlan {
     pub shared_mem_bytes: u32,
 }
 
-/// Find encoding-tree nodes that cannot be fused into a dynamic-dispatch plan.
-///
-/// Each returned node is the root of a branch that must be executed by a
-/// separate kernel. Their outputs can then be fed into
-/// [`UnmaterializedPlan::new_with_subtree_inputs`] as `LOAD` sources.
-///
-/// Returns an empty vec if the root itself is not fusable.
-pub fn find_unfusable_nodes(array: &ArrayRef) -> Vec<ArrayRef> {
-    if !is_dyn_dispatch_compatible(array) {
-        return Vec::new();
-    }
-    let mut out = Vec::new();
-    for child in array.children() {
-        if is_dyn_dispatch_compatible(&child) {
-            out.extend(find_unfusable_nodes(&child));
-        } else {
-            out.push(child);
-        }
-    }
-    out
-}
-
 /// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
 fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     let id = array.encoding_id();
     if id == ALP::ID {
-        if let Ok(a) = array.clone().try_into::<ALP>() {
-            return a.patches().is_none() && a.dtype().as_ptype() == PType::F32;
-        }
-        return false;
+        let arr = array.as_::<ALP>();
+        return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
     }
     if id == BitPacked::ID {
-        if let Ok(a) = array.clone().try_into::<BitPacked>() {
-            return a.patches().is_none();
-        }
-        return false;
+        return array.as_::<BitPacked>().patches().is_none();
     }
     if id == Dict::ID {
-        if let Ok(a) = array.clone().try_into::<Dict>() {
-            // As of now the dict dyn dispatch kernel requires
-            // codes and values to have the same byte width.
-            return match (
-                PType::try_from(a.values().dtype()),
-                PType::try_from(a.codes().dtype()),
-            ) {
-                (Ok(values), Ok(codes)) => values.byte_width() == codes.byte_width(),
-                _ => false,
-            };
-        }
-        return false;
+        let arr = array.as_::<Dict>();
+        // As of now the dict dyn dispatch kernel requires
+        // codes and values to have the same byte width.
+        return match (
+            PType::try_from(arr.values().dtype()),
+            PType::try_from(arr.codes().dtype()),
+        ) {
+            (Ok(values), Ok(codes)) => values.byte_width() == codes.byte_width(),
+            _ => false,
+        };
     }
     if id == RunEnd::ID {
-        if let Ok(a) = array.clone().try_into::<RunEnd>() {
-            // As of now the run-end dyn dispatch kernel requires
-            // ends and values to have the same byte width.
-            return match (
-                PType::try_from(a.ends().dtype()),
-                PType::try_from(a.values().dtype()),
-            ) {
-                (Ok(e), Ok(v)) => e.byte_width() == v.byte_width(),
-                _ => false,
-            };
-        }
-        return false;
+        let arr = array.as_::<RunEnd>();
+        // As of now the run-end dyn dispatch kernel requires
+        // ends and values to have the same byte width.
+        return match (
+            PType::try_from(arr.ends().dtype()),
+            PType::try_from(arr.values().dtype()),
+        ) {
+            (Ok(e), Ok(v)) => e.byte_width() == v.byte_width(),
+            _ => false,
+        };
     }
     id == FoR::ID
         || id == ZigZag::ID
@@ -143,31 +85,16 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         || id == Sequence::ID
 }
 
-/// Extract a FoR reference scalar as u64 bits.
-fn extract_for_reference(for_arr: &FoRArray) -> VortexResult<u64> {
-    if let Ok(v) = u32::try_from(for_arr.reference_scalar()) {
-        Ok(v as u64)
-    } else if let Ok(v) = i32::try_from(for_arr.reference_scalar()) {
-        Ok(v as u32 as u64)
-    } else if let Ok(v) = u64::try_from(for_arr.reference_scalar()) {
-        Ok(v)
-    } else if let Ok(v) = i64::try_from(for_arr.reference_scalar()) {
-        Ok(v as u64)
-    } else {
-        vortex_bail!("Cannot extract FoR reference as an integer type")
-    }
-}
-
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
-struct UnmaterializedStage {
+struct Stage {
     source: SourceOp,
     scalar_ops: Vec<ScalarOp>,
-    /// Index into `UnmaterializedPlan::source_buffers`, or `None`
+    /// Index into `FusedPlan::source_buffers`, or `None`
     /// for sources that don't read from a device buffer.
     source_buffer_index: Option<usize>,
 }
 
-impl UnmaterializedStage {
+impl Stage {
     fn new(source: SourceOp, source_buffer_index: Option<usize>) -> Self {
         Self {
             source,
@@ -178,30 +105,75 @@ impl UnmaterializedStage {
 }
 
 type SmemOffset = u32;
-type StageLen = u32;
-type ArrayId = usize;
-type SourceBufferIdx = usize;
+type OutputLen = u32;
 
 /// A dispatch plan before device materialization.
 ///
-/// Created by [`UnmaterializedPlan::new`] or [`new_with_subtree_inputs`](Self::new_with_subtree_inputs).
-/// Query shared memory requirements via [`shared_mem_bytes`](Self::shared_mem_bytes),
-/// then copy source buffers to the device via [`materialize`](Self::materialize).
-pub struct UnmaterializedPlan {
-    /// Input stages followed by one output stage.
-    stages: Vec<(UnmaterializedStage, SmemOffset, StageLen)>,
-    smem_cursor: SmemOffset,
-    source_buffers: Vec<BufferHandle>,
-    elem_bytes: u32,
-    subtree_inputs: Vec<(ArrayId, SourceBufferIdx)>,
+/// Constructed by [`DispatchPlan::new`], which inspects the encoding tree
+/// and determines whether it can be fully fused, partially fused, or not fused at all.
+pub enum DispatchPlan {
+    /// Entire encoding tree is fusable into a single kernel launch.
+    Fused(FusedPlan),
+    /// Some subtrees need separate execution before the fused plan can run.
+    PartiallyFused {
+        /// The fused plan (with placeholder buffer slots for pending subtrees).
+        plan: FusedPlan,
+        /// Unfusable subtree roots that must be executed separately.
+        pending_subtrees: Vec<ArrayRef>,
+    },
+    /// Tree cannot be fused (incompatible root, non-primitive subtree dtypes,
+    /// or shared memory limit exceeded).
+    Unfused,
 }
 
-impl UnmaterializedPlan {
-    /// Construct a plan by walking the encoding tree from root to leaf.
-    ///
-    /// No CUDA context is needed — source buffers are extracted but not
-    /// yet copied to the device. Call [`materialize`](Self::materialize)
-    /// to do the device copy.
+/// A fused plan: stages, source buffers and shared-memory.
+///
+/// Stages are stored in kernel execution order. There are two phases:
+///
+/// 1. All stages except the last run first and decode their output
+///    into shared memory (e.g. all dict values, all run-end endpoints).
+///    This data stays resident for the output stage to index into.
+///
+/// 2. The last stage (the output stage) iterates over the input in tiles
+///    of `SMEM_TILE_SIZE` (1024) elements, decoding each tile into a
+///    scratch region of shared memory, applying scalar ops (which may
+///    reference data from the earlier stages), and writing the result to
+///    global memory.
+///
+/// # Shared memory allocation
+///
+/// Total shared memory = (`smem_cursor` + `SMEM_TILE_SIZE`) × `elem_bytes`.
+///
+/// This is sufficient because:
+///
+/// - Earlier stages only originate from dict (values) and run-end (ends,
+///   values). `push_smem_stage` reserves the full auxiliary data length in
+///   `smem_cursor`, so each stage's source op has room to decode the complete
+///   input.
+///
+/// - The output stage (last) tiles at `SMEM_TILE_SIZE` (1024 elements),
+///   so its source op never writes more than 1024 elements into the
+///   scratch region, even though each block is responsible for
+///   `ELEMENTS_PER_BLOCK` (2048) output elements — it processes them in
+///   two passes through the scratch.
+///
+/// Note: `BITUNPACK` writes full FastLanes blocks (1024 elements), which can
+/// exceed `stage.len` by up to 1023 elements. This overflow is absorbed by
+/// the scratch region (`SMEM_TILE_SIZE` ≥ `FL_CHUNK_SIZE`).
+pub struct FusedPlan {
+    /// Stages in kernel execution order; all but the last decode into
+    /// shared memory, the last decodes into global memory.
+    stages: Vec<(Stage, SmemOffset, OutputLen)>,
+    /// Shared memory reserved by the non-output stages.
+    smem_cursor: SmemOffset,
+    /// Source buffers. `None` entries are placeholder slots for pending subtrees,
+    /// filled by [`materialize_with_subtrees`] before device copy.
+    source_buffers: Vec<Option<BufferHandle>>,
+    elem_bytes: u32,
+}
+
+impl DispatchPlan {
+    /// Construct a plan by inspecting the encoding tree in a single pass.
     ///
     /// # Limitations
     ///
@@ -209,19 +181,43 @@ impl UnmaterializedPlan {
     /// - `BitPackedArray` and `ALPArray` with patches are not supported.
     /// - Only f32 ALP is supported (kernel stores multipliers as `float`).
     pub fn new(array: &ArrayRef) -> VortexResult<Self> {
-        Self::new_with_subtree_inputs(array, &[])
-    }
+        if PType::try_from(array.dtype()).is_err() || !is_dyn_dispatch_compatible(array) {
+            return Ok(Self::Unfused);
+        }
 
-    /// Build an [`UnmaterializedPlan`] with pre-executed subtree outputs
-    /// injected as `LOAD` sources.
+        let (plan, pending_subtrees) = match FusedPlan::build(array) {
+            Ok(result) => result,
+            Err(_) => return Ok(Self::Unfused),
+        };
+
+        if plan.exceeds_shared_mem_limit() {
+            return Ok(Self::Unfused);
+        }
+
+        if pending_subtrees.is_empty() {
+            Ok(Self::Fused(plan))
+        } else {
+            Ok(Self::PartiallyFused {
+                plan,
+                pending_subtrees,
+            })
+        }
+    }
+}
+
+impl FusedPlan {
+    /// Maximum shared memory per block in bytes (48 KB).
     ///
-    /// Used by hybrid dispatch when some nodes in the encoding tree cannot
-    /// be fused. Those nodes are executed separately, and their device buffers
-    /// are passed here so the remaining fusable tree can reference them.
-    pub fn new_with_subtree_inputs(
-        array: &ArrayRef,
-        subtree_inputs: &[(ArrayRef, BufferHandle)],
-    ) -> VortexResult<UnmaterializedPlan> {
+    /// 48 KB is the default per-block dynamic shared memory limit across
+    /// all CUDA architectures. Higher limits (up to 227 KB on Hopper)
+    /// require an explicit opt-in via `cuFuncSetAttribute`.
+    const MAX_SHARED_MEM_BYTES: u32 = 48 * 1024;
+
+    /// Build a plan by walking the encoding tree from root to leaf.
+    ///
+    /// During the walk, incompatible nodes are discovered and recorded in the
+    /// returned `Vec<ArrayRef>`.
+    fn build(array: &ArrayRef) -> VortexResult<(Self, Vec<ArrayRef>)> {
         let elem_bytes = PType::try_from(array.dtype())
             .map_err(|_| {
                 vortex_err!(
@@ -231,76 +227,76 @@ impl UnmaterializedPlan {
             })?
             .byte_width() as u32;
 
-        let subtree_map: Vec<(ArrayId, SourceBufferIdx)> = subtree_inputs
-            .iter()
-            .enumerate()
-            .map(|(leaf_idx, (arr, _handle))| (Arc::as_ptr(arr) as *const () as usize, leaf_idx))
-            .collect();
-
-        // Subtree source buffers get indices 0..n
-        let source_buffers: Vec<BufferHandle> = subtree_inputs
-            .iter()
-            .map(|(_, handle)| handle.clone())
-            .collect();
-
+        let mut pending_subtrees: Vec<ArrayRef> = Vec::new();
         let mut plan = Self {
             stages: Vec::new(),
             smem_cursor: SmemOffset::from(0u32),
-            source_buffers,
+            source_buffers: Vec::new(),
             elem_bytes,
-            subtree_inputs: subtree_map,
         };
 
         let len = array.len() as u32;
-        let output = plan.walk(array.clone())?;
+        let output = plan.walk(array.clone(), &mut pending_subtrees)?;
         plan.stages.push((output, plan.smem_cursor, len));
 
-        Ok(plan)
+        Ok((plan, pending_subtrees))
     }
 
     /// Shared memory bytes needed to launch this plan.
     ///
-    /// Stages that require shared memory, offset the cursor during plan
-    /// construction `SMEM_TILE_SIZE` is used for the final output stage.
-    ///
-    /// Currently, the dynamic dispatch only operates on a uniform type
-    /// such that ` * self.elem_bytes` is sufficient. In the future more
-    /// fine grained shared memory tracking will be needed once mixed
-    /// types are supported.
-    pub fn shared_mem_bytes(&self) -> u32 {
+    /// `smem_cursor` covers the preceding fully-decoded stages (dict values,
+    /// run-end ). `SMEM_TILE_SIZE` covers the output stage's scratch region —
+    /// the output stage processes `ELEMENTS_PER_BLOCK` (2048) elements per
+    /// block by tiling through this 1024-element window.
+    fn shared_mem_bytes(&self) -> u32 {
         (self.smem_cursor + SMEM_TILE_SIZE) * self.elem_bytes
+    }
+
+    /// Returns `true` if this plan's shared memory requirement exceeds
+    /// the per-block limit, logging a trace message when it does.
+    fn exceeds_shared_mem_limit(&self) -> bool {
+        let required = self.shared_mem_bytes();
+        if required > Self::MAX_SHARED_MEM_BYTES {
+            trace!(
+                required,
+                limit = Self::MAX_SHARED_MEM_BYTES,
+                "shared memory limit exceeded, falling back to unfused dispatch"
+            );
+            return true;
+        }
+        false
     }
 
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
     pub fn materialize(self, ctx: &CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
         let shared_mem_bytes = self.shared_mem_bytes();
+
         let mut device_buffers = Vec::new();
         let mut device_ptrs: Vec<u64> = Vec::new();
 
         // Copy each source buffer to the device and record its pointer.
         for source_buf in self.source_buffers {
+            let source_buf = source_buf.ok_or_else(|| {
+                vortex_err!("all source buffer slots must be filled before materialize")
+            })?;
             let device_buf = ctx.ensure_on_device_sync(source_buf)?;
             let ptr = device_buf.cuda_device_ptr()?;
             device_ptrs.push(ptr);
             device_buffers.push(device_buf);
         }
 
-        // Resolve the device pointer for a stage's source buffer.
-        // RUNEND and SEQUENCE sources don't read from global memory —
-        // they use shared memory or generate data on the fly, so
-        // `input_ptr = 0` is safe (the kernel never dereferences it).
-        let resolve_ptr = |stage: &UnmaterializedStage| -> u64 {
+        let resolve_ptr = |stage: &Stage| -> u64 {
             match stage.source_buffer_index {
                 Some(idx) => device_ptrs[idx],
                 None => 0,
             }
         };
 
-        let stages: Vec<Stage> = self
+        let stages: Vec<MaterializedStage> = self
             .stages
             .iter()
             .map(|(stage, smem_offset, len)| {
-                Stage::new(
+                MaterializedStage::new(
                     resolve_ptr(stage),
                     *smem_offset,
                     *len,
@@ -317,19 +313,44 @@ impl UnmaterializedPlan {
         })
     }
 
-    /// Walk the encoding tree, producing an [`UnmaterializedStage`] for the root.
-    fn walk(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
-        // Check if this array matches a pre-executed subtree input.
-        let subtree_id = Arc::as_ptr(&array) as *const () as usize;
-        if let Some((_, buf_idx)) = self.subtree_inputs.iter().find(|(id, _)| *id == subtree_id) {
-            return Ok(UnmaterializedStage::new(SourceOp::load(), Some(*buf_idx)));
+    /// Inject pre-executed subtree buffers into the placeholder (`None`) slots,
+    /// then materialize.
+    ///
+    /// `subtree_buffers` must correspond 1:1 (in DFS order) to the
+    /// `pending_subtrees` returned by `build`.
+    pub fn materialize_with_subtrees(
+        mut self,
+        subtree_buffers: Vec<BufferHandle>,
+        ctx: &CudaExecutionCtx,
+    ) -> VortexResult<MaterializedPlan> {
+        for (slot, buf) in zip_eq(
+            self.source_buffers.iter_mut().filter(|s| s.is_none()),
+            subtree_buffers,
+        ) {
+            *slot = Some(buf);
         }
+        self.materialize(ctx)
+    }
 
+    /// Walk the encoding tree, producing a [`Stage`] for the root.
+    fn walk(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
         if !is_dyn_dispatch_compatible(&array) {
-            vortex_bail!(
-                "Encoding {:?} is not compatible with the dynamic dispatch plan builder",
-                array.encoding_id()
-            );
+            // Subtree can't be fused — record it as a deferred LOAD source.
+            // Bail if dtype is non-primitive (can't become a LOAD stage).
+            if PType::try_from(array.dtype()).is_err() {
+                vortex_bail!(
+                    "unfusable subtree has non-primitive dtype {:?}, cannot partially fuse",
+                    array.dtype()
+                );
+            }
+            let buf_idx = self.source_buffers.len();
+            self.source_buffers.push(None); // placeholder, filled at materialize time
+            pending_subtrees.push(array);
+            return Ok(Stage::new(SourceOp::load(), Some(buf_idx)));
         }
 
         let id = array.encoding_id();
@@ -337,19 +358,19 @@ impl UnmaterializedPlan {
         if id == BitPacked::ID {
             self.walk_bitpacked(array)
         } else if id == FoR::ID {
-            self.walk_for(array)
+            self.walk_for(array, pending_subtrees)
         } else if id == ZigZag::ID {
-            self.walk_zigzag(array)
+            self.walk_zigzag(array, pending_subtrees)
         } else if id == ALP::ID {
-            self.walk_alp(array)
+            self.walk_alp(array, pending_subtrees)
         } else if id == Dict::ID {
-            self.walk_dict(array)
+            self.walk_dict(array, pending_subtrees)
         } else if id == RunEnd::ID {
-            self.walk_runend(array)
+            self.walk_runend(array, pending_subtrees)
         } else if id == Primitive::ID {
             self.walk_primitive(array)
         } else if id == Slice::ID {
-            self.walk_slice(array)
+            self.walk_slice(array, pending_subtrees)
         } else if id == Sequence::ID {
             self.walk_sequence(array)
         } else {
@@ -364,19 +385,16 @@ impl UnmaterializedPlan {
     ///
     /// When the plan builder encounters a `SliceArray`, it resolves the slice
     /// by invoking the child's `reduce_parent`, `execute_parent`.
-    fn walk_slice(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
+    fn walk_slice(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
         let slice_arr = array.as_::<Slice>();
         let child = slice_arr.child().clone();
 
-        // reduce_parent: (for types with SliceReduceAdaptor, like FoR/ZigZag)
         if let Some(reduced) = child.vtable().reduce_parent(&child, &array, 0)? {
-            return self.walk(reduced);
-        }
-
-        // execute_parent: (for types with SliceExecuteAdaptor/SliceKernel, like BitPacked)
-        let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
-        if let Some(executed) = child.vtable().execute_parent(&child, &array, 0, &mut ctx)? {
-            return self.walk(executed);
+            return self.walk(reduced, pending_subtrees);
         }
 
         vortex_bail!(
@@ -385,65 +403,68 @@ impl UnmaterializedPlan {
         )
     }
 
-    fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
-        let prim = array.to_canonical()?.into_primitive();
-        let PrimitiveArrayParts { buffer, .. } = prim.into_parts();
+    fn walk_primitive(&mut self, array: ArrayRef) -> VortexResult<Stage> {
+        let prim = array.as_::<Primitive>();
         let buf_index = self.source_buffers.len();
-        self.source_buffers.push(buffer);
-        Ok(UnmaterializedStage::new(SourceOp::load(), Some(buf_index)))
+        self.source_buffers.push(Some(prim.buffer_handle().clone()));
+        Ok(Stage::new(SourceOp::load(), Some(buf_index)))
     }
 
-    fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
-        let bp = array
-            .try_into::<BitPacked>()
-            .map_err(|_| vortex_err!("Expected BitPackedArray"))?;
-        let BitPackedArrayParts {
-            offset,
-            bit_width,
-            packed,
-            patches,
-            ..
-        } = bp.into_parts();
+    fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Stage> {
+        let bp = array.as_::<BitPacked>();
 
-        if patches.is_some() {
+        if bp.patches().is_some() {
             vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
         }
 
         let buf_index = self.source_buffers.len();
-        self.source_buffers.push(packed);
-        Ok(UnmaterializedStage::new(
-            SourceOp::bitunpack(bit_width, offset),
+        self.source_buffers.push(Some(bp.packed().clone()));
+        Ok(Stage::new(
+            SourceOp::bitunpack(bp.bit_width(), bp.offset()),
             Some(buf_index),
         ))
     }
 
-    fn walk_for(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
-        let for_arr = array
-            .try_into::<FoR>()
-            .map_err(|_| vortex_err!("Expected FoRArray"))?;
-        let ref_u64 = extract_for_reference(&for_arr)?;
+    fn walk_for(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let for_arr = array.as_::<FoR>();
+        let ref_pvalue = for_arr
+            .reference_scalar()
+            .as_primitive()
+            .pvalue()
+            .ok_or_else(|| vortex_err!("FoR reference scalar is null"))?;
         let encoded = for_arr.encoded().clone();
 
-        let mut pipeline = self.walk(encoded)?;
+        let mut pipeline = self.walk(encoded, pending_subtrees)?;
+        let ref_u64 = ref_pvalue
+            .reinterpret_cast(ref_pvalue.ptype().to_unsigned())
+            .cast::<u64>()?;
         pipeline.scalar_ops.push(ScalarOp::frame_of_ref(ref_u64));
         Ok(pipeline)
     }
 
-    fn walk_zigzag(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
-        let zz = array
-            .try_into::<ZigZag>()
-            .map_err(|_| vortex_err!("Expected ZigZagArray"))?;
+    fn walk_zigzag(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let zz = array.as_::<ZigZag>();
         let encoded = zz.encoded().clone();
 
-        let mut pipeline = self.walk(encoded)?;
+        let mut pipeline = self.walk(encoded, pending_subtrees)?;
         pipeline.scalar_ops.push(ScalarOp::zigzag());
         Ok(pipeline)
     }
 
-    fn walk_alp(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
-        let alp = array
-            .try_into::<ALP>()
-            .map_err(|_| vortex_err!("Expected ALPArray"))?;
+    fn walk_alp(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let alp = array.as_::<ALP>();
 
         if alp.patches().is_some() {
             vortex_bail!("Dynamic dispatch does not support ALPArray with patches");
@@ -462,62 +483,67 @@ impl UnmaterializedPlan {
         let alp_e = <f32 as ALPFloat>::IF10[exponents.e as usize];
         let encoded = alp.encoded().clone();
 
-        let mut pipeline = self.walk(encoded)?;
+        let mut pipeline = self.walk(encoded, pending_subtrees)?;
         pipeline.scalar_ops.push(ScalarOp::alp(alp_f, alp_e));
         Ok(pipeline)
     }
 
-    fn walk_dict(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
-        let dict = array
-            .try_into::<Dict>()
-            .map_err(|_| vortex_err!("Expected DictArray"))?;
+    fn walk_dict(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let dict = array.as_::<Dict>();
         let values = dict.values().clone();
         let codes = dict.codes().clone();
 
-        let values_smem_offset = self.add_input_stage(values)?;
+        let values_len = values.len() as u32;
+        let values_spec = self.walk(values, pending_subtrees)?;
+        let values_smem_offset = self.push_smem_stage(values_spec, values_len);
 
-        let mut pipeline = self.walk(codes)?;
+        let mut pipeline = self.walk(codes, pending_subtrees)?;
         pipeline.scalar_ops.push(ScalarOp::dict(values_smem_offset));
         Ok(pipeline)
     }
 
-    fn walk_sequence(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
-        let seq = array
-            .try_into::<Sequence>()
-            .map_err(|_| vortex_err!("Expected SequenceArray"))?;
-        let SequenceArrayParts {
-            base, multiplier, ..
-        } = seq.into_parts();
+    fn walk_sequence(&mut self, array: ArrayRef) -> VortexResult<Stage> {
+        let seq = array.as_::<Sequence>();
 
-        Ok(UnmaterializedStage::new(
-            SourceOp::sequence(base.cast()?, multiplier.cast()?),
+        Ok(Stage::new(
+            SourceOp::sequence(seq.base().cast()?, seq.multiplier().cast()?),
             None,
         ))
     }
 
-    fn walk_runend(&mut self, array: ArrayRef) -> VortexResult<UnmaterializedStage> {
-        let re = array
-            .try_into::<RunEnd>()
-            .map_err(|_| vortex_err!("Expected RunEndArray"))?;
+    fn walk_runend(
+        &mut self,
+        array: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let re = array.as_::<RunEnd>();
         let offset = re.offset() as u64;
-        let RunEndArrayParts { ends, values } = re.into_parts();
-        let num_runs = ends.len() as u64;
+        let ends = re.ends().clone();
+        let values = re.values().clone();
+        let num_runs = ends.len() as u32;
+        let num_values = values.len() as u32;
 
-        let ends_smem = self.add_input_stage(ends)?;
-        let values_smem = self.add_input_stage(values)?;
+        let ends_spec = self.walk(ends, pending_subtrees)?;
+        let ends_smem = self.push_smem_stage(ends_spec, num_runs);
+        let values_spec = self.walk(values, pending_subtrees)?;
+        let values_smem = self.push_smem_stage(values_spec, num_values);
 
-        Ok(UnmaterializedStage::new(
-            SourceOp::runend(ends_smem, values_smem, num_runs, offset),
+        Ok(Stage::new(
+            SourceOp::runend(ends_smem, values_smem, num_runs as u64, offset),
             None,
         ))
     }
 
-    fn add_input_stage(&mut self, array: ArrayRef) -> VortexResult<u32> {
+    /// Add a stage that decodes fully into shared memory before the output
+    /// stage runs. Returns the shared memory offset where the data starts.
+    fn push_smem_stage(&mut self, spec: Stage, len: u32) -> u32 {
         let smem_offset = self.smem_cursor;
-        let len = array.len() as u32;
-        let spec = self.walk(array)?;
         self.stages.push((spec, smem_offset, len));
         self.smem_cursor += len;
-        Ok(smem_offset)
+        smem_offset
     }
 }

@@ -106,8 +106,7 @@ pub fn take_canonical_array(array: &ArrayRef, indices: &[Option<usize>]) -> Vort
         DType::Struct(..) => {
             let struct_array = array.to_struct();
             let taken_children = struct_array
-                .unmasked_fields()
-                .iter()
+                .iter_unmasked_fields()
                 .map(|c| take_canonical_array_non_nullable_indices(c, indices_slice_non_opt))
                 .collect::<VortexResult<Vec<_>>>()?;
 

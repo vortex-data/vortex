@@ -18,7 +18,6 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
 use crate::scalar_fn::fns::between::StrictComparison;
-use crate::vtable::ValidityHelper;
 
 impl BetweenKernel for Decimal {
     fn between(
@@ -107,7 +106,7 @@ fn between_impl<T: NativeDecimalType>(
             let value = buffer[idx];
             lower_op(lower, value) & upper_op(value, upper)
         }),
-        arr.validity().clone().union_nullability(nullability),
+        arr.validity().union_nullability(nullability),
     )
     .into_array()
 }

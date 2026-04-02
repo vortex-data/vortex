@@ -74,6 +74,8 @@ pub struct SequenceArrayParts {
     pub nullability: Nullability,
 }
 
+pub(super) const SLOT_NAMES: [&str; 0] = [];
+
 #[derive(Clone, Debug)]
 /// An array representing the equation `A[i] = base + i * multiplier`.
 pub struct SequenceArray {
@@ -81,6 +83,7 @@ pub struct SequenceArray {
     multiplier: PValue,
     dtype: DType,
     pub(crate) len: usize,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
@@ -169,6 +172,7 @@ impl SequenceArray {
             multiplier,
             dtype,
             len: length,
+            slots: vec![],
             stats_set: ArrayStats::from(stats_set),
         }
     }
@@ -294,18 +298,6 @@ impl VTable for Sequence {
         vortex_panic!("SequenceArray buffer_name index {idx} out of bounds")
     }
 
-    fn nchildren(_array: &SequenceArray) -> usize {
-        0
-    }
-
-    fn child(_array: &SequenceArray, idx: usize) -> ArrayRef {
-        vortex_panic!("SequenceArray child index {idx} out of bounds")
-    }
-
-    fn child_name(_array: &SequenceArray, idx: usize) -> String {
-        vortex_panic!("SequenceArray child_name index {idx} out of bounds")
-    }
-
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
         Ok(SequenceMetadata {
             base: array.base(),
@@ -378,12 +370,22 @@ impl VTable for Sequence {
         )
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: &SequenceArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
+
+    fn slot_name(_array: &SequenceArray, idx: usize) -> String {
+        let _ = SLOT_NAMES;
+        vortex_panic!("SequenceArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(array: &mut SequenceArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.is_empty(),
-            "SequenceArray expects 0 children, got {}",
-            children.len()
+            slots.is_empty(),
+            "SequenceArray expects 0 slots, got {}",
+            slots.len()
         );
+        array.slots = slots;
         Ok(())
     }
 

@@ -17,6 +17,6 @@ impl OperationsVTable<Masked> for Masked {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // Invalid indices are handled by the entrypoint function.
-        Ok(array.child.scalar_at(index)?.into_nullable())
+        Ok(array.child().scalar_at(index)?.into_nullable())
     }
 }

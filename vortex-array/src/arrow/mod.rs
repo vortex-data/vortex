@@ -17,7 +17,10 @@ mod record_batch;
 pub use datum::*;
 pub use executor::*;
 pub use iter::*;
+pub use null_buffer::to_arrow_null_buffer;
+pub use null_buffer::to_null_buffer;
 
+use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 
@@ -33,7 +36,7 @@ pub trait IntoArrowArray {
     fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef>;
 }
 
-impl IntoArrowArray for crate::ArrayRef {
+impl IntoArrowArray for ArrayRef {
     /// Convert this [`crate::ArrayRef`] into an Arrow [`crate::ArrayRef`] by using the array's
     /// preferred (cheapest) Arrow [`DataType`].
     fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef> {

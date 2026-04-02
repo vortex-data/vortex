@@ -15,7 +15,6 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
-use crate::vtable::ValidityHelper;
 
 pub(crate) const RULES: ParentRuleSet<Bool> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&BoolMaskedValidityRule),
@@ -50,7 +49,7 @@ impl ArrayParentReduceRule<Bool> for BoolMaskedValidityRule {
         Ok(Some(
             BoolArray::new(
                 array.to_bit_buffer(),
-                array.validity().clone().and(parent.validity().clone())?,
+                array.validity().and(parent.validity())?,
             )
             .into_array(),
         ))

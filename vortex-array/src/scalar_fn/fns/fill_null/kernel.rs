@@ -115,7 +115,8 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let fill_value = scalar_fn_array.children()[1]
+        let fill_value = scalar_fn_array
+            .get_child(1)
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
         let arr = array.to_array();
@@ -150,7 +151,8 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let fill_value = scalar_fn_array.children()[1]
+        let fill_value = scalar_fn_array
+            .get_child(1)
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
         let arr = array.to_array();

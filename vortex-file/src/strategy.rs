@@ -28,14 +28,6 @@ use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArrayRegistry;
 use vortex_array::session::ArraySession;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::BtrBlocksCompressorBuilder;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::FloatCode;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::IntCode;
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::StringCode;
 use vortex_bytebool::ByteBool;
 use vortex_datetime_parts::DateTimeParts;
 use vortex_decimal_byte_parts::DecimalByteParts;
@@ -63,6 +55,16 @@ use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_zigzag::ZigZag;
+
+#[rustfmt::skip]
+#[cfg(feature = "zstd")]
+use vortex_btrblocks::{
+    BtrBlocksCompressorBuilder,
+    SchemeExt,
+    schemes::float,
+    schemes::integer,
+    schemes::string,
+};
 #[cfg(feature = "zstd")]
 use vortex_zstd::Zstd;
 #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
@@ -196,18 +198,22 @@ impl WriteStrategyBuilder {
     /// GPU decompression. Without it, strings use interleaved Zstd compression.
     #[cfg(feature = "zstd")]
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
-        let mut builder = BtrBlocksCompressorBuilder::default()
-            .exclude_int([IntCode::Sparse, IntCode::Rle])
-            .exclude_float([FloatCode::Rle, FloatCode::Sparse])
-            .exclude_string([StringCode::Dict, StringCode::Fsst]);
+        let mut builder = BtrBlocksCompressorBuilder::default().exclude([
+            integer::SparseScheme.id(),
+            integer::RLE_INTEGER_SCHEME.id(),
+            float::RLE_FLOAT_SCHEME.id(),
+            float::NullDominatedSparseScheme.id(),
+            string::StringDictScheme.id(),
+            string::FSSTScheme.id(),
+        ]);
 
         #[cfg(feature = "unstable_encodings")]
         {
-            builder = builder.include_string([StringCode::ZstdBuffers]);
+            builder = builder.include([string::ZstdBuffersScheme.id()]);
         }
         #[cfg(not(feature = "unstable_encodings"))]
         {
-            builder = builder.include_string([StringCode::Zstd]);
+            builder = builder.include([string::ZstdScheme.id()]);
         }
 
         self.compressor = Some(Arc::new(builder.build()));
@@ -222,9 +228,11 @@ impl WriteStrategyBuilder {
     #[cfg(feature = "zstd")]
     pub fn with_compact_encodings(mut self) -> Self {
         let btrblocks = BtrBlocksCompressorBuilder::default()
-            .include_string([StringCode::Zstd])
-            .include_int([IntCode::Pco])
-            .include_float([FloatCode::Pco])
+            .include([
+                string::ZstdScheme.id(),
+                integer::PcoScheme.id(),
+                float::PcoScheme.id(),
+            ])
             .build();
 
         self.compressor = Some(Arc::new(btrblocks));

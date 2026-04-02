@@ -61,7 +61,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
             list.elements().clone(),
             adjusted_offsets,
             sizes,
-            list.validity().clone(),
+            list.validity(),
         )
         .with_zero_copy_to_list(true)
     })
@@ -124,7 +124,7 @@ pub fn list_from_list_view(list_view: ListViewArray) -> VortexResult<ListArray> 
         ListArray::new_unchecked(
             zctl_array.elements().clone(),
             list_offsets,
-            zctl_array.validity().clone(),
+            zctl_array.validity(),
         )
     })
 }
@@ -203,7 +203,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
                             converted_elements,
                             listview.offsets().clone(),
                             listview.sizes().clone(),
-                            listview.validity().clone(),
+                            listview.validity(),
                         )
                         .with_zero_copy_to_list(listview.is_zero_copy_to_list())
                     }
@@ -224,7 +224,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
                 FixedSizeListArray::try_new(
                     converted_elements,
                     fixed_size_list.list_size(),
-                    fixed_size_list.validity().clone(),
+                    fixed_size_list.validity(),
                     fixed_size_list.len(),
                 )
                 .vortex_expect(
@@ -252,7 +252,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
                     struct_array.names().clone(),
                     converted_fields,
                     struct_array.len(),
-                    struct_array.validity().clone(),
+                    struct_array.validity(),
                 )
                 .vortex_expect("StructArray reconstruction should not fail with valid components")
                 .into_array()

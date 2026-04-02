@@ -72,7 +72,7 @@ impl LikeKernel for FSST {
         // directly without cloning the entire FSSTArray into an ArrayRef.
         let validity = array
             .codes()
-            .validity()?
+            .validity()
             .union_nullability(pattern_scalar.dtype().nullability());
 
         Ok(Some(BoolArray::new(result, validity).into_array()))

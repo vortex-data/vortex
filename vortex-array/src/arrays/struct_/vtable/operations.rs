@@ -17,8 +17,7 @@ impl OperationsVTable<Struct> for Struct {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let field_scalars: VortexResult<Vec<Scalar>> = array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .map(|field| field.scalar_at(index))
             .collect();
         // SAFETY: The vtable guarantees index is in-bounds and non-null before this is called.

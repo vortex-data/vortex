@@ -15,9 +15,9 @@ use crate::DecimalBytePartsArray;
 impl MaskReduce for DecimalByteParts {
     fn mask(array: &DecimalBytePartsArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let masked_msp = MaskExpr.try_new_array(
-            array.msp.len(),
+            array.msp().len(),
             EmptyOptions,
-            [array.msp.clone(), mask.clone()],
+            [array.msp().clone(), mask.clone()],
         )?;
         Ok(Some(
             DecimalBytePartsArray::try_new(masked_msp, *array.decimal_dtype())?.into_array(),

@@ -28,7 +28,6 @@ use crate::match_each_integer_ptype;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::vtable::ValidityHelper;
 
 // This implementation exists so we can have custom translation of RHS to arrow that's not the same as IntoCanonical
 impl CompareKernel for VarBin {
@@ -75,9 +74,7 @@ impl CompareKernel for VarBin {
                 return Ok(Some(
                     BoolArray::new(
                         buffer,
-                        lhs.validity()
-                            .clone()
-                            .union_nullability(rhs.dtype().nullability()),
+                        lhs.validity().union_nullability(rhs.dtype().nullability()),
                     )
                     .into_array(),
                 ));

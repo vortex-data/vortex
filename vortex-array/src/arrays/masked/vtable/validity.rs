@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::MaskedArray;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use vortex_error::VortexResult;
 
-impl ValidityHelper for MaskedArray {
-    fn validity(&self) -> &Validity {
-        &self.validity
+use crate::arrays::MaskedArray;
+use crate::arrays::masked::vtable::Masked;
+use crate::validity::Validity;
+use crate::vtable::ValidityVTable;
+
+impl ValidityVTable<Masked> for Masked {
+    fn validity(array: &MaskedArray) -> VortexResult<Validity> {
+        Ok(array.validity())
     }
 }

@@ -94,18 +94,6 @@ impl VTable for PythonVTable {
         None
     }
 
-    fn nchildren(_array: &PythonArray) -> usize {
-        0
-    }
-
-    fn child(_array: &PythonArray, idx: usize) -> ArrayRef {
-        vortex_panic!("PythonArray child index {idx} out of bounds")
-    }
-
-    fn child_name(_array: &PythonArray, idx: usize) -> String {
-        vortex_panic!("PythonArray child_name index {idx} out of bounds")
-    }
-
     fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
         Python::attach(|py| {
             let obj = array.object.bind(py);
@@ -153,11 +141,19 @@ impl VTable for PythonVTable {
         todo!()
     }
 
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(_array: &PythonArray) -> &[Option<ArrayRef>] {
+        &[]
+    }
+
+    fn slot_name(_array: &PythonArray, idx: usize) -> String {
+        vortex_panic!("PythonArray has no slots, requested index {idx}")
+    }
+
+    fn with_slots(_array: &mut PythonArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.is_empty(),
-            "PythonArray has no children, got {}",
-            children.len()
+            slots.is_empty(),
+            "PythonArray has no slots, got {}",
+            slots.len()
         );
         Ok(())
     }

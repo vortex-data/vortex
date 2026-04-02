@@ -29,6 +29,8 @@ use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 
+const NUM_SLOTS: usize = 0;
+
 pub(crate) mod compute;
 
 vtable!(Null);
@@ -80,16 +82,23 @@ impl VTable for Null {
         None
     }
 
-    fn nchildren(_array: &NullArray) -> usize {
-        0
+    fn slots(array: &NullArray) -> &[Option<ArrayRef>] {
+        &array.slots
     }
 
-    fn child(_array: &NullArray, idx: usize) -> ArrayRef {
-        vortex_panic!("NullArray child index {idx} out of bounds")
+    fn slot_name(_array: &NullArray, idx: usize) -> String {
+        vortex_panic!("NullArray slot_name index {idx} out of bounds")
     }
 
-    fn child_name(_array: &NullArray, idx: usize) -> String {
-        vortex_panic!("NullArray child_name index {idx} out of bounds")
+    fn with_slots(array: &mut NullArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "NullArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
+        );
+        array.slots = slots;
+        Ok(())
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {
@@ -118,15 +127,6 @@ impl VTable for Null {
         _children: &dyn ArrayChildren,
     ) -> VortexResult<NullArray> {
         Ok(NullArray::new(len))
-    }
-
-    fn with_children(_array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        vortex_ensure!(
-            children.is_empty(),
-            "NullArray has no children, got {}",
-            children.len()
-        );
-        Ok(())
     }
 
     fn reduce_parent(
@@ -172,6 +172,7 @@ impl VTable for Null {
 #[derive(Clone, Debug)]
 pub struct NullArray {
     len: usize,
+    slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
 }
 
@@ -186,6 +187,7 @@ impl NullArray {
     pub fn new(len: usize) -> Self {
         Self {
             len,
+            slots: vec![],
             stats_set: Default::default(),
         }
     }

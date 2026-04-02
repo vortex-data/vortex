@@ -45,13 +45,13 @@ fn test_project() {
 
     assert_eq!(struct_b.len(), 5);
 
-    let bools = &struct_b.fields[0];
+    let bools = struct_b.unmasked_field(0);
     assert_arrays_eq!(
         bools,
         BoolArray::from_iter([true, true, true, false, false])
     );
 
-    let prims = &struct_b.fields[1];
+    let prims = struct_b.unmasked_field(1);
     assert_arrays_eq!(prims, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
 }
 
@@ -76,14 +76,14 @@ fn test_remove_column() {
     assert_arrays_eq!(removed, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
 
     assert_eq!(struct_a.names(), &["ys"]);
-    assert_eq!(struct_a.fields.len(), 1);
+    assert_eq!(struct_a.struct_fields().nfields(), 1);
     assert_eq!(struct_a.len(), 5);
     assert_eq!(
-        struct_a.fields[0].dtype(),
+        struct_a.unmasked_field(0).dtype(),
         &DType::Primitive(PType::U64, Nullability::NonNullable)
     );
     assert_arrays_eq!(
-        struct_a.fields[0],
+        struct_a.unmasked_field(0),
         PrimitiveArray::from_iter([4u64, 5, 6, 7, 8])
     );
 
@@ -126,7 +126,7 @@ fn test_duplicate_field_names() {
     );
 
     // Verify the third field (second "value") can be accessed by index
-    let third_field = &struct_array.unmasked_fields()[2];
+    let third_field = struct_array.unmasked_field(2);
     assert_arrays_eq!(third_field, PrimitiveArray::from_iter([100i32, 200, 300]));
 }
 

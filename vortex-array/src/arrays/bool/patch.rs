@@ -10,7 +10,6 @@ use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
-use crate::vtable::ValidityHelper;
 
 impl BoolArray {
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
@@ -19,13 +18,9 @@ impl BoolArray {
         let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let values = patches.values().clone().execute::<BoolArray>(ctx)?;
 
-        let patched_validity = self.validity().clone().patch(
-            len,
-            offset,
-            patches.indices(),
-            values.validity(),
-            ctx,
-        )?;
+        let patched_validity =
+            self.validity()
+                .patch(len, offset, patches.indices(), &values.validity(), ctx)?;
 
         let bit_buffer = self.into_bit_buffer();
         let mut own_values = bit_buffer

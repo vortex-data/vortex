@@ -62,6 +62,11 @@ impl<T: NativePType> PrimitiveBuilder<T> {
         self.values.as_ref()
     }
 
+    /// Returns the raw primitive values in this builder as a mutable slice.
+    pub fn values_mut(&mut self) -> &mut [T] {
+        self.values.as_mut()
+    }
+
     /// Create a new handle to the next `len` uninitialized values in the builder.
     ///
     /// All reads/writes through the handle to the values buffer or the validity buffer will operate
@@ -614,7 +619,6 @@ mod tests {
         // values[2] might be any value since it's null.
 
         // Check validity - first two should be valid, third should be null.
-        use crate::vtable::ValidityHelper;
         assert!(array.validity().is_valid(0).unwrap());
         assert!(array.validity().is_valid(1).unwrap());
         assert!(!array.validity().is_valid(2).unwrap());

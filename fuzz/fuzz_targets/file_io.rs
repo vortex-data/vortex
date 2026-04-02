@@ -46,6 +46,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
     let expected_array = {
         let bool_mask = array_data
+            .clone()
             .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
             .vortex_expect("filter expression evaluation should succeed in fuzz test");
         let mask = bool_mask.to_bool().to_mask_fill_null_false();

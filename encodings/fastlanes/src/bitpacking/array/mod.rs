@@ -11,6 +11,9 @@ use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
+use vortex_array::vtable::child_to_validity;
+use vortex_array::vtable::validity_to_child;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -23,6 +26,22 @@ use crate::bitpack_compress::bitpack_encode;
 use crate::unpack_iter::BitPacked;
 use crate::unpack_iter::BitUnpackedChunks;
 
+/// The indices of exception values that don't fit in the bit-packed representation.
+pub(super) const PATCH_INDICES_SLOT: usize = 0;
+/// The exception values that don't fit in the bit-packed representation.
+pub(super) const PATCH_VALUES_SLOT: usize = 1;
+/// Chunk offsets for the patch indices/values.
+pub(super) const PATCH_CHUNK_OFFSETS_SLOT: usize = 2;
+/// The validity bitmap indicating which elements are non-null.
+pub(super) const VALIDITY_SLOT: usize = 3;
+pub(super) const NUM_SLOTS: usize = 4;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
+    "patch_indices",
+    "patch_values",
+    "patch_chunk_offsets",
+    "validity",
+];
+
 pub struct BitPackedArrayParts {
     pub offset: u16,
     pub bit_width: u8,
@@ -34,6 +53,7 @@ pub struct BitPackedArrayParts {
 
 #[derive(Clone, Debug)]
 pub struct BitPackedArray {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     /// The offset within the first block (created with a slice).
     /// 0 <= offset < 1024
     pub(super) offset: u16,
@@ -41,8 +61,10 @@ pub struct BitPackedArray {
     pub(super) dtype: DType,
     pub(super) bit_width: u8,
     pub(super) packed: BufferHandle,
-    pub(super) patches: Option<Patches>,
-    pub(super) validity: Validity,
+    /// The offset metadata from patches, needed to reconstruct Patches from slots.
+    pub(super) patch_offset: Option<usize>,
+    /// The offset_within_chunk metadata from patches.
+    pub(super) patch_offset_within_chunk: Option<usize>,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -76,16 +98,40 @@ impl BitPackedArray {
         len: usize,
         offset: u16,
     ) -> Self {
+        let slots = Self::make_slots(&patches, &validity, len);
+        let (patch_offset, patch_offset_within_chunk) = match &patches {
+            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
+            None => (None, None),
+        };
+
         Self {
+            slots,
             offset,
             len,
             dtype,
             bit_width,
             packed,
-            patches,
-            validity,
+            patch_offset,
+            patch_offset_within_chunk,
             stats_set: Default::default(),
         }
+    }
+
+    fn make_slots(
+        patches: &Option<Patches>,
+        validity: &Validity,
+        len: usize,
+    ) -> Vec<Option<ArrayRef>> {
+        let (pi, pv, pco) = match patches {
+            Some(p) => (
+                Some(p.indices().clone()),
+                Some(p.values().clone()),
+                p.chunk_offsets().clone(),
+            ),
+            None => (None, None, None),
+        };
+        let validity_slot = validity_to_child(validity, len);
+        vec![pi, pv, pco, validity_slot]
     }
 
     /// A safe constructor for a `BitPackedArray` from its components:
@@ -241,15 +287,52 @@ impl BitPackedArray {
 
     /// Access the patches array.
     ///
+    /// Reconstructs a `Patches` from the stored slots and patch metadata.
     /// If present, patches MUST be a `SparseArray` with equal-length to this array, and whose
     /// indices indicate the locations of patches. The indices must have non-zero length.
-    #[inline]
-    pub fn patches(&self) -> Option<&Patches> {
-        self.patches.as_ref()
+    pub fn patches(&self) -> Option<Patches> {
+        match (
+            &self.slots[PATCH_INDICES_SLOT],
+            &self.slots[PATCH_VALUES_SLOT],
+        ) {
+            (Some(indices), Some(values)) => {
+                let patch_offset = self
+                    .patch_offset
+                    .vortex_expect("has patch slots but no patch_offset");
+                Some(unsafe {
+                    Patches::new_unchecked(
+                        self.len,
+                        patch_offset,
+                        indices.clone(),
+                        values.clone(),
+                        self.slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                        self.patch_offset_within_chunk,
+                    )
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the validity, reconstructed from the stored slot.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
     }
 
     pub fn replace_patches(&mut self, patches: Option<Patches>) {
-        self.patches = patches;
+        let (pi, pv, pco) = match &patches {
+            Some(p) => (
+                Some(p.indices().clone()),
+                Some(p.values().clone()),
+                p.chunk_offsets().clone(),
+            ),
+            None => (None, None, None),
+        };
+        self.slots[PATCH_INDICES_SLOT] = pi;
+        self.slots[PATCH_VALUES_SLOT] = pv;
+        self.slots[PATCH_CHUNK_OFFSETS_SLOT] = pco;
+        self.patch_offset = patches.as_ref().map(|p| p.offset());
+        self.patch_offset_within_chunk = patches.as_ref().and_then(|p| p.offset_within_chunk());
     }
 
     #[inline]
@@ -286,13 +369,15 @@ impl BitPackedArray {
     }
 
     pub fn into_parts(self) -> BitPackedArrayParts {
+        let patches = self.patches();
+        let validity = self.validity();
         BitPackedArrayParts {
             offset: self.offset,
             bit_width: self.bit_width,
             len: self.len,
             packed: self.packed,
-            patches: self.patches,
-            validity: self.validity,
+            patches,
+            validity,
         }
     }
 }

@@ -11,7 +11,6 @@ use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
-use crate::vtable::ValidityHelper;
 
 impl TakeReduce for Masked {
     fn take(array: &MaskedArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -19,9 +18,9 @@ impl TakeReduce for Masked {
             // This is safe because we'll mask out these positions in the validity.
             let fill_scalar = Scalar::zero_value(indices.dtype());
             let filled_take_indices = indices.to_array().fill_null(fill_scalar)?;
-            array.child.take(filled_take_indices)?
+            array.child().take(filled_take_indices)?
         } else {
-            array.child.take(indices.to_array())?
+            array.child().take(indices.to_array())?
         };
 
         // Compute the new validity by taking from array's validity and merging with indices validity

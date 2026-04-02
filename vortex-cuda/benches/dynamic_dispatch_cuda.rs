@@ -40,8 +40,8 @@ use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::dynamic_dispatch::CudaDispatchPlan;
+use vortex_cuda::dynamic_dispatch::DispatchPlan;
 use vortex_cuda::dynamic_dispatch::MaterializedPlan;
-use vortex_cuda::dynamic_dispatch::UnmaterializedPlan;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
@@ -123,13 +123,15 @@ struct BenchRunner {
 
 impl BenchRunner {
     fn new(array: &vortex::array::ArrayRef, len: usize, cuda_ctx: &CudaExecutionCtx) -> Self {
+        let plan = match DispatchPlan::new(array).vortex_expect("build_dyn_dispatch_plan") {
+            DispatchPlan::Fused(plan) => plan,
+            _ => unreachable!("encoding not fusable"),
+        };
         let MaterializedPlan {
             dispatch_plan,
             device_buffers,
             shared_mem_bytes,
-        } = UnmaterializedPlan::new(array)
-            .and_then(|p| p.materialize(cuda_ctx))
-            .vortex_expect("build_dyn_dispatch_plan");
+        } = plan.materialize(cuda_ctx).vortex_expect("materialize plan");
 
         let device_plan = Arc::new(
             cuda_ctx

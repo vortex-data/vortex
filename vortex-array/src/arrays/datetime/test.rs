@@ -22,7 +22,6 @@ use crate::extension::datetime::TimestampOptions;
 use crate::hash::ArrayEq;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{
@@ -225,7 +224,7 @@ fn test222() -> VortexResult<()> {
         )),
     );
 
-    let _result = temporal.as_ref().apply(&filter_expr);
+    let _result = temporal.into_array().apply(&filter_expr);
 
     // let err = result.is_err().unwrap();
     // println!("Expected error: {}", err);

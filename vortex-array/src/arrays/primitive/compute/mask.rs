@@ -9,7 +9,6 @@ use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl MaskReduce for Primitive {
     fn mask(array: &PrimitiveArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -18,10 +17,7 @@ impl MaskReduce for Primitive {
             PrimitiveArray::new_unchecked_from_handle(
                 array.buffer_handle().clone(),
                 array.ptype(),
-                array
-                    .validity()
-                    .clone()
-                    .and(Validity::Array(mask.clone()))?,
+                array.validity().and(Validity::Array(mask.clone()))?,
             )
             .into_array()
         }))

@@ -140,11 +140,11 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_fixed_size_list(
 /// Takes ownership of the `struct_dtype` pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_struct(
-    struct_dtype: *const vx_struct_fields,
+    struct_dtype: *mut vx_struct_fields,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    let struct_dtype = vx_struct_fields::as_ref(struct_dtype).clone();
-    vx_dtype::new(Arc::new(DType::Struct(struct_dtype, is_nullable.into())))
+    let struct_dtype = vx_struct_fields::into_box(struct_dtype);
+    vx_dtype::new(Arc::new(DType::Struct(*struct_dtype, is_nullable.into())))
 }
 
 /// Create a new decimal data type.

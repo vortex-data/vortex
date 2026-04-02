@@ -58,10 +58,6 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::buffer_name(_array: &vortex_
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_decimal_byte_parts::DecimalBytePartsArray>
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::child(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_decimal_byte_parts::DecimalByteParts::child_name(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray, idx: usize) -> alloc::string::String
-
 pub fn vortex_decimal_byte_parts::DecimalByteParts::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::dtype(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> &vortex_array::dtype::DType
@@ -78,17 +74,19 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::metadata(array: &vortex_deci
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::nbuffers(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::nchildren(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
-
 pub fn vortex_decimal_byte_parts::DecimalByteParts::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_decimal_byte_parts::DecimalByteParts::slot_name(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray, idx: usize) -> alloc::string::String
+
+pub fn vortex_decimal_byte_parts::DecimalByteParts::slots(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::stats(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::vtable(_array: &Self::Array) -> &Self
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_decimal_byte_parts::DecimalByteParts::with_slots(array: &mut vortex_decimal_byte_parts::DecimalBytePartsArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_decimal_byte_parts::DecimalByteParts> for vortex_decimal_byte_parts::DecimalByteParts
 

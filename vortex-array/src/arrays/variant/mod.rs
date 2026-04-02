@@ -3,8 +3,13 @@
 
 mod vtable;
 
+use vortex_error::VortexExpect;
+
 pub use self::vtable::Variant;
 use crate::ArrayRef;
+
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 
 /// The canonical in-memory representation of variant (semi-structured) data.
 ///
@@ -16,17 +21,21 @@ use crate::ArrayRef;
 /// null.
 #[derive(Clone, Debug)]
 pub struct VariantArray {
-    child: ArrayRef,
+    slots: [Option<ArrayRef>; NUM_SLOTS],
 }
 
 impl VariantArray {
     /// Creates a new VariantArray. Nullability comes from the child's dtype.
     pub fn new(child: ArrayRef) -> Self {
-        Self { child }
+        Self {
+            slots: [Some(child)],
+        }
     }
 
     /// Returns a reference to the underlying child array.
     pub fn child(&self) -> &ArrayRef {
-        &self.child
+        self.slots[0]
+            .as_ref()
+            .vortex_expect("VariantArray child slot")
     }
 }

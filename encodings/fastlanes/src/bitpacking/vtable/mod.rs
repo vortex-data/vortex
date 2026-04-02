@@ -4,6 +4,7 @@
 use std::hash::Hash;
 use std::sync::Arc;
 
+use vortex_array::AnyCanonical;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
@@ -21,6 +22,8 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_patches;
+use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
@@ -28,12 +31,6 @@ use vortex_array::vtable;
 use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTableFromValidityHelper;
-use vortex_array::vtable::patches_child;
-use vortex_array::vtable::patches_child_name;
-use vortex_array::vtable::patches_nchildren;
-use vortex_array::vtable::validity_nchildren;
-use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -45,6 +42,12 @@ use vortex_session::VortexSession;
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
+use crate::bitpacking::array::NUM_SLOTS;
+use crate::bitpacking::array::PATCH_CHUNK_OFFSETS_SLOT;
+use crate::bitpacking::array::PATCH_INDICES_SLOT;
+use crate::bitpacking::array::PATCH_VALUES_SLOT;
+use crate::bitpacking::array::SLOT_NAMES;
+use crate::bitpacking::array::VALIDITY_SLOT;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
@@ -70,7 +73,7 @@ impl VTable for BitPacked {
     type Metadata = ProstMetadata<BitPackedMetadata>;
 
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn vtable(_array: &Self::Array) -> &Self {
         &BitPacked
@@ -102,8 +105,8 @@ impl VTable for BitPacked {
         array.dtype.hash(state);
         array.bit_width.hash(state);
         array.packed.array_hash(state, precision);
-        array.patches.array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.patches().array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &BitPackedArray, other: &BitPackedArray, precision: Precision) -> bool {
@@ -112,8 +115,8 @@ impl VTable for BitPacked {
             && array.dtype == other.dtype
             && array.bit_width == other.bit_width
             && array.packed.array_eq(&other.packed, precision)
-            && array.patches.array_eq(&other.patches, precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.patches().array_eq(&other.patches(), precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: &BitPackedArray) -> usize {
@@ -134,36 +137,6 @@ impl VTable for BitPacked {
         }
     }
 
-    fn nchildren(array: &BitPackedArray) -> usize {
-        array.patches().map_or(0, patches_nchildren) + validity_nchildren(&array.validity)
-    }
-
-    fn child(array: &BitPackedArray, idx: usize) -> ArrayRef {
-        let pc = array.patches().map_or(0, patches_nchildren);
-        if idx < pc {
-            patches_child(
-                array
-                    .patches()
-                    .vortex_expect("BitPackedArray child index out of bounds"),
-                idx,
-            )
-        } else if idx < pc + validity_nchildren(&array.validity) {
-            validity_to_child(&array.validity, array.len)
-                .vortex_expect("BitPackedArray child index out of bounds")
-        } else {
-            vortex_panic!("BitPackedArray child index {idx} out of bounds")
-        }
-    }
-
-    fn child_name(array: &BitPackedArray, idx: usize) -> String {
-        let pc = array.patches().map_or(0, patches_nchildren);
-        if idx < pc {
-            patches_child_name(idx).to_string()
-        } else {
-            "validity".to_string()
-        }
-    }
-
     fn reduce_parent(
         array: &Array<Self>,
         parent: &ArrayRef,
@@ -172,72 +145,29 @@ impl VTable for BitPacked {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // Children: patches (if present): indices, values, chunk_offsets; then validity (if present)
-        let patches_info = array
-            .patches()
-            .map(|p| (p.offset(), p.chunk_offsets().is_some()));
+    fn slots(array: &BitPackedArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
 
-        let mut child_idx = 0;
-        let patches = if let Some((patch_offset, has_chunk_offsets)) = patches_info {
-            let patch_indices = children
-                .get(child_idx)
-                .ok_or_else(|| vortex_err!("Expected patch_indices child at index {}", child_idx))?
-                .clone();
-            child_idx += 1;
+    fn slot_name(_array: &BitPackedArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
 
-            let patch_values = children
-                .get(child_idx)
-                .ok_or_else(|| vortex_err!("Expected patch_values child at index {}", child_idx))?
-                .clone();
-            child_idx += 1;
-
-            let patch_chunk_offsets = if has_chunk_offsets {
-                let offsets = children
-                    .get(child_idx)
-                    .ok_or_else(|| {
-                        vortex_err!("Expected patch_chunk_offsets child at index {}", child_idx)
-                    })?
-                    .clone();
-                child_idx += 1;
-                Some(offsets)
-            } else {
-                None
-            };
-
-            Some(Patches::new(
-                array.len(),
-                patch_offset,
-                patch_indices,
-                patch_values,
-                patch_chunk_offsets,
-            )?)
-        } else {
-            None
-        };
-
-        let validity = if child_idx < children.len() {
-            Validity::Array(children[child_idx].clone())
-        } else {
-            Validity::from(array.dtype().nullability())
-        };
-
-        let expected_children = child_idx
-            + if matches!(validity, Validity::Array(_)) {
-                1
-            } else {
-                0
-            };
+    fn with_slots(array: &mut BitPackedArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == expected_children,
-            "Expected {} children, got {}",
-            expected_children,
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "BitPackedArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
 
-        array.patches = patches;
-        array.validity = validity;
+        // If patch slots are being cleared, clear the metadata too
+        if slots[PATCH_INDICES_SLOT].is_none() || slots[PATCH_VALUES_SLOT].is_none() {
+            array.patch_offset = None;
+            array.patch_offset_within_chunk = None;
+        }
 
+        array.slots = slots;
         Ok(())
     }
 
@@ -361,6 +291,15 @@ impl VTable for BitPacked {
     }
 
     fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        require_patches!(
+            array,
+            array.patches(),
+            PATCH_INDICES_SLOT,
+            PATCH_VALUES_SLOT,
+            PATCH_CHUNK_OFFSETS_SLOT
+        );
+        require_validity!(array, &array.validity(), VALIDITY_SLOT => AnyCanonical);
+
         Ok(ExecutionResult::done(
             unpack_array(&array, ctx)?.into_array(),
         ))

@@ -1002,6 +1002,7 @@ impl Matcher for AnyCanonical {
             || array.is::<VarBinView>()
             || array.is::<Variant>()
             || array.is::<Extension>()
+            || array.is::<Variant>()
     }
 
     fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {

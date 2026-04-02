@@ -38,10 +38,8 @@ use vortex_array::vtable::Array;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
-use vortex_array::vtable::validity_nchildren;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -184,22 +182,6 @@ impl VTable for Zstd {
         }
     }
 
-    fn nchildren(array: &ZstdArray) -> usize {
-        validity_nchildren(&array.unsliced_validity)
-    }
-
-    fn child(array: &ZstdArray, idx: usize) -> ArrayRef {
-        validity_to_child(&array.unsliced_validity, array.unsliced_n_rows)
-            .unwrap_or_else(|| vortex_panic!("ZstdArray child index {idx} out of bounds"))
-    }
-
-    fn child_name(_array: &ZstdArray, idx: usize) -> String {
-        match idx {
-            0 => "validity".to_string(),
-            _ => vortex_panic!("ZstdArray child_name index {idx} out of bounds"),
-        }
-    }
-
     fn metadata(array: &ZstdArray) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(array.metadata.clone()))
     }
@@ -264,19 +246,28 @@ impl VTable for Zstd {
         ))
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
+    fn slots(array: &ZstdArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
+
+    fn slot_name(_array: &ZstdArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut ZstdArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() <= 1,
-            "ZstdArray expects at most 1 child (validity), got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "ZstdArray expects {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
 
-        array.unsliced_validity = if children.is_empty() {
-            Validity::from(array.dtype.nullability())
-        } else {
-            Validity::Array(children.into_iter().next().vortex_expect("checked"))
+        array.unsliced_validity = match &slots[VALIDITY_SLOT] {
+            Some(arr) => Validity::Array(arr.clone()),
+            None => Validity::from(array.dtype.nullability()),
         };
 
+        array.slots = slots;
         Ok(())
     }
 
@@ -303,6 +294,11 @@ impl Zstd {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
 }
 
+/// The validity bitmap indicating which elements are non-null.
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
+
 #[derive(Clone, Debug)]
 pub struct ZstdArray {
     pub(crate) dictionary: Option<ByteBuffer>,
@@ -311,6 +307,7 @@ pub struct ZstdArray {
     dtype: DType,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
@@ -442,6 +439,7 @@ impl ZstdArray {
         n_rows: usize,
         validity: Validity,
     ) -> Self {
+        let validity_slot = validity_to_child(&validity, n_rows);
         Self {
             dictionary,
             frames,
@@ -449,6 +447,7 @@ impl ZstdArray {
             dtype,
             unsliced_validity: validity,
             unsliced_n_rows: n_rows,
+            slots: vec![validity_slot],
             stats_set: Default::default(),
             slice_start: 0,
             slice_stop: n_rows,
@@ -605,7 +604,7 @@ impl ZstdArray {
             dtype,
             metadata,
             parray.len(),
-            parray.validity().clone(),
+            parray.validity(),
         ))
     }
 
@@ -696,7 +695,7 @@ impl ZstdArray {
             dtype,
             metadata,
             vbv.len(),
-            vbv.validity().clone(),
+            vbv.validity(),
         ))
     }
 

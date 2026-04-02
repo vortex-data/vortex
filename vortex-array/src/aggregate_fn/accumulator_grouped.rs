@@ -180,7 +180,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                             elements.clone(),
                             groups.offsets().clone(),
                             groups.sizes().clone(),
-                            groups.validity().clone(),
+                            groups.validity(),
                         )
                     };
                     kernel
@@ -270,7 +270,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                         FixedSizeListArray::new_unchecked(
                             elements.clone(),
                             groups.list_size(),
-                            groups.validity().clone(),
+                            groups.validity(),
                             groups.len(),
                         )
                     };

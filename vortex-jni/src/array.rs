@@ -227,13 +227,12 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let field = array_ref
-            .inner
-            .to_struct()
-            .unmasked_fields()
-            .get(index as usize)
-            .cloned()
-            .ok_or_else(|| vortex_err!("Field index out of bounds"))?;
+        let struct_array = array_ref.inner.to_struct();
+        let idx = index as usize;
+        if idx >= struct_array.struct_fields().nfields() {
+            return Err(vortex_err!("Field index out of bounds").into());
+        }
+        let field = struct_array.unmasked_field(idx).clone();
         Ok(NativeArray::new(field).into_raw())
     })
 }

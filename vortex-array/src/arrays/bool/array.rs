@@ -11,11 +11,17 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::bool;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::child_to_validity;
+use crate::vtable::validity_to_child;
+
+/// The validity bitmap indicating which elements are non-null.
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 /// A boolean array that stores true/false values in a compact bit-packed format.
 ///
@@ -51,11 +57,12 @@ use crate::validity::Validity;
 /// ```
 #[derive(Clone, Debug)]
 pub struct BoolArray {
+    /// Child arrays stored as slots. See [`VTable::slots`] for design rationale.
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
     pub(super) len: usize,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -67,6 +74,10 @@ pub struct BoolArrayParts {
 }
 
 impl BoolArray {
+    fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+        vec![validity_to_child(validity, len)]
+    }
+
     /// Constructs a new `BoolArray`.
     ///
     /// # Panics
@@ -101,11 +112,11 @@ impl BoolArray {
         let (offset, len, buffer) = bits.into_inner();
 
         Ok(Self {
+            slots: Self::make_slots(&validity, len),
             dtype: DType::Bool(validity.nullability()),
             bits: BufferHandle::new_host(buffer),
             offset,
             len,
-            validity,
             stats_set: ArrayStats::default(),
         })
     }
@@ -138,11 +149,11 @@ impl BoolArray {
         );
 
         Ok(Self {
+            slots: Self::make_slots(&validity, len),
             dtype: DType::Bool(validity.nullability()),
             bits,
             offset,
             len,
-            validity,
             stats_set: ArrayStats::default(),
         })
     }
@@ -159,11 +170,11 @@ impl BoolArray {
             let (offset, len, buffer) = bits.into_inner();
 
             Self {
+                slots: Self::make_slots(&validity, len),
                 dtype: DType::Bool(validity.nullability()),
                 bits: BufferHandle::new_host(buffer),
                 offset,
                 len,
-                validity,
                 stats_set: ArrayStats::default(),
             }
         }
@@ -191,14 +202,20 @@ impl BoolArray {
         Ok(())
     }
 
+    /// Reconstructs the validity from the slot state.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
     /// Splits into owned parts
     #[inline]
     pub fn into_parts(self) -> BoolArrayParts {
+        let validity = self.validity();
         BoolArrayParts {
             bits: self.bits,
             offset: self.offset,
             len: self.len,
-            validity: self.validity,
+            validity,
         }
     }
 
@@ -318,7 +335,6 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn bool_array() {

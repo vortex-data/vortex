@@ -116,28 +116,6 @@ impl VTable for RLE {
         None
     }
 
-    fn nchildren(_array: &RLEArray) -> usize {
-        3
-    }
-
-    fn child(array: &RLEArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.values().clone(),
-            1 => array.indices().clone(),
-            2 => array.values_idx_offsets().clone(),
-            _ => vortex_panic!("RLEArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &RLEArray, idx: usize) -> String {
-        match idx {
-            0 => "values".to_string(),
-            1 => "indices".to_string(),
-            2 => "values_idx_offsets".to_string(),
-            _ => vortex_panic!("RLEArray child name index {idx} out of bounds"),
-        }
-    }
-
     fn reduce_parent(
         array: &Array<Self>,
         parent: &ArrayRef,
@@ -146,22 +124,22 @@ impl VTable for RLE {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // RLEArray children order (from visit_children):
-        // 1. values
-        // 2. indices
-        // 3. values_idx_offsets
+    fn slots(array: &RLEArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
 
+    fn slot_name(_array: &RLEArray, idx: usize) -> String {
+        crate::rle::array::SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut RLEArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 3,
-            "Expected 3 children for RLE encoding, got {}",
-            children.len()
+            slots.len() == crate::rle::array::NUM_SLOTS,
+            "RLEArray expects {} slots, got {}",
+            crate::rle::array::NUM_SLOTS,
+            slots.len()
         );
-
-        array.values = children[0].clone();
-        array.indices = children[1].clone();
-        array.values_idx_offsets = children[2].clone();
-
+        array.slots = slots;
         Ok(())
     }
 

@@ -9,7 +9,6 @@ use crate::IntoArray;
 use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
 use crate::arrays::filter::FilterReduce;
-use crate::vtable::ValidityHelper;
 
 impl FilterReduce for Masked {
     fn filter(array: &MaskedArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
@@ -18,7 +17,7 @@ impl FilterReduce for Masked {
 
         // Filter the child array
         // The child is guaranteed to have no nulls, so filtering it is straightforward
-        let filtered_child = array.child.filter(mask.clone())?;
+        let filtered_child = array.child().filter(mask.clone())?;
 
         // Construct new MaskedArray
         Ok(Some(

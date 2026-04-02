@@ -11,6 +11,7 @@ mod array_iterator;
 mod binary;
 mod dtype;
 mod error;
+mod expression;
 mod file;
 mod log;
 mod macros;
@@ -22,7 +23,6 @@ mod struct_fields;
 
 use std::ffi::CStr;
 use std::ffi::c_char;
-use std::ffi::c_int;
 use std::sync::LazyLock;
 
 pub use log::vx_log_level;
@@ -41,8 +41,11 @@ pub(crate) unsafe fn to_string(ptr: *const c_char) -> String {
     c_str.to_string_lossy().into_owned()
 }
 
-pub(crate) unsafe fn to_string_vec(ptr: *const *const c_char, len: c_int) -> Vec<String> {
+pub(crate) unsafe fn to_string_vec(ptr: *const *const c_char, len: usize) -> Vec<String> {
+    #[expect(clippy::expect_used)]
     (0..len)
-        .map(|i| unsafe { to_string(*ptr.offset(i as isize)) })
+        .map(|i: usize| unsafe {
+            to_string(*ptr.offset(i.try_into().expect("pointer offset overflow")))
+        })
         .collect()
 }

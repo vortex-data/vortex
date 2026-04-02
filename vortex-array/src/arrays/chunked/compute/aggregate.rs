@@ -25,7 +25,7 @@ impl DynAggregateKernel for ChunkedArrayAggregate {
         };
 
         let mut acc = aggregate_fn.accumulator(chunked.dtype())?;
-        for chunk in chunked.chunks() {
+        for chunk in chunked.iter_chunks() {
             acc.accumulate(chunk, ctx)?;
         }
         // Return the partial (not finalized) result, since the outer accumulator

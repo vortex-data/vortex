@@ -19,13 +19,21 @@ use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::child_to_validity;
+use crate::vtable::validity_to_child;
+
+/// The offsets array defining the start/end of each variable-length binary element.
+pub(super) const OFFSETS_SLOT: usize = 0;
+/// The validity bitmap indicating which elements are non-null.
+pub(super) const VALIDITY_SLOT: usize = 1;
+pub(super) const NUM_SLOTS: usize = 2;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets", "validity"];
 
 #[derive(Clone, Debug)]
 pub struct VarBinArray {
     pub(super) dtype: DType,
     pub(super) bytes: BufferHandle,
-    pub(super) offsets: ArrayRef,
-    pub(super) validity: Validity,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -154,11 +162,13 @@ impl VarBinArray {
         Self::validate(&offsets, &bytes, &dtype, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `VarBinArray` parameters");
 
+        let len = offsets.len().saturating_sub(1);
+        let validity_slot = validity_to_child(&validity, len);
+
         Self {
             dtype,
             bytes,
-            offsets,
-            validity,
+            slots: vec![Some(offsets), validity_slot],
             stats_set: Default::default(),
         }
     }
@@ -257,9 +267,16 @@ impl VarBinArray {
         Ok(())
     }
 
+    /// Reconstructs the validity from the slots.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
     #[inline]
     pub fn offsets(&self) -> &ArrayRef {
-        &self.offsets
+        self.slots[OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("VarBinArray offsets slot")
     }
 
     /// Access the value bytes child buffer
@@ -370,8 +387,12 @@ impl VarBinArray {
 
     /// Consumes self, returning a tuple containing the `DType`, the `bytes` array,
     /// the `offsets` array, and the `validity`.
-    pub fn into_parts(self) -> (DType, BufferHandle, ArrayRef, Validity) {
-        (self.dtype, self.bytes, self.offsets, self.validity)
+    pub fn into_parts(mut self) -> (DType, BufferHandle, ArrayRef, Validity) {
+        let validity = self.validity();
+        let offsets = self.slots[OFFSETS_SLOT]
+            .take()
+            .vortex_expect("VarBinArray offsets slot");
+        (self.dtype, self.bytes, offsets, validity)
     }
 }
 

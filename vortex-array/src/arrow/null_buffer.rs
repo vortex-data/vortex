@@ -3,7 +3,24 @@
 
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::NullBuffer;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
+
+use crate::ExecutionCtx;
+use crate::validity::Validity;
+
+/// Converts a [`Validity`] to an Arrow [`NullBuffer`], executing the validity array if needed.
+pub fn to_arrow_null_buffer(
+    validity: Validity,
+    len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<NullBuffer>> {
+    Ok(match validity {
+        Validity::NonNullable | Validity::AllValid => None,
+        Validity::AllInvalid => Some(NullBuffer::new_null(len)),
+        Validity::Array(array) => to_null_buffer(array.execute::<Mask>(ctx)?),
+    })
+}
 
 /// Converts a mask to a null buffer.
 pub fn to_null_buffer(mask: Mask) -> Option<NullBuffer> {

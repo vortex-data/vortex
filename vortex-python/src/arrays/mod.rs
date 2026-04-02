@@ -331,8 +331,7 @@ impl PyArray {
             let arrow_dtype = chunked_array.dtype().to_arrow_dtype()?;
 
             let chunks = chunked_array
-                .chunks()
-                .iter()
+                .iter_chunks()
                 .map(|chunk| -> PyVortexResult<_> { Ok(chunk.clone().into_arrow(&arrow_dtype)?) })
                 .collect::<Result<Vec<ArrowArrayRef>, _>>()?;
 

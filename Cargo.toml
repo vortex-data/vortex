@@ -12,6 +12,7 @@ members = [
     "vortex-proto",
     "vortex-array",
     "vortex-tensor",
+    "vortex-compressor",
     "vortex-btrblocks",
     "vortex-layout",
     "vortex-scan",
@@ -33,6 +34,7 @@ members = [
     "vortex-python",
     "vortex-tui",
     "vortex-web/crate",
+    "vortex-sqllogictest",
     "vortex-test/compat-gen",
     "vortex-test/e2e-cuda",
     "xtask",
@@ -49,13 +51,13 @@ members = [
     "encodings/zigzag",
     "encodings/zstd",
     "encodings/bytebool",
+    "encodings/parquet-variant",
     # Benchmarks
     "benchmarks/lance-bench",
     "benchmarks/compress-bench",
     "benchmarks/datafusion-bench",
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
-    "vortex-sqllogictest",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
@@ -184,6 +186,8 @@ opentelemetry-otlp = "0.31.0"
 opentelemetry_sdk = "0.31.0"
 parking_lot = { version = "0.12.3", features = ["nightly"] }
 parquet = "58"
+parquet-variant = "58"
+parquet-variant-compute = "58"
 paste = "1.0.15"
 pco = "1.0.1"
 pin-project-lite = "0.2.15"
@@ -261,6 +265,7 @@ vortex-array = { version = "0.1.0", path = "./vortex-array", default-features = 
 vortex-btrblocks = { version = "0.1.0", path = "./vortex-btrblocks", default-features = false }
 vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features = false }
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
+vortex-compressor = { version = "0.1.0", path = "./vortex-compressor", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
@@ -312,6 +317,7 @@ unexpected_cfgs = { level = "deny", check-cfg = [
     "cfg(codspeed)",
     "cfg(disable_loom)",
     "cfg(vortex_nightly)",
+    'cfg(target_os, values("unknown"))',
 ] }
 warnings = "warn"
 

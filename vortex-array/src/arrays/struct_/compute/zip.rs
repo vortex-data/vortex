@@ -15,7 +15,6 @@ use crate::arrays::StructArray;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl ZipKernel for Struct {
     fn zip(
@@ -34,16 +33,17 @@ impl ZipKernel for Struct {
         );
 
         let fields = if_true
-            .unmasked_fields()
-            .iter()
-            .zip(if_false.unmasked_fields().iter())
+            .iter_unmasked_fields()
+            .zip(if_false.iter_unmasked_fields())
             .map(|(t, f)| ArrayBuiltins::zip(mask, t.clone(), f.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let validity = match (if_true.validity(), if_false.validity()) {
-            (&Validity::NonNullable, &Validity::NonNullable) => Validity::NonNullable,
-            (&Validity::AllValid, &Validity::AllValid) => Validity::AllValid,
-            (&Validity::AllInvalid, &Validity::AllInvalid) => Validity::AllInvalid,
+        let v1 = if_true.validity();
+        let v2 = if_false.validity();
+        let validity = match (&v1, &v2) {
+            (Validity::NonNullable, Validity::NonNullable) => Validity::NonNullable,
+            (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
+            (Validity::AllInvalid, Validity::AllInvalid) => Validity::AllInvalid,
 
             (v1, v2) => {
                 let mask_mask = mask.try_to_mask_fill_null_false(ctx)?;

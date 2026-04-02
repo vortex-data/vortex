@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::ArrayRef;
 use crate::arrays::varbinview::BinaryView;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -21,6 +22,13 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
+use crate::vtable::child_to_validity;
+use crate::vtable::validity_to_child;
+
+/// The validity bitmap indicating which elements are non-null.
+pub(super) const VALIDITY_SLOT: usize = 0;
+pub(super) const NUM_SLOTS: usize = 1;
+pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 /// A variable-length binary view array that stores strings and binary data efficiently.
 ///
@@ -83,10 +91,10 @@ use crate::validity::Validity;
 /// ```
 #[derive(Clone, Debug)]
 pub struct VarBinViewArray {
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) buffers: Arc<[BufferHandle]>,
     pub(super) views: BufferHandle,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -98,6 +106,10 @@ pub struct VarBinViewArrayParts {
 }
 
 impl VarBinViewArray {
+    fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+        vec![validity_to_child(validity, len)]
+    }
+
     /// Creates a new [`VarBinViewArray`].
     ///
     /// # Panics
@@ -244,11 +256,12 @@ impl VarBinViewArray {
         dtype: DType,
         validity: Validity,
     ) -> Self {
+        let len = views.len() / size_of::<BinaryView>();
         Self {
+            slots: Self::make_slots(&validity, len),
             views,
             buffers,
             dtype,
-            validity,
             stats_set: Default::default(),
         }
     }
@@ -342,13 +355,19 @@ impl VarBinViewArray {
         Ok(())
     }
 
+    /// Reconstructs the validity from the slots.
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
     /// Splits the array into owned parts
     pub fn into_parts(self) -> VarBinViewArrayParts {
+        let validity = self.validity();
         VarBinViewArrayParts {
             dtype: self.dtype,
             buffers: self.buffers,
             views: self.views,
-            validity: self.validity,
+            validity,
         }
     }
 

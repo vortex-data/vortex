@@ -68,9 +68,8 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let children = scalar_fn_array.children();
-        let if_false = &children[1];
-        let mask_array = &children[2];
+        let if_false = scalar_fn_array.get_child(1);
+        let mask_array = scalar_fn_array.get_child(2);
         <V as ZipReduce>::zip(array, if_false, mask_array)
     }
 }
@@ -98,9 +97,8 @@ where
         let scalar_fn_array = parent
             .as_opt::<ScalarFnVTable>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
-        let children = scalar_fn_array.children();
-        let if_false = &children[1];
-        let mask_array = &children[2];
+        let if_false = scalar_fn_array.get_child(1);
+        let mask_array = scalar_fn_array.get_child(2);
         <V as ZipKernel>::zip(array, if_false, mask_array, ctx)
     }
 }

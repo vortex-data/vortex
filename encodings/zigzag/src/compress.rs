@@ -6,7 +6,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -16,7 +15,7 @@ use zigzag::ZigZag as ExternalZigZag;
 use crate::ZigZagArray;
 
 pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
-    let validity = parray.validity().clone();
+    let validity = parray.validity();
     let encoded = match parray.ptype() {
         PType::I8 => zigzag_encode_primitive::<i8>(parray.into_buffer_mut(), validity),
         PType::I16 => zigzag_encode_primitive::<i16>(parray.into_buffer_mut(), validity),
@@ -44,7 +43,7 @@ where
 }
 
 pub fn zigzag_decode(parray: PrimitiveArray) -> PrimitiveArray {
-    let validity = parray.validity().clone();
+    let validity = parray.validity();
     match parray.ptype() {
         PType::U8 => zigzag_decode_primitive::<i8>(parray.into_buffer_mut(), validity),
         PType::U16 => zigzag_decode_primitive::<i16>(parray.into_buffer_mut(), validity),

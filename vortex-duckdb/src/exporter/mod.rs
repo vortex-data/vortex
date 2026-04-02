@@ -31,7 +31,6 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
-use vortex::array::vtable::ValidityHelper;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
@@ -61,8 +60,7 @@ impl ArrayExporter {
         assert!(validity.all_true());
 
         let fields = array
-            .unmasked_fields()
-            .iter()
+            .iter_unmasked_fields()
             .map(|field| new_array_exporter(field.clone(), cache, &mut ctx))
             .collect::<VortexResult<Vec<_>>>()?;
 

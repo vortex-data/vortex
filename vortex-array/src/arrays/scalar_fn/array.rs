@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
@@ -11,12 +12,14 @@ use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;
 use crate::stats::ArrayStats;
 
+// ScalarFnArray has a variable number of slots (one per child)
+
 #[derive(Clone, Debug)]
 pub struct ScalarFnArray {
     pub(super) vtable: ScalarFnVTable,
     pub(super) dtype: DType,
     pub(super) len: usize,
-    pub(super) children: Vec<ArrayRef>,
+    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats: ArrayStats,
 }
 
@@ -35,11 +38,13 @@ impl ScalarFnArray {
             "ScalarFnArray must have children equal to the array length"
         );
 
+        let slots = children.into_iter().map(Some).collect();
+
         Ok(Self {
             vtable: ScalarFnVTable { scalar_fn },
             dtype,
             len,
-            children,
+            slots,
             stats: Default::default(),
         })
     }
@@ -51,8 +56,27 @@ impl ScalarFnArray {
         &self.vtable.scalar_fn
     }
 
+    /// Get a child array by index.
+    pub fn get_child(&self, idx: usize) -> &ArrayRef {
+        self.slots[idx]
+            .as_ref()
+            .vortex_expect("ScalarFnArray child slot")
+    }
+
+    /// Get the number of children.
+    pub fn nchildren(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// Iterate over the children arrays without allocation.
+    pub fn iter_children(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
+        self.slots
+            .iter()
+            .map(|s| s.as_ref().vortex_expect("ScalarFnArray child slot"))
+    }
+
     /// Get the children arrays of this scalar function array.
-    pub fn children(&self) -> &[ArrayRef] {
-        &self.children
+    pub fn children(&self) -> Vec<ArrayRef> {
+        self.iter_children().cloned().collect()
     }
 }

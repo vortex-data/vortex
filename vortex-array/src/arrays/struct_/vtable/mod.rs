@@ -8,7 +8,6 @@ use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -17,6 +16,8 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::array::FIELDS_OFFSET;
+use crate::arrays::struct_::array::VALIDITY_SLOT;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -25,9 +26,6 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::Array;
 use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
-use crate::vtable::validity_nchildren;
-use crate::vtable::validity_to_child;
 mod kernel;
 mod operations;
 mod validity;
@@ -46,7 +44,7 @@ impl VTable for Struct {
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
     fn vtable(_array: &Self::Array) -> &Self {
         &Struct
     }
@@ -70,22 +68,21 @@ impl VTable for Struct {
     fn array_hash<H: std::hash::Hasher>(array: &StructArray, state: &mut H, precision: Precision) {
         array.len.hash(state);
         array.dtype.hash(state);
-        for field in array.fields.iter() {
+        for field in array.iter_unmasked_fields() {
             field.array_hash(state, precision);
         }
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &StructArray, other: &StructArray, precision: Precision) -> bool {
         array.len == other.len
             && array.dtype == other.dtype
-            && array.fields.len() == other.fields.len()
+            && array.slots.len() == other.slots.len()
             && array
-                .fields
-                .iter()
-                .zip(other.fields.iter())
+                .iter_unmasked_fields()
+                .zip(other.iter_unmasked_fields())
                 .all(|(a, b)| a.array_eq(b, precision))
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: &StructArray) -> usize {
@@ -98,29 +95,6 @@ impl VTable for Struct {
 
     fn buffer_name(_array: &StructArray, idx: usize) -> Option<String> {
         vortex_panic!("StructArray buffer_name index {idx} out of bounds")
-    }
-
-    fn nchildren(array: &StructArray) -> usize {
-        validity_nchildren(&array.validity) + array.unmasked_fields().len()
-    }
-
-    fn child(array: &StructArray, idx: usize) -> ArrayRef {
-        let vc = validity_nchildren(&array.validity);
-        if idx < vc {
-            validity_to_child(&array.validity, array.len())
-                .vortex_expect("StructArray validity child out of bounds")
-        } else {
-            array.unmasked_fields()[idx - vc].clone()
-        }
-    }
-
-    fn child_name(array: &StructArray, idx: usize) -> String {
-        let vc = validity_nchildren(&array.validity);
-        if idx < vc {
-            "validity".to_string()
-        } else {
-            array.names()[idx - vc].as_ref().to_string()
-        }
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {
@@ -155,7 +129,6 @@ impl VTable for Struct {
         let (validity, non_data_children) = if children.len() == struct_dtype.nfields() {
             (Validity::from(*nullability), 0_usize)
         } else if children.len() == struct_dtype.nfields() + 1 {
-            // Validity is the first child if it exists.
             let validity = children.get(0, &Validity::DTYPE, len)?;
             (Validity::Array(validity), 1_usize)
         } else {
@@ -167,7 +140,7 @@ impl VTable for Struct {
             );
         };
 
-        let children: Vec<_> = (0..struct_dtype.nfields())
+        let field_children: Vec<_> = (0..struct_dtype.nfields())
             .map(|i| {
                 let child_dtype = struct_dtype
                     .field_by_index(i)
@@ -176,38 +149,23 @@ impl VTable for Struct {
             })
             .try_collect()?;
 
-        StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)
+        StructArray::try_new_with_dtype(field_children, struct_dtype.clone(), len, validity)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        let DType::Struct(struct_dtype, _nullability) = &array.dtype else {
-            vortex_bail!("Expected struct dtype, found {:?}", array.dtype)
-        };
+    fn slots(array: &StructArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
 
-        // First child is validity (if present), followed by fields
-        let (validity, non_data_children) = if children.len() == struct_dtype.nfields() {
-            (array.validity.clone(), 0_usize)
-        } else if children.len() == struct_dtype.nfields() + 1 {
-            (Validity::Array(children[0].clone()), 1_usize)
+    fn slot_name(array: &StructArray, idx: usize) -> String {
+        if idx == VALIDITY_SLOT {
+            "validity".to_string()
         } else {
-            vortex_bail!(
-                "Expected {} or {} children, found {}",
-                struct_dtype.nfields(),
-                struct_dtype.nfields() + 1,
-                children.len()
-            );
-        };
+            array.names()[idx - FIELDS_OFFSET].to_string()
+        }
+    }
 
-        let fields: Arc<[ArrayRef]> = children.into_iter().skip(non_data_children).collect();
-        vortex_ensure!(
-            fields.len() == struct_dtype.nfields(),
-            "Expected {} field children, found {}",
-            struct_dtype.nfields(),
-            fields.len()
-        );
-
-        array.fields = fields;
-        array.validity = validity;
+    fn with_slots(array: &mut StructArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+        array.slots = slots;
         Ok(())
     }
 

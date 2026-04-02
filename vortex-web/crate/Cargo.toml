@@ -11,16 +11,27 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+arrow-array = { workspace = true }
+arrow-ipc = { workspace = true }
+arrow-schema = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 vortex = { path = "../../vortex", default-features = false, features = [
     "files",
 ] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+futures = { workspace = true }
 wasm-bindgen = "0.2.104"
 wasm-bindgen-futures = { workspace = true }
 console_error_panic_hook = "0.1.7"
 js-sys = "0.3.81"
-web-sys = { version = "0.3.81", features = ["console", "File", "FileReader"] }
+web-sys = { version = "0.3.81", features = [
+    "Blob",
+    "console",
+    "File",
+    "FileReader",
+] }
 
 [lints]
 workspace = true

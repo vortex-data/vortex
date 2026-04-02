@@ -113,12 +113,11 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
             return Ok(None);
         }
 
-        let children = parent.children();
         let days = child.days();
 
         // Build new children: replace DTP with days, replace constant timestamps with days constants
-        let mut new_children = Vec::with_capacity(children.len());
-        for (idx, c) in children.iter().enumerate() {
+        let mut new_children = Vec::with_capacity(parent.nchildren());
+        for (idx, c) in parent.iter_children().enumerate() {
             if idx == child_idx {
                 // This is the DTP child - replace with days
                 new_children.push(days.clone());

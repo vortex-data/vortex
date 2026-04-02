@@ -9,7 +9,6 @@ use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl MaskReduce for VarBin {
     fn mask(array: &VarBinArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -18,10 +17,7 @@ impl MaskReduce for VarBin {
                 array.offsets().clone(),
                 array.bytes().clone(),
                 array.dtype().as_nullable(),
-                array
-                    .validity()
-                    .clone()
-                    .and(Validity::Array(mask.clone()))?,
+                array.validity().and(Validity::Array(mask.clone()))?,
             )?
             .into_array(),
         ))

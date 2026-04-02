@@ -8,7 +8,6 @@ use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
     fn with_iterator<F, R>(&self, f: F) -> R

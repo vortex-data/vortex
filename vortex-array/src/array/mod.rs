@@ -162,9 +162,6 @@ pub trait DynArray:
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
     fn statistics(&self) -> StatsSetRef<'_>;
-
-    /// Replaces the children of the array with the given array references.
-    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 }
 
 impl DynArray for Arc<dyn DynArray> {
@@ -274,10 +271,6 @@ impl DynArray for Arc<dyn DynArray> {
     fn statistics(&self) -> StatsSetRef<'_> {
         self.as_ref().statistics()
     }
-
-    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        self.as_ref().with_children(children)
-    }
 }
 
 /// A reference counted pointer to a dynamic [`DynArray`] trait object.
@@ -352,17 +345,25 @@ impl dyn DynArray + '_ {
         self.is::<AnyCanonical>()
     }
 
-    /// Returns a new array with the child at `child_idx` replaced by `replacement`.
-    pub fn with_child(&self, child_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
-        let mut children: Vec<ArrayRef> = self.children();
+    /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
+    ///
+    /// Takes ownership to allow in-place mutation when the refcount is 1.
+    pub fn with_slot(
+        self: ArrayRef,
+        slot_idx: usize,
+        replacement: ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        let nslots = self.slots().len();
         vortex_ensure!(
-            child_idx < children.len(),
-            "child index {} out of bounds for array with {} children",
-            child_idx,
-            children.len()
+            slot_idx < nslots,
+            "slot index {} out of bounds for array with {} slots",
+            slot_idx,
+            nslots
         );
-        children[child_idx] = replacement;
-        self.with_children(children)
+        let mut slots = self.slots().to_vec();
+        slots[slot_idx] = Some(replacement);
+        let vtable = self.vtable().clone_boxed();
+        vtable.with_slots(self, slots)
     }
 }
 
@@ -622,22 +623,6 @@ impl<V: VTable> DynArray for Array<V> {
     fn statistics(&self) -> StatsSetRef<'_> {
         self.stats.to_ref(self)
     }
-
-    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        let mut inner = self.array.clone();
-        V::with_children(&mut inner, children)?;
-        // SAFETY: with_children preserves dtype and len.
-        Ok(unsafe {
-            Array::new_unchecked(
-                self.typed_vtable().clone(),
-                self.dtype.clone(),
-                self.len,
-                inner,
-                self.stats.clone(),
-            )
-        }
-        .into_array())
-    }
 }
 
 impl<V: VTable> ArrayHash for Array<V> {
@@ -672,6 +657,10 @@ impl<V: VTable> ArrayVisitor for Array<V> {
         (0..V::nchildren(&self.array))
             .map(|i| V::child_name(&self.array, i))
             .collect()
+    }
+
+    fn slots(&self) -> &[Option<ArrayRef>] {
+        V::slots(&self.array)
     }
 
     fn named_children(&self) -> Vec<(String, ArrayRef)> {
@@ -1037,12 +1026,6 @@ impl<V: VTable> DynArray for ArrayAdapter<V> {
     fn statistics(&self) -> StatsSetRef<'_> {
         V::stats(&self.0)
     }
-
-    fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
-        let mut this = self.0.clone();
-        V::with_children(&mut this, children)?;
-        Ok(this.into_array())
-    }
 }
 
 impl<V: VTable> ArrayHash for ArrayAdapter<V> {
@@ -1111,6 +1094,10 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
 
     fn nbuffers(&self) -> usize {
         V::nbuffers(&self.0)
+    }
+
+    fn slots(&self) -> &[Option<ArrayRef>] {
+        V::slots(&self.0)
     }
 
     fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {

@@ -344,7 +344,7 @@ fn list_contains_scalar(
 
     Ok(BoolArray::new(
         list_matches,
-        list_array.validity().clone().union_nullability(nullability),
+        list_array.validity().union_nullability(nullability),
     )
     .into_array())
 }
@@ -434,11 +434,7 @@ fn list_is_not_empty(
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::new(
-        buffer,
-        list_array.validity().clone().union_nullability(nullability),
-    )
-    .into_array())
+    Ok(BoolArray::new(buffer, list_array.validity().union_nullability(nullability)).into_array())
 }
 
 #[cfg(test)]
@@ -674,7 +670,7 @@ mod tests {
 
         // Test contains true
         let expr = list_contains(lit(list_scalar.clone()), lit(2i32));
-        let result = arr.apply(&expr).unwrap();
+        let result = arr.clone().apply(&expr).unwrap();
         assert_eq!(
             result.scalar_at(0).unwrap(),
             Scalar::bool(true, Nullability::NonNullable)
@@ -682,7 +678,7 @@ mod tests {
 
         // Test contains false
         let expr = list_contains(lit(list_scalar), lit(42i32));
-        let result = arr.apply(&expr).unwrap();
+        let result = arr.clone().apply(&expr).unwrap();
         assert_eq!(
             result.scalar_at(0).unwrap(),
             Scalar::bool(false, Nullability::NonNullable)
@@ -860,7 +856,7 @@ mod tests {
         };
 
         let expr = list_contains(root(), lit(42i32));
-        let result = list_array.apply(&expr).unwrap();
+        let result = list_array.into_array().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, false]);
         assert_arrays_eq!(result, expected);
@@ -885,7 +881,7 @@ mod tests {
         // Searching for null
         let null_scalar = Scalar::null(DType::Primitive(I32, Nullability::Nullable));
         let expr = list_contains(root(), lit(null_scalar));
-        let result = list_array.apply(&expr).unwrap();
+        let result = list_array.clone().into_array().apply(&expr).unwrap();
 
         let expected = BoolArray::new(
             [false, false, false].into_iter().collect(),
@@ -895,7 +891,7 @@ mod tests {
 
         // Searching for non-null
         let expr2 = list_contains(root(), lit(42i32));
-        let result2 = list_array.apply(&expr2).unwrap();
+        let result2 = list_array.into_array().apply(&expr2).unwrap();
 
         let expected2 = BoolArray::from_iter([false, false, false]);
         assert_arrays_eq!(result2, expected2);
@@ -912,13 +908,13 @@ mod tests {
             ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
 
         let expr = list_contains(root(), lit(2i32));
-        let result = list_array.apply(&expr).unwrap();
+        let result = list_array.clone().into_array().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, true, false, false]);
         assert_arrays_eq!(result, expected);
 
         let expr5 = list_contains(root(), lit(5i32));
-        let result5 = list_array.apply(&expr5).unwrap();
+        let result5 = list_array.into_array().apply(&expr5).unwrap();
 
         let expected5 = BoolArray::from_iter([false, false, true, false]);
         assert_arrays_eq!(result5, expected5);
@@ -934,13 +930,13 @@ mod tests {
             ListViewArray::new(elements.into_array(), offsets, sizes, Validity::NonNullable);
 
         let expr = list_contains(root(), lit(255i32));
-        let result = list_array.apply(&expr).unwrap();
+        let result = list_array.clone().into_array().apply(&expr).unwrap();
 
         let expected = BoolArray::from_iter([false, false, false, true]);
         assert_arrays_eq!(result, expected);
 
         let expr_zero = list_contains(root(), lit(0i32));
-        let result_zero = list_array.apply(&expr_zero).unwrap();
+        let result_zero = list_array.into_array().apply(&expr_zero).unwrap();
 
         let expected_zero = BoolArray::from_iter([true, false, false, false]);
         assert_arrays_eq!(result_zero, expected_zero);

@@ -61,7 +61,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
         Ok(Some(
             StructArray::try_new(
                 pack_options.names.clone(),
-                array.children.clone(),
+                array.children(),
                 array.len,
                 validity,
             )?
@@ -74,7 +74,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
 struct ScalarFnConstantRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
     fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
-        if !array.children.iter().all(|c| c.is::<Constant>()) {
+        if !array.iter_children().all(|c| c.is::<Constant>()) {
             return Ok(None);
         }
         if array.is_empty() {
@@ -100,20 +100,12 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
         let range = parent.slice_range();
 
         let children: Vec<_> = array
-            .children()
-            .iter()
+            .iter_children()
             .map(|c| c.slice(range.clone()))
             .collect::<VortexResult<_>>()?;
 
         Ok(Some(
-            ScalarFnArray {
-                vtable: array.vtable.clone(),
-                dtype: array.dtype.clone(),
-                len: range.len(),
-                children,
-                stats: Default::default(),
-            }
-            .into_array(),
+            ScalarFnArray::try_new(array.scalar_fn().clone(), children, range.len())?.into_array(),
         ))
     }
 }
@@ -153,11 +145,11 @@ impl ReduceNode for ScalarFnArray {
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
-        Arc::new(self.children()[idx].clone())
+        Arc::new(self.get_child(idx).clone())
     }
 
     fn child_count(&self) -> usize {
-        self.children.len()
+        self.nchildren()
     }
 }
 
@@ -227,15 +219,13 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
         // If we only have one non-constant child, then it is _always_ cheaper to push down the
         // filter over the children of the scalar function array.
         if child
-            .children
-            .iter()
+            .iter_children()
             .filter(|c| !c.is::<Constant>())
             .count()
             == 1
         {
             let new_children: Vec<_> = child
-                .children
-                .iter()
+                .iter_children()
                 .map(|c| match c.as_opt::<Constant>() {
                     Some(array) => {
                         Ok(ConstantArray::new(array.scalar().clone(), parent.len()).into_array())

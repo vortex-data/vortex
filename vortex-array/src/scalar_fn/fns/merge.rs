@@ -159,7 +159,7 @@ impl ScalarFnVTable for Merge {
             for (field_name, field_array) in array
                 .names()
                 .iter()
-                .zip_eq(array.unmasked_fields().iter().cloned())
+                .zip_eq(array.iter_unmasked_fields().cloned())
             {
                 // Update or insert field.
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {

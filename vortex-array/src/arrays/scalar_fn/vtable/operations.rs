@@ -23,7 +23,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let inputs: Vec<_> = array
-            .children
+            .children()
             .iter()
             .map(|child| Ok(ConstantArray::new(child.scalar_at(index)?, 1).into_array()))
             .collect::<VortexResult<_>>()?;

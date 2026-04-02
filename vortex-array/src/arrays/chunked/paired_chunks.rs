@@ -14,16 +14,16 @@ pub(crate) struct AlignedPair {
     pub pos: Range<usize>,
 }
 
-/// Cursor over a chunk slice that maintains the invariant: `idx` always
+/// Cursor over a chunk list that maintains the invariant: `idx` always
 /// points at a non-empty chunk or is past the end.
-struct ChunkCursor<'a> {
-    chunks: &'a [ArrayRef],
+struct ChunkCursor {
+    chunks: Vec<ArrayRef>,
     idx: usize,
     offset: usize,
 }
 
-impl<'a> ChunkCursor<'a> {
-    fn new(chunks: &'a [ArrayRef]) -> Self {
+impl ChunkCursor {
+    fn new(chunks: Vec<ArrayRef>) -> Self {
         let mut cursor = Self {
             chunks,
             idx: 0,
@@ -34,22 +34,21 @@ impl<'a> ChunkCursor<'a> {
     }
 
     fn skip_empty(&mut self) {
-        while self.idx < self.chunks.len()
-            && unsafe { self.chunks.get_unchecked(self.idx) }.is_empty()
-        {
+        while self.idx < self.chunks.len() && self.chunks[self.idx].is_empty() {
             self.idx += 1;
         }
     }
 
-    fn current_chunk(&self) -> Option<&'a ArrayRef> {
-        (self.idx < self.chunks.len()).then(|| unsafe { self.chunks.get_unchecked(self.idx) })
+    fn is_exhausted(&self) -> bool {
+        self.idx >= self.chunks.len()
     }
 
-    fn remaining(&self, chunk: &ArrayRef) -> usize {
-        chunk.len() - self.offset
+    fn remaining(&self) -> usize {
+        self.chunks[self.idx].len() - self.offset
     }
 
-    fn take(&mut self, chunk: &ArrayRef, n: usize) -> VortexResult<ArrayRef> {
+    fn take(&mut self, n: usize) -> VortexResult<ArrayRef> {
+        let chunk = &self.chunks[self.idx];
         let slice = chunk.slice(self.offset..self.offset + n)?;
         self.offset += n;
         if self.offset == chunk.len() {
@@ -61,49 +60,43 @@ impl<'a> ChunkCursor<'a> {
     }
 }
 
-pub(crate) struct PairedChunks<'a> {
-    left: ChunkCursor<'a>,
-    right: ChunkCursor<'a>,
+pub(crate) struct PairedChunks {
+    left: ChunkCursor,
+    right: ChunkCursor,
     pos: usize,
     total_len: usize,
 }
 
 impl ChunkedArray {
-    pub(crate) fn paired_chunks<'a>(&'a self, other: &'a ChunkedArray) -> PairedChunks<'a> {
+    pub(crate) fn paired_chunks(&self, other: &ChunkedArray) -> PairedChunks {
         assert_eq!(
             self.len(),
             other.len(),
             "paired_chunks requires arrays of equal length"
         );
         PairedChunks {
-            left: ChunkCursor::new(&self.chunks),
-            right: ChunkCursor::new(&other.chunks),
+            left: ChunkCursor::new(self.chunks()),
+            right: ChunkCursor::new(other.chunks()),
             pos: 0,
             total_len: self.len(),
         }
     }
 }
 
-impl Iterator for PairedChunks<'_> {
+impl Iterator for PairedChunks {
     type Item = VortexResult<AlignedPair>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.pos >= self.total_len {
+        if self.pos >= self.total_len || self.left.is_exhausted() || self.right.is_exhausted() {
             return None;
         }
 
-        let lhs_chunk = self.left.current_chunk()?;
-        let rhs_chunk = self.right.current_chunk()?;
-
-        let take = self
-            .left
-            .remaining(lhs_chunk)
-            .min(self.right.remaining(rhs_chunk));
+        let take = self.left.remaining().min(self.right.remaining());
 
         let (lhs_slice, rhs_slice) = match self
             .left
-            .take(lhs_chunk, take)
-            .and_then(|l| self.right.take(rhs_chunk, take).map(|r| (l, r)))
+            .take(take)
+            .and_then(|l| self.right.take(take).map(|r| (l, r)))
         {
             Ok(pair) => pair,
             Err(e) => return Some(Err(e)),

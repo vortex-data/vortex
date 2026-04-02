@@ -58,10 +58,6 @@ pub fn vortex_sequence::Sequence::buffer_name(_array: &vortex_sequence::Sequence
 
 pub fn vortex_sequence::Sequence::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sequence::SequenceArray>
 
-pub fn vortex_sequence::Sequence::child(_array: &vortex_sequence::SequenceArray, idx: usize) -> vortex_array::array::ArrayRef
-
-pub fn vortex_sequence::Sequence::child_name(_array: &vortex_sequence::SequenceArray, idx: usize) -> alloc::string::String
-
 pub fn vortex_sequence::Sequence::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_sequence::Sequence::dtype(array: &vortex_sequence::SequenceArray) -> &vortex_array::dtype::DType
@@ -78,17 +74,19 @@ pub fn vortex_sequence::Sequence::metadata(array: &vortex_sequence::SequenceArra
 
 pub fn vortex_sequence::Sequence::nbuffers(_array: &vortex_sequence::SequenceArray) -> usize
 
-pub fn vortex_sequence::Sequence::nchildren(_array: &vortex_sequence::SequenceArray) -> usize
-
 pub fn vortex_sequence::Sequence::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 
 pub fn vortex_sequence::Sequence::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_sequence::Sequence::slot_name(_array: &vortex_sequence::SequenceArray, idx: usize) -> alloc::string::String
+
+pub fn vortex_sequence::Sequence::slots(array: &vortex_sequence::SequenceArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
 
 pub fn vortex_sequence::Sequence::stats(array: &vortex_sequence::SequenceArray) -> vortex_array::stats::array::StatsSetRef<'_>
 
 pub fn vortex_sequence::Sequence::vtable(_array: &Self::Array) -> &Self
 
-pub fn vortex_sequence::Sequence::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+pub fn vortex_sequence::Sequence::with_slots(array: &mut vortex_sequence::SequenceArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
 
 impl vortex_array::vtable::operations::OperationsVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 

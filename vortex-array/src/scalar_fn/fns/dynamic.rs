@@ -403,7 +403,7 @@ mod tests {
         );
         let input = buffer![1i32, 5, 10].into_array();
 
-        let result = input.apply(&expr)?;
+        let result = input.clone().apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
 
         threshold.store(10, Ordering::SeqCst);

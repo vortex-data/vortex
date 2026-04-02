@@ -31,6 +31,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::DeltaArray;
+use crate::delta::array::NUM_SLOTS;
+use crate::delta::array::SLOT_NAMES;
 use crate::delta::array::delta_decompress::delta_decompress;
 
 mod operations;
@@ -105,26 +107,6 @@ impl VTable for Delta {
         None
     }
 
-    fn nchildren(_array: &DeltaArray) -> usize {
-        2
-    }
-
-    fn child(array: &DeltaArray, idx: usize) -> ArrayRef {
-        match idx {
-            0 => array.bases().clone(),
-            1 => array.deltas().clone(),
-            _ => vortex_panic!("DeltaArray child index {idx} out of bounds"),
-        }
-    }
-
-    fn child_name(_array: &DeltaArray, idx: usize) -> String {
-        match idx {
-            0 => "bases".to_string(),
-            1 => "deltas".to_string(),
-            _ => vortex_panic!("DeltaArray child name index {idx} out of bounds"),
-        }
-    }
-
     fn reduce_parent(
         array: &Array<Self>,
         parent: &ArrayRef,
@@ -133,20 +115,22 @@ impl VTable for Delta {
         rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        // DeltaArray children order (from visit_children):
-        // 1. bases
-        // 2. deltas
+    fn slots(array: &DeltaArray) -> &[Option<ArrayRef>] {
+        &array.slots
+    }
 
+    fn slot_name(_array: &DeltaArray, idx: usize) -> String {
+        SLOT_NAMES[idx].to_string()
+    }
+
+    fn with_slots(array: &mut DeltaArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
-            children.len() == 2,
-            "Expected 2 children for Delta encoding, got {}",
-            children.len()
+            slots.len() == NUM_SLOTS,
+            "DeltaArray expects exactly {} slots, got {}",
+            NUM_SLOTS,
+            slots.len()
         );
-
-        array.bases = children[0].clone();
-        array.deltas = children[1].clone();
-
+        array.slots = slots;
         Ok(())
     }
 
