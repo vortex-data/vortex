@@ -12430,6 +12430,8 @@ pub fn vortex_array::expr::select_exclude(fields: impl core::convert::Into<vorte
 
 pub fn vortex_array::expr::split_conjunction(expr: &vortex_array::expr::Expression) -> alloc::vec::Vec<vortex_array::expr::Expression>
 
+pub fn vortex_array::expr::variant_get(field: impl core::convert::Into<vortex_array::dtype::FieldName>, child: vortex_array::expr::Expression) -> vortex_array::expr::Expression
+
 pub fn vortex_array::expr::zip_expr(mask: vortex_array::expr::Expression, if_true: vortex_array::expr::Expression, if_false: vortex_array::expr::Expression) -> vortex_array::expr::Expression
 
 pub type vortex_array::expr::Annotations<'a, A> = vortex_utils::aliases::hash_map::HashMap<&'a vortex_array::expr::Expression, vortex_utils::aliases::hash_set::HashSet<A>>
@@ -17198,6 +17200,52 @@ pub fn vortex_array::scalar_fn::fns::select::Select::stat_falsification(&self, o
 
 pub fn vortex_array::scalar_fn::fns::select::Select::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
+pub mod vortex_array::scalar_fn::fns::variant_get
+
+pub struct vortex_array::scalar_fn::fns::variant_get::VariantGet
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::variant_get::VariantGet
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::clone(&self) -> vortex_array::scalar_fn::fns::variant_get::VariantGet
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::variant_get::VariantGet
+
+pub type vortex_array::scalar_fn::fns::variant_get::VariantGet::Options = vortex_array::dtype::FieldName
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::arity(&self, _field_name: &vortex_array::dtype::FieldName) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::child_name(&self, _instance: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::execute(&self, _field_name: &vortex_array::dtype::FieldName, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::fmt_sql(&self, field_name: &vortex_array::dtype::FieldName, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::is_fallible(&self, _field_name: &vortex_array::dtype::FieldName) -> bool
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::is_null_sensitive(&self, _field_name: &vortex_array::dtype::FieldName) -> bool
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::reduce(&self, field_name: &vortex_array::dtype::FieldName, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::return_dtype(&self, _field_name: &vortex_array::dtype::FieldName, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::serialize(&self, instance: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
 pub mod vortex_array::scalar_fn::fns::zip
 
 pub struct vortex_array::scalar_fn::fns::zip::Zip
@@ -18405,6 +18453,44 @@ pub fn vortex_array::scalar_fn::fns::select::Select::stat_expression(&self, opti
 pub fn vortex_array::scalar_fn::fns::select::Select::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
 
 pub fn vortex_array::scalar_fn::fns::select::Select::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::variant_get::VariantGet
+
+pub type vortex_array::scalar_fn::fns::variant_get::VariantGet::Options = vortex_array::dtype::FieldName
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::arity(&self, _field_name: &vortex_array::dtype::FieldName) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::child_name(&self, _instance: &Self::Options, child_idx: usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::deserialize(&self, metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::execute(&self, _field_name: &vortex_array::dtype::FieldName, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::fmt_sql(&self, field_name: &vortex_array::dtype::FieldName, expr: &vortex_array::expr::Expression, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::is_fallible(&self, _field_name: &vortex_array::dtype::FieldName) -> bool
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::is_null_sensitive(&self, _field_name: &vortex_array::dtype::FieldName) -> bool
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::reduce(&self, field_name: &vortex_array::dtype::FieldName, node: &dyn vortex_array::scalar_fn::ReduceNode, ctx: &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::return_dtype(&self, _field_name: &vortex_array::dtype::FieldName, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::serialize(&self, instance: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::simplify(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, ctx: &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::simplify_untyped(&self, options: &Self::Options, expr: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::stat_expression(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, stat: vortex_array::expr::stats::Stat, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::stat_falsification(&self, options: &Self::Options, expr: &vortex_array::expr::Expression, catalog: &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::validity(&self, options: &Self::Options, expression: &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::zip::Zip
 

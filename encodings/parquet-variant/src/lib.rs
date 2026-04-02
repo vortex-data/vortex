@@ -28,6 +28,9 @@ mod array;
 mod kernel;
 mod operations;
 mod validity;
+mod variant_get;
+#[cfg(test)]
+mod variant_get_tests;
 mod vtable;
 
 pub use array::ParquetVariantArrayExt;

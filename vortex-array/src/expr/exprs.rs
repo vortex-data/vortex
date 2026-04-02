@@ -46,6 +46,7 @@ use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::zip::Zip;
 
 // ---- Root ----
@@ -698,4 +699,18 @@ pub fn dynamic(
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContains.new_expr(EmptyOptions, [list, value])
+}
+
+// ---- VariantGet ----
+
+/// Creates an expression that extracts a field from a variant object by name.
+///
+/// Returns a new variant containing the field's value, or null if the field does not exist.
+///
+/// ```rust
+/// # use vortex_array::expr::{variant_get, root};
+/// let expr = variant_get("field_name", root());
+/// ```
+pub fn variant_get(field: impl Into<FieldName>, child: Expression) -> Expression {
+    VariantGet.new_expr(field.into(), vec![child])
 }

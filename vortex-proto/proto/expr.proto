@@ -87,6 +87,11 @@ message SelectOpts {
   }
 }
 
+// Options for `vortex.variant_get`
+message VariantGetOpts {
+  string path = 1;
+}
+
 // Options for `vortex.case_when`
 // Encodes num_when_then_pairs and has_else into a single u32 (num_children).
 // num_children = num_when_then_pairs * 2 + (has_else ? 1 : 0)

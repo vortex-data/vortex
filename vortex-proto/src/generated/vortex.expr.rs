@@ -153,6 +153,12 @@ pub mod select_opts {
         Exclude(super::FieldNames),
     }
 }
+/// Options for `vortex.variant_get`
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct VariantGetOpts {
+    #[prost(string, tag = "1")]
+    pub path: ::prost::alloc::string::String,
+}
 /// Options for `vortex.case_when`
 /// Encodes num_when_then_pairs and has_else into a single u32 (num_children).
 /// num_children = num_when_then_pairs * 2 + (has_else ? 1 : 0)
