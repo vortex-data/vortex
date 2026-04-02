@@ -28,42 +28,53 @@ def main():
         print(f"Data directory not found: {data_dir}", file=sys.stderr)
         sys.exit(1)
 
-    benchmark_dir = data_dir / args.benchmark
-    if not benchmark_dir.exists():
-        print(f"Benchmark directory not found: {benchmark_dir}", file=sys.stderr)
+    # Find benchmark directories matching the name (handles flavors like clickbench_partitioned)
+    # Also handles exact match (e.g., tpch)
+    benchmark_dirs = [
+        d
+        for d in data_dir.iterdir()
+        if d.is_dir() and (d.name == args.benchmark or d.name.startswith(f"{args.benchmark}_"))
+    ]
+
+    if not benchmark_dirs:
+        print(f"No benchmark directories found matching: {args.benchmark}", file=sys.stderr)
         sys.exit(1)
 
     # Formats to capture (vortex formats only, not parquet/duckdb)
-    formats_to_capture = {"vortex", "vortex-compact"}
+    # Note: "vortex" CLI arg maps to "vortex-file-compressed" directory name
+    formats_to_capture = {"vortex-file-compressed", "vortex-compact"}
 
     records = []
 
     # Walk subdirectories looking for format directories
-    for format_dir in benchmark_dir.iterdir():
-        if not format_dir.is_dir():
-            continue
-
-        format_name = format_dir.name
-        if format_name not in formats_to_capture:
-            continue
-
-        # Capture all files in this format directory
-        for file_path in format_dir.rglob("*"):
-            if not file_path.is_file():
+    # Handle both direct format dirs (clickbench_partitioned/vortex-file-compressed/)
+    # and scale factor subdirs (tpch/1.0/vortex-file-compressed/)
+    for benchmark_dir in benchmark_dirs:
+        for format_dir in benchmark_dir.rglob("*"):
+            if not format_dir.is_dir():
                 continue
 
-            size_bytes = file_path.stat().st_size
-            relative_path = file_path.relative_to(format_dir)
+            format_name = format_dir.name
+            if format_name not in formats_to_capture:
+                continue
 
-            records.append(
-                {
-                    "commit_id": args.commit,
-                    "benchmark": args.benchmark,
-                    "format": format_name,
-                    "file": str(relative_path),
-                    "size_bytes": size_bytes,
-                }
-            )
+            # Capture all files in this format directory
+            for file_path in format_dir.rglob("*"):
+                if not file_path.is_file():
+                    continue
+
+                size_bytes = file_path.stat().st_size
+                relative_path = file_path.relative_to(format_dir)
+
+                records.append(
+                    {
+                        "commit_id": args.commit,
+                        "benchmark": args.benchmark,
+                        "format": format_name,
+                        "file": str(relative_path),
+                        "size_bytes": size_bytes,
+                    }
+                )
 
     # Sort for deterministic output
     records.sort(key=lambda r: (r["benchmark"], r["format"], r["file"]))
