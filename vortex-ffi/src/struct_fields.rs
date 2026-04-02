@@ -121,5 +121,5 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_builder_finalize(
 ) -> *mut vx_struct_fields {
     let StructDTypeBuilder { names, fields } = *vx_struct_fields_builder::into_box(builder);
     let struct_dtype = StructFields::new(names.into(), fields);
-    vx_struct_fields::new(Box::new(struct_dtype))
+    vx_struct_fields::new(struct_dtype)
 }

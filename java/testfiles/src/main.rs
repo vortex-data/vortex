@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use vortex::VortexSessionDefault;
+use vortex::array::IntoArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::builders::ArrayBuilder;
 use vortex::array::builders::DecimalBuilder;
@@ -79,7 +80,7 @@ fn main() {
         Validity::NonNullable,
     )
     .expect("Could not create struct array")
-    .to_array_ref();
+    .into_array();
 
     // Save to file
     let minimal_path = Path::new(env!("CARGO_MANIFEST_DIR"))
