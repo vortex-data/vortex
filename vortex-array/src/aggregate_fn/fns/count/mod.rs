@@ -136,10 +136,12 @@ mod tests {
         acc.accumulate(array, ctx)?;
         let result = acc.finish()?;
 
-        Ok(result
-            .as_primitive()
-            .typed_value::<u64>()
-            .vortex_expect("count result should not be null") as usize)
+        Ok(usize::try_from(
+            result
+                .as_primitive()
+                .typed_value::<u64>()
+                .vortex_expect("count result should not be null"),
+        )?)
     }
 
     #[test]
