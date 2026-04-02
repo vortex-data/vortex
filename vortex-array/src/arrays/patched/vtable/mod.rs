@@ -31,10 +31,15 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityChild;
 use crate::array::ValidityVTableFromChild;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedData;
+use crate::arrays::patched::array::INDICES_SLOT;
+use crate::arrays::patched::array::INNER_SLOT;
+use crate::arrays::patched::array::LANE_OFFSETS_SLOT;
 use crate::arrays::patched::array::SLOT_NAMES;
+use crate::arrays::patched::array::VALUES_SLOT;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
 use crate::arrays::primitive::PrimitiveDataParts;
@@ -45,6 +50,7 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
+use crate::require_child;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 
@@ -242,12 +248,18 @@ impl VTable for Patched {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.base_array(), INNER_SLOT => Primitive);
+        let array = require_child!(array, array.lane_offsets(), LANE_OFFSETS_SLOT => Primitive);
+        let array = require_child!(array, array.patch_indices(), INDICES_SLOT => Primitive);
+        let array = require_child!(array, array.patch_values(), VALUES_SLOT => Primitive);
+
         let inner = array
             .base_array()
             .clone()
-            .execute::<Canonical>(ctx)?
-            .into_primitive();
+            .try_downcast::<Primitive>()
+            .ok()
+            .vortex_expect("base_array pre-canonicalized to Primitive");
 
         let PrimitiveDataParts {
             buffer,
@@ -258,17 +270,21 @@ impl VTable for Patched {
         let lane_offsets = array
             .lane_offsets()
             .clone()
-            .execute::<PrimitiveArray>(ctx)?;
+            .try_downcast::<Primitive>()
+            .ok()
+            .vortex_expect("lane_offsets pre-canonicalized to Primitive");
         let indices = array
             .patch_indices()
             .clone()
-            .execute::<PrimitiveArray>(ctx)?;
-
-        // TODO(aduffy): add support for non-primitive PatchedArray patches application (?)
+            .try_downcast::<Primitive>()
+            .ok()
+            .vortex_expect("patch_indices pre-canonicalized to Primitive");
         let values = array
             .patch_values()
             .clone()
-            .execute::<PrimitiveArray>(ctx)?;
+            .try_downcast::<Primitive>()
+            .ok()
+            .vortex_expect("patch_values pre-canonicalized to Primitive");
 
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
             let offset = array.offset();

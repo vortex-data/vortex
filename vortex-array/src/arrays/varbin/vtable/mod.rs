@@ -18,14 +18,17 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::Primitive;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinData;
 use crate::arrays::varbin::array::NUM_SLOTS;
+use crate::arrays::varbin::array::OFFSETS_SLOT;
 use crate::arrays::varbin::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::require_child;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -89,7 +92,7 @@ impl VTable for VarBin {
             "VarBinArray expected {NUM_SLOTS} slots, found {}",
             slots.len()
         );
-        let offsets = slots[crate::arrays::varbin::array::OFFSETS_SLOT]
+        let offsets = slots[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("VarBinArray offsets slot");
         vortex_ensure!(
@@ -187,6 +190,7 @@ impl VTable for VarBin {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.offsets(), OFFSETS_SLOT => Primitive);
         Ok(ExecutionResult::done(
             varbin_to_canonical(array.as_view(), ctx)?.into_array(),
         ))

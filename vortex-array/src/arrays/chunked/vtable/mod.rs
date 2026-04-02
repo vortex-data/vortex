@@ -251,9 +251,7 @@ impl VTable for Chunked {
         }
 
         // All chunks are now canonical — combine them.
-        Ok(ExecutionResult::done(
-            _canonicalize(array.as_view(), ctx)?,
-        ))
+        Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {

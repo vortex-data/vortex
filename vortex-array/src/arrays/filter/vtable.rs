@@ -11,6 +11,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
@@ -34,6 +35,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
+use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -142,14 +144,18 @@ impl VTable for Filter {
         if let Some(canonical) = execute_filter_fast_paths(array.as_view(), ctx)? {
             return Ok(ExecutionResult::done(canonical));
         }
+
+        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
+
         let Mask::Values(mask_values) = &array.mask else {
             unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse")
         };
 
-        // We rely on the optimization pass that runs prior to this execution for filter pushdown,
-        // so now we can just execute the filter without worrying.
+        // Child is pre-canonicalized — apply the filter directly.
+        debug_assert!(array.child().is_canonical());
+        let child = array.child().to_canonical()?;
         Ok(ExecutionResult::done(
-            execute_filter(array.child().clone().execute(ctx)?, mask_values).into_array(),
+            execute_filter(child, mask_values).into_array(),
         ))
     }
 
