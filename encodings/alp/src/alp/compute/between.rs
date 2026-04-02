@@ -53,7 +53,7 @@ impl BetweenReduce for ALP {
 }
 
 fn between_impl<T: NativePType + ALPFloat>(
-    array: &ALPData,
+    array: ArrayView<'_, ALP>,
     lower: T,
     upper: T,
     nullability: Nullability,
