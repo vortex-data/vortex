@@ -24,3 +24,7 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }

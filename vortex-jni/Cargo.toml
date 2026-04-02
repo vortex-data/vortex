@@ -32,6 +32,9 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
 
+[dev-dependencies]
+jni = { version = "0.21.1", features = ["invocation"] }
+
 [lib]
 crate-type = ["staticlib", "cdylib"]
 

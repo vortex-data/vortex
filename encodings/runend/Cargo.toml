@@ -28,6 +28,15 @@ vortex-session = { workspace = true }
 [lints]
 workspace = true
 
+[dev-dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+divan = { workspace = true }
+itertools = { workspace = true }
+rand = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
 [features]
 arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
 arrow = ["dep:arrow-array"]

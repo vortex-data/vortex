@@ -30,6 +30,11 @@ vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 zstd = { workspace = true }
 
+[dev-dependencies]
+divan = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
 [[bench]]
 name = "listview_rebuild"
 harness = false

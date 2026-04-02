@@ -54,6 +54,13 @@ smol = { workspace = true }
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen-futures = { workspace = true }
 
+[dev-dependencies]
+anyhow = { workspace = true }
+itertools = { workspace = true }
+rstest = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
 [features]
 object_store = ["dep:object_store", "vortex-error/object_store"]
 tokio = ["tokio/fs", "tokio/rt-multi-thread"]
