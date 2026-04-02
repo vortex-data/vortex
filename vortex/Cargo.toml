@@ -44,6 +44,7 @@ vortex-scan = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-sparse = { workspace = true }
+vortex-tensor = { workspace = true, optional = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
@@ -73,6 +74,7 @@ pretty = ["vortex-array/table-display"]
 serde = ["vortex-array/serde", "vortex-buffer/serde", "vortex-mask/serde"]
 # This feature enabled unstable encodings for which we don't guarantee stability.
 unstable_encodings = [
+    "dep:vortex-tensor",
     "vortex-btrblocks/unstable_encodings",
     "vortex-file?/unstable_encodings",
     "vortex-zstd?/unstable_encodings",

@@ -3,8 +3,8 @@
 
 //! Matcher for tensor-like extension types.
 
-use vortex::dtype::extension::ExtDTypeRef;
-use vortex::dtype::extension::Matcher;
+use vortex_array::dtype::extension::ExtDTypeRef;
+use vortex_array::dtype::extension::Matcher;
 
 use crate::fixed_shape::FixedShapeTensor;
 use crate::fixed_shape::FixedShapeTensorMetadata;

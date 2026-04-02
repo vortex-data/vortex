@@ -4,9 +4,9 @@
 //! Protobuf serialization for [`FixedShapeTensorMetadata`].
 
 use prost::Message;
-use vortex::error::VortexExpect;
-use vortex::error::VortexResult;
-use vortex::error::vortex_err;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::fixed_shape::FixedShapeTensorMetadata;
 

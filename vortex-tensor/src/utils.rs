@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::ArrayRef;
-use vortex::array::ExecutionCtx;
-use vortex::array::IntoArray;
-use vortex::array::arrays::Constant;
-use vortex::array::arrays::ConstantArray;
-use vortex::array::arrays::Extension;
-use vortex::array::arrays::FixedSizeListArray;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::dtype::DType;
-use vortex::dtype::NativePType;
-use vortex::dtype::PType;
-use vortex::dtype::extension::ExtDTypeRef;
-use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
-use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Extension;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::extension::ExtDTypeRef;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 /// Extracts the list size from a tensor-like extension dtype.
 ///
@@ -123,21 +123,22 @@ pub fn extract_flat_elements(
 
 #[cfg(test)]
 pub mod test_helpers {
-    use vortex::array::ArrayRef;
-    use vortex::array::ExecutionCtx;
-    use vortex::array::IntoArray;
-    use vortex::array::arrays::ConstantArray;
-    use vortex::array::arrays::ExtensionArray;
-    use vortex::array::arrays::FixedSizeListArray;
-    use vortex::array::validity::Validity;
-    use vortex::buffer::Buffer;
-    use vortex::dtype::DType;
-    use vortex::dtype::Nullability;
-    use vortex::dtype::extension::ExtDType;
-    use vortex::error::VortexResult;
-    use vortex::error::vortex_err;
-    use vortex::extension::EmptyMetadata;
-    use vortex::scalar::Scalar;
+    use vortex_array::ArrayRef;
+    use vortex_array::ExecutionCtx;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::ExtensionArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::extension::EmptyMetadata;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use super::extension_list_size;
     use super::extension_storage;
@@ -183,7 +184,7 @@ pub mod test_helpers {
         elements: &[f64],
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let element_dtype = DType::Primitive(vortex::dtype::PType::F64, Nullability::NonNullable);
+        let element_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
 
         let children: Vec<Scalar> = elements
             .iter()
@@ -204,7 +205,7 @@ pub mod test_helpers {
     /// Builds a [`Vector`] extension array whose storage is a [`ConstantArray`], representing a
     /// single query vector broadcast to `len` rows.
     pub fn constant_vector_array(elements: &[f64], len: usize) -> VortexResult<ArrayRef> {
-        let element_dtype = DType::Primitive(vortex::dtype::PType::F64, Nullability::NonNullable);
+        let element_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
 
         let children: Vec<Scalar> = elements
             .iter()
