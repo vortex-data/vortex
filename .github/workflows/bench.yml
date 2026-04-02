@@ -56,8 +56,8 @@ jobs:
             build_args: "--features lance"
             formats: "parquet,lance,vortex"
             extra_args: "--datasets '^(Food|HashTags|TPC-H)'"
-          - id: compress-bench-other
-            name: Compression (other)
+          - id: compress-bench-3
+            name: Compression (3/3)
             bin: compress-bench
             build_args: "--features lance"
             formats: "parquet,lance,vortex"

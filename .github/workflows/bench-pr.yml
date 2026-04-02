@@ -39,8 +39,8 @@ jobs:
             name: Compression (2/3)
             bin: compress-bench
             extra_args: "--datasets '^(Food|HashTags|TPC-H)'"
-          - id: compress-bench-other
-            name: Compression (other)
+          - id: compress-bench-3
+            name: Compression (3/3)
             bin: compress-bench
             extra_args: "--datasets '^(?!taxi$|Arade$|Bimbo$|CMSprovider$|Euro2016$|Food$|HashTags$|TPC-H)'"
     steps:
