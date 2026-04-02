@@ -58,6 +58,11 @@ def main():
             if format_name not in formats_to_capture:
                 continue
 
+            # Extract scale factor from path (e.g., "1.0" for tpch/1.0/vortex-file-compressed)
+            # Default to "1.0" if no intermediate directory (e.g., clickbench)
+            path_between = format_dir.relative_to(benchmark_dir).parent
+            scale_factor = str(path_between) if str(path_between) != "." else "1.0"
+
             # Capture all files in this format directory
             for file_path in format_dir.rglob("*"):
                 if not file_path.is_file():
@@ -70,6 +75,7 @@ def main():
                     {
                         "commit_id": args.commit,
                         "benchmark": args.benchmark,
+                        "scale_factor": scale_factor,
                         "format": format_name,
                         "file": str(relative_path),
                         "size_bytes": size_bytes,
@@ -77,7 +83,7 @@ def main():
                 )
 
     # Sort for deterministic output
-    records.sort(key=lambda r: (r["benchmark"], r["format"], r["file"]))
+    records.sort(key=lambda r: (r["benchmark"], r["scale_factor"], r["format"], r["file"]))
 
     # Write JSONL output
     with open(args.output, "w") as f:

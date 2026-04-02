@@ -51,7 +51,9 @@ def main():
         with open(args.base_file) as f:
             for line in f:
                 record = json.loads(line)
-                key = (record["benchmark"], record["format"], record["file"])
+                # Support old records without scale_factor (default to "1.0")
+                scale_factor = record.get("scale_factor", "1.0")
+                key = (record["benchmark"], scale_factor, record["format"], record["file"])
                 base_data[key] = record["size_bytes"]
     except FileNotFoundError:
         print("_Base file sizes not found._")
@@ -62,7 +64,8 @@ def main():
         with open(args.head_file) as f:
             for line in f:
                 record = json.loads(line)
-                key = (record["benchmark"], record["format"], record["file"])
+                scale_factor = record.get("scale_factor", "1.0")
+                key = (record["benchmark"], scale_factor, record["format"], record["file"])
                 head_data[key] = record["size_bytes"]
     except FileNotFoundError:
         print("_HEAD file sizes not found._")
@@ -74,7 +77,7 @@ def main():
 
     all_keys = set(base_data.keys()) | set(head_data.keys())
     for key in all_keys:
-        benchmark, fmt, file_name = key
+        benchmark, scale_factor, fmt, file_name = key
         base_size = base_data.get(key, 0)
         head_size = head_data.get(key, 0)
 
@@ -95,6 +98,7 @@ def main():
         comparisons.append(
             {
                 "file": file_name,
+                "scale_factor": scale_factor,
                 "format": fmt,
                 "base_size": base_size,
                 "head_size": head_size,
@@ -111,14 +115,14 @@ def main():
     comparisons.sort(key=lambda x: x["pct_change"], reverse=True)
 
     # Output markdown table
-    print("| File | Format | Base | HEAD | Change | % |")
-    print("|------|--------|------|------|--------|---|")
+    print("| File | Scale | Format | Base | HEAD | Change | % |")
+    print("|------|-------|--------|------|------|--------|---|")
 
     for comp in comparisons:
         pct_str = format_pct_change(comp["pct_change"]) if comp["pct_change"] != float("inf") else "new"
         base_str = format_size(comp["base_size"]) if comp["base_size"] > 0 else "-"
         print(
-            f"| {comp['file']} | {comp['format']} | {base_str} | "
+            f"| {comp['file']} | {comp['scale_factor']} | {comp['format']} | {base_str} | "
             f"{format_size(comp['head_size'])} | {format_change(comp['change'])} | {pct_str} |"
         )
 
