@@ -44,10 +44,24 @@ jobs:
             name: Random Access
             build_args: "--features lance"
             formats: "parquet,lance,vortex"
-          - id: compress-bench
-            name: Compression
+          - id: compress-bench-1
+            name: Compression (1/3)
+            bin: compress-bench
             build_args: "--features lance"
             formats: "parquet,lance,vortex"
+            extra_args: "--datasets '^(taxi|Arade|Bimbo|CMSprovider|Euro2016)$'"
+          - id: compress-bench-2
+            name: Compression (2/3)
+            bin: compress-bench
+            build_args: "--features lance"
+            formats: "parquet,lance,vortex"
+            extra_args: "--datasets '^(Food|HashTags|TPC-H)'"
+          - id: compress-bench-other
+            name: Compression (other)
+            bin: compress-bench
+            build_args: "--features lance"
+            formats: "parquet,lance,vortex"
+            extra_args: "--datasets '^(?!taxi$|Arade$|Bimbo$|CMSprovider$|Euro2016$|Food$|HashTags$|TPC-H)'"
     steps:
       - uses: runs-on/action@v2
         if: github.repository == 'vortex-data/vortex'
@@ -73,7 +87,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
+          cargo build --bin ${{ matrix.benchmark.bin || matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.8.1
@@ -89,7 +103,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json
+          bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.bin || matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} ${{ matrix.benchmark.extra_args }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v6
