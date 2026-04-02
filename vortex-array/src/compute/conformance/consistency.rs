@@ -1277,6 +1277,7 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
 
             // Get the corresponding value from the canonical array (adjusted for slice offset)
             let canonical_val = canonical
+                .clone()
                 .into_array()
                 .scalar_at(start + i)
                 .vortex_expect("scalar_at should succeed in conformance test");

@@ -111,7 +111,7 @@ pub struct BoolTyped<'a>(&'a ArrayRef);
 impl BoolTyped<'_> {
     pub fn true_count(&self) -> VortexResult<usize> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let true_count = sum(&self.0.clone(), &mut ctx)?;
+        let true_count = sum(self.0, &mut ctx)?;
         Ok(true_count
             .as_primitive()
             .as_::<usize>()
@@ -131,16 +131,16 @@ impl PrimitiveTyped<'_> {
 
     /// Return the primitive value at the given index.
     pub fn value(&self, idx: usize) -> VortexResult<Option<PValue>> {
-        let this = self.0.clone();
-        this.is_valid(idx)?
+        self.0
+            .is_valid(idx)?
             .then(|| self.value_unchecked(idx))
             .transpose()
     }
 
     /// Return the primitive value at the given index, ignoring nullability.
     pub fn value_unchecked(&self, idx: usize) -> VortexResult<PValue> {
-        let this = self.0.clone();
-        Ok(this
+        Ok(self
+            .0
             .scalar_at(idx)?
             .as_primitive()
             .pvalue()
@@ -162,7 +162,7 @@ impl IndexOrd<Option<PValue>> for PrimitiveTyped<'_> {
 // TODO(ngates): add generics to the `value` function and implement this over T.
 impl IndexOrd<PValue> for PrimitiveTyped<'_> {
     fn index_cmp(&self, idx: usize, elem: &PValue) -> VortexResult<Option<Ordering>> {
-        assert!(self.0.clone().all_valid()?);
+        assert!(self.0.all_valid()?);
         let value = self.value_unchecked(idx)?;
         Ok(value.partial_cmp(elem))
     }

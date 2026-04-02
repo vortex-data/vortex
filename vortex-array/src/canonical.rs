@@ -12,12 +12,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::VTable;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;

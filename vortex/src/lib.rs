@@ -315,7 +315,7 @@ mod test {
             )
             .write(
                 &mut tokio::fs::File::create(&path).await?,
-                array.clone().into_array().to_array_stream(),
+                array.into_array().to_array_stream(),
             )
             .await?;
 

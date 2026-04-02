@@ -362,7 +362,7 @@ mod tests {
             .compute_all(&all::<Stat>().collect_vec())
             .unwrap();
         let canonical = const_array.to_canonical()?.into_array();
-        let canonical_stats = canonical_arr.statistics();
+        let canonical_stats = canonical.statistics();
 
         let stats_ref = stats.as_typed_ref(canonical.dtype());
 
