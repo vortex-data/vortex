@@ -22504,8 +22504,6 @@ pub fn vortex_array::vtable::DynVTable::reduce_parent(&self, array: &vortex_arra
 
 pub fn vortex_array::vtable::DynVTable::take_slot(&self, array: &mut vortex_array::ArrayRef, slot_idx: usize) -> core::option::Option<vortex_array::ArrayRef>
 
-pub fn vortex_array::vtable::DynVTable::with_slots_mut(&self, array: vortex_array::ArrayRef, f: &mut dyn core::ops::function::FnMut(&mut [core::option::Option<vortex_array::ArrayRef>])) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
 impl<V: vortex_array::vtable::VTable> vortex_array::vtable::DynVTable for V
 
 pub fn V::build(&self, _id: vortex_array::vtable::ArrayId, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -22523,8 +22521,6 @@ pub fn V::reduce(&self, array: &vortex_array::ArrayRef) -> vortex_error::VortexR
 pub fn V::reduce_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn V::take_slot(&self, array: &mut vortex_array::ArrayRef, slot_idx: usize) -> core::option::Option<vortex_array::ArrayRef>
-
-pub fn V::with_slots_mut(&self, array: vortex_array::ArrayRef, f: &mut dyn core::ops::function::FnMut(&mut [core::option::Option<vortex_array::ArrayRef>])) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub trait vortex_array::vtable::OperationsVTable<V: vortex_array::vtable::VTable>
 
