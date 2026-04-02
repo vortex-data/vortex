@@ -58,6 +58,9 @@ pub(crate) static MAX_ITERATIONS: LazyLock<usize> =
 /// implementor type.
 ///
 /// Users should use the `Array::execute` or `Array::execute_as` methods
+///
+/// Users should prefer to pass an ArrayRef with ref count == 1, then we can use an owned array
+/// and owned buffer fast path to mutate in place.
 pub trait Executable: Sized {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
 }
