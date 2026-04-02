@@ -1,0 +1,48 @@
+name: PR Approval Check
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-approvals:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required approvals
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const reviews = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+            });
+
+            // Count unique human approvals (latest review per user)
+            const latestByUser = {};
+            for (const review of reviews.data) {
+              if (review.user.type === 'Bot') continue;
+              latestByUser[review.user.login] = review.state;
+            }
+            const approvalCount = Object.values(latestByUser)
+              .filter(state => state === 'APPROVED').length;
+
+            // Determine if PR author is a bot/GitHub Actions
+            const authorType = pr.user.type;        // 'Bot' vs 'User'
+            const authorLogin = pr.user.login;       // e.g. 'github-actions[bot]'
+            const isBot = authorType === 'Bot' || authorLogin.endsWith('[bot]');
+
+            const required = isBot ? 2 : 1;
+
+            console.log(`PR author: ${authorLogin} (${authorType}), isBot: ${isBot}`);
+            console.log(`Approvals: ${approvalCount} / ${required} required`);
+
+            if (approvalCount < required) {
+              core.setFailed(
+                `This PR needs ${required} human approval(s) but has ${approvalCount}. ` +
+                `(Author is ${isBot ? 'a bot' : 'human'})`
+              );
+            }
