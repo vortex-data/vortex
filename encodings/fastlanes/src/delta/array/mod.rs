@@ -3,7 +3,6 @@
 
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -27,7 +26,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 
 /// A FastLanes-style delta-encoded array of primitive values.
 ///
-/// A [`DeltaArray`] comprises a sequence of _chunks_ each representing exactly 1,024
+/// A DeltaArray comprises a sequence of _chunks_ each representing exactly 1,024
 /// delta-encoded values. If the input array length is not a multiple of 1,024, the last chunk
 /// is padded with zeros to fill a complete 1,024-element chunk.
 ///
@@ -38,11 +37,11 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 /// use vortex_array::VortexSessionExecute;
 /// use vortex_array::session::ArraySession;
 /// use vortex_session::VortexSession;
-/// use vortex_fastlanes::DeltaArray;
+/// use vortex_fastlanes::DeltaData;
 ///
 /// let session = VortexSession::empty().with::<ArraySession>();
 /// let primitive = PrimitiveArray::from_iter([1_u32, 2, 3, 5, 10, 11]);
-/// let array = DeltaArray::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
+/// let array = DeltaData::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
 /// ```
 ///
 /// # Details
@@ -65,7 +64,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 ///
 /// Note the validity is stored in the deltas array.
 #[derive(Clone, Debug)]
-pub struct DeltaArray {
+pub struct DeltaData {
     pub(super) offset: usize,
     pub(super) len: usize,
     pub(super) dtype: DType,
@@ -73,7 +72,7 @@ pub struct DeltaArray {
     pub(super) stats_set: ArrayStats,
 }
 
-impl DeltaArray {
+impl DeltaData {
     pub fn try_from_primitive_array(
         array: &PrimitiveArray,
         ctx: &mut ExecutionCtx,
@@ -84,7 +83,7 @@ impl DeltaArray {
         Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
     }
 
-    /// Create a [`DeltaArray`] from the given `bases` and `deltas` arrays
+    /// Create a DeltaArray from the given `bases` and `deltas` arrays
     /// with given `offset` into first chunk and `logical_len` length.
     pub fn try_new(
         bases: ArrayRef,

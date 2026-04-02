@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::builtins::ArrayBuiltins;
@@ -12,7 +13,10 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullReduce;
 
 impl FillNullReduce for Chunked {
-    fn fill_null(array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
+    fn fill_null(
+        array: ArrayView<'_, Chunked>,
+        fill_value: &Scalar,
+    ) -> VortexResult<Option<ArrayRef>> {
         let new_chunks = array
             .iter_chunks()
             .map(|c| c.fill_null(fill_value.clone()))
@@ -31,7 +35,6 @@ mod tests {
     use vortex_buffer::BitBuffer;
 
     use crate::IntoArray;
-    use crate::array::DynArray;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
     use crate::builtins::ArrayBuiltins;

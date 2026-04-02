@@ -11,11 +11,13 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
 use crate::arrays::ConstantArray;
 use crate::arrays::List;
 use crate::arrays::Primitive;
@@ -27,7 +29,6 @@ use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::validity_to_child;
 
 /// The elements data array containing all list elements concatenated together.
 pub(super) const ELEMENTS_SLOT: usize = 0;
@@ -91,10 +92,9 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "validi
 /// assert!(third_list.is_empty()); // []
 /// ```
 #[derive(Clone, Debug)]
-pub struct ListArray {
+pub struct ListData {
     pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
@@ -105,25 +105,25 @@ pub struct ListArrayParts {
     pub validity: Validity,
 }
 
-impl ListArray {
-    /// Creates a new [`ListArray`].
+impl ListData {
+    /// Creates a new `ListArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`ListArray::new_unchecked`].
+    /// in `ListArray::new_unchecked`.
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
         Self::try_new(elements, offsets, validity).vortex_expect("ListArray new")
     }
 
     /// Constructs a new `ListArray`.
     ///
-    /// See [`ListArray::new_unchecked`] for more information.
+    /// See `ListArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`ListArray::new_unchecked`].
+    /// `ListArray::new_unchecked`.
     pub fn try_new(
         elements: ArrayRef,
         offsets: ArrayRef,
@@ -135,7 +135,7 @@ impl ListArray {
         Ok(unsafe { Self::new_unchecked(elements, offsets, validity) })
     }
 
-    /// Creates a new [`ListArray`] without validation from these components:
+    /// Creates a new `ListArray` without validation from these components:
     ///
     /// * `elements` is a flat array containing all list elements concatenated.
     /// * `offsets` is an integer array where `offsets[i]` is the start index for list `i`.
@@ -162,14 +162,13 @@ impl ListArray {
         Self {
             dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
             slots: vec![Some(elements), Some(offsets), validity_slot],
-            validity,
             stats_set: Default::default(),
         }
     }
 
-    /// Validates the components that would be used to create a [`ListArray`].
+    /// Validates the components that would be used to create a `ListArray`.
     ///
-    /// This function checks all the invariants required by [`ListArray::new_unchecked`].
+    /// This function checks all the invariants required by `ListArray::new_unchecked`.
     pub fn validate(
         elements: &ArrayRef,
         offsets: &ArrayRef,
@@ -254,6 +253,7 @@ impl ListArray {
 
     /// Splits an array into its parts
     pub fn into_parts(mut self) -> ListArrayParts {
+        let validity = self.validity();
         ListArrayParts {
             dtype: self.dtype,
             elements: self.slots[ELEMENTS_SLOT]
@@ -262,8 +262,34 @@ impl ListArray {
             offsets: self.slots[OFFSETS_SLOT]
                 .take()
                 .vortex_expect("ListArray offsets slot"),
-            validity: self.validity,
+            validity,
         }
+    }
+
+    /// Returns the dtype of the array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns the length of the array.
+    pub fn len(&self) -> usize {
+        self.offsets().len().saturating_sub(1)
+    }
+
+    /// Returns `true` if the array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the validity of the array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
+    /// Returns the validity as a [`Mask`](vortex_mask::Mask).
+    pub fn validity_mask(&self) -> vortex_mask::Mask {
+        self.validity().to_mask(self.len())
     }
 
     /// Returns the offset at the given index from the list array.
@@ -332,9 +358,36 @@ impl ListArray {
     // where `reset_offsets` is infallible.
     // Also, `reset_offsets` can be made more efficient by replacing `sub_scalar` with a match on
     // the offset type and manual subtraction and fast path where `offsets[0] == 0`.
+}
 
-    /// Create a copy of this array by adjusting `offsets` to start at `0` and removing elements not
-    /// referenced by the `offsets`.
+impl Array<List> {
+    /// Creates a new `ListArray`.
+    pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+        Array::try_from_data(ListData::new(elements, offsets, validity))
+            .vortex_expect("ListData is always valid")
+    }
+
+    /// Constructs a new `ListArray`.
+    pub fn try_new(
+        elements: ArrayRef,
+        offsets: ArrayRef,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Array::try_from_data(ListData::try_new(elements, offsets, validity)?)
+    }
+
+    /// Creates a new `ListArray` without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`ListData::new_unchecked`].
+    pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+        Array::try_from_data(unsafe { ListData::new_unchecked(elements, offsets, validity) })
+            .vortex_expect("ListData is always valid")
+    }
+}
+
+impl ListData {
     pub fn reset_offsets(&self, recurse: bool) -> VortexResult<Self> {
         let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {
@@ -345,11 +398,11 @@ impl ListArray {
 
         let offsets = self.offsets();
         let first_offset = offsets.scalar_at(0)?;
-        let adjusted_offsets = offsets.to_array().binary(
+        let adjusted_offsets = offsets.clone().binary(
             ConstantArray::new(first_offset, offsets.len()).into_array(),
             Operator::Sub,
         )?;
 
-        Self::try_new(elements, adjusted_offsets, self.validity.clone())
+        Self::try_new(elements, adjusted_offsets, self.validity())
     }
 }

@@ -115,11 +115,8 @@ impl ArrayBuilder for BoolBuilder {
         let bool_array = array.to_bool();
 
         self.inner.append_buffer(&bool_array.to_bit_buffer());
-        self.nulls.append_validity_mask(
-            bool_array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
-        );
+        self.nulls
+            .append_validity_mask(bool_array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -152,7 +149,6 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;

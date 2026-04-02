@@ -6,11 +6,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::ScalarFnVTable;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -33,8 +35,8 @@ impl ArrayParentReduceRule<Chunked> for ChunkedUnaryScalarFnPushDownRule {
 
     fn reduce_parent(
         &self,
-        array: &ChunkedArray,
-        parent: &ScalarFnArray,
+        array: ArrayView<'_, Chunked>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         if parent.nchildren() != 1 {
@@ -68,8 +70,8 @@ impl ArrayParentReduceRule<Chunked> for ChunkedConstantScalarFnPushDownRule {
 
     fn reduce_parent(
         &self,
-        array: &ChunkedArray,
-        parent: &ScalarFnArray,
+        array: ArrayView<'_, Chunked>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         for (idx, child) in parent.iter_children().enumerate() {

@@ -4,12 +4,11 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
-use crate::arrays::ExtensionArray;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
@@ -17,7 +16,7 @@ use crate::scalar_fn::fns::operators::Operator;
 
 impl CompareKernel for Extension {
     fn compare(
-        lhs: &ExtensionArray,
+        lhs: ArrayView<'_, Extension>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
@@ -27,7 +26,7 @@ impl CompareKernel for Extension {
             let storage_scalar = const_ext.as_extension().to_storage_scalar();
             return lhs
                 .storage_array()
-                .to_array()
+                .clone()
                 .binary(
                     ConstantArray::new(storage_scalar, lhs.len()).into_array(),
                     Operator::from(operator),
@@ -39,8 +38,8 @@ impl CompareKernel for Extension {
         if let Some(rhs_ext) = rhs.as_opt::<Extension>() {
             return lhs
                 .storage_array()
-                .to_array()
-                .binary(rhs_ext.storage_array().to_array(), Operator::from(operator))
+                .clone()
+                .binary(rhs_ext.storage_array().clone(), Operator::from(operator))
                 .map(Some);
         }
 

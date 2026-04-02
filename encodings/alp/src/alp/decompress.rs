@@ -27,7 +27,7 @@ pub fn decompress_into_array(
     array: ALPArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let (encoded, exponents, patches, dtype) = array.into_parts();
+    let (encoded, exponents, patches, dtype) = array.into_data().into_parts();
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
@@ -59,7 +59,7 @@ pub fn decompress_into_array(
 ///
 /// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
 pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-    let (encoded, exponents, patches, dtype) = array.into_parts();
+    let (encoded, exponents, patches, dtype) = array.into_data().into_parts();
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {

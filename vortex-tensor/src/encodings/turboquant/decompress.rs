@@ -3,6 +3,7 @@
 
 //! TurboQuant decoding (dequantization) logic.
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -12,7 +13,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
-use crate::encodings::turboquant::array::TurboQuantArray;
+use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::rotation::RotationMatrix;
 
 /// QJL correction scale factor: `sqrt(π/2) / padded_dim`.
@@ -30,7 +31,7 @@ fn qjl_correction_scale(padded_dim: usize) -> f32 {
 /// avoiding any recomputation. If QJL correction is present, applies
 /// the residual correction after MSE decoding.
 pub fn execute_decompress(
-    array: TurboQuantArray,
+    array: Array<TurboQuant>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let dim = array.dimension() as usize;

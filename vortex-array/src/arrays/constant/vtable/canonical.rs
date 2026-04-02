@@ -11,7 +11,9 @@ use vortex_error::VortexResult;
 
 use crate::Canonical;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
+use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
@@ -34,7 +36,7 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 /// Shared implementation for both `canonicalize` and `execute` methods.
-pub(crate) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
+pub(crate) fn constant_canonicalize(array: ArrayView<'_, Constant>) -> VortexResult<Canonical> {
     let scalar = array.scalar();
 
     let validity = match array.dtype().nullability() {
@@ -319,7 +321,6 @@ mod tests {
     use itertools::Itertools;
     use vortex_error::VortexResult;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
@@ -335,12 +336,11 @@ mod tests {
     use crate::expr::stats::StatsProvider;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_canonicalize_null() {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
-        let actual = const_null.to_null();
+        let actual = const_null.as_array().to_null();
         assert_eq!(actual.len(), 42);
         assert_eq!(actual.scalar_at(33).unwrap(), Scalar::null(DType::Null));
     }
@@ -361,13 +361,13 @@ mod tests {
             .statistics()
             .compute_all(&all::<Stat>().collect_vec())
             .unwrap();
-        let canonical = const_array.to_canonical()?;
-        let canonical_stats = canonical.as_ref().statistics();
+        let canonical = const_array.to_canonical()?.into_array();
+        let canonical_stats = canonical.statistics();
 
-        let stats_ref = stats.as_typed_ref(canonical.as_ref().dtype());
+        let stats_ref = stats.as_typed_ref(canonical.dtype());
 
         for stat in all::<Stat>() {
-            if stat.dtype(canonical.as_ref().dtype()).is_none() {
+            if stat.dtype(canonical.dtype()).is_none() {
                 continue;
             }
             assert_eq!(
@@ -469,7 +469,7 @@ mod tests {
             3,
         );
 
-        let struct_array = array.to_struct();
+        let struct_array = array.as_array().to_struct();
         assert_eq!(struct_array.len(), 3);
         assert_eq!(struct_array.valid_count().unwrap(), 0);
 

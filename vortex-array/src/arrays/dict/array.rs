@@ -10,6 +10,8 @@ use vortex_mask::AllOr;
 
 use crate::ArrayRef;
 use crate::ToCanonical;
+use crate::array::Array;
+use crate::arrays::Dict;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
@@ -39,7 +41,7 @@ pub(super) const NUM_SLOTS: usize = 2;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["codes", "values"];
 
 #[derive(Debug, Clone)]
-pub struct DictArray {
+pub struct DictData {
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
     pub(super) dtype: DType,
@@ -57,12 +59,12 @@ pub struct DictArrayParts {
     pub dtype: DType,
 }
 
-impl DictArray {
+impl DictData {
     /// Build a new `DictArray` without validating the codes or values.
     ///
     /// # Safety
     /// This should be called only when you can guarantee the invariants checked
-    /// by the safe [`DictArray::try_new`] constructor are valid, for example when
+    /// by the safe `DictArray::try_new` constructor are valid, for example when
     /// you are filtering or slicing an existing valid `DictArray`.
     pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
         let dtype = values
@@ -101,7 +103,7 @@ impl DictArray {
     /// Build a new `DictArray` from its components, `codes` and `values`.
     ///
     /// This constructor will panic if `codes` or `values` do not pass validation for building
-    /// a new `DictArray`. See [`DictArray::try_new`] for a description of the error conditions.
+    /// a new `DictArray`. See `DictArray::try_new` for a description of the error conditions.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
         Self::try_new(codes, values).vortex_expect("DictArray new")
     }
@@ -123,6 +125,21 @@ impl DictArray {
         }
 
         Ok(unsafe { Self::new_unchecked(codes, values) })
+    }
+
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.codes().len()
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn into_parts(mut self) -> DictArrayParts {
@@ -182,17 +199,44 @@ impl DictArray {
 
         Ok(())
     }
+}
 
-    /// Compute a mask indicating which values in the dictionary are referenced by at least one code.
+impl Array<Dict> {
+    /// Build a new `DictArray` from its components, `codes` and `values`.
+    pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
+        Array::try_from_data(DictData::new(codes, values)).vortex_expect("DictData is always valid")
+    }
+
+    /// Build a new `DictArray` from its components, `codes` and `values`.
+    pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+        Array::try_from_data(DictData::try_new(codes, values)?)
+    }
+
+    /// Build a new `DictArray` without validating the codes or values.
     ///
-    /// When `referenced = true`, returns a `BitBuffer` where set bits (true) correspond to
-    /// referenced values, and unset bits (false) correspond to unreferenced values.
+    /// # Safety
     ///
-    /// When `referenced = false` (default for unreferenced values), returns the inverse:
-    /// set bits (true) correspond to unreferenced values, and unset bits (false) correspond
-    /// to referenced values.
+    /// See [`DictData::new_unchecked`].
+    pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
+        Array::try_from_data(unsafe { DictData::new_unchecked(codes, values) })
+            .vortex_expect("DictData is always valid")
+    }
+
+    /// Set whether all values in the dictionary are referenced by at least one code.
     ///
-    /// This is useful for operations like min/max that need to ignore unreferenced values.
+    /// # Safety
+    ///
+    /// See [`DictData::set_all_values_referenced`].
+    pub unsafe fn set_all_values_referenced(self, all_values_referenced: bool) -> Self {
+        Array::try_from_data(unsafe {
+            self.into_data()
+                .set_all_values_referenced(all_values_referenced)
+        })
+        .vortex_expect("data is always valid")
+    }
+}
+
+impl DictData {
     pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes_validity = self.codes().validity_mask()?;
         let codes_primitive = self.codes().to_primitive();
@@ -255,7 +299,6 @@ mod test {
     use vortex_mask::AllOr;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::ToCanonical;
@@ -387,9 +430,7 @@ mod test {
             &DType::Primitive(PType::U64, NonNullable),
             len * chunk_count,
         );
-        array
-            .clone()
-            .append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
+        array.append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let into_prim = array.to_primitive();
         let prim_into = builder.finish_into_canonical().into_primitive();

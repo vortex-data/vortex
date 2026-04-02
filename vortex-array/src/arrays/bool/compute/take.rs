@@ -9,8 +9,8 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
@@ -23,12 +23,12 @@ use crate::scalar::Scalar;
 
 impl TakeExecute for Bool {
     fn take(
-        array: &BoolArray,
+        array: ArrayView<'_, Bool>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
-            Mask::AllTrue(_) => indices.to_array(),
+            Mask::AllTrue(_) => indices.clone(),
             Mask::AllFalse(_) => {
                 return Ok(Some(
                     ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
@@ -36,7 +36,7 @@ impl TakeExecute for Bool {
                 ));
             }
             Mask::Values(_) => indices
-                .to_array()
+                .clone()
                 .fill_null(Scalar::from(0).cast(indices.dtype())?)?,
         };
         let indices_nulls_zeroed = indices_nulls_zeroed.execute::<PrimitiveArray>(ctx)?;
@@ -82,7 +82,6 @@ mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray as _;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;

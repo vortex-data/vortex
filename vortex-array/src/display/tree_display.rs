@@ -87,7 +87,7 @@ impl TreeDisplay {
         // Header line: "{indent}{name}:{annotations...}\n"
         write!(f, "{indent}{name}:")?;
         for extractor in &self.extractors {
-            extractor.write_header(array.as_ref(), ctx, f)?;
+            extractor.write_header(array, ctx, f)?;
         }
         writeln!(f)?;
 
@@ -96,7 +96,7 @@ impl TreeDisplay {
         {
             let mut indented = IndentedFormatter::new(f, &child_indent);
             for extractor in &self.extractors {
-                extractor.write_details(array.as_ref(), ctx, &mut indented)?;
+                extractor.write_details(array, ctx, &mut indented)?;
             }
         }
 

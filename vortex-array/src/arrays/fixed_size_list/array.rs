@@ -8,11 +8,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
-use crate::DynArray;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
+use crate::arrays::FixedSizeList;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::validity_to_child;
 
 /// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
 /// array, and each inner list element is a _scalar_ of the `elements` array.
@@ -77,7 +79,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "validity"];
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct FixedSizeListArray {
+pub struct FixedSizeListData {
     /// The [`DType`] of the fixed-size list.
     ///
     /// This type **must** be the variant [`DType::FixedSizeList`].
@@ -90,13 +92,6 @@ pub struct FixedSizeListArray {
     ///
     /// We store the size of each fixed-size list in the array as a field for convenience.
     list_size: u32,
-
-    /// The validity / null map of the array.
-    ///
-    /// Note that this null map refers to which fixed-size list scalars are null, **not** which
-    /// sub-elements of fixed-size list scalars are null. The `elements` array will track individual
-    /// value nullability.
-    pub(super) validity: Validity,
 
     /// The length of the array.
     ///
@@ -111,13 +106,13 @@ pub struct FixedSizeListArray {
     pub(super) stats_set: ArrayStats,
 }
 
-impl FixedSizeListArray {
-    /// Creates a new [`FixedSizeListArray`].
+impl FixedSizeListData {
+    /// Creates a new `FixedSizeListArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`FixedSizeListArray::new_unchecked`].
+    /// in `FixedSizeListArray::new_unchecked`.
     pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
         Self::try_new(elements, list_size, validity, len)
             .vortex_expect("FixedSizeListArray construction failed")
@@ -125,12 +120,12 @@ impl FixedSizeListArray {
 
     /// Constructs a new `FixedSizeListArray`.
     ///
-    /// See [`FixedSizeListArray::new_unchecked`] for more information.
+    /// See `FixedSizeListArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented
-    /// in [`FixedSizeListArray::new_unchecked`].
+    /// in `FixedSizeListArray::new_unchecked`.
     pub fn try_new(
         elements: ArrayRef,
         list_size: u32,
@@ -143,7 +138,7 @@ impl FixedSizeListArray {
         Ok(unsafe { Self::new_unchecked(elements, list_size, validity, len) })
     }
 
-    /// Creates a new [`FixedSizeListArray`] without validation from these components:
+    /// Creates a new `FixedSizeListArray` without validation from these components:
     ///
     /// * `elements` is the data array where each fixed-size list is a slice.
     /// * `list_size` is the fixed number of elements in each list.
@@ -176,25 +171,25 @@ impl FixedSizeListArray {
             dtype: DType::FixedSizeList(Arc::new(elements.dtype().clone()), list_size, nullability),
             slots: vec![Some(elements), validity_slot],
             list_size,
-            validity,
             len,
             stats_set: Default::default(),
         }
     }
 
     pub fn into_parts(mut self) -> (ArrayRef, Validity, DType) {
+        let validity = self.validity();
         (
             self.slots[ELEMENTS_SLOT]
                 .take()
                 .vortex_expect("FixedSizeListArray elements slot"),
-            self.validity,
+            validity,
             self.dtype,
         )
     }
 
-    /// Validates the components that would be used to create a [`FixedSizeListArray`].
+    /// Validates the components that would be used to create a `FixedSizeListArray`.
     ///
-    /// This function checks all the invariants required by [`FixedSizeListArray::new_unchecked`].
+    /// This function checks all the invariants required by `FixedSizeListArray::new_unchecked`.
     pub fn validate(
         elements: &ArrayRef,
         len: usize,
@@ -228,6 +223,32 @@ impl FixedSizeListArray {
         Ok(())
     }
 
+    /// Returns the dtype of the array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns the length of the array.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns `true` if the array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the validity of the array.
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+    }
+
+    /// Returns the validity as a [`Mask`](vortex_mask::Mask).
+    pub fn validity_mask(&self) -> vortex_mask::Mask {
+        self.validity().to_mask(self.len())
+    }
+
     /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
         self.slots[ELEMENTS_SLOT]
@@ -239,12 +260,46 @@ impl FixedSizeListArray {
     pub const fn list_size(&self) -> u32 {
         self.list_size
     }
+}
 
-    /// Returns the elements of the fixed-size list scalar at the given index of the list array.
+impl Array<FixedSizeList> {
+    /// Creates a new `FixedSizeListArray`.
+    pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
+        Array::try_from_data(FixedSizeListData::new(elements, list_size, validity, len))
+            .vortex_expect("FixedSizeListData is always valid")
+    }
+
+    /// Constructs a new `FixedSizeListArray`.
+    pub fn try_new(
+        elements: ArrayRef,
+        list_size: u32,
+        validity: Validity,
+        len: usize,
+    ) -> VortexResult<Self> {
+        Array::try_from_data(FixedSizeListData::try_new(
+            elements, list_size, validity, len,
+        )?)
+    }
+
+    /// Creates a new `FixedSizeListArray` without validation.
     ///
-    /// # Errors
+    /// # Safety
     ///
-    /// Returns an error if the index is out of bounds or the slice operation fails.
+    /// See [`FixedSizeListData::new_unchecked`].
+    pub unsafe fn new_unchecked(
+        elements: ArrayRef,
+        list_size: u32,
+        validity: Validity,
+        len: usize,
+    ) -> Self {
+        Array::try_from_data(unsafe {
+            FixedSizeListData::new_unchecked(elements, list_size, validity, len)
+        })
+        .vortex_expect("FixedSizeListData is always valid")
+    }
+}
+
+impl FixedSizeListData {
     pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
             index < self.len,
@@ -252,7 +307,7 @@ impl FixedSizeListArray {
             index,
             self.len,
         );
-        debug_assert!(self.validity.is_valid(index).unwrap_or(false));
+        debug_assert!(self.validity().is_valid(index).unwrap_or(false));
 
         let start = self.list_size as usize * index;
         let end = self.list_size as usize * (index + 1);

@@ -2,22 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
 use crate::ALP;
-use crate::ALPArray;
 
 impl TakeExecute for ALP {
     fn take(
-        array: &ALPArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let taken_encoded = array.encoded().take(indices.to_array())?;
+        let taken_encoded = array.encoded().take(indices.clone())?;
         let taken_patches = array
             .patches()
             .map(|p| p.take(indices, ctx))
@@ -32,7 +31,7 @@ impl TakeExecute for ALP {
             })
             .transpose()?;
         Ok(Some(
-            ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array(),
+            ALP::new(taken_encoded, array.exponents(), taken_patches).into_array(),
         ))
     }
 }

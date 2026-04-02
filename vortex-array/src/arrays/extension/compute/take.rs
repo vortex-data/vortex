@@ -4,20 +4,20 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::dict::TakeExecute;
 
 impl TakeExecute for Extension {
     fn take(
-        array: &ExtensionArray,
+        array: ArrayView<'_, Extension>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let taken_storage = array.storage_array().take(indices.to_array())?;
+        let taken_storage = array.storage_array().take(indices.clone())?;
         Ok(Some(
             ExtensionArray::new(
                 array

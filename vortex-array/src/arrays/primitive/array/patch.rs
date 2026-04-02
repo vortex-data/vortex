@@ -22,11 +22,12 @@ impl PrimitiveArray {
         let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
 
+        let patch_validity = patch_values.validity();
         let patched_validity = self.validity().patch(
             self.len(),
             patches.offset(),
             &patch_indices.clone().into_array(),
-            &patch_values.validity(),
+            &patch_validity,
             ctx,
         )?;
         Ok(match_each_integer_ptype!(patch_indices.ptype(), |I| {

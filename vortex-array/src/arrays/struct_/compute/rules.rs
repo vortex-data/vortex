@@ -7,6 +7,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
@@ -46,7 +47,7 @@ impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
 
     fn reduce_parent(
         &self,
-        array: &StructArray,
+        array: ArrayView<'_, Struct>,
         parent: ScalarFnArrayView<Cast>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -101,7 +102,7 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
 
     fn reduce_parent(
         &self,
-        child: &StructArray,
+        child: ArrayView<'_, Struct>,
         parent: ScalarFnArrayView<'_, GetItem>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -127,7 +128,7 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
             }
             Validity::Array(mask) => {
                 // If the validity is an array, we need to combine it with the field's validity
-                Mask.try_new_array(field.len(), EmptyOptions, [field.clone(), mask.clone()])
+                Mask.try_new_array(field.len(), EmptyOptions, [field.clone(), mask])
                     .map(Some)
             }
         }

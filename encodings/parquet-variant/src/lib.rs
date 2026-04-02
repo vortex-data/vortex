@@ -30,6 +30,7 @@ mod operations;
 mod validity;
 mod vtable;
 
-pub use array::ParquetVariantArray;
+pub use array::ParquetVariantData;
 pub use vtable::ParquetVariant;
+pub use vtable::ParquetVariantArray;
 pub use vtable::ParquetVariantMetadata;

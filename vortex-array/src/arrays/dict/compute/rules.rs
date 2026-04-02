@@ -5,14 +5,15 @@ use vortex_error::VortexResult;
 
 use crate::ArrayEq;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::Precision;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::ScalarFnVTable;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::slice::SliceReduceAdaptor;
@@ -45,8 +46,8 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
 
     fn reduce_parent(
         &self,
-        array: &DictArray,
-        parent: &ScalarFnArray,
+        array: ArrayView<'_, Dict>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Check that the scalar function can actually be pushed down.
@@ -77,7 +78,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             tracing::trace!(
                 "Not pushing down fallible scalar function {} over dictionary with sparse codes {}",
                 parent.scalar_fn(),
-                array.encoding_id(),
+                Dict::ID,
             );
             return Ok(None);
         }
@@ -101,7 +102,7 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnValuesPushDownRule {
             tracing::trace!(
                 "Not pushing down null-sensitive scalar function {} over dictionary with null codes {}",
                 parent.scalar_fn(),
-                array.encoding_id(),
+                Dict::ID,
             );
             return Ok(None);
         }
@@ -147,8 +148,8 @@ impl ArrayParentReduceRule<Dict> for DictionaryScalarFnCodesPullUpRule {
 
     fn reduce_parent(
         &self,
-        array: &DictArray,
-        parent: &ScalarFnArray,
+        array: ArrayView<'_, Dict>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Don't attempt to pull up if there are less than 2 siblings.

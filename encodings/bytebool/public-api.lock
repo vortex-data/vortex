@@ -4,7 +4,9 @@ pub struct vortex_bytebool::ByteBool
 
 impl vortex_bytebool::ByteBool
 
-pub const vortex_bytebool::ByteBool::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_bytebool::ByteBool::ID: vortex_array::array::ArrayId
+
+pub fn vortex_bytebool::ByteBool::from_vec<V: core::convert::Into<vortex_array::validity::Validity>>(data: alloc::vec::Vec<bool>, validity: V) -> vortex_bytebool::ByteBoolArray
 
 impl core::clone::Clone for vortex_bytebool::ByteBool
 
@@ -14,126 +16,122 @@ impl core::fmt::Debug for vortex_bytebool::ByteBool
 
 pub fn vortex_bytebool::ByteBool::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::arrays::dict::take::TakeExecute for vortex_bytebool::ByteBool
+impl vortex_array::array::vtable::VTable for vortex_bytebool::ByteBool
 
-pub fn vortex_bytebool::ByteBool::take(array: &vortex_bytebool::ByteBoolArray, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::arrays::slice::SliceReduce for vortex_bytebool::ByteBool
-
-pub fn vortex_bytebool::ByteBool::slice(array: &vortex_bytebool::ByteBoolArray, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_bytebool::ByteBool
-
-pub fn vortex_bytebool::ByteBool::cast(array: &vortex_bytebool::ByteBoolArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_bytebool::ByteBool
-
-pub fn vortex_bytebool::ByteBool::mask(array: &vortex_bytebool::ByteBoolArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::vtable::VTable for vortex_bytebool::ByteBool
-
-pub type vortex_bytebool::ByteBool::Array = vortex_bytebool::ByteBoolArray
+pub type vortex_bytebool::ByteBool::ArrayData = vortex_bytebool::ByteBoolData
 
 pub type vortex_bytebool::ByteBool::Metadata = vortex_array::metadata::EmptyMetadata
 
 pub type vortex_bytebool::ByteBool::OperationsVTable = vortex_bytebool::ByteBool
 
-pub type vortex_bytebool::ByteBool::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromValidityHelper
+pub type vortex_bytebool::ByteBool::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromValidityHelper
 
-pub fn vortex_bytebool::ByteBool::array_eq(array: &vortex_bytebool::ByteBoolArray, other: &vortex_bytebool::ByteBoolArray, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_bytebool::ByteBool::array_eq(array: &vortex_bytebool::ByteBoolData, other: &vortex_bytebool::ByteBoolData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_bytebool::ByteBool::array_hash<H: core::hash::Hasher>(array: &vortex_bytebool::ByteBoolArray, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_bytebool::ByteBool::array_hash<H: core::hash::Hasher>(array: &vortex_bytebool::ByteBoolData, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_bytebool::ByteBool::buffer(array: &vortex_bytebool::ByteBoolArray, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_bytebool::ByteBool::buffer(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
-pub fn vortex_bytebool::ByteBool::buffer_name(_array: &vortex_bytebool::ByteBoolArray, idx: usize) -> core::option::Option<alloc::string::String>
+pub fn vortex_bytebool::ByteBool::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_bytebool::ByteBool::build(dtype: &vortex_array::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_bytebool::ByteBoolArray>
+pub fn vortex_bytebool::ByteBool::build(dtype: &vortex_array::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_bytebool::ByteBoolData>
 
 pub fn vortex_bytebool::ByteBool::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_bytebool::ByteBool::dtype(array: &vortex_bytebool::ByteBoolArray) -> &vortex_array::dtype::DType
+pub fn vortex_bytebool::ByteBool::dtype(array: &vortex_bytebool::ByteBoolData) -> &vortex_array::dtype::DType
 
-pub fn vortex_bytebool::ByteBool::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_bytebool::ByteBool::execute(array: vortex_array::array::typed::Array<Self>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_bytebool::ByteBool::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_bytebool::ByteBool::execute_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_bytebool::ByteBool::id(&self) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_bytebool::ByteBool::id(&self) -> vortex_array::array::ArrayId
 
-pub fn vortex_bytebool::ByteBool::len(array: &vortex_bytebool::ByteBoolArray) -> usize
+pub fn vortex_bytebool::ByteBool::len(array: &vortex_bytebool::ByteBoolData) -> usize
 
-pub fn vortex_bytebool::ByteBool::metadata(_array: &vortex_bytebool::ByteBoolArray) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_bytebool::ByteBool::metadata(_array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_bytebool::ByteBool::nbuffers(_array: &vortex_bytebool::ByteBoolArray) -> usize
+pub fn vortex_bytebool::ByteBool::nbuffers(_array: vortex_array::array::view::ArrayView<'_, Self>) -> usize
 
-pub fn vortex_bytebool::ByteBool::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_bytebool::ByteBool::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub fn vortex_bytebool::ByteBool::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_bytebool::ByteBool::slot_name(_array: &vortex_bytebool::ByteBoolArray, idx: usize) -> alloc::string::String
+pub fn vortex_bytebool::ByteBool::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_bytebool::ByteBool::slots(array: &vortex_bytebool::ByteBoolArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
+pub fn vortex_bytebool::ByteBool::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
 
-pub fn vortex_bytebool::ByteBool::stats(array: &vortex_bytebool::ByteBoolArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_bytebool::ByteBool::stats(array: &vortex_bytebool::ByteBoolData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_bytebool::ByteBool::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_bytebool::ByteBool::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_bytebool::ByteBool::with_slots(array: &mut vortex_bytebool::ByteBoolArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
+pub fn vortex_bytebool::ByteBool::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> vortex_error::VortexResult<()>
 
-impl vortex_array::vtable::operations::OperationsVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool
 
-pub fn vortex_bytebool::ByteBool::scalar_at(array: &vortex_bytebool::ByteBoolArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_bytebool::ByteBool::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_bytebool::ByteBool>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub struct vortex_bytebool::ByteBoolArray
+impl vortex_array::arrays::dict::take::TakeExecute for vortex_bytebool::ByteBool
 
-impl vortex_bytebool::ByteBoolArray
+pub fn vortex_bytebool::ByteBool::take(array: vortex_array::array::view::ArrayView<'_, Self>, indices: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_bytebool::ByteBoolArray::as_slice(&self) -> &[bool]
+impl vortex_array::arrays::slice::SliceReduce for vortex_bytebool::ByteBool
 
-pub fn vortex_bytebool::ByteBoolArray::buffer(&self) -> &vortex_array::buffer::BufferHandle
+pub fn vortex_bytebool::ByteBool::slice(array: vortex_array::array::view::ArrayView<'_, Self>, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_bytebool::ByteBoolArray::from_vec<V: core::convert::Into<vortex_array::validity::Validity>>(data: alloc::vec::Vec<bool>, validity: V) -> Self
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_bytebool::ByteBool
 
-pub fn vortex_bytebool::ByteBoolArray::new(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> Self
+pub fn vortex_bytebool::ByteBool::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-impl vortex_bytebool::ByteBoolArray
+impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_bytebool::ByteBool
 
-pub fn vortex_bytebool::ByteBoolArray::to_array(&self) -> vortex_array::array::ArrayRef
+pub fn vortex_bytebool::ByteBool::mask(array: vortex_array::array::view::ArrayView<'_, Self>, mask: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-impl core::clone::Clone for vortex_bytebool::ByteBoolArray
+pub struct vortex_bytebool::ByteBoolData
 
-pub fn vortex_bytebool::ByteBoolArray::clone(&self) -> vortex_bytebool::ByteBoolArray
+impl vortex_bytebool::ByteBoolData
 
-impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_bytebool::ByteBoolArray
+pub fn vortex_bytebool::ByteBoolData::as_slice(&self) -> &[bool]
 
-pub fn vortex_bytebool::ByteBoolArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
+pub fn vortex_bytebool::ByteBoolData::buffer(&self) -> &vortex_array::buffer::BufferHandle
 
-impl core::convert::From<alloc::vec::Vec<bool>> for vortex_bytebool::ByteBoolArray
+pub fn vortex_bytebool::ByteBoolData::dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_bytebool::ByteBoolArray::from(value: alloc::vec::Vec<bool>) -> Self
+pub fn vortex_bytebool::ByteBoolData::from_vec<V: core::convert::Into<vortex_array::validity::Validity>>(data: alloc::vec::Vec<bool>, validity: V) -> Self
 
-impl core::convert::From<alloc::vec::Vec<core::option::Option<bool>>> for vortex_bytebool::ByteBoolArray
+pub fn vortex_bytebool::ByteBoolData::is_empty(&self) -> bool
 
-pub fn vortex_bytebool::ByteBoolArray::from(value: alloc::vec::Vec<core::option::Option<bool>>) -> Self
+pub fn vortex_bytebool::ByteBoolData::len(&self) -> usize
 
-impl core::convert::From<vortex_bytebool::ByteBoolArray> for vortex_array::array::ArrayRef
+pub fn vortex_bytebool::ByteBoolData::new(buffer: vortex_array::buffer::BufferHandle, validity: vortex_array::validity::Validity) -> Self
 
-pub fn vortex_array::array::ArrayRef::from(value: vortex_bytebool::ByteBoolArray) -> vortex_array::array::ArrayRef
+pub fn vortex_bytebool::ByteBoolData::validity_mask(&self) -> vortex_mask::Mask
 
-impl core::fmt::Debug for vortex_bytebool::ByteBoolArray
+impl core::clone::Clone for vortex_bytebool::ByteBoolData
 
-pub fn vortex_bytebool::ByteBoolArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_bytebool::ByteBoolData::clone(&self) -> vortex_bytebool::ByteBoolData
 
-impl core::ops::deref::Deref for vortex_bytebool::ByteBoolArray
+impl core::convert::From<alloc::vec::Vec<bool>> for vortex_bytebool::ByteBoolData
 
-pub type vortex_bytebool::ByteBoolArray::Target = dyn vortex_array::array::DynArray
+pub fn vortex_bytebool::ByteBoolData::from(value: alloc::vec::Vec<bool>) -> Self
 
-pub fn vortex_bytebool::ByteBoolArray::deref(&self) -> &Self::Target
+impl core::convert::From<alloc::vec::Vec<core::option::Option<bool>>> for vortex_bytebool::ByteBoolData
 
-impl vortex_array::array::IntoArray for vortex_bytebool::ByteBoolArray
+pub fn vortex_bytebool::ByteBoolData::from(value: alloc::vec::Vec<core::option::Option<bool>>) -> Self
 
-pub fn vortex_bytebool::ByteBoolArray::into_array(self) -> vortex_array::array::ArrayRef
+impl core::convert::From<vortex_bytebool::ByteBoolData> for vortex_array::array::erased::ArrayRef
 
-impl vortex_array::vtable::validity::ValidityHelper for vortex_bytebool::ByteBoolArray
+pub fn vortex_array::array::erased::ArrayRef::from(value: vortex_bytebool::ByteBoolData) -> vortex_array::array::erased::ArrayRef
 
-pub fn vortex_bytebool::ByteBoolArray::validity(&self) -> vortex_array::validity::Validity
+impl core::fmt::Debug for vortex_bytebool::ByteBoolData
+
+pub fn vortex_bytebool::ByteBoolData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::IntoArray for vortex_bytebool::ByteBoolData
+
+pub fn vortex_bytebool::ByteBoolData::into_array(self) -> vortex_array::array::erased::ArrayRef
+
+impl vortex_array::array::vtable::validity::ValidityHelper for vortex_bytebool::ByteBoolData
+
+pub fn vortex_bytebool::ByteBoolData::validity(&self) -> &vortex_array::validity::Validity
+
+pub type vortex_bytebool::ByteBoolArray = vortex_array::array::typed::Array<vortex_bytebool::ByteBool>

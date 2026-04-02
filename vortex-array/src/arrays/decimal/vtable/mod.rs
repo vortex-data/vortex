@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
@@ -17,9 +15,10 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::DecimalArray;
-use crate::arrays::decimal::array::NUM_SLOTS;
-use crate::arrays::decimal::array::SLOT_NAMES;
+use crate::array::Array;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::decimal::DecimalData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -28,8 +27,6 @@ use crate::match_each_decimal_value_type;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::VTable;
 mod kernel;
 mod operations;
 mod validity;
@@ -37,12 +34,14 @@ mod validity;
 use std::hash::Hash;
 
 use crate::Precision;
+use crate::array::ArrayId;
+use crate::arrays::decimal::array::NUM_SLOTS;
+use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
-use crate::vtable::ArrayId;
-vtable!(Decimal);
+use crate::stats::ArrayStats;
+vtable!(Decimal, Decimal, DecimalData);
 
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]
@@ -52,13 +51,13 @@ pub struct DecimalMetadata {
 }
 
 impl VTable for Decimal {
-    type Array = DecimalArray;
+    type ArrayData = DecimalData;
 
     type Metadata = ProstMetadata<DecimalMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Decimal
     }
 
@@ -66,7 +65,7 @@ impl VTable for Decimal {
         Self::ID
     }
 
-    fn len(array: &DecimalArray) -> usize {
+    fn len(array: &DecimalData) -> usize {
         let divisor = match array.values_type {
             DecimalType::I8 => 1,
             DecimalType::I16 => 2,
@@ -78,47 +77,45 @@ impl VTable for Decimal {
         array.values.len() / divisor
     }
 
-    fn dtype(array: &DecimalArray) -> &DType {
+    fn dtype(array: &DecimalData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &DecimalArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &DecimalData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DecimalArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &DecimalData, state: &mut H, precision: Precision) {
         array.values.array_hash(state, precision);
         std::mem::discriminant(&array.values_type).hash(state);
         array.validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &DecimalArray, other: &DecimalArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.values.array_eq(&other.values, precision)
+    fn array_eq(array: &DecimalData, other: &DecimalData, precision: Precision) -> bool {
+        array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
             && array.validity().array_eq(&other.validity(), precision)
     }
 
-    fn nbuffers(_array: &DecimalArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &DecimalArray, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.values.clone(),
             _ => vortex_panic!("DecimalArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &DecimalArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("values".to_string()),
             _ => None,
         }
     }
 
-    fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(DecimalMetadata {
             values_type: array.values_type() as i32,
         }))
@@ -145,7 +142,7 @@ impl VTable for Decimal {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<DecimalArray> {
+    ) -> VortexResult<DecimalData> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -171,19 +168,19 @@ impl VTable for Decimal {
                 "DecimalArray buffer not aligned for values type {:?}",
                 D::DECIMAL_TYPE
             );
-            DecimalArray::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
+            DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
         })
     }
 
-    fn slots(array: &DecimalArray) -> &[Option<ArrayRef>] {
-        &array.slots
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn slot_name(_array: &DecimalArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut DecimalArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == NUM_SLOTS,
             "DecimalArray expects {} slots, got {}",
@@ -194,12 +191,12 @@ impl VTable for Decimal {
         Ok(())
     }
 
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -207,7 +204,7 @@ impl VTable for Decimal {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

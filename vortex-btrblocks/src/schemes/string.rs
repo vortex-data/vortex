@@ -11,11 +11,10 @@ use vortex_array::arrays::VarBinArray;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;
-use vortex_fsst::FSSTArray;
+use vortex_fsst::FSST;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_sparse::Sparse;
-use vortex_sparse::SparseArray;
 
 use super::integer::IntDictScheme;
 use super::integer::SparseScheme as IntSparseScheme;
@@ -75,7 +74,12 @@ impl Scheme for FSSTScheme {
 
         let fsst = {
             let compressor_fsst = fsst_train_compressor(stats.source());
-            fsst_compress(stats.source(), &compressor_fsst)
+            fsst_compress(
+                stats.source(),
+                stats.source().len(),
+                stats.source().dtype(),
+                &compressor_fsst,
+            )
         };
 
         let compressed_original_lengths = compressor.compress_child(
@@ -102,7 +106,7 @@ impl Scheme for FSSTScheme {
             fsst.codes().validity(),
         )?;
 
-        let fsst = FSSTArray::try_new(
+        let fsst = FSST::try_new(
             fsst.dtype().clone(),
             fsst.symbols().clone(),
             fsst.symbol_lengths().clone(),
@@ -173,7 +177,7 @@ impl Scheme for NullDominatedSparseScheme {
         let stats = data.string_stats();
 
         // We pass None as we only run this pathway for NULL-dominated string arrays.
-        let sparse_encoded = SparseArray::encode(&stats.source().clone().into_array(), None)?;
+        let sparse_encoded = Sparse::encode(&stats.source().clone().into_array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings).
@@ -181,7 +185,7 @@ impl Scheme for NullDominatedSparseScheme {
             let compressed_indices =
                 compressor.compress_child(&indices.into_array(), &ctx, self.id(), 0)?;
 
-            SparseArray::try_new(
+            Sparse::try_new(
                 compressed_indices,
                 sparse.patches().values().clone(),
                 sparse.len(),
@@ -213,10 +217,7 @@ impl Scheme for ZstdScheme {
         let stats = data.string_stats();
 
         let compacted = stats.source().compact_buffers()?;
-        Ok(
-            vortex_zstd::ZstdArray::from_var_bin_view_without_dict(&compacted, 3, 8192)?
-                .into_array(),
-        )
+        Ok(vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192)?.into_array())
     }
 }
 
@@ -239,7 +240,7 @@ impl Scheme for ZstdBuffersScheme {
         let stats = data.string_stats();
 
         Ok(
-            vortex_zstd::ZstdBuffersArray::compress(&stats.source().clone().into_array(), 3)?
+            vortex_zstd::ZstdBuffersData::compress(&stats.source().clone().into_array(), 3)?
                 .into_array(),
         )
     }

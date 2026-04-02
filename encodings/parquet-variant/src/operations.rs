@@ -6,6 +6,7 @@ use std::sync::Arc;
 use chrono::Timelike;
 use parquet_variant::Variant as PqVariant;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
@@ -25,7 +26,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::array::ParquetVariantArray;
 use crate::vtable::ParquetVariant;
 
 impl OperationsVTable<ParquetVariant> for ParquetVariant {
@@ -38,7 +38,7 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
     /// | NULL     | non-NULL    | Perfectly shredded: use typed_value directly           |
     /// | non-NULL | non-NULL    | Partially shredded object (typed_value takes priority) |
     fn scalar_at(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, ParquetVariant>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -355,7 +355,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::ParquetVariant;
-    use crate::ParquetVariantArray;
+    use crate::ParquetVariantData;
     use crate::operations::parquet_variant_to_scalar;
 
     fn binary_view_array(values: &[&[u8]]) -> ArrowArrayRef {
@@ -370,7 +370,7 @@ mod tests {
         arrow_variant: &ArrowVariantArray,
         rows: impl IntoIterator<Item = usize>,
     ) -> VortexResult<()> {
-        let vortex_arr = ParquetVariantArray::from_arrow_variant(arrow_variant)?;
+        let vortex_arr = ParquetVariantData::from_arrow_variant(arrow_variant)?;
 
         for index in rows {
             let expected_inner =
@@ -402,7 +402,7 @@ mod tests {
         .unwrap();
 
         let arrow_variant = ArrowVariantArray::try_new(&null_struct).unwrap();
-        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::Nullable));
 
@@ -431,18 +431,15 @@ mod tests {
         .unwrap();
 
         let arrow_variant = ArrowVariantArray::try_new(&null_struct).unwrap();
-        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::Nullable));
         assert!(vortex_arr.scalar_at(0)?.is_null());
         assert!(vortex_arr.scalar_at(1)?.is_null());
 
-        let inner_pv = vortex_arr
-            .as_opt::<Variant>()
-            .unwrap()
-            .child()
-            .as_opt::<ParquetVariant>()
-            .unwrap();
+        let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
+        let child = variant_view.child();
+        let inner_pv = child.as_opt::<ParquetVariant>().unwrap();
         let mut ctx = vortex_array::LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner_pv.to_arrow(&mut ctx)?;
         assert_eq!(roundtripped.inner().null_count(), 2);
@@ -457,7 +454,7 @@ mod tests {
         builder.append_variant(PqVariant::from(2i32));
         let arrow_variant = builder.build();
 
-        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(
             vortex_arr.dtype(),
@@ -577,7 +574,7 @@ mod tests {
         .unwrap();
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
-        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         let row0 = vortex_arr.scalar_at(0)?;
         let row0 = row0.as_variant().value().unwrap().as_list();
@@ -674,7 +671,7 @@ mod tests {
         .unwrap();
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
-        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
         let object = vortex_arr.scalar_at(0)?;
         let object = object.as_variant().value().unwrap().as_struct();
 

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
@@ -10,11 +10,11 @@ use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::array::QjlCorrection;
 use crate::encodings::turboquant::array::TurboQuant;
-use crate::encodings::turboquant::array::TurboQuantArray;
+use crate::encodings::turboquant::array::TurboQuantData;
 
 impl TakeExecute for TurboQuant {
     fn take(
-        array: &TurboQuantArray,
+        array: ArrayView<'_, TurboQuant>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -33,7 +33,7 @@ impl TakeExecute for TurboQuant {
             })
             .transpose()?;
 
-        let mut result = TurboQuantArray::try_new_mse(
+        let mut result = TurboQuantData::try_new_mse(
             array.dtype.clone(),
             taken_codes,
             taken_norms,

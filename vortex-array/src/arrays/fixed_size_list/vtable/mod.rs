@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -15,28 +14,27 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
-use crate::arrays::FixedSizeListArray;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::fixed_size_list::FixedSizeListData;
 use crate::arrays::fixed_size_list::array::NUM_SLOTS;
 use crate::arrays::fixed_size_list::array::SLOT_NAMES;
-use crate::arrays::fixed_size_list::array::VALIDITY_SLOT;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
-use crate::vtable::ValidityVTableFromValidityHelper;
 mod kernel;
 mod operations;
 mod validity;
 
-vtable!(FixedSizeList);
+vtable!(FixedSizeList, FixedSizeList, FixedSizeListData);
 
 #[derive(Clone, Debug)]
 pub struct FixedSizeList;
@@ -46,12 +44,12 @@ impl FixedSizeList {
 }
 
 impl VTable for FixedSizeList {
-    type Array = FixedSizeListArray;
+    type ArrayData = FixedSizeListData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
-    fn vtable(_array: &Self::Array) -> &Self {
+    type ValidityVTable = Self;
+    fn vtable(_array: &FixedSizeListData) -> &Self {
         &FixedSizeList
     }
 
@@ -59,56 +57,52 @@ impl VTable for FixedSizeList {
         Self::ID
     }
 
-    fn len(array: &FixedSizeListArray) -> usize {
+    fn len(array: &FixedSizeListData) -> usize {
         array.len
     }
 
-    fn dtype(array: &FixedSizeListArray) -> &DType {
+    fn dtype(array: &FixedSizeListData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &FixedSizeListArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &FixedSizeListData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &FixedSizeListArray,
+        array: &FixedSizeListData,
         state: &mut H,
         precision: Precision,
     ) {
-        array.dtype.hash(state);
         array.elements().array_hash(state, precision);
         array.list_size().hash(state);
-        array.validity.array_hash(state, precision);
-        array.len.hash(state);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(
-        array: &FixedSizeListArray,
-        other: &FixedSizeListArray,
+        array: &FixedSizeListData,
+        other: &FixedSizeListData,
         precision: Precision,
     ) -> bool {
-        array.dtype == other.dtype
-            && array.elements().array_eq(other.elements(), precision)
+        array.elements().array_eq(other.elements(), precision)
             && array.list_size() == other.list_size()
-            && array.validity.array_eq(&other.validity, precision)
-            && array.len == other.len
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
-    fn nbuffers(_array: &FixedSizeListArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &FixedSizeListArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("FixedSizeListArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &FixedSizeListArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("FixedSizeListArray buffer_name index {idx} out of bounds")
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -116,7 +110,7 @@ impl VTable for FixedSizeList {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -124,7 +118,7 @@ impl VTable for FixedSizeList {
         Self::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -151,7 +145,7 @@ impl VTable for FixedSizeList {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<FixedSizeListArray> {
+    ) -> VortexResult<FixedSizeListData> {
         vortex_ensure!(
             buffers.is_empty(),
             "`FixedSizeList::build` expects no buffers"
@@ -178,36 +172,29 @@ impl VTable for FixedSizeList {
         let num_elements = len * (*list_size as usize);
         let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
-        FixedSizeListArray::try_new(elements, *list_size, validity, len)
+        FixedSizeListData::try_new(elements, *list_size, validity, len)
     }
 
-    fn slots(array: &FixedSizeListArray) -> &[Option<ArrayRef>] {
-        &array.slots
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn slot_name(_array: &FixedSizeListArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(
-        array: &mut FixedSizeListArray,
-        slots: Vec<Option<ArrayRef>>,
-    ) -> VortexResult<()> {
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == NUM_SLOTS,
             "FixedSizeListArray expects exactly {} slots, got {}",
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 }

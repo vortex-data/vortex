@@ -36,6 +36,7 @@
 //! even if the absolute values have bounded error.
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -45,7 +46,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::encodings::turboquant::array::TurboQuantArray;
+use crate::encodings::turboquant::TurboQuant;
 
 /// Shared helper: read codes, norms, and centroids from two TurboQuant arrays,
 /// then compute per-row quantized unit-norm dot products.
@@ -57,8 +58,8 @@ use crate::encodings::turboquant::array::TurboQuantArray;
 /// Returns `(norms_a, norms_b, unit_dots)` where `unit_dots[i]` is the dot product
 /// of the unit-norm quantized vectors for row i.
 fn quantized_unit_dots(
-    lhs: &TurboQuantArray,
-    rhs: &TurboQuantArray,
+    lhs: ArrayView<TurboQuant>,
+    rhs: ArrayView<TurboQuant>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<f32>, Vec<f32>, Vec<f32>)> {
     vortex_ensure!(
@@ -108,8 +109,8 @@ fn quantized_unit_dots(
 /// Compute approximate cosine similarity for all rows between two TurboQuant
 /// arrays (same rotation matrix and codebook) without full decompression.
 pub fn cosine_similarity_quantized_column(
-    lhs: &TurboQuantArray,
-    rhs: &TurboQuantArray,
+    lhs: ArrayView<TurboQuant>,
+    rhs: ArrayView<TurboQuant>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let num_rows = lhs.norms().len();
@@ -133,8 +134,8 @@ pub fn cosine_similarity_quantized_column(
 ///
 /// `dot_product(a, b) ≈ ||a|| * ||b|| * sum(c[code_a[j]] * c[code_b[j]])`
 pub fn dot_product_quantized_column(
-    lhs: &TurboQuantArray,
-    rhs: &TurboQuantArray,
+    lhs: ArrayView<TurboQuant>,
+    rhs: ArrayView<TurboQuant>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let num_rows = lhs.norms().len();

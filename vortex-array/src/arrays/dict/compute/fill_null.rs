@@ -7,9 +7,9 @@ use super::Dict;
 use super::DictArray;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
@@ -21,7 +21,7 @@ use crate::scalar_fn::fns::operators::Operator;
 
 impl FillNullKernel for Dict {
     fn fill_null(
-        array: &DictArray,
+        array: ArrayView<'_, Dict>,
         fill_value: &Scalar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -29,7 +29,7 @@ impl FillNullKernel for Dict {
         // to point to the value.
         let found_fill_values = array
             .values()
-            .to_array()
+            .clone()
             .binary(
                 ConstantArray::new(fill_value.clone(), array.values().len()).into_array(),
                 Operator::Eq,
@@ -43,8 +43,8 @@ impl FillNullKernel for Dict {
             // No fill values found, so we must canonicalize and fill_null.
             return Ok(Some(
                 array
+                    .array()
                     .clone()
-                    .into_array()
                     .execute::<Canonical>(ctx)?
                     .into_array()
                     .fill_null(fill_value.clone())?,
@@ -67,11 +67,11 @@ impl FillNullKernel for Dict {
 
         // Fill nulls in both the codes and the values. Note that the precondition of this function
         // states that the fill value is non-null, so we do not have to worry about the nullability.
-        let codes = codes.to_array().fill_null(Scalar::try_new(
+        let codes = codes.clone().fill_null(Scalar::try_new(
             codes.dtype().as_nonnullable(),
             Some(fill_scalar_value),
         )?)?;
-        let values = array.values().to_array().fill_null(fill_value.clone())?;
+        let values = array.values().clone().fill_null(fill_value.clone())?;
 
         // SAFETY: invariants are still satisfied after patching nulls.
         unsafe {

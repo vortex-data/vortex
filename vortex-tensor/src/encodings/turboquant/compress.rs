@@ -16,7 +16,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 
-use crate::encodings::turboquant::array::TurboQuantArray;
+use crate::encodings::turboquant::array::TurboQuantData;
 use crate::encodings::turboquant::centroids::compute_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
@@ -142,7 +142,7 @@ fn build_turboquant_mse(
     fsl: &FixedSizeListArray,
     core: MseQuantizationResult,
     bit_width: u8,
-) -> VortexResult<TurboQuantArray> {
+) -> VortexResult<TurboQuantData> {
     let dimension = fsl.list_size();
 
     let num_rows = fsl.len();
@@ -168,7 +168,7 @@ fn build_turboquant_mse(
 
     let rotation_signs = bitpack_rotation_signs(&core.rotation)?;
 
-    TurboQuantArray::try_new_mse(
+    TurboQuantData::try_new_mse(
         fsl.dtype().clone(),
         codes,
         norms_array,

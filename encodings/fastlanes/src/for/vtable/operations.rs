@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar::Scalar;
@@ -9,10 +10,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::FoR;
-use crate::FoRArray;
-
 impl OperationsVTable<FoR> for FoR {
-    fn scalar_at(array: &FoRArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: ArrayView<'_, FoR>,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let encoded_pvalue = array.encoded().scalar_at(index)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();
         let reference = array.reference_scalar();
@@ -39,12 +42,11 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
 
-    use crate::FoRArray;
+    use crate::FoRData;
 
     #[test]
     fn for_scalar_at() {
-        let for_arr =
-            FoRArray::encode(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
+        let for_arr = FoRData::encode(PrimitiveArray::from_iter([-100, 1100, 1500, 1900])).unwrap();
         let expected = PrimitiveArray::from_iter([-100, 1100, 1500, 1900]);
         assert_arrays_eq!(for_arr, expected);
     }

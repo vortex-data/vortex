@@ -3,16 +3,15 @@
 
 use vortex_error::VortexResult;
 
-use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::Extension;
-use crate::arrays::ExtensionArray;
 use crate::scalar::Scalar;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Extension> for Extension {
     fn scalar_at(
-        array: &ExtensionArray,
+        array: ArrayView<'_, Extension>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

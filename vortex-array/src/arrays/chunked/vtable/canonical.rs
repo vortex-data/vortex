@@ -7,13 +7,14 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::arrays::Chunked;
+use crate::arrays::ChunkedArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
-use crate::arrays::chunked::vtable::ChunkedArray;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
@@ -24,7 +25,7 @@ use crate::dtype::StructFields;
 use crate::validity::Validity;
 
 pub(super) fn _canonicalize(
-    array: &ChunkedArray,
+    array: ArrayView<'_, Chunked>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
     if array.nchunks() == 0 {
@@ -39,7 +40,7 @@ pub(super) fn _canonicalize(
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
                 &owned_chunks,
-                Validity::copy_from_array(&array.clone().into_array())?,
+                Validity::copy_from_array(array.array())?,
                 struct_dtype,
                 ctx,
             )?;
@@ -47,13 +48,13 @@ pub(super) fn _canonicalize(
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             &owned_chunks,
-            Validity::copy_from_array(&array.clone().into_array())?,
+            Validity::copy_from_array(array.array())?,
             elem_dtype,
             ctx,
         )?),
         _ => {
             let mut builder = builder_with_capacity(array.dtype(), array.len());
-            array.append_to_builder(builder.as_mut(), ctx)?;
+            array.array().append_to_builder(builder.as_mut(), ctx)?;
             builder.finish_into_canonical()
         }
     })
@@ -80,7 +81,7 @@ fn pack_struct_chunks(
     for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
         let mut field_chunks = Vec::with_capacity(chunks.len());
         for struct_array in &executed_chunks {
-            let field = struct_array.unmasked_field(field_idx).to_array();
+            let field = struct_array.unmasked_field(field_idx).clone();
             field_chunks.push(field);
         }
 
@@ -142,14 +143,14 @@ fn swizzle_list_chunks(
         // Cast offsets and sizes to `u64`.
         let offsets_arr = chunk_array
             .offsets()
-            .to_array()
+            .clone()
             .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
             .vortex_expect("Must be able to fit array offsets in u64")
             .execute::<PrimitiveArray>(ctx)?;
 
         let sizes_arr = chunk_array
             .sizes()
-            .to_array()
+            .clone()
             .cast(DType::Primitive(PType::U64, Nullability::NonNullable))
             .vortex_expect("Must be able to fit array offsets in u64")
             .execute::<PrimitiveArray>(ctx)?;
@@ -255,7 +256,7 @@ mod tests {
             List(Arc::new(Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_listview();
+        let canon_values = chunked_list.unwrap().as_array().to_listview();
 
         assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
         assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());

@@ -43,8 +43,9 @@ impl ColumnExporter for SequenceExporter {
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::VortexSessionExecute;
     use vortex::dtype::Nullability;
-    use vortex_array::VortexSessionExecute;
+    use vortex::encodings::sequence::Sequence;
 
     use super::*;
     use crate::SESSION;
@@ -54,7 +55,7 @@ mod tests {
 
     #[test]
     fn test_sequence() {
-        let arr = SequenceArray::try_new_typed(2, 5, Nullability::NonNullable, 100).unwrap();
+        let arr = Sequence::try_new_typed(2, 5, Nullability::NonNullable, 100).unwrap();
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
         new_exporter(&arr)

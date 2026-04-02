@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use crate::DynArray;
+use crate::ArrayRef;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
 
@@ -12,7 +12,7 @@ pub struct EncodingSummaryExtractor;
 
 impl EncodingSummaryExtractor {
     /// Write the encoding summary for an array directly to a formatter.
-    pub fn write(array: &dyn DynArray, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    pub fn write(array: &ArrayRef, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}({}, len={})",
@@ -26,7 +26,7 @@ impl EncodingSummaryExtractor {
 impl TreeExtractor for EncodingSummaryExtractor {
     fn write_header(
         &self,
-        array: &dyn DynArray,
+        array: &ArrayRef,
         _ctx: &TreeContext,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {

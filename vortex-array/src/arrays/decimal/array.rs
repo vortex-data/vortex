@@ -14,6 +14,11 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::Array;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
+use crate::arrays::Decimal;
+use crate::arrays::DecimalArray;
 use crate::arrays::PrimitiveArray;
 use crate::buffer::BufferHandle;
 use crate::dtype::BigCast;
@@ -27,8 +32,6 @@ use crate::match_each_integer_ptype;
 use crate::patches::Patches;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::child_to_validity;
-use crate::vtable::validity_to_child;
 
 /// The validity bitmap indicating which elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 0;
@@ -93,7 +96,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// assert_eq!(array.len(), 3);
 /// ```
 #[derive(Clone, Debug)]
-pub struct DecimalArray {
+pub struct DecimalData {
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) dtype: DType,
     pub(super) values: BufferHandle,
@@ -108,8 +111,9 @@ pub struct DecimalArrayParts {
     pub validity: Validity,
 }
 
-impl DecimalArray {
-    fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+impl DecimalData {
+    /// Build the slots vector for this array.
+    pub(super) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
         vec![validity_to_child(validity, len)]
     }
 
@@ -290,6 +294,21 @@ impl DecimalArray {
         }
     }
 
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.values.len() / self.values_type.byte_width()
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Reconstructs the validity from the slot state.
     pub fn validity(&self) -> Validity {
         child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
@@ -394,11 +413,12 @@ impl DecimalArray {
         let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
 
+        let patch_validity = patch_values.validity();
         let patched_validity = self.validity().patch(
             self.len(),
             offset,
             &patch_indices.clone().into_array(),
-            &patch_values.validity(),
+            &patch_validity,
             ctx,
         )?;
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
@@ -423,6 +443,96 @@ impl DecimalArray {
     }
 }
 
+impl Array<Decimal> {
+    /// Creates a new [`DecimalArray`] using a host-native buffer.
+    pub fn new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
+        Array::try_from_data(DecimalData::new(buffer, decimal_dtype, validity))
+            .vortex_expect("DecimalData is always valid")
+    }
+
+    /// Creates a new [`DecimalArray`] without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`DecimalData::new_unchecked`].
+    pub unsafe fn new_unchecked<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
+        Array::try_from_data(unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) })
+            .vortex_expect("DecimalData is always valid")
+    }
+
+    /// Creates a new [`DecimalArray`] from a host-native buffer with validation.
+    pub fn try_new<T: NativeDecimalType>(
+        buffer: Buffer<T>,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        Array::try_from_data(DecimalData::try_new(buffer, decimal_dtype, validity)?)
+    }
+
+    /// Creates a new [`DecimalArray`] from an iterator of values.
+    #[expect(
+        clippy::same_name_method,
+        reason = "intentionally named from_iter like Iterator::from_iter"
+    )]
+    pub fn from_iter<T: NativeDecimalType, I: IntoIterator<Item = T>>(
+        iter: I,
+        decimal_dtype: DecimalDType,
+    ) -> Self {
+        Array::try_from_data(DecimalData::from_iter(iter, decimal_dtype))
+            .vortex_expect("DecimalData is always valid")
+    }
+
+    /// Creates a new [`DecimalArray`] from an iterator of optional values.
+    pub fn from_option_iter<T: NativeDecimalType, I: IntoIterator<Item = Option<T>>>(
+        iter: I,
+        decimal_dtype: DecimalDType,
+    ) -> Self {
+        Array::try_from_data(DecimalData::from_option_iter(iter, decimal_dtype))
+            .vortex_expect("DecimalData is always valid")
+    }
+
+    /// Creates a new [`DecimalArray`] from a [`BufferHandle`].
+    pub fn new_handle(
+        values: BufferHandle,
+        values_type: DecimalType,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
+        Array::try_from_data(DecimalData::new_handle(
+            values,
+            values_type,
+            decimal_dtype,
+            validity,
+        ))
+        .vortex_expect("DecimalData is always valid")
+    }
+
+    /// Creates a new [`DecimalArray`] without validation from a [`BufferHandle`].
+    ///
+    /// # Safety
+    ///
+    /// See [`DecimalData::new_unchecked_handle`].
+    pub unsafe fn new_unchecked_handle(
+        values: BufferHandle,
+        values_type: DecimalType,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
+        Array::try_from_data(unsafe {
+            DecimalData::new_unchecked_handle(values, values_type, decimal_dtype, validity)
+        })
+        .vortex_expect("DecimalData is always valid")
+    }
+}
+
 fn patch_typed<I, ValuesDVT, PatchDVT>(
     mut buffer: BufferMut<ValuesDVT>,
     decimal_dtype: DecimalDType,
@@ -430,7 +540,7 @@ fn patch_typed<I, ValuesDVT, PatchDVT>(
     patch_indices_offset: usize,
     patch_values: Buffer<PatchDVT>,
     patched_validity: Validity,
-) -> DecimalArray
+) -> DecimalData
 where
     I: IntegerPType,
     PatchDVT: NativeDecimalType,
@@ -450,5 +560,5 @@ where
         );
     }
 
-    DecimalArray::new(buffer.freeze(), decimal_dtype, patched_validity)
+    DecimalData::new(buffer.freeze(), decimal_dtype, patched_validity)
 }

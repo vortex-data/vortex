@@ -2,17 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::filter::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::DecimalByteParts;
-use crate::DecimalBytePartsArray;
-
 impl FilterReduce for DecimalByteParts {
-    fn filter(array: &DecimalBytePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        DecimalBytePartsArray::try_new(array.msp().filter(mask.clone())?, *array.decimal_dtype())
+    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        DecimalByteParts::try_new(array.msp().filter(mask.clone())?, *array.decimal_dtype())
             .map(|d| Some(d.into_array()))
     }
 }
@@ -25,7 +24,7 @@ mod test {
     use vortex_array::dtype::DecimalDType;
     use vortex_buffer::buffer;
 
-    use crate::DecimalBytePartsArray;
+    use crate::DecimalByteParts;
 
     #[test]
     fn test_filter_decimal_byte_parts() {
@@ -33,7 +32,7 @@ mod test {
         let msp = buffer![100i32, 200, 300, 400, 500].into_array();
 
         let decimal_dtype = DecimalDType::new(8, 2);
-        let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
+        let array = DecimalByteParts::try_new(msp, decimal_dtype).unwrap();
         test_filter_conformance(&array.into_array());
 
         // Test with nullable values
@@ -41,7 +40,7 @@ mod test {
             .into_array();
 
         let decimal_dtype = DecimalDType::new(18, 4);
-        let array = DecimalBytePartsArray::try_new(msp, decimal_dtype).unwrap();
+        let array = DecimalByteParts::try_new(msp, decimal_dtype).unwrap();
         test_filter_conformance(&array.into_array());
     }
 }

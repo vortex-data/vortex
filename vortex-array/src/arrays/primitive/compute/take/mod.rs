@@ -15,8 +15,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
@@ -54,8 +54,8 @@ static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(||
 trait TakeImpl: Send + Sync {
     fn take(
         &self,
-        array: &PrimitiveArray,
-        indices: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
+        indices: ArrayView<'_, Primitive>,
         validity: Validity,
     ) -> VortexResult<ArrayRef>;
 }
@@ -66,8 +66,8 @@ struct TakeKernelScalar;
 impl TakeImpl for TakeKernelScalar {
     fn take(
         &self,
-        array: &PrimitiveArray,
-        indices: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
+        indices: ArrayView<'_, Primitive>,
         validity: Validity,
     ) -> VortexResult<ArrayRef> {
         match_each_native_ptype!(array.ptype(), |T| {
@@ -81,7 +81,7 @@ impl TakeImpl for TakeKernelScalar {
 
 impl TakeExecute for Primitive {
     fn take(
-        array: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -90,11 +90,11 @@ impl TakeExecute for Primitive {
         };
 
         let unsigned_indices = if ptype.is_unsigned_int() {
-            indices.to_array().execute::<PrimitiveArray>(ctx)?
+            indices.clone().execute::<PrimitiveArray>(ctx)?
         } else {
             // This will fail if all values cannot be converted to unsigned
             indices
-                .to_array()
+                .clone()
                 .cast(DType::Primitive(ptype.to_unsigned(), *null))?
                 .execute::<PrimitiveArray>(ctx)?
         };
@@ -103,9 +103,12 @@ impl TakeExecute for Primitive {
             .validity()
             .take(&unsigned_indices.clone().into_array())?;
         // Delegate to the best kernel based on the target CPU
-        PRIMITIVE_TAKE_KERNEL
-            .take(array, &unsigned_indices, validity)
-            .map(Some)
+        {
+            let unsigned_indices = unsigned_indices.as_view();
+            PRIMITIVE_TAKE_KERNEL
+                .take(array, unsigned_indices, validity)
+                .map(Some)
+        }
     }
 }
 
@@ -141,7 +144,6 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;

@@ -22,7 +22,6 @@ use jni::sys::jlong;
 use object_store::path::Path;
 use url::Url;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;

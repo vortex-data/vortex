@@ -3,22 +3,21 @@
 
 use vortex_error::VortexResult;
 
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::ConstantArray;
-use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::columnar::Columnar;
 use crate::scalar::Scalar;
 use crate::scalar_fn::VecExecutionArgs;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
     fn scalar_at(
-        array: &ScalarFnArray,
+        array: ArrayView<'_, ScalarFnVTable>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -38,7 +37,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
                     array.scalar_fn(),
                 );
-                arr.as_ref().scalar_at(0)?
+                arr.into_array().scalar_at(0)?
             }
             Columnar::Constant(constant) => constant.scalar().clone(),
         };
@@ -64,7 +63,7 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::scalar_fn::array::ScalarFnArray;
+    use crate::arrays::ScalarFnArray;
     use crate::assert_arrays_eq;
     use crate::scalar_fn::ScalarFn;
     use crate::scalar_fn::fns::binary::Binary;

@@ -3,13 +3,13 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::StructArray;
+use crate::array::ArrayView;
+use crate::array::ValidityVTable;
 use crate::arrays::struct_::vtable::Struct;
 use crate::validity::Validity;
-use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<Struct> for Struct {
-    fn validity(array: &StructArray) -> VortexResult<Validity> {
-        Ok(array.validity())
+    fn validity(array: ArrayView<'_, Struct>) -> VortexResult<Validity> {
+        Ok(array.data().validity())
     }
 }

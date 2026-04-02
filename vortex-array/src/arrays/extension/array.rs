@@ -5,6 +5,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::array::Array;
+use crate::arrays::Extension;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::stats::ArrayStats;
@@ -53,14 +55,14 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["storage"];
 /// - Slicing preserves the extension type
 /// - Scalar access wraps storage scalars with extension metadata
 #[derive(Clone, Debug)]
-pub struct ExtensionArray {
+pub struct ExtensionData {
     /// The storage dtype. This **must** be a [`Extension::DType`] variant.
     pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
-impl ExtensionArray {
+impl ExtensionData {
     /// Constructs a new `ExtensionArray`.
     ///
     /// # Panics
@@ -114,6 +116,21 @@ impl ExtensionArray {
         }
     }
 
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.storage_array().len()
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// The extension dtype of this array.
     pub fn ext_dtype(&self) -> &ExtDTypeRef {
         let DType::Extension(ext) = &self.dtype else {
@@ -127,5 +144,22 @@ impl ExtensionArray {
         self.slots[STORAGE_SLOT]
             .as_ref()
             .vortex_expect("ExtensionArray storage slot")
+    }
+}
+
+impl Array<Extension> {
+    /// Constructs a new `ExtensionArray`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the storage array is not compatible with the extension dtype.
+    pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
+        Array::try_from_data(ExtensionData::new(ext_dtype, storage_array))
+            .vortex_expect("ExtensionData is always valid")
+    }
+
+    /// Tries to construct a new `ExtensionArray`.
+    pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
+        Array::try_from_data(ExtensionData::try_new(ext_dtype, storage_array)?)
     }
 }

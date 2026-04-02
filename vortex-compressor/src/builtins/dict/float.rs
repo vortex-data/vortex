@@ -112,8 +112,8 @@ impl_encode!(f64, u64);
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -146,6 +146,7 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array()),
         )
         .into_array();
-        assert_arrays_eq!(dict_array.as_ref(), expected.as_ref());
+        let undict = dict_array.as_array().to_primitive().into_array();
+        assert_arrays_eq!(undict, expected);
     }
 }

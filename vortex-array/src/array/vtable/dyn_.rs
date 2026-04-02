@@ -4,35 +4,30 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use arcref::ArcRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionResult;
 use crate::ExecutionStep;
 use crate::IntoArray;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayInner;
+use crate::array::VTable;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
-use crate::vtable::Array;
-use crate::vtable::VTable;
-
-/// ArrayId is a globally unique name for the array's vtable.
-pub type ArrayId = ArcRef<str>;
 
 /// Reference-counted DynVTable
 pub type DynVTableRef = Arc<dyn DynVTable>;
 
 /// Dynamically typed vtable trait.
-///
-/// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
-/// [`DynArray`] trait API to a minimum.
 pub trait DynVTable: 'static + Send + Sync + Debug {
     /// Clone this vtable into a `Box<dyn DynVTable>`.
     fn clone_boxed(&self) -> Box<dyn DynVTable>;
@@ -99,10 +94,10 @@ impl<V: VTable> DynVTable for V {
             dtype,
             "Array dtype mismatch after building"
         );
-        // Wrap in Array<V> for safe downcasting.
+        // Wrap in ArrayInner<V> for safe downcasting.
         // SAFETY: We just validated that V::len(&inner) == len and V::dtype(&inner) == dtype.
         let array = unsafe {
-            Array::new_unchecked(
+            ArrayInner::from_data_unchecked(
                 self.clone(),
                 dtype.clone(),
                 len,
@@ -114,14 +109,16 @@ impl<V: VTable> DynVTable for V {
     }
 
     fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
-        let arc = downcast_owned::<V>(array);
-        let mut inner = Arc::try_unwrap(arc).unwrap_or_else(|arc| arc.as_ref().clone());
-        V::with_slots(&mut inner.array, slots)?;
-        Ok(inner.into_array())
+        let typed = array
+            .as_opt::<V>()
+            .vortex_expect("Failed to downcast array");
+        let mut data = typed.data().clone();
+        V::with_slots(&mut data, slots)?;
+        Ok(Array::<V>::try_from_data(data)?.into_array())
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        let Some(reduced) = V::reduce(downcast::<V>(array))? else {
+        let Some(reduced) = V::reduce(array.as_::<V>())? else {
             return Ok(None);
         };
         vortex_ensure!(
@@ -145,7 +142,7 @@ impl<V: VTable> DynVTable for V {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(reduced) = V::reduce_parent(downcast::<V>(array), parent, child_idx)? else {
+        let Some(reduced) = V::reduce_parent(array.as_::<V>(), parent, child_idx)? else {
             return Ok(None);
         };
 
@@ -171,8 +168,10 @@ impl<V: VTable> DynVTable for V {
         let dtype = array.dtype().clone();
         let stats = array.statistics().to_owned();
 
-        let owned = downcast_owned::<V>(array);
-        let result = V::execute(owned, ctx)?;
+        let typed = Array::<V>::try_from_array_ref(array)
+            .map_err(|_| vortex_err!("Failed to downcast array for execute"))
+            .vortex_expect("Failed to downcast array for execute");
+        let result = V::execute(typed, ctx)?;
 
         if matches!(result.step(), ExecutionStep::Done) {
             if cfg!(debug_assertions) {
@@ -202,38 +201,21 @@ impl<V: VTable> DynVTable for V {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(result) = V::execute_parent(downcast::<V>(array), parent, child_idx, ctx)? else {
+        let Some(result) = V::execute_parent(array.as_::<V>(), parent, child_idx, ctx)? else {
             return Ok(None);
         };
 
         if cfg!(debug_assertions) {
             vortex_ensure!(
-                result.as_ref().len() == parent.len(),
+                result.len() == parent.len(),
                 "Executed parent canonical length mismatch"
             );
             vortex_ensure!(
-                result.as_ref().dtype() == parent.dtype(),
+                result.dtype() == parent.dtype(),
                 "Executed parent canonical dtype mismatch"
             );
         }
 
         Ok(Some(result))
     }
-}
-
-/// Borrow-downcast an `ArrayRef` to `&Array<V>`.
-fn downcast<V: VTable>(array: &ArrayRef) -> &Array<V> {
-    array
-        .as_any()
-        .downcast_ref::<Array<V>>()
-        .vortex_expect("Failed to downcast array to expected encoding type")
-}
-
-/// Downcast an `ArrayRef` into an `Arc<Array<V>>`.
-fn downcast_owned<V: VTable>(array: ArrayRef) -> Arc<Array<V>> {
-    let any_arc = array.as_any_arc();
-    any_arc
-        .downcast::<Array<V>>()
-        .ok()
-        .vortex_expect("Failed to downcast array to expected encoding type")
 }

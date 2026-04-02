@@ -213,11 +213,10 @@ mod test {
 
         use arrow_array::RecordBatchReader;
         use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
-        use vortex::array::DynArray;
         use vortex::array::arrays::ChunkedArray;
+        use vortex::array::arrow::FromArrowArray;
         use vortex::dtype::DType;
         use vortex::dtype::arrow::FromArrowType;
-        use vortex_array::arrow::FromArrowArray;
 
         let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(
             "../docs/_static/example.parquet",
@@ -251,7 +250,7 @@ mod test {
         println!(
             "BtrBlocks size: {} / {}",
             compressed.nbytes(),
-            array.nbytes()
+            array.into_array().nbytes()
         );
         // [compress]
 
@@ -272,7 +271,7 @@ mod test {
             .write_options()
             .write(
                 &mut tokio::fs::File::create(&path).await?,
-                array.to_array_stream(),
+                array.into_array().to_array_stream(),
             )
             .await?;
 
@@ -316,7 +315,7 @@ mod test {
             )
             .write(
                 &mut tokio::fs::File::create(&path).await?,
-                array.to_array_stream(),
+                array.clone().into_array().to_array_stream(),
             )
             .await?;
 
@@ -373,7 +372,7 @@ mod test {
             .write_options()
             .write(
                 &mut tokio::fs::File::create(&path).await?,
-                array.to_array_stream(),
+                array.into_array().to_array_stream(),
             )
             .await?;
 

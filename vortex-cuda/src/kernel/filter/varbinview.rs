@@ -20,7 +20,7 @@ pub(super) async fn filter_varbinview(
         buffers,
         validity,
         dtype,
-    } = array.into_parts();
+    } = array.into_data().into_parts();
 
     let filtered_validity = validity.filter(&mask)?;
 

@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
@@ -15,7 +16,7 @@ use crate::scalar_fn::fns::mask::MaskKernel;
 
 impl MaskKernel for Chunked {
     fn mask(
-        array: &ChunkedArray,
+        array: ArrayView<'_, Chunked>,
         mask: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {

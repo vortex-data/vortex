@@ -4,7 +4,9 @@ pub struct vortex_zigzag::ZigZag
 
 impl vortex_zigzag::ZigZag
 
-pub const vortex_zigzag::ZigZag::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_zigzag::ZigZag::ID: vortex_array::array::ArrayId
+
+pub fn vortex_zigzag::ZigZag::try_new(encoded: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_zigzag::ZigZagArray>
 
 impl core::clone::Clone for vortex_zigzag::ZigZag
 
@@ -14,126 +16,120 @@ impl core::fmt::Debug for vortex_zigzag::ZigZag
 
 pub fn vortex_zigzag::ZigZag::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::arrays::dict::take::TakeExecute for vortex_zigzag::ZigZag
+impl vortex_array::array::vtable::VTable for vortex_zigzag::ZigZag
 
-pub fn vortex_zigzag::ZigZag::take(array: &vortex_zigzag::ZigZagArray, indices: &vortex_array::array::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_zigzag::ZigZag
-
-pub fn vortex_zigzag::ZigZag::filter(array: &vortex_zigzag::ZigZagArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::arrays::slice::SliceReduce for vortex_zigzag::ZigZag
-
-pub fn vortex_zigzag::ZigZag::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_zigzag::ZigZag
-
-pub fn vortex_zigzag::ZigZag::cast(array: &vortex_zigzag::ZigZagArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_zigzag::ZigZag
-
-pub fn vortex_zigzag::ZigZag::mask(array: &vortex_zigzag::ZigZagArray, mask: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::vtable::VTable for vortex_zigzag::ZigZag
-
-pub type vortex_zigzag::ZigZag::Array = vortex_zigzag::ZigZagArray
+pub type vortex_zigzag::ZigZag::ArrayData = vortex_zigzag::ZigZagData
 
 pub type vortex_zigzag::ZigZag::Metadata = vortex_array::metadata::EmptyMetadata
 
 pub type vortex_zigzag::ZigZag::OperationsVTable = vortex_zigzag::ZigZag
 
-pub type vortex_zigzag::ZigZag::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromChild
+pub type vortex_zigzag::ZigZag::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_zigzag::ZigZag::array_eq(array: &vortex_zigzag::ZigZagArray, other: &vortex_zigzag::ZigZagArray, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_zigzag::ZigZag::array_eq(array: &vortex_zigzag::ZigZagData, other: &vortex_zigzag::ZigZagData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_zigzag::ZigZag::array_hash<H: core::hash::Hasher>(array: &vortex_zigzag::ZigZagArray, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_zigzag::ZigZag::array_hash<H: core::hash::Hasher>(array: &vortex_zigzag::ZigZagData, state: &mut H, precision: vortex_array::hash::Precision)
 
-pub fn vortex_zigzag::ZigZag::buffer(_array: &vortex_zigzag::ZigZagArray, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_zigzag::ZigZag::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
-pub fn vortex_zigzag::ZigZag::buffer_name(_array: &vortex_zigzag::ZigZagArray, idx: usize) -> core::option::Option<alloc::string::String>
+pub fn vortex_zigzag::ZigZag::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_zigzag::ZigZag::build(dtype: &vortex_array::dtype::DType, len: usize, _metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_zigzag::ZigZagArray>
+pub fn vortex_zigzag::ZigZag::build(dtype: &vortex_array::dtype::DType, len: usize, _metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_zigzag::ZigZagData>
 
 pub fn vortex_zigzag::ZigZag::deserialize(_bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_zigzag::ZigZag::dtype(array: &vortex_zigzag::ZigZagArray) -> &vortex_array::dtype::DType
+pub fn vortex_zigzag::ZigZag::dtype(array: &vortex_zigzag::ZigZagData) -> &vortex_array::dtype::DType
 
-pub fn vortex_zigzag::ZigZag::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_zigzag::ZigZag::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_zigzag::ZigZag::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_zigzag::ZigZag::execute_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_zigzag::ZigZag::id(&self) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_zigzag::ZigZag::id(&self) -> vortex_array::array::ArrayId
 
-pub fn vortex_zigzag::ZigZag::len(array: &vortex_zigzag::ZigZagArray) -> usize
+pub fn vortex_zigzag::ZigZag::len(array: &vortex_zigzag::ZigZagData) -> usize
 
-pub fn vortex_zigzag::ZigZag::metadata(_array: &vortex_zigzag::ZigZagArray) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_zigzag::ZigZag::metadata(_array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_zigzag::ZigZag::nbuffers(_array: &vortex_zigzag::ZigZagArray) -> usize
+pub fn vortex_zigzag::ZigZag::nbuffers(_array: vortex_array::array::view::ArrayView<'_, Self>) -> usize
 
-pub fn vortex_zigzag::ZigZag::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_zigzag::ZigZag::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub fn vortex_zigzag::ZigZag::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_zigzag::ZigZag::slot_name(_array: &vortex_zigzag::ZigZagArray, idx: usize) -> alloc::string::String
+pub fn vortex_zigzag::ZigZag::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_zigzag::ZigZag::slots(array: &vortex_zigzag::ZigZagArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
+pub fn vortex_zigzag::ZigZag::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
 
-pub fn vortex_zigzag::ZigZag::stats(array: &vortex_zigzag::ZigZagArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_zigzag::ZigZag::stats(array: &vortex_zigzag::ZigZagData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_zigzag::ZigZag::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_zigzag::ZigZag::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_zigzag::ZigZag::with_slots(array: &mut vortex_zigzag::ZigZagArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
+pub fn vortex_zigzag::ZigZag::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> vortex_error::VortexResult<()>
 
-impl vortex_array::vtable::operations::OperationsVTable<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag
 
-pub fn vortex_zigzag::ZigZag::scalar_at(array: &vortex_zigzag::ZigZagArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_zigzag::ZigZag::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_zigzag::ZigZag>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-impl vortex_array::vtable::validity::ValidityChild<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag
+impl vortex_array::array::vtable::validity::ValidityChild<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag
 
-pub fn vortex_zigzag::ZigZag::validity_child(array: &vortex_zigzag::ZigZagArray) -> &vortex_array::array::ArrayRef
+pub fn vortex_zigzag::ZigZag::validity_child(array: &vortex_zigzag::ZigZagData) -> &vortex_array::array::erased::ArrayRef
 
-pub struct vortex_zigzag::ZigZagArray
+impl vortex_array::arrays::dict::take::TakeExecute for vortex_zigzag::ZigZag
 
-impl vortex_zigzag::ZigZagArray
+pub fn vortex_zigzag::ZigZag::take(array: vortex_array::array::view::ArrayView<'_, Self>, indices: &vortex_array::array::erased::ArrayRef, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_zigzag::ZigZagArray::encoded(&self) -> &vortex_array::array::ArrayRef
+impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_zigzag::ZigZag
 
-pub fn vortex_zigzag::ZigZagArray::new(encoded: vortex_array::array::ArrayRef) -> Self
+pub fn vortex_zigzag::ZigZag::filter(array: vortex_array::array::view::ArrayView<'_, Self>, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_zigzag::ZigZagArray::ptype(&self) -> vortex_array::dtype::ptype::PType
+impl vortex_array::arrays::slice::SliceReduce for vortex_zigzag::ZigZag
 
-pub fn vortex_zigzag::ZigZagArray::try_new(encoded: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<Self>
+pub fn vortex_zigzag::ZigZag::slice(array: vortex_array::array::view::ArrayView<'_, Self>, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-impl vortex_zigzag::ZigZagArray
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_zigzag::ZigZag
 
-pub fn vortex_zigzag::ZigZagArray::to_array(&self) -> vortex_array::array::ArrayRef
+pub fn vortex_zigzag::ZigZag::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-impl core::clone::Clone for vortex_zigzag::ZigZagArray
+impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_zigzag::ZigZag
 
-pub fn vortex_zigzag::ZigZagArray::clone(&self) -> vortex_zigzag::ZigZagArray
+pub fn vortex_zigzag::ZigZag::mask(array: vortex_array::array::view::ArrayView<'_, Self>, mask: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_zigzag::ZigZagArray
+pub struct vortex_zigzag::ZigZagData
 
-pub fn vortex_zigzag::ZigZagArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
+impl vortex_zigzag::ZigZagData
 
-impl core::convert::From<vortex_zigzag::ZigZagArray> for vortex_array::array::ArrayRef
+pub fn vortex_zigzag::ZigZagData::dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::array::ArrayRef::from(value: vortex_zigzag::ZigZagArray) -> vortex_array::array::ArrayRef
+pub fn vortex_zigzag::ZigZagData::encoded(&self) -> &vortex_array::array::erased::ArrayRef
 
-impl core::fmt::Debug for vortex_zigzag::ZigZagArray
+pub fn vortex_zigzag::ZigZagData::is_empty(&self) -> bool
 
-pub fn vortex_zigzag::ZigZagArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_zigzag::ZigZagData::len(&self) -> usize
 
-impl core::ops::deref::Deref for vortex_zigzag::ZigZagArray
+pub fn vortex_zigzag::ZigZagData::new(encoded: vortex_array::array::erased::ArrayRef) -> Self
 
-pub type vortex_zigzag::ZigZagArray::Target = dyn vortex_array::array::DynArray
+pub fn vortex_zigzag::ZigZagData::ptype(&self) -> vortex_array::dtype::ptype::PType
 
-pub fn vortex_zigzag::ZigZagArray::deref(&self) -> &Self::Target
+pub fn vortex_zigzag::ZigZagData::try_new(encoded: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<Self>
 
-impl vortex_array::array::IntoArray for vortex_zigzag::ZigZagArray
+impl core::clone::Clone for vortex_zigzag::ZigZagData
 
-pub fn vortex_zigzag::ZigZagArray::into_array(self) -> vortex_array::array::ArrayRef
+pub fn vortex_zigzag::ZigZagData::clone(&self) -> vortex_zigzag::ZigZagData
 
-pub fn vortex_zigzag::zigzag_decode(parray: vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_array::arrays::primitive::array::PrimitiveArray
+impl core::convert::From<vortex_zigzag::ZigZagData> for vortex_array::array::erased::ArrayRef
 
-pub fn vortex_zigzag::zigzag_encode(parray: vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<vortex_zigzag::ZigZagArray>
+pub fn vortex_array::array::erased::ArrayRef::from(value: vortex_zigzag::ZigZagData) -> vortex_array::array::erased::ArrayRef
+
+impl core::fmt::Debug for vortex_zigzag::ZigZagData
+
+pub fn vortex_zigzag::ZigZagData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::IntoArray for vortex_zigzag::ZigZagData
+
+pub fn vortex_zigzag::ZigZagData::into_array(self) -> vortex_array::array::erased::ArrayRef
+
+pub fn vortex_zigzag::zigzag_decode(parray: vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_array::arrays::primitive::vtable::PrimitiveArray
+
+pub fn vortex_zigzag::zigzag_encode(parray: vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_zigzag::ZigZagArray>
+
+pub type vortex_zigzag::ZigZagArray = vortex_array::array::typed::Array<vortex_zigzag::ZigZag>

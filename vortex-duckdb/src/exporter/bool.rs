@@ -24,6 +24,7 @@ pub(crate) fn new_exporter(
     let len = array.len();
     let bits = array.to_bit_buffer();
     let validity = array.validity().to_array(len).execute::<Mask>(ctx)?;
+
     if validity.all_false() {
         return Ok(all_invalid::new_exporter(len, &LogicalType::bool()));
     }

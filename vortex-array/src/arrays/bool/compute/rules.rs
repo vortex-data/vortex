@@ -5,10 +5,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -36,8 +36,8 @@ impl ArrayParentReduceRule<Bool> for BoolMaskedValidityRule {
 
     fn reduce_parent(
         &self,
-        array: &BoolArray,
-        parent: &MaskedArray,
+        array: ArrayView<'_, Bool>,
+        parent: ArrayView<'_, Masked>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         if child_idx > 0 {

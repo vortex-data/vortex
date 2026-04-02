@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -13,44 +11,44 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::primitive::array::NUM_SLOTS;
-use crate::arrays::primitive::array::SLOT_NAMES;
+use crate::array::Array;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::VTable;
 mod kernel;
 mod operations;
 mod validity;
 
-use std::hash::Hash;
 use std::hash::Hasher;
 
 use vortex_buffer::Alignment;
 use vortex_session::VortexSession;
 
 use crate::Precision;
+use crate::array::ArrayId;
+use crate::arrays::primitive::array::NUM_SLOTS;
+use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
-use crate::vtable::ArrayId;
+use crate::stats::ArrayStats;
 
-vtable!(Primitive);
+vtable!(Primitive, Primitive, PrimitiveData);
 
 impl VTable for Primitive {
-    type Array = PrimitiveArray;
+    type ArrayData = PrimitiveData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Primitive
     }
 
@@ -58,49 +56,47 @@ impl VTable for Primitive {
         Self::ID
     }
 
-    fn len(array: &PrimitiveArray) -> usize {
+    fn len(array: &PrimitiveData) -> usize {
         array.buffer_handle().len() / array.ptype().byte_width()
     }
 
-    fn dtype(array: &PrimitiveArray) -> &DType {
+    fn dtype(array: &PrimitiveData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &PrimitiveArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &PrimitiveData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: Hasher>(array: &PrimitiveArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+    fn array_hash<H: Hasher>(array: &PrimitiveData, state: &mut H, precision: Precision) {
         array.buffer.array_hash(state, precision);
         array.validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &PrimitiveArray, other: &PrimitiveArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.buffer.array_eq(&other.buffer, precision)
+    fn array_eq(array: &PrimitiveData, other: &PrimitiveData, precision: Precision) -> bool {
+        array.buffer.array_eq(&other.buffer, precision)
             && array.validity().array_eq(&other.validity(), precision)
     }
 
-    fn nbuffers(_array: &PrimitiveArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &PrimitiveArray, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.buffer_handle().clone(),
             _ => vortex_panic!("PrimitiveArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &PrimitiveArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("values".to_string()),
             _ => None,
         }
     }
 
-    fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -124,7 +120,7 @@ impl VTable for Primitive {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<PrimitiveArray> {
+    ) -> VortexResult<PrimitiveData> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -165,37 +161,38 @@ impl VTable for Primitive {
 
         // SAFETY: checked ahead of time
         unsafe {
-            Ok(PrimitiveArray::new_unchecked_from_handle(
+            Ok(PrimitiveData::new_unchecked_from_handle(
                 buffer, ptype, validity,
             ))
         }
     }
 
-    fn slots(array: &PrimitiveArray) -> &[Option<ArrayRef>] {
-        &array.slots
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn slot_name(_array: &PrimitiveArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut PrimitiveArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == NUM_SLOTS,
             "PrimitiveArray expects {} slots, got {}",
             NUM_SLOTS,
             slots.len()
         );
+
         array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -203,7 +200,7 @@ impl VTable for Primitive {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,

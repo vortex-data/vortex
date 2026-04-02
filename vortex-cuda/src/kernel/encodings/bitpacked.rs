@@ -103,7 +103,7 @@ where
         packed,
         patches,
         validity,
-    } = array.into_parts();
+    } = array.into_data().into_parts();
 
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;
@@ -198,7 +198,7 @@ mod tests {
         let array = PrimitiveArray::new(iter.collect::<Buffer<_>>(), NonNullable);
 
         // Last two items should be patched
-        let bp_with_patches = BitPackedArray::encode(&array.into_array(), bw)?;
+        let bp_with_patches = BitPacked::encode(&array.into_array(), bw)?;
         assert!(bp_with_patches.patches().is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
@@ -229,7 +229,7 @@ mod tests {
         );
 
         // Last two items should be patched
-        let bp_with_patches = BitPackedArray::encode(&array.into_array(), 9)?;
+        let bp_with_patches = BitPacked::encode(&array.into_array(), 9)?;
         assert!(bp_with_patches.patches().is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
@@ -271,7 +271,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
+        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
@@ -320,7 +320,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
+        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
@@ -385,7 +385,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
+        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
 
@@ -482,7 +482,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
+        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let cpu_result = bitpacked_array.to_canonical()?;
         let gpu_result = block_on(async {
@@ -515,7 +515,7 @@ mod tests {
             NonNullable,
         );
 
-        let bitpacked_array = BitPackedArray::encode(&primitive_array.into_array(), bit_width)
+        let bitpacked_array = BitPacked::encode(&primitive_array.into_array(), bit_width)
             .vortex_expect("operation should succeed in test");
         let sliced_array = bitpacked_array.into_array().slice(67..3969)?;
         assert!(sliced_array.is::<BitPacked>());

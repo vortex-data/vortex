@@ -26,6 +26,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::compute::cosine_similarity;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extension_element_ptype;
@@ -142,14 +144,11 @@ impl ScalarFnVTable for DotProduct {
 
         // TurboQuant approximate path: norm_a * norm_b * quantized unit-norm dot.
         if *options == ApproxOptions::Approximate {
-            use vortex_array::matcher::Matcher;
             if let (Some(lhs_tq), Some(rhs_tq)) = (
-                crate::encodings::turboquant::TurboQuant::try_match(&*lhs_storage),
-                crate::encodings::turboquant::TurboQuant::try_match(&*rhs_storage),
+                lhs_storage.as_opt::<TurboQuant>(),
+                rhs_storage.as_opt::<TurboQuant>(),
             ) {
-                return crate::encodings::turboquant::compute::cosine_similarity::dot_product_quantized_column(
-                    lhs_tq, rhs_tq, ctx,
-                );
+                return cosine_similarity::dot_product_quantized_column(lhs_tq, rhs_tq, ctx);
             }
         }
 
@@ -197,13 +196,16 @@ fn dot_product_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
-    use vortex_array::ToCanonical;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
     use vortex_array::scalar_fn::ScalarFn;
     use vortex_error::VortexResult;
 
     use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::dot_product::DotProduct;
+    use crate::test::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::vector_array;
 
@@ -213,9 +215,10 @@ mod tests {
         len: usize,
         options: ApproxOptions,
     ) -> VortexResult<Vec<f64>> {
+        let mut ctx = SESSION.create_execution_ctx();
         let scalar_fn = ScalarFn::new(DotProduct, options).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], len)?;
-        let prim = result.to_primitive();
+        let prim = result.into_array().execute::<PrimitiveArray>(&mut ctx)?;
         Ok(prim.as_slice::<f64>().to_vec())
     }
 

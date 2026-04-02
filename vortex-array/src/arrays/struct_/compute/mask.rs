@@ -5,13 +5,14 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
 impl MaskReduce for Struct {
-    fn mask(array: &StructArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: ArrayView<'_, Struct>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         StructArray::try_new_with_dtype(
             array.unmasked_fields().iter().cloned().collect::<Vec<_>>(),
             array.struct_fields().clone(),

@@ -34,6 +34,7 @@ vortex = { workspace = true, features = ["object_store"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [build-dependencies]
 cbindgen = { workspace = true }

@@ -15,10 +15,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
-use crate::ToCanonical;
-use crate::arrays::PrimitiveArray;
+use crate::array::Array;
+use crate::arrays::Chunked;
+use crate::arrays::primitive::PrimitiveData;
 use crate::dtype::DType;
 use crate::iter::ArrayIterator;
 use crate::iter::ArrayIteratorAdapter;
@@ -29,27 +29,39 @@ use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;
 use crate::validity::Validity;
 
-// ChunkedArray has a variable number of slots:
-// slots[0] = chunk_offsets
-// slots[1..] = chunks
+pub(super) const CHUNK_OFFSETS_SLOT: usize = 0;
+pub(super) const CHUNKS_OFFSET: usize = 1;
 
 #[derive(Clone, Debug)]
-pub struct ChunkedArray {
+pub struct ChunkedData {
     pub(super) dtype: DType,
     pub(super) len: usize,
+    pub(super) chunk_offsets: PrimitiveData,
+    pub(super) chunks: Vec<ArrayRef>,
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) stats_set: ArrayStats,
 }
 
-impl ChunkedArray {
+impl ChunkedData {
+    /// Builds the slots vector from chunk_offsets and chunks.
+    pub(super) fn make_slots(
+        chunk_offsets: &PrimitiveData,
+        chunks: &[ArrayRef],
+    ) -> Vec<Option<ArrayRef>> {
+        let mut slots = Vec::with_capacity(1 + chunks.len());
+        slots.push(Some(chunk_offsets.clone().into_array()));
+        slots.extend(chunks.iter().map(|c| Some(c.clone())));
+        slots
+    }
+
     /// Constructs a new `ChunkedArray`.
     ///
-    /// See [`ChunkedArray::new_unchecked`] for more information.
+    /// See `ChunkedArray::new_unchecked` for more information.
     ///
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// [`ChunkedArray::new_unchecked`].
+    /// `ChunkedArray::new_unchecked`.
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
         Self::validate(&chunks, &dtype)?;
 
@@ -57,7 +69,7 @@ impl ChunkedArray {
         unsafe { Ok(Self::new_unchecked(chunks, dtype)) }
     }
 
-    /// Creates a new [`ChunkedArray`] without validation from these components:
+    /// Creates a new `ChunkedArray` without validation from these components:
     ///
     /// * `chunks` is a vector of arrays to be concatenated logically.
     /// * `dtype` is the common data type of all chunks.
@@ -82,26 +94,24 @@ impl ChunkedArray {
             unsafe { chunk_offsets_buf.push_unchecked(curr_offset) }
         }
 
-        let chunk_offsets =
-            PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable).into_array();
+        let chunk_offsets = PrimitiveData::new(chunk_offsets_buf.freeze(), Validity::NonNullable);
 
-        let mut slots = Vec::with_capacity(1 + nchunks);
-        slots.push(Some(chunk_offsets));
-        slots.extend(chunks.into_iter().map(Some));
-
+        let slots = Self::make_slots(&chunk_offsets, &chunks);
         Self {
             dtype,
             len: curr_offset
                 .try_into()
                 .vortex_expect("chunk offset must fit in usize"),
+            chunk_offsets,
+            chunks,
             slots,
             stats_set: Default::default(),
         }
     }
 
-    /// Validates the components that would be used to create a [`ChunkedArray`].
+    /// Validates the components that would be used to create a `ChunkedArray`.
     ///
-    /// This function checks all the invariants required by [`ChunkedArray::new_unchecked`].
+    /// This function checks all the invariants required by `ChunkedArray::new_unchecked`.
     pub fn validate(chunks: &[ArrayRef], dtype: &DType) -> VortexResult<()> {
         for chunk in chunks {
             if chunk.dtype() != dtype {
@@ -112,29 +122,39 @@ impl ChunkedArray {
         Ok(())
     }
 
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     #[inline]
     pub fn chunk(&self, idx: usize) -> &ArrayRef {
         assert!(idx < self.nchunks(), "chunk index {idx} out of bounds");
-        self.slots[idx + 1]
-            .as_ref()
-            .vortex_expect("ChunkedArray chunk slot")
+        &self.chunks[idx]
     }
 
     pub fn nchunks(&self) -> usize {
-        self.slots.len().saturating_sub(1)
+        self.chunks.len()
     }
 
-    /// Returns the chunk offsets as a primitive array.
-    pub(crate) fn chunk_offsets_array(&self) -> PrimitiveArray {
-        self.slots[0]
-            .as_ref()
-            .vortex_expect("ChunkedArray chunk_offsets slot")
-            .to_primitive()
+    /// Returns the chunk offsets as a `PrimitiveData`.
+    pub(crate) fn chunk_offsets_data(&self) -> &PrimitiveData {
+        &self.chunk_offsets
     }
 
     #[inline]
     pub fn chunk_offsets(&self) -> Buffer<u64> {
-        self.chunk_offsets_array().to_buffer()
+        self.chunk_offsets_data().to_buffer()
     }
 
     pub(crate) fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
@@ -157,40 +177,29 @@ impl ChunkedArray {
 
     /// Returns an iterator over chunk references without allocation.
     pub fn iter_chunks(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        self.slots[1..]
-            .iter()
-            .map(|s| s.as_ref().vortex_expect("ChunkedArray chunk slot"))
+        self.chunks.iter()
     }
 
     /// Returns the chunks as a vector of owned references.
     pub fn chunks(&self) -> Vec<ArrayRef> {
-        self.iter_chunks().cloned().collect()
+        self.chunks.clone()
     }
 
     pub fn non_empty_chunks(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        self.slots[1..]
-            .iter()
-            .filter_map(|s| s.as_ref())
-            .filter(|c| !c.is_empty())
+        self.chunks.iter().filter(|c| !c.is_empty())
     }
 
     pub fn array_iterator(&self) -> impl ArrayIterator + '_ {
         ArrayIteratorAdapter::new(
             self.dtype().clone(),
-            self.slots[1..]
-                .iter()
-                .map(|s| Ok(s.as_ref().vortex_expect("ChunkedArray chunk slot").clone())),
+            self.chunks.iter().map(|c| Ok(c.clone())),
         )
     }
 
     pub fn array_stream(&self) -> impl ArrayStream + '_ {
         ArrayStreamAdapter::new(
             self.dtype().clone(),
-            stream::iter(
-                self.slots[1..]
-                    .iter()
-                    .map(|s| Ok(s.as_ref().vortex_expect("ChunkedArray chunk slot").clone())),
-            ),
+            stream::iter(self.chunks.iter().map(|c| Ok(c.clone()))),
         )
     }
 
@@ -210,11 +219,10 @@ impl ChunkedArray {
                 new_chunks.push(
                     // SAFETY: chunks_to_combine contains valid chunks of the same dtype as self.
                     // All chunks are guaranteed to be valid arrays matching self.dtype().
-                    unsafe {
-                        ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
-                            .to_canonical()?
-                            .into_array()
-                    },
+                    unsafe { ChunkedData::new_unchecked(chunks_to_combine, self.dtype().clone()) }
+                        .into_array()
+                        .to_canonical()?
+                        .into_array(),
                 );
 
                 new_chunk_n_bytes = 0;
@@ -232,13 +240,14 @@ impl ChunkedArray {
         }
 
         if !chunks_to_combine.is_empty() {
-            new_chunks.push(unsafe {
+            new_chunks.push(
                 // SAFETY: chunks_to_combine contains valid chunks of the same dtype as self.
                 // All chunks are guaranteed to be valid arrays matching self.dtype().
-                ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
-                    .to_canonical()?
+                unsafe { ChunkedData::new_unchecked(chunks_to_combine, self.dtype().clone()) }
                     .into_array()
-            });
+                    .to_canonical()?
+                    .into_array(),
+            );
         }
 
         // SAFETY: new_chunks contains valid arrays of the same dtype as self.
@@ -247,14 +256,32 @@ impl ChunkedArray {
     }
 }
 
-impl FromIterator<ArrayRef> for ChunkedArray {
+impl Array<Chunked> {
+    /// Constructs a new `ChunkedArray`.
+    pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
+        Array::try_from_data(ChunkedData::try_new(chunks, dtype)?)
+    }
+
+    /// Creates a new `ChunkedArray` without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`ChunkedData::new_unchecked`].
+    pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
+        Array::try_from_data(unsafe { ChunkedData::new_unchecked(chunks, dtype) })
+            .vortex_expect("ChunkedData is always valid")
+    }
+}
+
+impl FromIterator<ArrayRef> for Array<Chunked> {
     fn from_iter<T: IntoIterator<Item = ArrayRef>>(iter: T) -> Self {
         let chunks: Vec<ArrayRef> = iter.into_iter().collect();
         let dtype = chunks
             .first()
             .map(|c| c.dtype().clone())
             .vortex_expect("Cannot infer DType from an empty iterator");
-        Self::try_new(chunks, dtype).vortex_expect("Failed to create chunked array from iterator")
+        Array::<Chunked>::try_new(chunks, dtype)
+            .vortex_expect("Failed to create chunked array from iterator")
     }
 }
 
@@ -264,7 +291,6 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -354,7 +380,7 @@ mod test {
 
         // Should be all_valid since all non-empty chunks are all_valid
         assert!(chunked.all_valid().unwrap());
-        assert!(!chunked.all_invalid().unwrap());
+        assert!(!chunked.into_array().all_invalid().unwrap());
 
         Ok(())
     }
@@ -374,7 +400,7 @@ mod test {
 
         // Should be all_invalid since all non-empty chunks are all_invalid
         assert!(!chunked.all_valid().unwrap());
-        assert!(chunked.all_invalid().unwrap());
+        assert!(chunked.into_array().all_invalid().unwrap());
 
         Ok(())
     }
@@ -394,7 +420,7 @@ mod test {
 
         // Should be neither all_valid nor all_invalid
         assert!(!chunked.all_valid().unwrap());
-        assert!(!chunked.all_invalid().unwrap());
+        assert!(!chunked.into_array().all_invalid().unwrap());
 
         Ok(())
     }

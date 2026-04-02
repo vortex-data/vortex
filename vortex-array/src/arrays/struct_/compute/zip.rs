@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::builtins::ArrayBuiltins;
@@ -18,7 +19,7 @@ use crate::validity::Validity;
 
 impl ZipKernel for Struct {
     fn zip(
-        if_true: &StructArray,
+        if_true: ArrayView<'_, Struct>,
         if_false: &ArrayRef,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
@@ -97,10 +98,7 @@ mod tests {
 
         let mask = Mask::from_iter([false, false, true, false]);
 
-        let result = mask
-            .into_array()
-            .zip(if_true.clone(), if_false.clone())
-            .unwrap();
+        let result = mask.into_array().zip(if_true, if_false).unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
         ┌───────┐
@@ -137,10 +135,7 @@ mod tests {
 
         let mask = Mask::from_iter([true, false, false, false]);
 
-        let result = mask
-            .into_array()
-            .zip(if_true.clone(), if_false.clone())
-            .unwrap();
+        let result = mask.into_array().zip(if_true, if_false).unwrap();
 
         insta::assert_snapshot!(result.display_table(), @r"
         ┌───────┐

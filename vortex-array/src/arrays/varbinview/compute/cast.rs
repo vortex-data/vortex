@@ -5,13 +5,14 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for VarBinView {
-    fn cast(array: &VarBinViewArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, VarBinView>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
@@ -27,7 +28,7 @@ impl CastReduce for VarBinView {
             Ok(Some(
                 VarBinViewArray::new_handle_unchecked(
                     array.views_handle().clone(),
-                    array.buffers().clone(),
+                    array.data_buffers().clone(),
                     new_dtype,
                     new_validity,
                 )

@@ -8,9 +8,9 @@ use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
@@ -24,7 +24,7 @@ pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl FilterKernel for Chunked {
     fn filter(
-        array: &ChunkedArray,
+        array: ArrayView<'_, Chunked>,
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -62,7 +62,7 @@ pub(crate) enum ChunkFilter {
 
 /// Filter the chunks using slice ranges.
 fn filter_slices(
-    array: &ChunkedArray,
+    array: ArrayView<'_, Chunked>,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> VortexResult<Vec<ArrayRef>> {
     let mut result = Vec::with_capacity(array.nchunks());
@@ -87,7 +87,7 @@ fn filter_slices(
 }
 
 pub(crate) fn chunk_filters(
-    array: &ChunkedArray,
+    array: ArrayView<'_, Chunked>,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> VortexResult<Vec<ChunkFilter>> {
     let chunk_offsets = array.chunk_offsets();
@@ -146,7 +146,7 @@ pub(crate) fn chunk_filters(
 
 /// Filter the chunks using indices.
 fn filter_indices(
-    array: &ChunkedArray,
+    array: ArrayView<'_, Chunked>,
     indices: impl Iterator<Item = usize>,
 ) -> VortexResult<Vec<ArrayRef>> {
     let mut result = Vec::with_capacity(array.nchunks());
@@ -205,7 +205,6 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::IntoArray;
-    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;

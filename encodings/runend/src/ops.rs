@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
@@ -12,11 +13,10 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndArray;
 
 impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(
-        array: &RunEndArray,
+        array: ArrayView<'_, RunEnd>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -47,7 +47,6 @@ pub(crate) fn find_slice_end_index(array: &ArrayRef, index: usize) -> VortexResu
 #[cfg(test)]
 mod tests {
 
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
@@ -59,11 +58,11 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_buffer::buffer;
 
-    use crate::RunEndArray;
+    use crate::RunEnd;
 
     #[test]
     fn slice_array() {
-        let arr = RunEndArray::try_new(
+        let arr = RunEnd::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         )
@@ -82,7 +81,7 @@ mod tests {
 
     #[test]
     fn double_slice() {
-        let arr = RunEndArray::try_new(
+        let arr = RunEnd::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         )
@@ -99,7 +98,7 @@ mod tests {
 
     #[test]
     fn slice_end_inclusive() {
-        let arr = RunEndArray::try_new(
+        let arr = RunEnd::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
         )
@@ -118,7 +117,7 @@ mod tests {
 
     #[test]
     fn slice_at_end() {
-        let re_array = RunEndArray::try_new(
+        let re_array = RunEnd::try_new(
             buffer![7_u64, 10].into_array(),
             buffer![2_u64, 3].into_array(),
         )
@@ -132,7 +131,7 @@ mod tests {
 
     #[test]
     fn slice_single_end() {
-        let re_array = RunEndArray::try_new(
+        let re_array = RunEnd::try_new(
             buffer![7_u64, 10].into_array(),
             buffer![2_u64, 3].into_array(),
         )
@@ -148,7 +147,7 @@ mod tests {
 
     #[test]
     fn ree_scalar_at_end() {
-        let scalar = RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
+        let scalar = RunEnd::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
             .unwrap()
             .scalar_at(11)
             .unwrap();
@@ -160,7 +159,7 @@ mod tests {
     fn slice_along_run_boundaries() {
         // Create a runend array with runs: [1, 1, 1] [4, 4, 4] [2, 2] [5, 5, 5, 5]
         // Run ends at indices: 3, 6, 8, 12
-        let arr = RunEndArray::try_new(
+        let arr = RunEnd::try_new(
             buffer![3u32, 6, 8, 12].into_array(),
             buffer![1i32, 4, 2, 5].into_array(),
         )

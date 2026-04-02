@@ -10292,6 +10292,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-mask",
  "vortex-session",
 ]
 
@@ -10549,6 +10550,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "vortex",
+ "vortex-array",
 ]
 
 [[package]]

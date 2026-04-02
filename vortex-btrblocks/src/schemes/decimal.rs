@@ -10,7 +10,7 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::decimal::narrowed_decimal;
 use vortex_array::dtype::DecimalType;
-use vortex_decimal_byte_parts::DecimalBytePartsArray;
+use vortex_decimal_byte_parts::DecimalByteParts;
 use vortex_error::VortexResult;
 
 use crate::ArrayAndStats;
@@ -22,7 +22,7 @@ use crate::SchemeExt;
 /// Compression scheme for decimal arrays via byte-part decomposition.
 ///
 /// Narrows the decimal to the smallest integer type, compresses the underlying primitive, and wraps
-/// the result in a [`DecimalBytePartsArray`].
+/// the result in a `DecimalBytePartsArray`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DecimalScheme;
 
@@ -71,6 +71,6 @@ impl Scheme for DecimalScheme {
 
         let compressed = compressor.compress_child(&prim.into_array(), &ctx, self.id(), 0)?;
 
-        DecimalBytePartsArray::try_new(compressed, decimal.decimal_dtype()).map(|d| d.into_array())
+        DecimalByteParts::try_new(compressed, decimal.decimal_dtype()).map(|d| d.into_array())
     }
 }

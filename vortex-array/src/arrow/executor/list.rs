@@ -15,7 +15,6 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::Chunked;
 use crate::arrays::List;
@@ -30,7 +29,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex VarBinArray into an Arrow [`GenericListArray`](arrow_array:array::GenericListArray).
 pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
@@ -40,7 +38,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
 ) -> VortexResult<ArrowArrayRef> {
     // If the Vortex array is already in List format, we can directly convert it.
     if let Some(array) = array.as_opt::<List>() {
-        return list_to_list::<O>(array, elements_field, ctx);
+        return list_to_list::<O>(&array.into_owned(), elements_field, ctx);
     }
 
     // Converting each chunk individually, then using the fast concat logic from arrow
@@ -141,7 +139,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         sizes,
         validity,
         ..
-    } = array.into_parts();
+    } = array.into_data().into_parts();
 
     // For ZCTL, we know that we only care about the final size.
     assert!(!sizes.is_empty());

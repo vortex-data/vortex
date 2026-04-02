@@ -14,7 +14,7 @@ use super::MutTypedStatsSetRef;
 use super::StatsSet;
 use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
-use crate::DynArray;
+use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
@@ -43,12 +43,12 @@ pub struct ArrayStats {
 /// Constructed by calling [`ArrayStats::to_ref`].
 pub struct StatsSetRef<'a> {
     // We need to reference back to the array
-    dyn_array_ref: &'a dyn DynArray,
+    dyn_array_ref: &'a ArrayRef,
     array_stats: &'a ArrayStats,
 }
 
 impl ArrayStats {
-    pub fn to_ref<'a>(&'a self, array: &'a dyn DynArray) -> StatsSetRef<'a> {
+    pub fn to_ref<'a>(&'a self, array: &'a ArrayRef) -> StatsSetRef<'a> {
         StatsSetRef {
             dyn_array_ref: array,
             array_stats: self,
@@ -158,17 +158,20 @@ impl StatsSetRef<'_> {
             return Ok(Some(s));
         }
 
-        let array_ref = self.dyn_array_ref.to_array();
         Ok(match stat {
-            Stat::Min => min_max(&array_ref, &mut ctx)?.map(|MinMaxResult { min, max: _ }| min),
-            Stat::Max => min_max(&array_ref, &mut ctx)?.map(|MinMaxResult { min: _, max }| max),
+            Stat::Min => {
+                min_max(self.dyn_array_ref, &mut ctx)?.map(|MinMaxResult { min, max: _ }| min)
+            }
+            Stat::Max => {
+                min_max(self.dyn_array_ref, &mut ctx)?.map(|MinMaxResult { min: _, max }| max)
+            }
             Stat::Sum => {
                 Stat::Sum
                     .dtype(self.dyn_array_ref.dtype())
                     .is_some()
                     .then(|| {
                         // Sum is supported for this dtype.
-                        sum(&array_ref, &mut ctx)
+                        sum(self.dyn_array_ref, &mut ctx)
                     })
                     .transpose()?
             }
@@ -177,16 +180,16 @@ impl StatsSetRef<'_> {
                 if self.dyn_array_ref.is_empty() {
                     None
                 } else {
-                    Some(is_constant(&array_ref, &mut ctx)?.into())
+                    Some(is_constant(self.dyn_array_ref, &mut ctx)?.into())
                 }
             }
-            Stat::IsSorted => Some(is_sorted(&array_ref, &mut ctx)?.into()),
-            Stat::IsStrictSorted => Some(is_strict_sorted(&array_ref, &mut ctx)?.into()),
+            Stat::IsSorted => Some(is_sorted(self.dyn_array_ref, &mut ctx)?.into()),
+            Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref, &mut ctx)?.into()),
             Stat::UncompressedSizeInBytes => {
                 let mut builder =
                     builder_with_capacity(self.dyn_array_ref.dtype(), self.dyn_array_ref.len());
                 unsafe {
-                    builder.extend_from_array_unchecked(&array_ref);
+                    builder.extend_from_array_unchecked(self.dyn_array_ref);
                 }
                 let nbytes = builder.finish().nbytes();
                 self.set(stat, Precision::exact(nbytes));
@@ -198,7 +201,7 @@ impl StatsSetRef<'_> {
                     .is_some()
                     .then(|| {
                         // NaNCount is supported for this dtype.
-                        nan_count(&array_ref, &mut ctx)
+                        nan_count(self.dyn_array_ref, &mut ctx)
                     })
                     .transpose()?
                     .map(|s| s.into())

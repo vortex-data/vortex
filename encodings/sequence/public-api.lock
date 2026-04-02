@@ -4,7 +4,11 @@ pub struct vortex_sequence::Sequence
 
 impl vortex_sequence::Sequence
 
-pub const vortex_sequence::Sequence::ID: vortex_array::vtable::dyn_::ArrayId
+pub const vortex_sequence::Sequence::ID: vortex_array::array::ArrayId
+
+pub fn vortex_sequence::Sequence::try_new(base: vortex_array::scalar::typed_view::primitive::pvalue::PValue, multiplier: vortex_array::scalar::typed_view::primitive::pvalue::PValue, ptype: vortex_array::dtype::ptype::PType, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<vortex_sequence::SequenceArray>
+
+pub fn vortex_sequence::Sequence::try_new_typed<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<vortex_sequence::SequenceArray>
 
 impl core::clone::Clone for vortex_sequence::Sequence
 
@@ -14,33 +18,9 @@ impl core::fmt::Debug for vortex_sequence::Sequence
 
 pub fn vortex_sequence::Sequence::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl vortex_array::arrays::dict::take::TakeExecute for vortex_sequence::Sequence
+impl vortex_array::array::vtable::VTable for vortex_sequence::Sequence
 
-pub fn vortex_sequence::Sequence::take(array: &vortex_sequence::SequenceArray, indices: &vortex_array::array::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_sequence::Sequence
-
-pub fn vortex_sequence::Sequence::filter(array: &vortex_sequence::SequenceArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::arrays::slice::SliceReduce for vortex_sequence::Sequence
-
-pub fn vortex_sequence::Sequence::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_sequence::Sequence
-
-pub fn vortex_sequence::Sequence::compare(lhs: &vortex_sequence::SequenceArray, rhs: &vortex_array::array::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_sequence::Sequence
-
-pub fn vortex_sequence::Sequence::cast(array: &vortex_sequence::SequenceArray, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::list_contains::kernel::ListContainsElementReduce for vortex_sequence::Sequence
-
-pub fn vortex_sequence::Sequence::list_contains(list: &vortex_array::array::ArrayRef, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-
-impl vortex_array::vtable::VTable for vortex_sequence::Sequence
-
-pub type vortex_sequence::Sequence::Array = vortex_sequence::SequenceArray
+pub type vortex_sequence::Sequence::ArrayData = vortex_sequence::SequenceData
 
 pub type vortex_sequence::Sequence::Metadata = vortex_sequence::array::SequenceMetadata
 
@@ -48,101 +28,77 @@ pub type vortex_sequence::Sequence::OperationsVTable = vortex_sequence::Sequence
 
 pub type vortex_sequence::Sequence::ValidityVTable = vortex_sequence::Sequence
 
-pub fn vortex_sequence::Sequence::array_eq(array: &vortex_sequence::SequenceArray, other: &vortex_sequence::SequenceArray, _precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_sequence::Sequence::array_eq(array: &vortex_sequence::SequenceData, other: &vortex_sequence::SequenceData, _precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_sequence::Sequence::array_hash<H: core::hash::Hasher>(array: &vortex_sequence::SequenceArray, state: &mut H, _precision: vortex_array::hash::Precision)
+pub fn vortex_sequence::Sequence::array_hash<H: core::hash::Hasher>(array: &vortex_sequence::SequenceData, state: &mut H, _precision: vortex_array::hash::Precision)
 
-pub fn vortex_sequence::Sequence::buffer(_array: &vortex_sequence::SequenceArray, idx: usize) -> vortex_array::buffer::BufferHandle
+pub fn vortex_sequence::Sequence::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
-pub fn vortex_sequence::Sequence::buffer_name(_array: &vortex_sequence::SequenceArray, idx: usize) -> core::option::Option<alloc::string::String>
+pub fn vortex_sequence::Sequence::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_sequence::Sequence::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sequence::SequenceArray>
+pub fn vortex_sequence::Sequence::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sequence::SequenceData>
 
 pub fn vortex_sequence::Sequence::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_sequence::Sequence::dtype(array: &vortex_sequence::SequenceArray) -> &vortex_array::dtype::DType
+pub fn vortex_sequence::Sequence::dtype(array: &vortex_sequence::SequenceData) -> &vortex_array::dtype::DType
 
-pub fn vortex_sequence::Sequence::execute(array: alloc::sync::Arc<vortex_array::vtable::typed::Array<Self>>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_sequence::Sequence::execute(array: vortex_array::array::typed::Array<Self>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
-pub fn vortex_sequence::Sequence::execute_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sequence::Sequence::execute_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_sequence::Sequence::id(&self) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_sequence::Sequence::id(&self) -> vortex_array::array::ArrayId
 
-pub fn vortex_sequence::Sequence::len(array: &vortex_sequence::SequenceArray) -> usize
+pub fn vortex_sequence::Sequence::len(array: &vortex_sequence::SequenceData) -> usize
 
-pub fn vortex_sequence::Sequence::metadata(array: &vortex_sequence::SequenceArray) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_sequence::Sequence::metadata(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_sequence::Sequence::nbuffers(_array: &vortex_sequence::SequenceArray) -> usize
+pub fn vortex_sequence::Sequence::nbuffers(_array: vortex_array::array::view::ArrayView<'_, Self>) -> usize
 
-pub fn vortex_sequence::Sequence::reduce_parent(array: &vortex_array::vtable::typed::Array<Self>, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sequence::Sequence::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub fn vortex_sequence::Sequence::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_sequence::Sequence::slot_name(_array: &vortex_sequence::SequenceArray, idx: usize) -> alloc::string::String
+pub fn vortex_sequence::Sequence::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_sequence::Sequence::slots(array: &vortex_sequence::SequenceArray) -> &[core::option::Option<vortex_array::array::ArrayRef>]
+pub fn vortex_sequence::Sequence::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
 
-pub fn vortex_sequence::Sequence::stats(array: &vortex_sequence::SequenceArray) -> vortex_array::stats::array::StatsSetRef<'_>
+pub fn vortex_sequence::Sequence::stats(array: &vortex_sequence::SequenceData) -> &vortex_array::stats::array::ArrayStats
 
-pub fn vortex_sequence::Sequence::vtable(_array: &Self::Array) -> &Self
+pub fn vortex_sequence::Sequence::vtable(_array: &Self::ArrayData) -> &Self
 
-pub fn vortex_sequence::Sequence::with_slots(array: &mut vortex_sequence::SequenceArray, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::ArrayRef>>) -> vortex_error::VortexResult<()>
+pub fn vortex_sequence::Sequence::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> vortex_error::VortexResult<()>
 
-impl vortex_array::vtable::operations::OperationsVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 
-pub fn vortex_sequence::Sequence::scalar_at(array: &vortex_sequence::SequenceArray, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_sequence::Sequence::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_sequence::Sequence>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-impl vortex_array::vtable::validity::ValidityVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
+impl vortex_array::array::vtable::validity::ValidityVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 
-pub fn vortex_sequence::Sequence::validity(_array: &vortex_sequence::SequenceArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+pub fn vortex_sequence::Sequence::validity(_array: vortex_array::array::view::ArrayView<'_, vortex_sequence::Sequence>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
-pub struct vortex_sequence::SequenceArray
+impl vortex_array::arrays::dict::take::TakeExecute for vortex_sequence::Sequence
 
-impl vortex_sequence::SequenceArray
+pub fn vortex_sequence::Sequence::take(array: vortex_array::array::view::ArrayView<'_, Self>, indices: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_sequence::SequenceArray::base(&self) -> vortex_array::scalar::typed_view::primitive::pvalue::PValue
+impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_sequence::Sequence
 
-pub fn vortex_sequence::SequenceArray::into_parts(self) -> vortex_sequence::SequenceArrayParts
+pub fn vortex_sequence::Sequence::filter(array: vortex_array::array::view::ArrayView<'_, Self>, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_sequence::SequenceArray::last(&self) -> vortex_array::scalar::typed_view::primitive::pvalue::PValue
+impl vortex_array::arrays::slice::SliceReduce for vortex_sequence::Sequence
 
-pub fn vortex_sequence::SequenceArray::multiplier(&self) -> vortex_array::scalar::typed_view::primitive::pvalue::PValue
+pub fn vortex_sequence::Sequence::slice(array: vortex_array::array::view::ArrayView<'_, Self>, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_sequence::SequenceArray::ptype(&self) -> vortex_array::dtype::ptype::PType
+impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_sequence::Sequence
 
-pub fn vortex_sequence::SequenceArray::try_new(base: vortex_array::scalar::typed_view::primitive::pvalue::PValue, multiplier: vortex_array::scalar::typed_view::primitive::pvalue::PValue, ptype: vortex_array::dtype::ptype::PType, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_sequence::Sequence::compare(lhs: vortex_array::array::view::ArrayView<'_, Self>, rhs: &vortex_array::array::erased::ArrayRef, operator: vortex_array::scalar_fn::fns::operators::CompareOperator, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_sequence::SequenceArray::try_new_typed<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_sequence::Sequence
 
-impl vortex_sequence::SequenceArray
+pub fn vortex_sequence::Sequence::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_sequence::SequenceArray::to_array(&self) -> vortex_array::array::ArrayRef
+impl vortex_array::scalar_fn::fns::list_contains::kernel::ListContainsElementReduce for vortex_sequence::Sequence
 
-impl core::clone::Clone for vortex_sequence::SequenceArray
-
-pub fn vortex_sequence::SequenceArray::clone(&self) -> vortex_sequence::SequenceArray
-
-impl core::convert::AsRef<dyn vortex_array::array::DynArray> for vortex_sequence::SequenceArray
-
-pub fn vortex_sequence::SequenceArray::as_ref(&self) -> &dyn vortex_array::array::DynArray
-
-impl core::convert::From<vortex_sequence::SequenceArray> for vortex_array::array::ArrayRef
-
-pub fn vortex_array::array::ArrayRef::from(value: vortex_sequence::SequenceArray) -> vortex_array::array::ArrayRef
-
-impl core::fmt::Debug for vortex_sequence::SequenceArray
-
-pub fn vortex_sequence::SequenceArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::ops::deref::Deref for vortex_sequence::SequenceArray
-
-pub type vortex_sequence::SequenceArray::Target = dyn vortex_array::array::DynArray
-
-pub fn vortex_sequence::SequenceArray::deref(&self) -> &Self::Target
-
-impl vortex_array::array::IntoArray for vortex_sequence::SequenceArray
-
-pub fn vortex_sequence::SequenceArray::into_array(self) -> vortex_array::array::ArrayRef
+pub fn vortex_sequence::Sequence::list_contains(list: &vortex_array::array::erased::ArrayRef, element: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub struct vortex_sequence::SequenceArrayParts
 
@@ -156,6 +112,48 @@ pub vortex_sequence::SequenceArrayParts::nullability: vortex_array::dtype::nulla
 
 pub vortex_sequence::SequenceArrayParts::ptype: vortex_array::dtype::ptype::PType
 
+pub struct vortex_sequence::SequenceData
+
+impl vortex_sequence::SequenceData
+
+pub fn vortex_sequence::SequenceData::base(&self) -> vortex_array::scalar::typed_view::primitive::pvalue::PValue
+
+pub fn vortex_sequence::SequenceData::dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_sequence::SequenceData::into_parts(self) -> vortex_sequence::SequenceArrayParts
+
+pub fn vortex_sequence::SequenceData::is_empty(&self) -> bool
+
+pub fn vortex_sequence::SequenceData::last(&self) -> vortex_array::scalar::typed_view::primitive::pvalue::PValue
+
+pub fn vortex_sequence::SequenceData::len(&self) -> usize
+
+pub fn vortex_sequence::SequenceData::multiplier(&self) -> vortex_array::scalar::typed_view::primitive::pvalue::PValue
+
+pub fn vortex_sequence::SequenceData::ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_sequence::SequenceData::try_new(base: vortex_array::scalar::typed_view::primitive::pvalue::PValue, multiplier: vortex_array::scalar::typed_view::primitive::pvalue::PValue, ptype: vortex_array::dtype::ptype::PType, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_sequence::SequenceData::try_new_typed<T: vortex_array::dtype::ptype::NativePType + core::convert::Into<vortex_array::scalar::typed_view::primitive::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_array::dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
+
+impl core::clone::Clone for vortex_sequence::SequenceData
+
+pub fn vortex_sequence::SequenceData::clone(&self) -> vortex_sequence::SequenceData
+
+impl core::convert::From<vortex_sequence::SequenceData> for vortex_array::array::erased::ArrayRef
+
+pub fn vortex_array::array::erased::ArrayRef::from(value: vortex_sequence::SequenceData) -> vortex_array::array::erased::ArrayRef
+
+impl core::fmt::Debug for vortex_sequence::SequenceData
+
+pub fn vortex_sequence::SequenceData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::IntoArray for vortex_sequence::SequenceData
+
+pub fn vortex_sequence::SequenceData::into_array(self) -> vortex_array::array::erased::ArrayRef
+
 pub fn vortex_sequence::initialize(session: &mut vortex_session::VortexSession)
 
-pub fn vortex_sequence::sequence_encode(primitive_array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_sequence::sequence_encode(primitive_array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+pub type vortex_sequence::SequenceArray = vortex_array::array::typed::Array<vortex_sequence::Sequence>

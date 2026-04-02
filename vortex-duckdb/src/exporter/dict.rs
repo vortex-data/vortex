@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 use vortex::array::Canonical;
@@ -65,7 +64,7 @@ pub(crate) fn new_exporter_with_flatten(
         }
     }
 
-    let values_key = Arc::as_ptr(values).addr();
+    let values_key = values.addr();
     let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
 
     let reusable_dict = if flatten {
@@ -158,13 +157,13 @@ mod tests {
     use vortex::VortexSessionDefault;
     use vortex::array::ExecutionCtx;
     use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::buffer::Buffer;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
-    use vortex_array::VortexSessionExecute;
 
     use crate::SESSION;
     use crate::cpp;

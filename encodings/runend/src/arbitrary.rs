@@ -14,11 +14,11 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 
-use crate::RunEndArray;
+use crate::RunEndData;
 
 /// A wrapper type to implement `Arbitrary` for `RunEndArray`.
 #[derive(Clone, Debug)]
-pub struct ArbitraryRunEndArray(pub RunEndArray);
+pub struct ArbitraryRunEndArray(pub RunEndData);
 
 impl<'a> Arbitrary<'a> for ArbitraryRunEndArray {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
@@ -42,7 +42,7 @@ impl ArbitraryRunEndArray {
             // Empty RunEndArray
             let ends = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
             let values = ArbitraryArray::arbitrary_with(u, Some(0), dtype)?.0;
-            let runend_array = RunEndArray::try_new(ends, values)
+            let runend_array = RunEndData::try_new(ends, values)
                 .vortex_expect("Empty RunEndArray creation should succeed");
             return Ok(ArbitraryRunEndArray(runend_array));
         }
@@ -54,7 +54,7 @@ impl ArbitraryRunEndArray {
         // Each end must be > previous end, and first end must be >= 1
         let ends = random_strictly_sorted_ends(u, num_runs, len)?;
 
-        let runend_array = RunEndArray::try_new(ends, values)
+        let runend_array = RunEndData::try_new(ends, values)
             .vortex_expect("RunEndArray creation should succeed in arbitrary impl");
 
         Ok(ArbitraryRunEndArray(runend_array))

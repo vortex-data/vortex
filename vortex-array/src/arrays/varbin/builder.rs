@@ -7,6 +7,8 @@ use vortex_buffer::BufferMut;
 use vortex_error::vortex_panic;
 
 use crate::IntoArray;
+use crate::array::VTable;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
 use crate::dtype::DType;
@@ -103,9 +105,7 @@ impl<O: IntegerPType> VarBinBuilder<O> {
             offsets.statistics().compute_is_sorted().unwrap_or(false),
             "VarBinBuilder offsets must be sorted"
         );
-        offsets
-            .statistics()
-            .set(Stat::IsSorted, Precision::Exact(true.into()));
+        Primitive::stats(&offsets).set(Stat::IsSorted, Precision::Exact(true.into()));
 
         // SAFETY: The builder maintains all invariants:
         // - Offsets are monotonically increasing starting from 0 (guaranteed by builder logic).

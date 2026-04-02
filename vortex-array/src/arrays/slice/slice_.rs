@@ -7,12 +7,13 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Slice;
 use crate::arrays::SliceArray;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Slice {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let inner_range = array.slice_range();
 
         let combined_start = inner_range.start + range.start;

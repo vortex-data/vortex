@@ -14,6 +14,7 @@ pub use array::Sequence;
 /// This can be used for compression, fast comparisons and also for row ids.
 pub use array::SequenceArray;
 pub use array::SequenceArrayParts;
+pub use array::SequenceData;
 pub use compress::sequence_encode;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;

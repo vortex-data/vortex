@@ -2,10 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Filter;
-use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
@@ -14,8 +13,8 @@ use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_error::VortexResult;
 
+use super::DecimalBytePartsData;
 use crate::DecimalByteParts;
-use crate::DecimalBytePartsArray;
 
 pub(super) const PARENT_RULES: ParentRuleSet<DecimalByteParts> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalBytePartsFilterPushDownRule),
@@ -33,8 +32,8 @@ impl ArrayParentReduceRule<DecimalByteParts> for DecimalBytePartsFilterPushDownR
 
     fn reduce_parent(
         &self,
-        child: &DecimalBytePartsArray,
-        parent: &FilterArray,
+        child: ArrayView<'_, DecimalByteParts>,
+        parent: ArrayView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(ngates): we should benchmark whether to push-down filters with "lower parts".
@@ -45,7 +44,7 @@ impl ArrayParentReduceRule<DecimalByteParts> for DecimalBytePartsFilterPushDownR
 
         let new_msp = child.msp().filter(parent.filter_mask().clone())?;
         let new_child =
-            DecimalBytePartsArray::try_new(new_msp, *child.decimal_dtype())?.into_array();
+            DecimalBytePartsData::try_new(new_msp, *child.decimal_dtype())?.into_array();
         Ok(Some(new_child))
     }
 }

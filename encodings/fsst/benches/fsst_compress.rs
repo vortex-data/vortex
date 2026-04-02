@@ -57,14 +57,18 @@ fn compress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize
     let compressor = fsst_train_compressor(&array);
     bencher
         .with_inputs(|| (&array, &compressor))
-        .bench_refs(|(array, compressor)| fsst_compress(*array, compressor))
+        .bench_refs(|(array, compressor)| {
+            fsst_compress(*array, array.len(), array.dtype(), compressor)
+        })
 }
 
 #[divan::bench(args = BENCH_ARGS)]
 fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
-    let encoded = fsst_compress(array, &compressor);
+    let len = array.len();
+    let dtype = array.dtype().clone();
+    let encoded = fsst_compress(array, len, &dtype, &compressor);
 
     bencher
         .with_inputs(|| &encoded)
@@ -83,7 +87,7 @@ fn train_compressor(bencher: Bencher, (string_count, avg_len, unique_chars): (us
 fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
-    let fsst_array = fsst_compress(&array, &compressor);
+    let fsst_array = fsst_compress(&array, array.len(), array.dtype(), &compressor);
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
@@ -112,7 +116,7 @@ fn canonicalize_compare(
 ) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
-    let fsst_array = fsst_compress(&array, &compressor);
+    let fsst_array = fsst_compress(&array, array.len(), array.dtype(), &compressor);
     let constant = ConstantArray::new(Scalar::from(&b"const"[..]), array.len());
 
     bencher
@@ -127,8 +131,7 @@ fn canonicalize_compare(
             fsst_array
                 .to_canonical()
                 .unwrap()
-                .as_ref()
-                .to_array()
+                .into_array()
                 .binary(constant.clone().into_array(), Operator::Eq)
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
@@ -215,7 +218,9 @@ fn generate_chunked_test_data(
         .map(|_| {
             let array = generate_test_data(string_count, avg_len, unique_chars);
             let compressor = fsst_train_compressor(&array);
-            fsst_compress(array, &compressor).into_array()
+            let len = array.len();
+            let dtype = array.dtype().clone();
+            fsst_compress(array, len, &dtype, &compressor).into_array()
         })
         .collect::<ChunkedArray>()
 }

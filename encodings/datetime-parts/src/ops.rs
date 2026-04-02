@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::dtype::DType;
 use vortex_array::extension::datetime::Timestamp;
@@ -12,13 +12,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimeParts;
-use crate::DateTimePartsArray;
 use crate::timestamp;
 use crate::timestamp::TimestampParts;
 
 impl OperationsVTable<DateTimeParts> for DateTimeParts {
     fn scalar_at(
-        array: &DateTimePartsArray,
+        array: ArrayView<'_, DateTimeParts>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -33,7 +32,7 @@ impl OperationsVTable<DateTimeParts> for DateTimeParts {
             vortex_panic!(Compute: "must decode TemporalMetadata from extension metadata");
         };
 
-        if !array.is_valid(index)? {
+        if !array.as_ref().is_valid(index)? {
             return Ok(Scalar::null(DType::Extension(ext)));
         }
 

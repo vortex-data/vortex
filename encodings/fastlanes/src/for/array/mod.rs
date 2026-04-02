@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::stats::ArrayStats;
@@ -22,13 +23,13 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
 /// This encoding stores values as offsets from a reference value, which can significantly reduce
 /// storage requirements when values are clustered around a specific point.
 #[derive(Clone, Debug)]
-pub struct FoRArray {
+pub struct FoRData {
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) reference: Scalar,
     pub(super) stats_set: ArrayStats,
 }
 
-impl FoRArray {
+impl FoRData {
     pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<Self> {
         if reference.is_null() {
             vortex_bail!("Reference value cannot be null");
@@ -52,6 +53,24 @@ impl FoRArray {
             reference,
             stats_set: Default::default(),
         }
+    }
+
+    /// Returns the length of the array.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.encoded().len()
+    }
+
+    /// Returns `true` if the array is empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.encoded().is_empty()
+    }
+
+    /// Returns the dtype of the array.
+    #[inline]
+    pub fn dtype(&self) -> &DType {
+        self.reference.dtype()
     }
 
     #[inline]

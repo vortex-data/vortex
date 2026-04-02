@@ -7,8 +7,9 @@ use num_traits::AsPrimitive;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinArray;
+use crate::arrays::VarBin;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use crate::arrays::varbinview::build_views::build_views;
@@ -19,10 +20,10 @@ use crate::match_each_integer_ptype;
 ///
 /// This is a shared helper used by both `canonicalize` and `execute`.
 pub(crate) fn varbin_to_canonical(
-    array: &VarBinArray,
+    array: ArrayView<'_, VarBin>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<VarBinViewArray> {
-    let (dtype, bytes, offsets, validity) = array.clone().into_parts();
+    let (dtype, bytes, offsets, validity) = array.into_owned().into_data().into_parts();
 
     let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
 
@@ -86,7 +87,7 @@ mod tests {
     #[case(DType::Binary(Nullability::NonNullable))]
     fn test_canonical_varbin_unsliced(#[case] dtype: DType) {
         let varbin = VarBinArray::from_iter_nonnull(["foo", "bar", "baz"], dtype.clone());
-        let canonical = varbin.to_varbinview();
+        let canonical = varbin.as_array().to_varbinview();
         let expected = match dtype {
             DType::Utf8(_) => VarBinViewArray::from_iter_str(["foo", "bar", "baz"]),
             _ => VarBinViewArray::from_iter_bin(["foo", "bar", "baz"]),
@@ -99,7 +100,7 @@ mod tests {
     fn test_canonical_varbin_empty() {
         let varbin =
             VarBinArray::from_iter_nonnull([] as [&str; 0], DType::Utf8(Nullability::NonNullable));
-        let canonical = varbin.to_varbinview();
+        let canonical = varbin.as_array().to_varbinview();
         assert_eq!(canonical.len(), 0);
     }
 }

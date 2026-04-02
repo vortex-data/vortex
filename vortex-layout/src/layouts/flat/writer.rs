@@ -4,7 +4,6 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::ArrayContext;
-use vortex_array::DynArray;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
@@ -197,7 +196,6 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
@@ -250,7 +248,7 @@ mod tests {
                 .write_stream(
                     ctx,
                     segments.clone(),
-                    array.to_array_stream().sequenced(ptr),
+                    array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
@@ -299,7 +297,7 @@ mod tests {
                 .write_stream(
                     ctx,
                     segments.clone(),
-                    array.to_array_stream().sequenced(ptr),
+                    array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
                 )
@@ -366,7 +364,7 @@ mod tests {
                     .write_stream(
                         ctx,
                         segments.clone(),
-                        array.to_array_stream().sequenced(ptr),
+                        array.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,
                     )
@@ -434,7 +432,7 @@ mod tests {
                     .write_stream(
                         ctx,
                         segments.clone(),
-                        filter.to_array_stream().sequenced(ptr),
+                        filter.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,
                     )
@@ -476,7 +474,7 @@ mod tests {
                     .write_stream(
                         ctx,
                         segments.clone(),
-                        dict.to_array_stream().sequenced(ptr),
+                        dict.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,
                     )

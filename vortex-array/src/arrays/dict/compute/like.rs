@@ -6,8 +6,8 @@ use vortex_error::VortexResult;
 use super::Dict;
 use super::DictArray;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::optimizer::ArrayOptimizer;
@@ -17,7 +17,7 @@ use crate::scalar_fn::fns::like::LikeReduce;
 
 impl LikeReduce for Dict {
     fn like(
-        array: &DictArray,
+        array: ArrayView<'_, Dict>,
         pattern: &ArrayRef,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {

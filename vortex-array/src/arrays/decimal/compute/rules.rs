@@ -7,10 +7,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Decimal;
 use crate::arrays::DecimalArray;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::slice::SliceReduce;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::match_each_decimal_value_type;
@@ -36,8 +36,8 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
 
     fn reduce_parent(
         &self,
-        array: &DecimalArray,
-        parent: &MaskedArray,
+        array: ArrayView<'_, Decimal>,
+        parent: ArrayView<'_, Masked>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Merge the parent's validity mask into the child's validity
@@ -60,7 +60,7 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
 }
 
 impl SliceReduce for Decimal {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let result = match_each_decimal_value_type!(array.values_type(), |D| {
             let sliced = array.buffer::<D>().slice(range.clone());
             let validity = array.validity().slice(range)?;

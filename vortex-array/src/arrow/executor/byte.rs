@@ -14,8 +14,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
 use crate::arrays::VarBin;
-use crate::arrays::VarBinArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrow::byte_view::execute_varbinview_to_arrow;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
@@ -50,7 +50,7 @@ where
 
 /// Convert a Vortex VarBinArray into an Arrow GenericBinaryArray.
 fn varbin_to_byte_array<T: ByteArrayType>(
-    array: &VarBinArray,
+    array: ArrayView<'_, VarBin>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef>
 where

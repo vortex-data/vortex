@@ -37,7 +37,7 @@ pub(crate) fn new_exporter(
         dtype,
         views,
         buffers,
-    } = array.into_parts();
+    } = array.into_data().into_parts();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;
     if validity.all_false() {
         let ltype = LogicalType::try_from(dtype)?;
@@ -139,10 +139,10 @@ fn to_ptr_binary_view<'a>(
 #[cfg(test)]
 mod tests {
     use Nullability::Nullable;
+    use vortex::array::VortexSessionExecute;
     use vortex::dtype::DType;
     use vortex::dtype::Nullability;
     use vortex::error::VortexResult;
-    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
 
     use crate::SESSION;

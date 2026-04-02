@@ -42,7 +42,6 @@
 //! ```rust
 //! use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, Scheme, SchemeExt};
 //! use vortex_btrblocks::schemes::integer::IntDictScheme;
-//! use vortex_array::DynArray;
 //!
 //! // Default compressor with all schemes enabled.
 //! let compressor = BtrBlocksCompressor::default();

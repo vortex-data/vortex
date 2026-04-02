@@ -3,13 +3,13 @@
 
 use vortex_error::VortexResult;
 
-use crate::arrays::VarBinViewArray;
+use crate::array::ArrayView;
+use crate::array::ValidityVTable;
 use crate::arrays::varbinview::vtable::VarBinView;
 use crate::validity::Validity;
-use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<VarBinView> for VarBinView {
-    fn validity(array: &VarBinViewArray) -> VortexResult<Validity> {
-        Ok(array.validity())
+    fn validity(array: ArrayView<'_, VarBinView>) -> VortexResult<Validity> {
+        Ok(array.data().validity())
     }
 }

@@ -30,7 +30,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::arrays::List;
 use crate::arrays::VarBin;
 use crate::arrow::executor::bool::to_arrow_bool;

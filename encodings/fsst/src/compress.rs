@@ -5,7 +5,6 @@
 
 use fsst::Compressor;
 use fsst::Symbol;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::varbin::builder::VarBinBuilder;
@@ -14,16 +13,16 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 
-use crate::FSSTArray;
-
 /// Compress a string array using FSST.
-pub fn fsst_compress<A: ArrayAccessor<[u8]> + AsRef<dyn DynArray>>(
+use crate::FSSTArray;
+use crate::FSSTData;
+pub fn fsst_compress<A: ArrayAccessor<[u8]>>(
     strings: A,
+    len: usize,
+    dtype: &DType,
     compressor: &Compressor,
 ) -> FSSTArray {
-    let len = strings.as_ref().len();
-    let dtype = strings.as_ref().dtype().clone();
-    strings.with_iterator(|iter| fsst_compress_iter(iter, len, dtype, compressor))
+    strings.with_iterator(|iter| fsst_compress_iter(iter, len, dtype.clone(), compressor))
 }
 
 /// Train a compressor from an array.
@@ -103,8 +102,11 @@ where
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
-    FSSTArray::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
-        .vortex_expect("building FSSTArray from parts")
+    FSSTArray::try_from_data(
+        FSSTData::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
+            .vortex_expect("building FSSTArray from parts"),
+    )
+    .vortex_expect("FSSTData is always valid")
 }
 
 #[cfg(test)]

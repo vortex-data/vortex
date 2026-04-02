@@ -39,7 +39,7 @@ impl DynAggregateKernel for RunEndIsSortedKernel {
         let result = if options.strict {
             // Strict sort with run-end encoding means we need to canonicalize
             // since run-end encoding repeats values.
-            is_strict_sorted(&array.to_canonical()?.into_array(), ctx)?
+            is_strict_sorted(&array.array().to_canonical()?.into_array(), ctx)?
         } else {
             is_sorted(array.values(), ctx)?
         };

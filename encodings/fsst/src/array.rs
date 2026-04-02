@@ -3,19 +3,20 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
 use fsst::Compressor;
 use fsst::Decompressor;
 use fsst::Symbol;
+use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -32,11 +33,8 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
-use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
-use vortex_array::vtable::Array;
-use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -56,7 +54,7 @@ use crate::canonical::fsst_decode_views;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
-vtable!(FSST);
+vtable!(FSST, FSST, FSSTData);
 
 #[derive(Clone, prost::Message)]
 pub struct FSSTMetadata {
@@ -75,13 +73,13 @@ impl FSSTMetadata {
 }
 
 impl VTable for FSST {
-    type Array = FSSTArray;
+    type ArrayData = FSSTData;
 
     type Metadata = ProstMetadata<FSSTMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &FSST
     }
 
@@ -89,46 +87,49 @@ impl VTable for FSST {
         Self::ID
     }
 
-    fn len(array: &FSSTArray) -> usize {
+    fn len(array: &FSSTData) -> usize {
         array.codes().len()
     }
 
-    fn dtype(array: &FSSTArray) -> &DType {
+    fn dtype(array: &FSSTData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &FSSTArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &FSSTData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &FSSTArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &FSSTData, state: &mut H, precision: Precision) {
         array.symbols.array_hash(state, precision);
         array.symbol_lengths.array_hash(state, precision);
-        array.codes.as_ref().array_hash(state, precision);
+        array
+            .codes
+            .clone()
+            .into_array()
+            .array_hash(state, precision);
         array.uncompressed_lengths().array_hash(state, precision);
     }
 
-    fn array_eq(array: &FSSTArray, other: &FSSTArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.symbols.array_eq(&other.symbols, precision)
+    fn array_eq(array: &FSSTData, other: &FSSTData, precision: Precision) -> bool {
+        array.symbols.array_eq(&other.symbols, precision)
             && array
                 .symbol_lengths
                 .array_eq(&other.symbol_lengths, precision)
             && array
                 .codes
-                .as_ref()
-                .array_eq(other.codes.as_ref(), precision)
+                .clone()
+                .into_array()
+                .array_eq(&other.codes.clone().into_array(), precision)
             && array
                 .uncompressed_lengths()
                 .array_eq(other.uncompressed_lengths(), precision)
     }
 
-    fn nbuffers(_array: &FSSTArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         3
     }
 
-    fn buffer(array: &FSSTArray, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => BufferHandle::new_host(array.symbols().clone().into_byte_buffer()),
             1 => BufferHandle::new_host(array.symbol_lengths().clone().into_byte_buffer()),
@@ -137,7 +138,7 @@ impl VTable for FSST {
         }
     }
 
-    fn buffer_name(_array: &FSSTArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("symbols".to_string()),
             1 => Some("symbol_lengths".to_string()),
@@ -146,7 +147,7 @@ impl VTable for FSST {
         }
     }
 
-    fn metadata(array: &FSSTArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(FSSTMetadata {
             uncompressed_lengths_ptype: array.uncompressed_lengths().dtype().as_ptype().into(),
             codes_offsets_ptype: array.codes.offsets().dtype().as_ptype().into(),
@@ -170,15 +171,15 @@ impl VTable for FSST {
     }
 
     fn append_to_builder(
-        array: &FSSTArray,
+        array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
             builder.extend_from_array(
                 &array
+                    .array()
                     .clone()
-                    .into_array()
                     .execute::<Canonical>(ctx)?
                     .into_array(),
             );
@@ -187,9 +188,9 @@ impl VTable for FSST {
 
         // Decompress the whole block of data into a new buffer, and create some views
         // from it instead.
-        let (buffers, views) = fsst_decode_views(array, builder.completed_block_count(), ctx)?;
+        let (buffers, views) = fsst_decode_views(&array, builder.completed_block_count(), ctx)?;
 
-        builder.push_buffer_and_adjusted_views(&buffers, &views, array.validity_mask()?);
+        builder.push_buffer_and_adjusted_views(&buffers, &views, array.array().validity_mask()?);
         Ok(())
     }
 
@@ -199,7 +200,7 @@ impl VTable for FSST {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<FSSTArray> {
+    ) -> VortexResult<FSSTData> {
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
         let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
 
@@ -209,7 +210,7 @@ impl VTable for FSST {
                 vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
             }
             let codes = children.get(0, &DType::Binary(dtype.nullability()), len)?;
-            let codes = codes
+            let codes: VarBinArray = codes
                 .as_opt::<VarBin>()
                 .ok_or_else(|| {
                     vortex_err!(
@@ -217,7 +218,7 @@ impl VTable for FSST {
                         codes.encoding_id()
                     )
                 })?
-                .clone();
+                .into_owned();
             let uncompressed_lengths = children.get(
                 1,
                 &DType::Primitive(
@@ -227,7 +228,7 @@ impl VTable for FSST {
                 len,
             )?;
 
-            return FSSTArray::try_new(
+            return FSSTData::try_new(
                 dtype.clone(),
                 symbols,
                 symbol_lengths,
@@ -274,7 +275,7 @@ impl VTable for FSST {
                 codes_validity,
             )?;
 
-            return FSSTArray::try_new(
+            return FSSTData::try_new(
                 dtype.clone(),
                 symbols,
                 symbol_lengths,
@@ -289,15 +290,15 @@ impl VTable for FSST {
         );
     }
 
-    fn slots(array: &FSSTArray) -> &[Option<ArrayRef>] {
-        &array.slots
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn slot_name(_array: &FSSTArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut FSSTArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == NUM_SLOTS,
             "FSSTArray expects {} slots, got {}",
@@ -305,31 +306,33 @@ impl VTable for FSST {
             slots.len()
         );
 
-        // Reconstruct codes VarBinArray from new offsets + existing bytes + new validity
+        // Rebuild the codes VarBinArray from the slots
         let codes_offsets = slots[CODES_OFFSETS_SLOT]
             .clone()
             .vortex_expect("FSSTArray requires codes_offsets slot");
         let codes_validity = match &slots[CODES_VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.codes.dtype().nullability()),
+            Some(v) => Validity::Array(v.clone()),
+            None => Validity::from(array.dtype.nullability()),
         };
-        array.codes = VarBinArray::try_new_from_handle(
+        let codes = VarBinArray::try_new(
             codes_offsets,
-            array.codes.bytes_handle().clone(),
+            array.codes.bytes().clone(),
             array.codes.dtype().clone(),
             codes_validity,
         )?;
+        array.codes = codes;
         array.codes_array = array.codes.clone().into_array();
         array.slots = slots;
+
         Ok(())
     }
 
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         canonicalize_fsst(&array, ctx).map(ExecutionResult::done)
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -338,7 +341,7 @@ impl VTable for FSST {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -357,7 +360,7 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
     ["uncompressed_lengths", "codes_offsets", "codes_validity"];
 
 #[derive(Clone)]
-pub struct FSSTArray {
+pub struct FSSTData {
     dtype: DType,
     symbols: Buffer<Symbol>,
     symbol_lengths: Buffer<u8>,
@@ -372,7 +375,7 @@ pub struct FSSTArray {
     compressor: Arc<LazyLock<Compressor, Box<dyn Fn() -> Compressor + Send>>>,
 }
 
-impl Debug for FSSTArray {
+impl Debug for FSSTData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FSSTArray")
             .field("dtype", &self.dtype)
@@ -389,9 +392,26 @@ pub struct FSST;
 
 impl FSST {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.fsst");
+
+    /// Build an FSST array from a set of `symbols` and `codes`.
+    pub fn try_new(
+        dtype: DType,
+        symbols: Buffer<Symbol>,
+        symbol_lengths: Buffer<u8>,
+        codes: VarBinArray,
+        uncompressed_lengths: ArrayRef,
+    ) -> VortexResult<FSSTArray> {
+        Array::try_from_data(FSSTData::try_new(
+            dtype,
+            symbols,
+            symbol_lengths,
+            codes,
+            uncompressed_lengths,
+        )?)
+    }
 }
 
-impl FSSTArray {
+impl FSSTData {
     /// Build an FSST array from a set of `symbols` and `codes`.
     ///
     /// Symbols are 8-bytes and can represent short strings, each of which is assigned
@@ -473,6 +493,21 @@ impl FSSTArray {
         }
     }
 
+    /// Returns the number of elements in the array.
+    pub fn len(&self) -> usize {
+        self.codes.len()
+    }
+
+    /// Returns `true` if the array contains no elements.
+    pub fn is_empty(&self) -> bool {
+        self.codes.len() == 0
+    }
+
+    /// Returns the logical data type of the array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
     /// Access the symbol table array
     pub fn symbols(&self) -> &Buffer<Symbol> {
         &self.symbols
@@ -520,7 +555,7 @@ impl FSSTArray {
 }
 
 impl ValidityChild<FSST> for FSST {
-    fn validity_child(array: &FSSTArray) -> &ArrayRef {
+    fn validity_child(array: &FSSTData) -> &ArrayRef {
         &array.codes_array
     }
 }
@@ -529,7 +564,6 @@ impl ValidityChild<FSST> for FSST {
 mod test {
     use fsst::Compressor;
     use fsst::Symbol;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::ProstMetadata;

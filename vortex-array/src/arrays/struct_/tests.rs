@@ -60,7 +60,7 @@ fn test_remove_column() {
     let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::NonNullable);
     let ys = PrimitiveArray::new(buffer![4u64, 5, 6, 7, 8], Validity::NonNullable);
 
-    let mut struct_a = StructArray::try_new(
+    let struct_a = StructArray::try_new(
         FieldNames::from(["xs", "ys"]),
         vec![xs.into_array(), ys.into_array()],
         5,
@@ -68,31 +68,32 @@ fn test_remove_column() {
     )
     .unwrap();
 
-    let removed = struct_a.remove_column("xs").unwrap();
+    let mut data = struct_a.into_data();
+    let removed = data.remove_column("xs").unwrap();
     assert_eq!(
         removed.dtype(),
         &DType::Primitive(PType::I64, Nullability::NonNullable)
     );
     assert_arrays_eq!(removed, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
 
-    assert_eq!(struct_a.names(), &["ys"]);
-    assert_eq!(struct_a.struct_fields().nfields(), 1);
-    assert_eq!(struct_a.len(), 5);
+    assert_eq!(data.names(), &["ys"]);
+    assert_eq!(data.struct_fields().nfields(), 1);
+    assert_eq!(data.len(), 5);
     assert_eq!(
-        struct_a.unmasked_field(0).dtype(),
+        data.unmasked_field(0).dtype(),
         &DType::Primitive(PType::U64, Nullability::NonNullable)
     );
     assert_arrays_eq!(
-        struct_a.unmasked_field(0),
+        data.unmasked_field(0),
         PrimitiveArray::from_iter([4u64, 5, 6, 7, 8])
     );
 
-    let empty = struct_a.remove_column("non_existent");
+    let empty = data.remove_column("non_existent");
     assert!(
         empty.is_none(),
         "Expected None when removing non-existent column"
     );
-    assert_eq!(struct_a.names(), &["ys"]);
+    assert_eq!(data.names(), &["ys"]);
 }
 
 #[test]

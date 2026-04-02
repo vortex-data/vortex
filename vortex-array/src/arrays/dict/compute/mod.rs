@@ -19,18 +19,18 @@ use super::Dict;
 use super::DictArray;
 use super::TakeExecute;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::filter::FilterReduce;
 
 impl TakeExecute for Dict {
     fn take(
-        array: &DictArray,
+        array: ArrayView<'_, Dict>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let codes = array.codes().take(indices.to_array())?;
+        let codes = array.codes().take(indices.clone())?;
         // SAFETY: selecting codes doesn't change the invariants of DictArray
         // Preserve all_values_referenced since taking codes doesn't affect which values are referenced
         Ok(Some(unsafe {
@@ -40,7 +40,7 @@ impl TakeExecute for Dict {
 }
 
 impl FilterReduce for Dict {
-    fn filter(array: &DictArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: ArrayView<'_, Dict>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let codes = array.codes().filter(mask.clone())?;
 
         // SAFETY: filtering codes doesn't change invariants
@@ -58,7 +58,6 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
@@ -89,7 +88,7 @@ mod test {
 
         let dict =
             dict_encode(&PrimitiveArray::from_option_iter(values.clone()).into_array()).unwrap();
-        let actual = dict.to_primitive();
+        let actual = dict.as_array().to_primitive();
 
         let expected = PrimitiveArray::from_option_iter(values);
 
@@ -102,7 +101,7 @@ mod test {
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 32]));
 
         let dict = dict_encode(&expected.clone().into_array()).unwrap();
-        let actual = dict.to_primitive();
+        let actual = dict.as_array().to_primitive();
 
         assert_arrays_eq!(actual, expected);
     }
@@ -113,7 +112,7 @@ mod test {
         let expected = PrimitiveArray::from_iter((0..1000).map(|i| unique_values[i % 100]));
 
         let dict = dict_encode(&expected.clone().into_array()).unwrap();
-        let actual = dict.to_primitive();
+        let actual = dict.as_array().to_primitive();
 
         assert_arrays_eq!(actual, expected);
     }
@@ -126,7 +125,7 @@ mod test {
         );
         assert_eq!(reference.len(), 6);
         let dict = dict_encode(&reference.clone().into_array()).unwrap();
-        let flattened_dict = dict.to_varbinview();
+        let flattened_dict = dict.as_array().to_varbinview();
         assert_eq!(
             flattened_dict.with_iterator(|iter| iter
                 .map(|slice| slice.map(|s| s.to_vec()))

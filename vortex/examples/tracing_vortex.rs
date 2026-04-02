@@ -37,11 +37,11 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
+use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::file::WriteStrategyBuilder;
-use vortex_array::stream::ArrayStreamExt;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_session::VortexSession;
@@ -393,7 +393,7 @@ async fn write_batch_to_vortex(
     );
 
     write_opts
-        .write(&mut file, struct_array.to_array_stream())
+        .write(&mut file, struct_array.into_array().to_array_stream())
         .await?;
 
     println!(

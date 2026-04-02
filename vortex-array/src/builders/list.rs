@@ -13,7 +13,6 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::ListArray;
 use crate::builders::ArrayBuilder;
@@ -301,7 +300,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     }
 
     fn finish_into_canonical(&mut self) -> Canonical {
-        Canonical::List(self.finish_into_list().to_listview())
+        Canonical::List(self.finish_into_list().into_array().to_listview())
     }
 }
 
@@ -316,7 +315,6 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::ToCanonical;
-    use crate::array::DynArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
@@ -330,7 +328,6 @@ mod tests {
     use crate::executor::VortexSessionExecute;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_empty() {
@@ -513,7 +510,7 @@ mod tests {
             DType::List(Arc::new(DType::Primitive(I32, NonNullable)), NonNullable),
         );
 
-        let canon_values = chunked_list.unwrap().to_listview();
+        let canon_values = chunked_list.unwrap().as_array().to_listview();
 
         assert_eq!(
             one_trailing_unused_element.scalar_at(0).unwrap(),

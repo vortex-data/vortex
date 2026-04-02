@@ -18,10 +18,9 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::ToCanonical;
-use crate::array::ArrayRef;
-use crate::array::DynArray;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -339,7 +338,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // The incoming sizes might have a different type than the builder, so we need to cast.
         let cast_sizes = listview
             .sizes()
-            .to_array()
+            .clone()
             .cast(self.sizes_builder.dtype().clone())
             .vortex_expect(
                 "was somehow unable to cast the new sizes to the type of the builder sizes",
@@ -431,7 +430,6 @@ mod tests {
 
     use super::ListViewBuilder;
     use crate::IntoArray;
-    use crate::array::DynArray;
     use crate::arrays::ListArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
@@ -441,7 +439,6 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_empty() {

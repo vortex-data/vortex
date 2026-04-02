@@ -5,8 +5,8 @@ use num_traits::Zero;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::dict::TakeReduce;
@@ -15,7 +15,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
-use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
 /// The threshold for triggering a rebuild of the [`ListViewArray`].
@@ -42,7 +41,7 @@ const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 /// The trade-off is that we may keep unreferenced elements in memory, but this is acceptable since
 /// we're optimizing for read performance and the data isn't being copied.
 impl TakeReduce for ListView {
-    fn take(array: &ListViewArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: ArrayView<'_, ListView>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let elements = array.elements();
         let offsets = array.offsets();
         let sizes = array.sizes();
@@ -53,8 +52,8 @@ impl TakeReduce for ListView {
         // Take the offsets and sizes arrays at the requested indices.
         // Take can reorder offsets, create gaps, and may introduce overlaps if the `indices`
         // contain duplicates.
-        let nullable_new_offsets = offsets.take(indices.to_array())?;
-        let nullable_new_sizes = sizes.take(indices.to_array())?;
+        let nullable_new_offsets = offsets.take(indices.clone())?;
+        let nullable_new_sizes = sizes.take(indices.clone())?;
 
         // Since `take` returns nullable arrays, we simply cast it back to non-nullable (filled with
         // zeros to represent null lists).

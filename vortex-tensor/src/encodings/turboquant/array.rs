@@ -4,11 +4,11 @@
 //! TurboQuant array definition: stores quantized coordinate codes, norms,
 //! centroids (codebook), rotation signs, and optional QJL correction fields.
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
-use vortex_array::vtable::ArrayId;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -21,7 +21,7 @@ impl TurboQuant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.turboquant");
 }
 
-vtable!(TurboQuant);
+vtable!(TurboQuant, TurboQuant, TurboQuantData);
 
 /// Protobuf metadata for TurboQuant encoding.
 #[derive(Clone, prost::Message)]
@@ -121,7 +121,7 @@ impl Slot {
 /// - 5: `qjl_residual_norms` — `PrimitiveArray<f32>` (one per row)
 /// - 6: `qjl_rotation_signs` — `BitPackedArray` (3 * padded_dim, 1-bit, QJL rotation)
 #[derive(Clone, Debug)]
-pub struct TurboQuantArray {
+pub struct TurboQuantData {
     pub(crate) dtype: DType,
     pub(crate) slots: Vec<Option<ArrayRef>>,
     pub(crate) dimension: u32,
@@ -129,7 +129,7 @@ pub struct TurboQuantArray {
     pub(crate) stats_set: ArrayStats,
 }
 
-impl TurboQuantArray {
+impl TurboQuantData {
     /// Build a TurboQuant array with MSE-only encoding (no QJL correction).
     #[allow(clippy::too_many_arguments)]
     pub fn try_new_mse(

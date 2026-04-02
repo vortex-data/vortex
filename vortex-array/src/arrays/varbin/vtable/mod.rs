@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -16,7 +14,11 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::VarBinArray;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::varbin::VarBinData;
 use crate::arrays::varbin::array::NUM_SLOTS;
 use crate::arrays::varbin::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
@@ -26,14 +28,10 @@ use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
 mod canonical;
 mod kernel;
 mod operations;
 mod validity;
-use std::hash::Hash;
 
 use canonical::varbin_to_canonical;
 use kernel::PARENT_KERNELS;
@@ -43,9 +41,9 @@ use crate::Precision;
 use crate::arrays::varbin::compute::rules::PARENT_RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 
-vtable!(VarBin);
+vtable!(VarBin, VarBin, VarBinData);
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {
@@ -54,12 +52,12 @@ pub struct VarBinMetadata {
 }
 
 impl VTable for VarBin {
-    type Array = VarBinArray;
+    type ArrayData = VarBinData;
 
     type Metadata = ProstMetadata<VarBinMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &VarBinData) -> &Self {
         &VarBin
     }
 
@@ -67,51 +65,49 @@ impl VTable for VarBin {
         Self::ID
     }
 
-    fn len(array: &VarBinArray) -> usize {
+    fn len(array: &VarBinData) -> usize {
         array.offsets().len().saturating_sub(1)
     }
 
-    fn dtype(array: &VarBinArray) -> &DType {
+    fn dtype(array: &VarBinData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &VarBinArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &VarBinData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &VarBinArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &VarBinData, state: &mut H, precision: Precision) {
         array.bytes().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
         array.validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &VarBinArray, other: &VarBinArray, precision: Precision) -> bool {
-        array.dtype == other.dtype
-            && array.bytes().array_eq(other.bytes(), precision)
+    fn array_eq(array: &VarBinData, other: &VarBinData, precision: Precision) -> bool {
+        array.bytes().array_eq(other.bytes(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
             && array.validity().array_eq(&other.validity(), precision)
     }
 
-    fn nbuffers(_array: &VarBinArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &VarBinArray, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.bytes_handle().clone(),
             _ => vortex_panic!("VarBinArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &VarBinArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("bytes".to_string()),
             _ => vortex_panic!("VarBinArray buffer_name index {idx} out of bounds"),
         }
     }
 
-    fn metadata(array: &VarBinArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(VarBinMetadata {
             offsets_ptype: PType::try_from(array.offsets().dtype())
                 .vortex_expect("Must be a valid PType") as i32,
@@ -140,7 +136,7 @@ impl VTable for VarBin {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<VarBinArray> {
+    ) -> VortexResult<VarBinData> {
         let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
         } else if children.len() == 2 {
@@ -161,18 +157,18 @@ impl VTable for VarBin {
         }
         let bytes = buffers[0].clone().try_to_host_sync()?;
 
-        VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
+        VarBinData::try_new(offsets, bytes, dtype.clone(), validity)
     }
 
-    fn slots(array: &VarBinArray) -> &[Option<ArrayRef>] {
-        &array.slots
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn slot_name(_array: &VarBinArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut VarBinArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == NUM_SLOTS,
             "VarBinArray expects exactly {} slots, got {}",
@@ -184,7 +180,7 @@ impl VTable for VarBin {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -192,7 +188,7 @@ impl VTable for VarBin {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -200,9 +196,9 @@ impl VTable for VarBin {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            varbin_to_canonical(&array, ctx)?.into_array(),
+            varbin_to_canonical(array.as_view(), ctx)?.into_array(),
         ))
     }
 }

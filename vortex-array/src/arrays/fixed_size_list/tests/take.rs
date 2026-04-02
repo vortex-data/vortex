@@ -10,7 +10,6 @@ use super::common::create_large_fsl;
 use super::common::create_nullable_fsl;
 use super::common::create_single_element_fsl;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
@@ -43,7 +42,7 @@ fn test_take_basic_smoke_test() {
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     let indices = buffer![2u32, 0, 1].into_array();
-    let result = fsl.take(indices.to_array()).unwrap();
+    let result = fsl.take(indices).unwrap();
 
     // Expected: [[5,6], [1,2], [3,4]]
     let expected = FixedSizeListArray::new(
@@ -104,7 +103,7 @@ fn test_take_large_list_size() {
     let fsl = FixedSizeListArray::new(elements, 100, Validity::NonNullable, 3);
 
     let indices = buffer![2u16, 0].into_array();
-    let result = fsl.take(indices.to_array()).unwrap();
+    let result = fsl.take(indices).unwrap();
 
     // Expected: [[200..300], [0..100]]
     let expected_elems = PrimitiveArray::from_iter((200i32..300).chain(0..100)).into_array();

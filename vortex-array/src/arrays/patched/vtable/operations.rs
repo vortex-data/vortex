@@ -3,18 +3,17 @@
 
 use vortex_error::VortexResult;
 
-use crate::DynArray;
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::Patched;
-use crate::arrays::patched::PatchedArray;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Patched> for Patched {
     fn scalar_at(
-        array: &PatchedArray,
+        array: ArrayView<'_, Patched>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -56,7 +55,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::arrays::Patched;

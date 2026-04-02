@@ -14,7 +14,6 @@ use vortex_mask::MaskValues;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -230,7 +229,6 @@ mod tests {
 
     use super::zip_impl;
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -378,7 +376,6 @@ mod tests {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mask_array
-            .clone()
             .zip(const1.clone(), const2.clone())?
             .execute::<Columnar>(&mut ctx)?
             .into_array();
@@ -444,7 +441,7 @@ mod tests {
             .execute::<ArrayRef>(&mut ctx)
             .unwrap();
         let zipped = zipped.as_opt::<VarBinView>().unwrap();
-        assert_eq!(zipped.nbuffers(), 2);
+        assert_eq!(zipped.data_buffers().len(), 2);
 
         let expected = arrow_zip(
             mask.into_array()
@@ -456,7 +453,7 @@ mod tests {
         )
         .unwrap();
 
-        let actual = zipped.clone().into_array().into_arrow_preferred().unwrap();
+        let actual = zipped.array().clone().into_arrow_preferred().unwrap();
         assert_eq!(actual.as_ref(), expected.as_ref());
     }
 }

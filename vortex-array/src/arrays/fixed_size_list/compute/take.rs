@@ -8,10 +8,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::dtype::IntegerPType;
@@ -19,7 +20,6 @@ use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
 use crate::match_smallest_offset_type;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 /// Take implementation for [`FixedSizeListArray`].
 ///
@@ -29,7 +29,7 @@ use crate::vtable::ValidityHelper;
 impl TakeExecute for FixedSizeList {
     #[expect(clippy::cognitive_complexity)]
     fn take(
-        array: &FixedSizeListArray,
+        array: ArrayView<'_, FixedSizeList>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -45,13 +45,13 @@ impl TakeExecute for FixedSizeList {
 
 /// Dispatches to the appropriate take implementation based on list size and nullability.
 fn take_with_indices<I: IntegerPType, E: IntegerPType>(
-    array: &FixedSizeListArray,
+    array: ArrayView<'_, FixedSizeList>,
     indices: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
 
-    let indices_array = indices.to_array().execute::<PrimitiveArray>(ctx)?;
+    let indices_array = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
     // Make sure to handle degenerate case where lists have size 0 (these can take fast paths).
     if list_size == 0 {
@@ -79,17 +79,19 @@ fn take_with_indices<I: IntegerPType, E: IntegerPType>(
     } else {
         // The result's nullability is the union of the input nullabilities.
         if array.dtype().is_nullable() || indices_array.dtype().is_nullable() {
-            take_nullable_fsl::<I, E>(array, &indices_array)
+            let indices_array = indices_array.as_view();
+            take_nullable_fsl::<I, E>(array, indices_array)
         } else {
-            take_non_nullable_fsl::<I, E>(array, &indices_array)
+            let indices_array = indices_array.as_view();
+            take_non_nullable_fsl::<I, E>(array, indices_array)
         }
     }
 }
 
 /// Takes from an array when both the array and indices are non-nullable.
 fn take_non_nullable_fsl<I: IntegerPType, E: IntegerPType>(
-    array: &FixedSizeListArray,
-    indices_array: &PrimitiveArray,
+    array: ArrayView<'_, FixedSizeList>,
+    indices_array: ArrayView<'_, Primitive>,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
     let indices: &[I] = indices_array.as_slice::<I>();
@@ -137,15 +139,15 @@ fn take_non_nullable_fsl<I: IntegerPType, E: IntegerPType>(
 
 /// Takes from an array when either the array or indices are nullable.
 fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
-    array: &FixedSizeListArray,
-    indices_array: &PrimitiveArray,
+    array: ArrayView<'_, FixedSizeList>,
+    indices_array: ArrayView<'_, Primitive>,
 ) -> VortexResult<ArrayRef> {
     let list_size = array.list_size() as usize;
     let indices: &[I] = indices_array.as_slice::<I>();
     let new_len = indices.len();
 
-    let array_validity = array.validity_mask()?;
-    let indices_validity = indices_array.validity_mask()?;
+    let array_validity = array.validity_mask();
+    let indices_validity = indices_array.validity_mask();
 
     // We must use placeholder zeros for null lists to maintain the array length without
     // propagating nullability to the element array's take operation.

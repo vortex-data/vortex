@@ -6,15 +6,15 @@ use std::ops::Range;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Patched;
 use crate::arrays::PatchedArray;
 use crate::arrays::slice::SliceReduce;
 use crate::stats::ArrayStats;
 
 impl SliceReduce for Patched {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // We **always** slice the patches at 1024-element chunk boundaries. We keep the offset + len
         // around so that when we execute we know how much to chop off.
         let new_offset = (range.start + array.offset) % 1024;
@@ -60,7 +60,6 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::Canonical;
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -81,7 +80,7 @@ mod tests {
 
         let patched_array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)?;
 
-        let sliced = patched_array.slice(1..10)?;
+        let sliced = patched_array.into_array().slice(1..10)?;
 
         insta::assert_snapshot!(
             sliced.display_tree_encodings_only(),
@@ -126,7 +125,9 @@ mod tests {
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
         let patched_array =
-            PatchedArray::from_array_and_patches(inner.into_array(), &patches, &mut ctx).unwrap();
+            PatchedArray::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
+                .unwrap()
+                .into_array();
 
         // Verify that applying slice first yields same result as applying slice at end.
         let slice_first = patched_array
@@ -137,7 +138,6 @@ mod tests {
             .into_array();
 
         let slice_last = patched_array
-            .into_array()
             .execute::<Canonical>(&mut ctx)
             .unwrap()
             .into_primitive()
@@ -157,8 +157,9 @@ mod tests {
         let patches = Patches::new(10_000, 0, patched_indices, patched_values, None).unwrap();
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let patched_array =
-            PatchedArray::from_array_and_patches(values, &patches, &mut ctx).unwrap();
+        let patched_array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+            .unwrap()
+            .into_array();
 
         let sliced = patched_array
             .slice(1024..5000)

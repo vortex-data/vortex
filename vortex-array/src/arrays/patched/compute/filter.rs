@@ -7,12 +7,13 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::FilterArray;
 use crate::arrays::Patched;
 use crate::arrays::filter::FilterReduce;
 
 impl FilterReduce for Patched {
-    fn filter(array: &Self::Array, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         // Find the contiguous chunk range that the mask covers. We use this to slice the inner
         // components, then wrap the rest up with another FilterArray.
         //
@@ -65,7 +66,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -202,7 +202,7 @@ mod tests {
 
         // Slice at chunk boundary to create offset > 0. After slicing [1024..5120],
         // we have 4096 elements and patches are at relative indices 1024 and 1025.
-        let sliced = patched.slice(1024..5120)?.into_array();
+        let sliced = patched.into_array().slice(1024..5120)?;
         assert_eq!(sliced.len(), 4096);
 
         // Filter that only touches the middle 2 chunks (chunks 1 and 2).
@@ -277,7 +277,7 @@ mod tests {
         // Slice at chunk boundary to create offset > 0.
         // Slice [1024..6144] gives us 5120 elements (5 chunks).
         // Original patches at 5000 and 6000 become relative indices 3976 and 4976.
-        let sliced = patched.slice(1024..6144)?.optimize()?;
+        let sliced = patched.into_array().slice(1024..6144)?.optimize()?;
         assert_eq!(sliced.len(), 5120);
 
         // Filter that touches only the last 2 chunks (chunks 3 and 4).

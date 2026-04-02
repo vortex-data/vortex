@@ -6,9 +6,9 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
@@ -20,7 +20,7 @@ use crate::match_each_unsigned_integer_ptype;
 
 impl TakeExecute for Patched {
     fn take(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -39,7 +39,7 @@ impl TakeExecute for Patched {
             buffer,
             validity,
             ptype,
-        } = inner.into_parts();
+        } = inner.into_data().into_parts();
 
         let indices_ptype = indices.dtype().as_ptype();
 
@@ -134,7 +134,6 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::arrays::PatchedArray;
@@ -160,7 +159,9 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        PatchedArray::from_array_and_patches(values, &patches, &mut ctx)?.slice(slice)
+        PatchedArray::from_array_and_patches(values, &patches, &mut ctx)?
+            .into_array()
+            .slice(slice)
     }
 
     #[test]

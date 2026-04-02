@@ -3,15 +3,16 @@
 
 use vortex_error::VortexResult;
 
+use crate::ArrayRef;
 use crate::IntoArray;
-use crate::array::ArrayRef;
+use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Bool {
-    fn cast(array: &BoolArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Bool>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !matches!(dtype, DType::Bool(_)) {
             return Ok(None);
         }

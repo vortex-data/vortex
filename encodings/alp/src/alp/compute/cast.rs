@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -10,10 +11,9 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::alp::ALP;
-use crate::alp::ALPArray;
 
 impl CastReduce for ALP {
-    fn cast(array: &ALPArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Check if this is just a nullability change
         if array.dtype().eq_ignore_nullability(dtype) {
             // For nullability-only changes, we can avoid decoding
@@ -45,13 +45,8 @@ impl CastReduce for ALP {
             // SAFETY: casting nullability doesn't alter the invariants
             unsafe {
                 Ok(Some(
-                    ALPArray::new_unchecked(
-                        new_encoded,
-                        array.exponents(),
-                        new_patches,
-                        dtype.clone(),
-                    )
-                    .into_array(),
+                    ALP::new_unchecked(new_encoded, array.exponents(), new_patches, dtype.clone())
+                        .into_array(),
                 ))
             }
         } else {

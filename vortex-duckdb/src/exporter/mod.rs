@@ -144,18 +144,20 @@ fn new_array_exporter_with_flatten(
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<Sequence>() {
-        return sequence::new_exporter(array);
-    }
+    let array = match array.try_into::<Sequence>() {
+        Ok(array) => return sequence::new_exporter(&array),
+        Err(array) => array,
+    };
 
     let array = match array.try_into::<RunEnd>() {
         Ok(array) => return run_end::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<Dict>() {
-        return dict::new_exporter_with_flatten(array, cache, ctx, flatten);
-    }
+    let array = match array.try_into::<Dict>() {
+        Ok(array) => return dict::new_exporter_with_flatten(&array, cache, ctx, flatten),
+        Err(array) => array,
+    };
 
     let array = match array.try_into::<List>() {
         Ok(array) => return list::new_exporter(array, cache, ctx),

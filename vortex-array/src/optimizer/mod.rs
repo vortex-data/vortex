@@ -10,8 +10,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::DynArray;
-use crate::array::ArrayRef;
+use crate::ArrayRef;
 
 pub mod rules;
 
@@ -95,11 +94,11 @@ fn try_optimize_recursive(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
     for slot in current_array.slots() {
         match slot {
             Some(child) => {
-                if let Some(new_child) = try_optimize_recursive(child)? {
+                if let Some(new_child) = try_optimize_recursive(&child)? {
                     new_slots.push(Some(new_child));
                     any_slot_optimized = true;
                 } else {
-                    new_slots.push(Some(child.clone()));
+                    new_slots.push(Some(child));
                 }
             }
             None => new_slots.push(None),

@@ -8,6 +8,7 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
@@ -18,7 +19,7 @@ use crate::scalar_fn::fns::cast::CastKernel;
 
 impl CastKernel for Struct {
     fn cast(
-        array: &StructArray,
+        array: ArrayView<'_, Struct>,
         dtype: &DType,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -88,7 +89,6 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;

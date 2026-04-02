@@ -25,10 +25,10 @@ use jni::sys::jobject;
 use jni::sys::jshort;
 use jni::sys::jstring;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
+use vortex::array::ArrayView;
 use vortex::array::ToCanonical;
-use vortex::array::arrays::VarBinArray;
-use vortex::array::arrays::VarBinViewArray;
+use vortex::array::arrays::VarBin;
+use vortex::array::arrays::VarBinView;
 use vortex::array::arrow::IntoArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::i256;
@@ -248,10 +248,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_slice(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let sliced_array = array_ref
-            .inner
-            .as_ref()
-            .slice(start as usize..end as usize)?;
+        let sliced_array = array_ref.inner.slice(start as usize..end as usize)?;
         Ok(NativeArray::new(sliced_array).into_raw())
     })
 }
@@ -449,12 +446,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getUTF8_1ptr_1len<
             throw_runtime!("getUTF8_ptr_len expected UTF8 array");
         }
 
-        if let Some(varbin) = array_ref.inner.as_any().downcast_ref::<VarBinArray>() {
+        if let Some(varbin) = array_ref.inner.as_opt::<VarBin>() {
             let (ptr, len) = get_ptr_len_varbin(index, varbin);
             env.set_long_array_region(&out_ptr, 0, &[ptr as jlong])?;
             env.set_int_array_region(&out_len, 0, &[len as jint])?;
-        } else if let Some(varbinview) = array_ref.inner.as_any().downcast_ref::<VarBinViewArray>()
-        {
+        } else if let Some(varbinview) = array_ref.inner.as_opt::<VarBinView>() {
             let (ptr, len) = get_ptr_len_view(index, varbinview);
             env.set_long_array_region(&out_ptr, 0, &[ptr as jlong])?;
             env.set_int_array_region(&out_len, 0, &[len as jint])?;
@@ -485,7 +481,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
 /// Get a raw pointer + len to pass back to Java to avoid copying across the boundary.
 ///
 /// Panics if the index is out of bounds.
-fn get_ptr_len_varbin(index: jint, array: &VarBinArray) -> (*const u8, u32) {
+fn get_ptr_len_varbin(index: jint, array: ArrayView<VarBin>) -> (*const u8, u32) {
     // TODO: propagate this error up instead of expecting
     let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"));
     (
@@ -496,7 +492,7 @@ fn get_ptr_len_varbin(index: jint, array: &VarBinArray) -> (*const u8, u32) {
 }
 
 /// Get a raw pointer + len to pass back to Java to avoid copying across the boundary.
-fn get_ptr_len_view(index: jint, array: &VarBinViewArray) -> (*const u8, u32) {
+fn get_ptr_len_view(index: jint, array: ArrayView<VarBinView>) -> (*const u8, u32) {
     // TODO: propagate this error up instead of expecting
     let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"));
     (

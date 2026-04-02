@@ -3,6 +3,7 @@
 
 //! Integer compression schemes.
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -18,16 +19,15 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_fastlanes::FoRArray;
+use vortex_fastlanes::FoR;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
-use vortex_runend::RunEndArray;
+use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
 use vortex_sequence::sequence_encode;
 use vortex_sparse::Sparse;
-use vortex_sparse::SparseArray;
-use vortex_zigzag::ZigZagArray;
+use vortex_zigzag::ZigZag;
 use vortex_zigzag::zigzag_encode;
 
 use crate::ArrayAndStats;
@@ -169,7 +169,7 @@ impl Scheme for FoRScheme {
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         let primitive = data.array().to_primitive();
-        let for_array = FoRArray::encode(primitive)?;
+        let for_array = FoR::encode(primitive)?;
         let biased = for_array.encoded().to_primitive();
 
         // Immediately bitpack. If any other scheme was preferable, it would be chosen instead
@@ -181,7 +181,7 @@ impl Scheme for FoRScheme {
         let compressed = BitPackingScheme.compress(compressor, &mut biased_data, leaf_ctx)?;
 
         // TODO(connor): This should really be `new_unchecked`.
-        let for_compressed = FoRArray::try_new(compressed, for_array.reference_scalar().clone())?;
+        let for_compressed = FoR::try_new(compressed, for_array.reference_scalar().clone())?;
         for_compressed
             .as_ref()
             .statistics()
@@ -287,7 +287,7 @@ impl Scheme for ZigZagScheme {
 
         tracing::debug!("zigzag output: {}", compressed.encoding_id());
 
-        Ok(ZigZagArray::try_new(compressed)?.into_array())
+        Ok(ZigZag::try_new(compressed)?.into_array())
     }
 }
 
@@ -335,12 +335,13 @@ impl Scheme for BitPackingScheme {
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());
         }
-        let mut packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
+        let packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
+        let mut packed_data = packed.into_data();
 
-        let patches = packed.patches().map(compress_patches).transpose()?;
-        packed.replace_patches(patches);
+        let patches = packed_data.patches().map(compress_patches).transpose()?;
+        packed_data.replace_patches(patches);
 
-        Ok(packed.into_array())
+        Ok(Array::<vortex_fastlanes::BitPacked>::try_from_data(packed_data)?.into_array())
     }
 }
 
@@ -454,7 +455,7 @@ impl Scheme for SparseScheme {
             .into_array());
         }
 
-        let sparse_encoded = SparseArray::encode(
+        let sparse_encoded = Sparse::encode(
             &stats.source().clone().into_array(),
             Some(Scalar::primitive_value(
                 top_pvalue,
@@ -476,7 +477,7 @@ impl Scheme for SparseScheme {
             let compressed_indices =
                 compressor.compress_child(&indices.into_array(), &ctx, self.id(), 1)?;
 
-            SparseArray::try_new(
+            Sparse::try_new(
                 compressed_indices,
                 compressed_values,
                 sparse.len(),
@@ -571,23 +572,19 @@ impl Scheme for RunEndScheme {
         let stats = data.integer_stats();
 
         // Run-end encode the ends.
-        let (ends, values) = runend_encode(stats.source());
+        let (ends, values) = runend_encode(stats.source().as_view());
 
         let compressed_values =
             compressor.compress_child(&values.to_primitive().into_array(), &ctx, self.id(), 0)?;
 
-        let compressed_ends =
-            compressor.compress_child(&ends.to_primitive().into_array(), &ctx, self.id(), 1)?;
+        let compressed_ends = compressor.compress_child(&ends.into_array(), &ctx, self.id(), 1)?;
 
         // SAFETY: compression doesn't affect invariants.
         unsafe {
-            Ok(RunEndArray::new_unchecked(
-                compressed_ends,
-                compressed_values,
-                0,
-                stats.source().len(),
+            Ok(
+                RunEnd::new_unchecked(compressed_ends, compressed_values, 0, stats.source().len())
+                    .into_array(),
             )
-            .into_array())
         }
     }
 }
@@ -706,12 +703,10 @@ impl Scheme for PcoScheme {
     ) -> VortexResult<ArrayRef> {
         let stats = data.integer_stats();
 
-        Ok(vortex_pco::PcoArray::from_primitive(
-            stats.source(),
-            pco::DEFAULT_COMPRESSION_LEVEL,
-            8192,
-        )?
-        .into_array())
+        Ok(
+            vortex_pco::Pco::from_primitive(stats.source(), pco::DEFAULT_COMPRESSION_LEVEL, 8192)?
+                .into_array(),
+        )
     }
 }
 
@@ -723,7 +718,6 @@ mod tests {
     use rand::Rng;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::PrimitiveArray;
@@ -786,17 +780,16 @@ mod tests {
                 false, false, false, false, false, false, false, false, false, false, true,
             ]),
         );
-
         let validity = array.validity();
 
         let btr = BtrBlocksCompressor::default();
         let compressed = btr.compress(&array.into_array())?;
         assert!(compressed.is::<Sparse>());
 
-        let decoded = compressed.clone();
+        let decoded = compressed;
         let expected =
             PrimitiveArray::new(buffer![0u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 46], validity).into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        assert_arrays_eq!(decoded, expected);
         Ok(())
     }
 
@@ -811,7 +804,7 @@ mod tests {
 
         let decoded = compressed;
         let expected = PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array();
-        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        assert_arrays_eq!(decoded, expected);
         Ok(())
     }
 
@@ -828,7 +821,7 @@ mod tests {
         assert!(compressed.is::<RLE>());
 
         let expected = Buffer::copy_from(&values).into_array();
-        assert_arrays_eq!(compressed.as_ref(), expected.as_ref());
+        assert_arrays_eq!(compressed, expected);
         Ok(())
     }
 

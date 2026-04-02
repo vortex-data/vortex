@@ -3,13 +3,13 @@
 
 use vortex_error::VortexResult;
 
+use crate::array::ArrayView;
+use crate::array::ValidityVTable;
 use crate::arrays::decimal::vtable::Decimal;
-use crate::arrays::decimal::vtable::DecimalArray;
 use crate::validity::Validity;
-use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<Decimal> for Decimal {
-    fn validity(array: &DecimalArray) -> VortexResult<Validity> {
-        Ok(array.validity())
+    fn validity(array: ArrayView<'_, Decimal>) -> VortexResult<Validity> {
+        Ok(array.data().validity())
     }
 }

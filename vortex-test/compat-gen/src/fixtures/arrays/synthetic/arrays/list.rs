@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::List;
@@ -10,7 +11,6 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::dtype::FieldNames;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayId;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 
@@ -45,7 +45,7 @@ impl FlatLayoutFixture for ListFixture {
         )?;
 
         // List of strings: [["a","b"], ["hello"], [], ["x","y","z"]]
-        let str_elements = VarBinArray::from(vec!["a", "b", "hello", "x", "y", "z"]);
+        let str_elements = VarBinArray::from_strs(vec!["a", "b", "hello", "x", "y", "z"]);
         let str_offsets = PrimitiveArray::new(buffer![0i64, 2, 3, 3, 6], Validity::NonNullable);
         let str_list = ListArray::try_new(
             str_elements.into_array(),

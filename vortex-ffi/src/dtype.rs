@@ -140,11 +140,11 @@ pub unsafe extern "C-unwind" fn vx_dtype_new_fixed_size_list(
 /// Takes ownership of the `struct_dtype` pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_new_struct(
-    struct_dtype: *const vx_struct_fields,
+    struct_dtype: *mut vx_struct_fields,
     is_nullable: bool,
 ) -> *const vx_dtype {
-    let struct_dtype = vx_struct_fields::as_ref(struct_dtype).clone();
-    vx_dtype::new(Arc::new(DType::Struct(struct_dtype, is_nullable.into())))
+    let struct_dtype = vx_struct_fields::into_box(struct_dtype);
+    vx_dtype::new(Arc::new(DType::Struct(*struct_dtype, is_nullable.into())))
 }
 
 /// Create a new decimal data type.
@@ -643,7 +643,7 @@ mod tests {
     #[test]
     fn test_struct_introspection_simple() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(array);
+        let vx_arr = vx_array::new(Arc::new(array));
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
@@ -659,7 +659,7 @@ mod tests {
     #[test]
     fn test_field_name_access() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(array);
+        let vx_arr = vx_array::new(Arc::new(array));
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };
@@ -684,7 +684,7 @@ mod tests {
     #[test]
     fn test_comprehensive_struct_introspection() {
         let array = create_test_struct_array();
-        let vx_arr = vx_array::new(array);
+        let vx_arr = vx_array::new(Arc::new(array));
         let dtype_ptr = unsafe { vx_array_dtype(vx_arr) };
 
         let struct_fields_ptr = unsafe { vx_dtype_struct_dtype(dtype_ptr) };

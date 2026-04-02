@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitPackedArray;
 use crate::bitpack_decompress;
-
 impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(
-        array: &BitPackedArray,
+        array: ArrayView<'_, BitPacked>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -22,7 +21,7 @@ impl OperationsVTable<BitPacked> for BitPacked {
             {
                 patch
             } else {
-                bitpack_decompress::unpack_single(array, index)
+                bitpack_decompress::unpack_single(&array, index)
             },
         )
     }
@@ -32,7 +31,7 @@ impl OperationsVTable<BitPacked> for BitPacked {
 mod test {
     use std::ops::Range;
 
-    use vortex_array::DynArray;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::SliceArray;
@@ -52,6 +51,11 @@ mod test {
 
     use crate::BitPacked;
     use crate::BitPackedArray;
+    use crate::BitPackedData;
+
+    fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedArray {
+        BitPackedData::encode(array, bit_width).unwrap()
+    }
 
     fn slice_via_reduce(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
         let array_ref = array.clone().into_array();
@@ -61,16 +65,15 @@ mod test {
             .reduce_parent(&array_ref, &slice_array.into_array(), 0)
             .expect("execute_parent failed")
             .expect("expected slice kernel to execute");
-        sliced.as_::<BitPacked>().clone()
+        sliced.as_::<BitPacked>().into_owned()
     }
 
     #[test]
     pub fn slice_block() {
-        let arr = BitPackedArray::encode(
+        let arr = bp(
             &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
-        )
-        .unwrap();
+        );
         let sliced = slice_via_reduce(&arr, 1024..2048);
         assert_nth_scalar!(sliced, 0, 1024u32 % 64);
         assert_nth_scalar!(sliced, 1023, 2047u32 % 64);
@@ -80,11 +83,10 @@ mod test {
 
     #[test]
     pub fn slice_within_block() {
-        let arr = BitPackedArray::encode(
+        let arr = bp(
             &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
-        )
-        .unwrap();
+        );
         let sliced = slice_via_reduce(&arr, 512..1434);
         assert_nth_scalar!(sliced, 0, 512u32 % 64);
         assert_nth_scalar!(sliced, 921, 1433u32 % 64);
@@ -94,11 +96,10 @@ mod test {
 
     #[test]
     fn slice_within_block_u8s() {
-        let packed = BitPackedArray::encode(
+        let packed = bp(
             &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
             7,
-        )
-        .unwrap();
+        );
 
         let compressed = packed.slice(768..9999).unwrap();
         assert_nth_scalar!(compressed, 0, (768 % 63) as u8);
@@ -107,11 +108,10 @@ mod test {
 
     #[test]
     fn slice_block_boundary_u8s() {
-        let packed = BitPackedArray::encode(
+        let packed = bp(
             &PrimitiveArray::from_iter((0..10_000).map(|i| (i % 63) as u8)).into_array(),
             7,
-        )
-        .unwrap();
+        );
 
         let compressed = packed.slice(7168..9216).unwrap();
         assert_nth_scalar!(compressed, 0, (7168 % 63) as u8);
@@ -120,11 +120,10 @@ mod test {
 
     #[test]
     fn double_slice_within_block() {
-        let arr = BitPackedArray::encode(
+        let arr = bp(
             &PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).into_array(),
             6,
-        )
-        .unwrap();
+        );
         let sliced = slice_via_reduce(&arr, 512..1434);
         assert_nth_scalar!(sliced, 0, 512u32 % 64);
         assert_nth_scalar!(sliced, 921, 1433u32 % 64);
@@ -140,7 +139,7 @@ mod test {
     #[test]
     fn slice_empty_patches() {
         // We create an array that has 1 element that does not fit in the 6-bit range.
-        let array = BitPackedArray::encode(&buffer![0u32..=64].into_array(), 6).unwrap();
+        let array = BitPackedData::encode(&buffer![0u32..=64].into_array(), 6).unwrap();
 
         assert!(array.patches().is_some());
 
@@ -156,11 +155,10 @@ mod test {
     fn take_after_slice() {
         // Check that our take implementation respects the offsets applied after slicing.
 
-        let array = BitPackedArray::encode(
+        let array = bp(
             &PrimitiveArray::from_iter((63u32..).take(3072)).into_array(),
             6,
-        )
-        .unwrap();
+        );
 
         // Slice the array.
         // The resulting array will still have 3 1024-element chunks.
@@ -180,7 +178,7 @@ mod test {
     #[test]
     fn scalar_at_invalid_patches() {
         let packed_array = unsafe {
-            BitPackedArray::new_unchecked(
+            BitPackedData::new_unchecked(
                 BufferHandle::new_host(ByteBuffer::copy_from_aligned(
                     [0u8; 128],
                     Alignment::of::<u32>(),
@@ -213,7 +211,7 @@ mod test {
     fn scalar_at() {
         let values = (0u32..257).collect::<Buffer<_>>();
         let uncompressed = values.clone().into_array();
-        let packed = BitPackedArray::encode(&uncompressed, 8).unwrap();
+        let packed = BitPackedData::encode(&uncompressed, 8).unwrap();
         assert!(packed.patches().is_some());
 
         let patches = packed.patches().unwrap().indices().clone();

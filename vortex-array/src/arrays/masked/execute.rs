@@ -130,7 +130,7 @@ fn mask_validity_varbinview(
     Ok(unsafe {
         VarBinViewArray::new_handle_unchecked(
             array.views_handle().clone(),
-            array.buffers().clone(),
+            array.data_buffers().clone(),
             dtype,
             new_validity,
         )
@@ -143,7 +143,7 @@ fn mask_validity_listview(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ListViewArray> {
     let len = array.len();
-    let new_validity = combine_validity(&array.validity()?, mask, len, ctx)?;
+    let new_validity = combine_validity(&array.validity(), mask, len, ctx)?;
     // SAFETY: We're only changing validity, not the data structure
     Ok(unsafe {
         ListViewArray::new_unchecked(
@@ -162,7 +162,7 @@ fn mask_validity_fixed_size_list(
 ) -> VortexResult<FixedSizeListArray> {
     let len = array.len();
     let list_size = array.list_size();
-    let new_validity = combine_validity(&array.validity()?, mask, len, ctx)?;
+    let new_validity = combine_validity(&array.validity(), mask, len, ctx)?;
     // SAFETY: We're only changing validity, not the data structure
     Ok(unsafe {
         FixedSizeListArray::new_unchecked(array.elements().clone(), list_size, new_validity, len)
@@ -176,7 +176,7 @@ fn mask_validity_struct(
 ) -> VortexResult<StructArray> {
     let len = array.len();
     let new_validity = combine_validity(&array.validity(), mask, len, ctx)?;
-    let fields = array.unmasked_fields().clone();
+    let fields = array.unmasked_fields();
     let struct_fields = array.struct_fields().clone();
     // SAFETY: We're only changing validity, not the data structure
     Ok(unsafe { StructArray::new_unchecked(fields, struct_fields, len, new_validity) })

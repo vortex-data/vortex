@@ -174,6 +174,7 @@ fn fill_varbinview_array(
     fill_value: &Scalar,
     result_nullability: Nullability,
 ) -> ArrayRef {
+    let array_ref = array.clone().into_array();
     match array.validity() {
         Validity::NonNullable | Validity::AllValid => array.into_array(),
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
@@ -190,7 +191,7 @@ fn fill_varbinview_array(
                     let strings: Vec<String> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
-                                array
+                                array_ref
                                     .scalar_at(i)
                                     .vortex_expect("scalar_at")
                                     .as_utf8()
@@ -207,7 +208,7 @@ fn fill_varbinview_array(
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new_handle(
                             result.to_varbinview().views_handle().clone(),
-                            result.to_varbinview().buffers().clone(),
+                            result.to_varbinview().data_buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )
@@ -224,7 +225,7 @@ fn fill_varbinview_array(
                     let binaries: Vec<Vec<u8>> = (0..array.len())
                         .map(|i| {
                             if validity_bits.value(i) {
-                                array
+                                array_ref
                                     .scalar_at(i)
                                     .vortex_expect("scalar_at")
                                     .as_binary()
@@ -241,7 +242,7 @@ fn fill_varbinview_array(
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new_handle(
                             result.to_varbinview().views_handle().clone(),
-                            result.to_varbinview().buffers().clone(),
+                            result.to_varbinview().data_buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )
@@ -258,7 +259,6 @@ fn fill_varbinview_array(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;

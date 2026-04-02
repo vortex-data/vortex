@@ -5,7 +5,6 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::dtype::DType;

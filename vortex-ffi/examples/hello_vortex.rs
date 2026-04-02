@@ -19,7 +19,6 @@ use std::sync::LazyLock;
 
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::StructArray;
@@ -156,7 +155,7 @@ async fn write_vortex_file(path: impl AsRef<Path>) -> VortexResult<()> {
 
     SESSION
         .write_options()
-        .write(&mut file, test_data.to_array_stream())
+        .write(&mut file, test_data.into_array().to_array_stream())
         .await?;
     file.shutdown().await?;
 

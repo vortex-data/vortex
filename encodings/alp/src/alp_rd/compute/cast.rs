@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -9,10 +10,9 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::alp_rd::ALPRD;
-use crate::alp_rd::ALPRDArray;
 
 impl CastReduce for ALPRD {
-    fn cast(array: &ALPRDArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // ALPRDArray stores floating-point values, so only cast between float types
         // or if just changing nullability
 
@@ -28,7 +28,7 @@ impl CastReduce for ALPRD {
             )?;
 
             return Ok(Some(
-                ALPRDArray::try_new(
+                ALPRD::try_new(
                     dtype.clone(),
                     new_left_parts,
                     array.left_parts_dictionary().clone(),

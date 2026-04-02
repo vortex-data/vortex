@@ -4,14 +4,15 @@
 //! VTable implementation for TurboQuant encoding.
 
 use std::hash::Hash;
-use std::ops::Deref;
 use std::sync::Arc;
 
+use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::DeserializeMetadata;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::Precision;
@@ -22,9 +23,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::StatsSetRef;
-use vortex_array::vtable::Array;
-use vortex_array::vtable::ArrayId;
+use vortex_array::stats::ArrayStats;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -35,17 +34,17 @@ use vortex_session::VortexSession;
 
 use crate::encodings::turboquant::array::Slot;
 use crate::encodings::turboquant::array::TurboQuant;
-use crate::encodings::turboquant::array::TurboQuantArray;
+use crate::encodings::turboquant::array::TurboQuantData;
 use crate::encodings::turboquant::array::TurboQuantMetadata;
 use crate::encodings::turboquant::decompress::execute_decompress;
 
 impl VTable for TurboQuant {
-    type Array = TurboQuantArray;
+    type ArrayData = TurboQuantData;
     type Metadata = ProstMetadata<TurboQuantMetadata>;
     type OperationsVTable = TurboQuant;
     type ValidityVTable = ValidityVTableFromChild;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &TurboQuant
     }
 
@@ -53,20 +52,20 @@ impl VTable for TurboQuant {
         Self::ID
     }
 
-    fn len(array: &TurboQuantArray) -> usize {
+    fn len(array: &TurboQuantData) -> usize {
         array.norms().len()
     }
 
-    fn dtype(array: &TurboQuantArray) -> &DType {
+    fn dtype(array: &TurboQuantData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &TurboQuantArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &TurboQuantData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &TurboQuantArray,
+        array: &TurboQuantData,
         state: &mut H,
         precision: Precision,
     ) {
@@ -81,7 +80,7 @@ impl VTable for TurboQuant {
         }
     }
 
-    fn array_eq(array: &TurboQuantArray, other: &TurboQuantArray, precision: Precision) -> bool {
+    fn array_eq(array: &TurboQuantData, other: &TurboQuantData, precision: Precision) -> bool {
         array.dtype == other.dtype
             && array.dimension == other.dimension
             && array.bit_width == other.bit_width
@@ -97,27 +96,27 @@ impl VTable for TurboQuant {
                 })
     }
 
-    fn nbuffers(_array: &TurboQuantArray) -> usize {
+    fn nbuffers(_array: ArrayView<Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &TurboQuantArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<Self>, idx: usize) -> BufferHandle {
         vortex_panic!("TurboQuantArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &TurboQuantArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn slots(array: &TurboQuantArray) -> &[Option<ArrayRef>] {
-        &array.slots
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn slot_name(_array: &TurboQuantArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<Self>, idx: usize) -> String {
         Slot::from_index(idx).name().to_string()
     }
 
-    fn with_slots(array: &mut TurboQuantArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+    fn with_slots(array: &mut TurboQuantData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == Slot::COUNT,
             "TurboQuantArray expects {} slots, got {}",
@@ -128,7 +127,7 @@ impl VTable for TurboQuant {
         Ok(())
     }
 
-    fn metadata(array: &TurboQuantArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<Self>) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(TurboQuantMetadata {
             dimension: array.dimension,
             bit_width: array.bit_width as u32,
@@ -159,7 +158,7 @@ impl VTable for TurboQuant {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<TurboQuantArray> {
+    ) -> VortexResult<TurboQuantData> {
         let bit_width = u8::try_from(metadata.bit_width)?;
         let padded_dim = metadata.dimension.next_power_of_two() as usize;
         let num_centroids = 1usize << bit_width;
@@ -194,7 +193,7 @@ impl VTable for TurboQuant {
                 Some(children.get(6, &signs_dtype, 3 * padded_dim)?);
         }
 
-        Ok(TurboQuantArray {
+        Ok(TurboQuantData {
             dtype: dtype.clone(),
             slots,
             dimension: metadata.dimension,
@@ -204,7 +203,7 @@ impl VTable for TurboQuant {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -212,7 +211,7 @@ impl VTable for TurboQuant {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -221,16 +220,13 @@ impl VTable for TurboQuant {
             .execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let inner = Arc::try_unwrap(array)
-            .map(|a| a.into_inner())
-            .unwrap_or_else(|arc| arc.as_ref().deref().clone());
-        Ok(ExecutionResult::done(execute_decompress(inner, ctx)?))
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(execute_decompress(array, ctx)?))
     }
 }
 
 impl ValidityChild<TurboQuant> for TurboQuant {
-    fn validity_child(array: &TurboQuantArray) -> &ArrayRef {
+    fn validity_child(array: &TurboQuantData) -> &ArrayRef {
         array.codes()
     }
 }

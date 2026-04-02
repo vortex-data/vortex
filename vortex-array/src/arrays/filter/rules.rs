@@ -6,10 +6,9 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Filter;
-use crate::arrays::FilterArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::struct_::StructArrayParts;
@@ -34,14 +33,14 @@ impl ArrayParentReduceRule<Filter> for FilterFilterRule {
 
     fn reduce_parent(
         &self,
-        child: &FilterArray,
-        parent: &FilterArray,
+        child: ArrayView<'_, Filter>,
+        parent: ArrayView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let combined_mask = child.mask.intersect_by_rank(&parent.mask);
         let new_array = child.child().filter(combined_mask)?;
 
-        Ok(Some(new_array.into_array()))
+        Ok(Some(new_array))
     }
 }
 
@@ -49,7 +48,7 @@ impl ArrayParentReduceRule<Filter> for FilterFilterRule {
 struct TrivialFilterRule;
 
 impl ArrayReduceRule<Filter> for TrivialFilterRule {
-    fn reduce(&self, array: &FilterArray) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: ArrayView<'_, Filter>) -> VortexResult<Option<ArrayRef>> {
         match array.filter_mask() {
             Mask::AllTrue(_) => Ok(Some(array.child().clone())),
             Mask::AllFalse(_) => Ok(Some(Canonical::empty(array.dtype()).into_array())),
@@ -63,7 +62,7 @@ impl ArrayReduceRule<Filter> for TrivialFilterRule {
 struct FilterStructRule;
 
 impl ArrayReduceRule<Filter> for FilterStructRule {
-    fn reduce(&self, array: &FilterArray) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: ArrayView<'_, Filter>) -> VortexResult<Option<ArrayRef>> {
         let mask = array.filter_mask();
         let Some(struct_array) = array.child().as_opt::<Struct>() else {
             return Ok(None);
@@ -75,7 +74,7 @@ impl ArrayReduceRule<Filter> for FilterStructRule {
             struct_fields,
             validity,
             ..
-        } = struct_array.clone().into_parts();
+        } = struct_array.into_owned().into_data().into_parts();
 
         let filtered_validity = validity.filter(mask)?;
 

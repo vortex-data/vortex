@@ -23,7 +23,6 @@ use pyo3::types::PyRange;
 use pyo3::types::PyRangeMethods;
 use pyo3_bytes::PyBytes;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::Chunked;
@@ -41,6 +40,7 @@ use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::PyPythonArray;
 use crate::arrays::py::PythonArray;
+use crate::arrays::py::PythonVTable;
 use crate::arrow::ToPyArrow;
 use crate::dtype::PyDType;
 use crate::error::PyVortexError;
@@ -119,12 +119,12 @@ impl<'py> IntoPyObject<'py> for PyArrayRef {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         // If the ArrayRef is a PyArrayInstance, extract the Python object.
-        if let Some(pyarray) = DynArray::as_any(&*self.0).downcast_ref::<PythonArray>() {
-            return pyarray.clone().into_pyobject(py);
+        if let Some(pyarray) = self.0.as_opt::<PythonVTable>() {
+            return pyarray.data().clone().into_pyobject(py);
         }
 
         // Otherwise, wrap the ArrayRef in a PyNativeArray.
-        Ok(PyNativeArray::init(py, self.0.clone())?.into_any())
+        Ok(PyNativeArray::init(py, self.0)?.into_any())
     }
 }
 
@@ -352,7 +352,6 @@ impl PyArray {
             )?)
         } else {
             Ok(array
-                .clone()
                 .into_arrow_preferred()?
                 .into_data()
                 .to_pyarrow(py)?
@@ -733,7 +732,7 @@ impl PyArray {
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
         let mut encoder = MessageEncoder::default();
-        let buffers = encoder.encode(EncoderMessage::Array(&*array))?;
+        let buffers = encoder.encode(EncoderMessage::Array(&array))?;
 
         // Return buffers as a list instead of concatenating
         let array_buffers: Vec<Vec<u8>> = buffers.iter().map(|b| b.to_vec()).collect();
@@ -765,7 +764,7 @@ impl PyArray {
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
         let mut encoder = MessageEncoder::default();
-        let array_buffers = encoder.encode(EncoderMessage::Array(&*array))?;
+        let array_buffers = encoder.encode(EncoderMessage::Array(&array))?;
         let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()))?;
 
         let pickle_module = PyModule::import(py, "pickle")?;

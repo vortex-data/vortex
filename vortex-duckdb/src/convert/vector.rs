@@ -377,9 +377,9 @@ mod tests {
 
     use vortex::array::ToCanonical;
     use vortex::array::arrays::BoolArray;
+    use vortex::array::assert_arrays_eq;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
-    use vortex_array::assert_arrays_eq;
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;

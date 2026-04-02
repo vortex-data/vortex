@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::slice::SliceReduce;
@@ -10,11 +11,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::encodings::turboquant::array::TurboQuant;
-use crate::encodings::turboquant::array::TurboQuantArray;
 
 impl OperationsVTable<TurboQuant> for TurboQuant {
     fn scalar_at(
-        array: &TurboQuantArray,
+        array: ArrayView<'_, TurboQuant>,
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

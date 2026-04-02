@@ -6,6 +6,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
+use super::PrimitiveData;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::ToCanonical;
@@ -17,7 +18,7 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 
-impl PrimitiveArray {
+impl PrimitiveData {
     /// Return a slice of the array's buffer.
     ///
     /// NOTE: these values may be nonsense if the validity buffer indicates that the value is null.
@@ -55,9 +56,11 @@ impl PrimitiveArray {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        PrimitiveArray::from_buffer_handle(self.buffer_handle().clone(), ptype, self.validity())
+        PrimitiveData::from_buffer_handle(self.buffer_handle().clone(), ptype, self.validity())
     }
+}
 
+impl PrimitiveArray {
     /// Narrow the array to the smallest possible integer type that can represent all values.
     pub fn narrow(&self) -> VortexResult<PrimitiveArray> {
         if !self.ptype().is_int() {

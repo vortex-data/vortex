@@ -83,7 +83,7 @@
 
 pub use array::QjlCorrection;
 pub use array::TurboQuant;
-pub use array::TurboQuantArray;
+pub use array::TurboQuantData;
 pub use compress::TurboQuantConfig;
 pub use compress::turboquant_encode_mse;
 pub use compress::turboquant_encode_qjl;
@@ -127,7 +127,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::matcher::Matcher;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
@@ -515,7 +514,7 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let encoded = TurboQuant::try_match(&*encoded).unwrap();
+        let encoded = encoded.as_opt::<TurboQuant>().unwrap();
 
         let mut ctx = SESSION.create_execution_ctx();
         let stored_centroids_prim = encoded
@@ -547,13 +546,13 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let encoded = TurboQuant::try_match(&*encoded).unwrap();
+        let encoded = encoded.as_opt::<TurboQuant>().unwrap();
 
         // Decode via the stored-signs path (normal decode).
         let mut ctx = SESSION.create_execution_ctx();
         let decoded_fsl = encoded
+            .array()
             .clone()
-            .into_array()
             .execute::<FixedSizeListArray>(&mut ctx)?;
         let decoded = decoded_fsl.elements().to_canonical()?.into_primitive();
         let decoded_slice = decoded.as_slice::<f32>();
@@ -703,7 +702,7 @@ mod tests {
         };
         // Verify encoding succeeds with f64 input (f64→f32 conversion).
         let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let encoded = TurboQuant::try_match(&*encoded).unwrap();
+        let encoded = encoded.as_opt::<TurboQuant>().unwrap();
         assert_eq!(encoded.norms().len(), num_rows);
         assert_eq!(encoded.dimension(), dim as u32);
         Ok(())
@@ -712,7 +711,6 @@ mod tests {
     /// Verify serde roundtrip: serialize MSE array metadata + children, then rebuild.
     #[test]
     fn mse_serde_roundtrip() -> VortexResult<()> {
-        use vortex_array::DynArray;
         use vortex_array::vtable::VTable;
 
         let fsl = make_fsl(10, 128, 42);
@@ -721,7 +719,7 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let encoded = TurboQuant::try_match(&*encoded).unwrap();
+        let encoded = encoded.as_opt::<TurboQuant>().unwrap();
 
         // Serialize metadata.
         let metadata = <TurboQuant as VTable>::metadata(encoded)?;
@@ -752,13 +750,13 @@ mod tests {
         // Verify the rebuilt array decodes identically.
         let mut ctx = SESSION.create_execution_ctx();
         let decoded_original = encoded
+            .array()
             .clone()
-            .into_array()
             .execute::<FixedSizeListArray>(&mut ctx)?;
         let original_elements = decoded_original.elements().to_canonical()?.into_primitive();
 
         // Rebuild from children (simulating deserialization).
-        let rebuilt = crate::encodings::turboquant::array::TurboQuantArray::try_new_mse(
+        let rebuilt = crate::encodings::turboquant::array::TurboQuantData::try_new_mse(
             encoded.dtype().clone(),
             children[0].clone(),
             children[1].clone(),
@@ -782,7 +780,6 @@ mod tests {
     /// Verify serde roundtrip for QJL: serialize metadata + children, then rebuild.
     #[test]
     fn qjl_serde_roundtrip() -> VortexResult<()> {
-        use vortex_array::DynArray;
         use vortex_array::vtable::VTable;
 
         let fsl = make_fsl(10, 128, 42);
@@ -791,7 +788,7 @@ mod tests {
             seed: Some(456),
         };
         let encoded = turboquant_encode_qjl(&fsl, &config)?;
-        let encoded = TurboQuant::try_match(&*encoded).unwrap();
+        let encoded = encoded.as_opt::<TurboQuant>().unwrap();
 
         // Serialize metadata.
         let metadata = <TurboQuant as VTable>::metadata(encoded)?;
@@ -820,13 +817,13 @@ mod tests {
         // Verify decode: original vs rebuilt from children.
         let mut ctx = SESSION.create_execution_ctx();
         let decoded_original = encoded
+            .array()
             .clone()
-            .into_array()
             .execute::<FixedSizeListArray>(&mut ctx)?;
         let original_elements = decoded_original.elements().to_canonical()?.into_primitive();
 
         // Rebuild with QJL children.
-        let rebuilt = crate::encodings::turboquant::array::TurboQuantArray::try_new_qjl(
+        let rebuilt = crate::encodings::turboquant::array::TurboQuantData::try_new_qjl(
             encoded.dtype().clone(),
             children[0].clone(),
             children[1].clone(),
@@ -938,7 +935,7 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let tq = TurboQuant::try_match(&*encoded).unwrap();
+        let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
         // Stored norms should match the actual L2 norms of the input.
         let norms_prim = tq.norms().to_canonical()?.into_primitive();
@@ -969,7 +966,7 @@ mod tests {
             seed: Some(123),
         };
         let encoded = turboquant_encode_mse(&fsl, &config)?;
-        let tq = TurboQuant::try_match(&*encoded).unwrap();
+        let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
         // Compute exact cosine similarity from original data.
         let input_prim = fsl.elements().to_canonical()?.into_primitive();

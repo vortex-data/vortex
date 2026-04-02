@@ -4,11 +4,11 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Slice;
-use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::dict::TakeExecuteAdaptor;
 use vortex_array::arrays::filter::FilterExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
@@ -17,7 +17,7 @@ use vortex_array::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndArray;
+use crate::RunEndData;
 use crate::compute::take_from::RunEndTakeFrom;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<RunEnd> = ParentKernelSet::new(&[
@@ -40,16 +40,16 @@ impl ExecuteParentKernel<RunEnd> for RunEndSliceKernel {
 
     fn execute_parent(
         &self,
-        array: &RunEndArray,
-        parent: &SliceArray,
+        array: ArrayView<'_, RunEnd>,
+        parent: ArrayView<'_, Slice>,
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        slice(array, parent.slice_range().clone()).map(Some)
+        slice(&array, parent.slice_range().clone()).map(Some)
     }
 }
 
-fn slice(array: &RunEndArray, range: Range<usize>) -> VortexResult<ArrayRef> {
+fn slice(array: &RunEndData, range: Range<usize>) -> VortexResult<ArrayRef> {
     let new_length = range.len();
 
     let slice_begin = array.find_physical_index(range.start)?;
@@ -63,7 +63,7 @@ fn slice(array: &RunEndArray, range: Range<usize>) -> VortexResult<ArrayRef> {
 
     // SAFETY: we maintain the ends invariant in our slice implementation
     Ok(unsafe {
-        RunEndArray::new_unchecked(
+        RunEndData::new_unchecked(
             array.ends().slice(slice_begin..slice_end)?,
             array.values().slice(slice_begin..slice_end)?,
             range.start + array.offset(),

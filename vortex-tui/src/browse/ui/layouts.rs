@@ -27,7 +27,6 @@ use ratatui::widgets::Table;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use vortex::array::ArrayRef;
-use vortex::array::DynArray;
 use vortex::array::ToCanonical;
 use vortex::error::VortexExpect;
 use vortex::layout::layouts::flat::Flat;

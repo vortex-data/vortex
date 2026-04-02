@@ -4,7 +4,7 @@
 use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -20,7 +20,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::RunEnd;
-use crate::RunEndArray;
+use crate::RunEndData;
 
 impl TakeExecute for RunEnd {
     #[expect(
@@ -28,7 +28,7 @@ impl TakeExecute for RunEnd {
         reason = "index cast to usize inside macro"
     )]
     fn take(
-        array: &RunEndArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -49,13 +49,13 @@ impl TakeExecute for RunEnd {
                 .collect::<VortexResult<Vec<_>>>()?
         });
 
-        take_indices_unchecked(array, &checked_indices, &primitive_indices.validity()).map(Some)
+        take_indices_unchecked(&array, &checked_indices, &primitive_indices.validity()).map(Some)
     }
 }
 
 /// Perform a take operation on a RunEndArray by binary searching for each of the indices.
 pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
-    array: &RunEndArray,
+    array: &RunEndData,
     indices: &[T],
     validity: &Validity,
 ) -> VortexResult<ArrayRef> {
@@ -92,7 +92,6 @@ mod test {
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::Canonical;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
@@ -101,10 +100,11 @@ mod test {
     use vortex_array::compute::conformance::take::test_take_conformance;
     use vortex_buffer::buffer;
 
+    use crate::RunEnd;
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()
+        RunEnd::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array()).unwrap()
     }
 
     #[test]
@@ -152,10 +152,10 @@ mod test {
 
     #[rstest]
     #[case(ree_array())]
-    #[case(RunEndArray::encode(
+    #[case(RunEnd::encode(
         buffer![1u8, 1, 2, 2, 2, 3, 3, 3, 3, 4].into_array(),
     ).unwrap())]
-    #[case(RunEndArray::encode(
+    #[case(RunEnd::encode(
         PrimitiveArray::from_option_iter([
             Some(10),
             Some(10),
@@ -167,9 +167,9 @@ mod test {
         ])
         .into_array(),
     ).unwrap())]
-    #[case(RunEndArray::encode(buffer![42i32, 42, 42, 42, 42].into_array())
+    #[case(RunEnd::encode(buffer![42i32, 42, 42, 42, 42].into_array())
         .unwrap())]
-    #[case(RunEndArray::encode(
+    #[case(RunEnd::encode(
         buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array(),
     ).unwrap())]
     #[case({
@@ -179,7 +179,7 @@ mod test {
                 values.push(i);
             }
         }
-        RunEndArray::encode(PrimitiveArray::from_iter(values).into_array()).unwrap()
+        RunEnd::encode(PrimitiveArray::from_iter(values).into_array()).unwrap()
     })]
     fn test_take_runend_conformance(#[case] array: RunEndArray) {
         test_take_conformance(&array.into_array());
@@ -188,7 +188,7 @@ mod test {
     #[rstest]
     #[case(ree_array().slice(3..6).unwrap())]
     #[case({
-        let array = RunEndArray::encode(
+        let array = RunEnd::encode(
             buffer![1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3].into_array(),
         )
         .unwrap();

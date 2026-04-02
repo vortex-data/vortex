@@ -6,14 +6,14 @@ use vortex_error::VortexResult;
 use super::Dict;
 use super::DictArray;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Dict {
-    fn cast(array: &DictArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Can have un-reference null values making the cast of values fail without a possible mask.
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
         if !dtype.is_nullable()
@@ -172,8 +172,8 @@ mod tests {
         );
 
         // Verify values are unchanged
-        let original_values = dict.to_primitive();
-        let final_values = back_dict.to_primitive();
+        let original_values = dict.as_array().to_primitive();
+        let final_values = back_dict.array().to_primitive();
         assert_arrays_eq!(original_values, final_values);
     }
 

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -17,7 +15,10 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
-use crate::arrays::BoolArray;
+use crate::array::Array;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::bool::BoolData;
 use crate::arrays::bool::array::NUM_SLOTS;
 use crate::arrays::bool::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
@@ -25,23 +26,19 @@ use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::VTable;
 mod canonical;
 mod kernel;
 mod operations;
 mod validity;
 
-use std::hash::Hash;
-
 use crate::Precision;
+use crate::array::ArrayId;
 use crate::arrays::bool::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::StatsSetRef;
-use crate::vtable::ArrayId;
+use crate::stats::ArrayStats;
 
-vtable!(Bool);
+vtable!(Bool, Bool, BoolData);
 
 #[derive(prost::Message)]
 pub struct BoolMetadata {
@@ -51,13 +48,13 @@ pub struct BoolMetadata {
 }
 
 impl VTable for Bool {
-    type Array = BoolArray;
+    type ArrayData = BoolData;
 
     type Metadata = ProstMetadata<BoolMetadata>;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Bool
     }
 
@@ -65,53 +62,49 @@ impl VTable for Bool {
         Self::ID
     }
 
-    fn len(array: &BoolArray) -> usize {
+    fn len(array: &BoolData) -> usize {
         array.len
     }
 
-    fn dtype(array: &BoolArray) -> &DType {
+    fn dtype(array: &BoolData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &BoolArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &BoolData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &BoolArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
+    fn array_hash<H: std::hash::Hasher>(array: &BoolData, state: &mut H, precision: Precision) {
         array.to_bit_buffer().array_hash(state, precision);
         array.validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &BoolArray, other: &BoolArray, precision: Precision) -> bool {
-        if array.dtype != other.dtype {
-            return false;
-        }
+    fn array_eq(array: &BoolData, other: &BoolData, precision: Precision) -> bool {
         array
             .to_bit_buffer()
             .array_eq(&other.to_bit_buffer(), precision)
             && array.validity().array_eq(&other.validity(), precision)
     }
 
-    fn nbuffers(_array: &BoolArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &BoolArray, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.bits.clone(),
             _ => vortex_panic!("BoolArray buffer index {idx} out of bounds"),
         }
     }
 
-    fn buffer_name(_array: &BoolArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("bits".to_string()),
             _ => None,
         }
     }
 
-    fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
         Ok(ProstMetadata(BoolMetadata {
             offset: u32::try_from(array.offset).vortex_expect("checked"),
@@ -139,7 +132,7 @@ impl VTable for Bool {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<BoolArray> {
+    ) -> VortexResult<BoolData> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -155,18 +148,18 @@ impl VTable for Bool {
 
         let buffer = buffers[0].clone();
 
-        BoolArray::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
+        BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
     }
 
-    fn slots(array: &BoolArray) -> &[Option<ArrayRef>] {
-        &array.slots
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn slot_name(_array: &BoolArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut BoolArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == NUM_SLOTS,
             "BoolArray expects {} slots, got {}",
@@ -177,12 +170,12 @@ impl VTable for Bool {
         Ok(())
     }
 
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -191,7 +184,7 @@ impl VTable for Bool {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {

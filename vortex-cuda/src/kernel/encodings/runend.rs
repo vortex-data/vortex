@@ -9,6 +9,7 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::primitive::PrimitiveArrayParts;
@@ -60,7 +61,7 @@ impl CudaExecute for RunEndExecutor {
 
         let offset = array.offset();
         let output_len = array.len();
-        let RunEndArrayParts { ends, values } = array.into_parts();
+        let RunEndArrayParts { ends, values } = array.into_data().into_parts();
 
         let values_ptype = PType::try_from(values.dtype())?;
         let ends_ptype = PType::try_from(ends.dtype())?;
@@ -75,6 +76,7 @@ impl CudaExecute for RunEndExecutor {
 
         if matches!(values.validity()?, Validity::AllInvalid) {
             return ConstantArray::new(Scalar::null(values.dtype().clone()), output_len)
+                .into_array()
                 .to_canonical();
         }
 
@@ -108,12 +110,12 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
         buffer: values_buffer,
         validity: values_validity,
         ..
-    } = values.into_parts();
+    } = values.into_data().into_parts();
 
     let PrimitiveArrayParts {
         buffer: ends_buffer,
         ..
-    } = ends.into_parts();
+    } = ends.into_data().into_parts();
 
     // Set up device buffers.
     let ends_device = ctx.ensure_on_device(ends_buffer).await?;
@@ -164,6 +166,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
+    use vortex::encodings::runend::RunEnd;
     use vortex::encodings::runend::RunEndArray;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
@@ -182,7 +185,7 @@ mod tests {
             PrimitiveArray::new(Buffer::from(ends), Validity::NonNullable).into_array();
         let values_array =
             PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array();
-        RunEndArray::new(ends_array, values_array)
+        RunEnd::new(ends_array, values_array)
     }
 
     #[rstest]

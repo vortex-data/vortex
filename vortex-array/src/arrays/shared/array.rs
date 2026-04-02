@@ -13,6 +13,8 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::array::Array;
+use crate::arrays::Shared;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 
@@ -26,15 +28,15 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["source"];
 /// Before materialization, operations delegate to the source array.
 /// After materialization (via `get_or_compute`), operations delegate to the cached result.
 #[derive(Debug, Clone)]
-pub struct SharedArray {
+pub struct SharedData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
-    pub(super) async_compute_lock: Arc<AsyncMutex<()>>,
+    cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
+    async_compute_lock: Arc<AsyncMutex<()>>,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
 }
 
-impl SharedArray {
+impl SharedData {
     pub fn new(source: ArrayRef) -> Self {
         Self {
             dtype: source.dtype().clone(),
@@ -102,5 +104,38 @@ impl SharedArray {
 
         let result = self.cached.get_or_init(|| computed);
         result.clone().map_err(Into::into)
+    }
+
+    /// Returns the length of this array.
+    pub fn len(&self) -> usize {
+        self.current_array_ref().len()
+    }
+
+    /// Returns the [`DType`] of this array.
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    /// Returns `true` if this array is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl Array<Shared> {
+    /// Creates a new `SharedArray`.
+    pub fn new(source: ArrayRef) -> Self {
+        Array::try_from_data(SharedData::new(source)).vortex_expect("SharedData is always valid")
+    }
+}
+
+impl SharedData {
+    pub(super) fn set_source(&mut self, source: Option<ArrayRef>) {
+        if let Some(ref s) = source {
+            self.dtype = s.dtype().clone();
+        }
+        self.slots = vec![source];
+        self.cached = Arc::new(OnceLock::new());
+        self.async_compute_lock = Arc::new(AsyncMutex::new(()));
     }
 }

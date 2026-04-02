@@ -5,26 +5,23 @@
 
 mod dyn_;
 mod operations;
-mod typed;
 mod validity;
 
 use std::fmt::Debug;
 use std::hash::Hasher;
-use std::ops::Deref;
-use std::sync::Arc;
 
 pub use dyn_::*;
 pub use operations::*;
-pub use typed::*;
 pub use validity::*;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::Array;
 use crate::ArrayRef;
+use crate::ArrayView;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
@@ -38,7 +35,7 @@ use crate::executor::ExecutionCtx;
 use crate::patches::Patches;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// The array [`VTable`] encapsulates logic for an Array type within Vortex.
@@ -46,16 +43,16 @@ use crate::validity::Validity;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// From this [`VTable`] trait, we derive implementations for the sealed [`DynArray`] and [`DynVTable`]
+/// From this [`VTable`] trait, we derive implementations for the sealed `DynArray` and [`DynVTable`]
 /// traits.
 ///
 /// The functions defined in these vtable traits will typically document their pre- and
-/// post-conditions. The pre-conditions are validated inside the [`DynArray`] and [`DynVTable`]
+/// post-conditions. The pre-conditions are validated inside the `DynArray` and [`DynVTable`]
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
-    type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn DynArray> + IntoArray;
+    type ArrayData: 'static + Send + Sync + Clone + Debug + IntoArray;
     type Metadata: Debug;
 
     type OperationsVTable: OperationsVTable<Self>;
@@ -64,42 +61,42 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Returns the VTable from the array instance.
     ///
     // NOTE(ngates): this function is temporary while we migrate Arrays over to the unified vtable
-    fn vtable(array: &Self::Array) -> &Self;
+    fn vtable(array: &Self::ArrayData) -> &Self;
 
     /// Returns the ID of the array.
     fn id(&self) -> ArrayId;
 
     /// Returns the length of the array.
-    fn len(array: &Self::Array) -> usize;
+    fn len(array: &Self::ArrayData) -> usize;
 
     /// Returns the DType of the array.
-    fn dtype(array: &Self::Array) -> &DType;
+    fn dtype(array: &Self::ArrayData) -> &DType;
 
     /// Returns the stats set for the array.
-    fn stats(array: &Self::Array) -> StatsSetRef<'_>;
+    fn stats(array: &Self::ArrayData) -> &ArrayStats;
 
     /// Hashes the array contents.
-    fn array_hash<H: Hasher>(array: &Self::Array, state: &mut H, precision: Precision);
+    fn array_hash<H: Hasher>(array: &Self::ArrayData, state: &mut H, precision: Precision);
 
     /// Compares two arrays of the same type for equality.
-    fn array_eq(array: &Self::Array, other: &Self::Array, precision: Precision) -> bool;
+    fn array_eq(array: &Self::ArrayData, other: &Self::ArrayData, precision: Precision) -> bool;
 
     /// Returns the number of buffers in the array.
-    fn nbuffers(array: &Self::Array) -> usize;
+    fn nbuffers(array: ArrayView<'_, Self>) -> usize;
 
     /// Returns the buffer at the given index.
     ///
     /// # Panics
     /// Panics if `idx >= nbuffers(array)`.
-    fn buffer(array: &Self::Array, idx: usize) -> BufferHandle;
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle;
 
     /// Returns the name of the buffer at the given index, or `None` if unnamed.
-    fn buffer_name(array: &Self::Array, idx: usize) -> Option<String>;
+    fn buffer_name(array: ArrayView<'_, Self>, idx: usize) -> Option<String>;
 
     /// Returns the number of children in the array.
     ///
     /// The default counts non-None slots.
-    fn nchildren(array: &Self::Array) -> usize {
+    fn nchildren(array: ArrayView<'_, Self>) -> usize {
         Self::slots(array).iter().filter(|s| s.is_some()).count()
     }
 
@@ -109,7 +106,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         Self::slots(array)
             .iter()
             .filter_map(|s| s.clone())
@@ -123,7 +120,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
-    fn child_name(array: &Self::Array, idx: usize) -> String {
+    fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         Self::slots(array)
             .iter()
             .enumerate()
@@ -134,7 +131,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     }
 
     /// Exports metadata for an array.
-    fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata>;
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata>;
 
     /// Serialize metadata into a byte buffer for IPC or file storage.
     /// Return `None` if the array cannot be serialized.
@@ -151,11 +148,15 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Writes the array into a canonical builder.
     fn append_to_builder(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let canonical = array.to_array().execute::<Canonical>(ctx)?.into_array();
+        let canonical = array
+            .array()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_array();
         builder.extend_from_array(&canonical);
         Ok(())
     }
@@ -167,7 +168,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array>;
+    ) -> VortexResult<Self::ArrayData>;
 
     /// Returns the slots of the array as a slice.
     ///
@@ -185,19 +186,19 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// TODO: once no encodings rely on side-effects in [`Self::with_slots`], replace the
     /// `slots`/`with_slots` pair with a single `slots_mut` returning `&mut [Option<ArrayRef>]`.
-    fn slots(array: &Self::Array) -> &[Option<ArrayRef>];
+    fn slots<'a>(array: ArrayView<'a, Self>) -> &'a [Option<ArrayRef>];
 
     /// Returns the name of the slot at the given index.
     ///
     /// # Panics
     /// Panics if `idx >= slots(array).len()`.
-    fn slot_name(array: &Self::Array, idx: usize) -> String;
+    fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String;
 
     /// Replaces the slots in `array` with the given `slots` vec.
     ///
     /// Some encodings use this to perform side-effects (e.g. cache invalidation) when
     /// slots change. Once those are removed, this will be replaced by `slots_mut`.
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()>;
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()>;
 
     /// Execute this array by returning an [`ExecutionResult`].
     ///
@@ -214,11 +215,11 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -228,14 +229,14 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     }
 
     /// Attempt to reduce the array to a simpler representation.
-    fn reduce(array: &Array<Self>) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
         _ = array;
         Ok(None)
     }
 
     /// Attempt to perform a reduction of the parent of this array.
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -246,6 +247,8 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
 /// Alias for migration — downstream code can start using `ArrayVTable`.
 pub use VTable as ArrayVTable;
+
+use crate::array::ArrayId;
 
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.
 pub struct NotSupported;
@@ -325,44 +328,25 @@ pub fn patches_child_name(idx: usize) -> &'static str {
     }
 }
 
-/// vtable! macro — generates IntoArray, From, Deref, AsRef for inner array types.
+/// vtable! macro — generates IntoArray, From, and type alias for array types.
 ///
-/// During the migration, IntoArray creates [`Array<V>`] (the new typed wrapper) while
-/// Deref/AsRef go through AlsoArrayAdapter for backward-compatible DynArray access.
+/// Three forms:
+/// - `vtable!(Foo)` — short for `vtable!(Foo, Foo)` (legacy form)
+/// - `vtable!(Foo, FooVT)` — legacy form where `FooArray` is the inner struct name
+/// - `vtable!(Foo, FooVT, FooData)` — new form where `FooData` is the inner struct,
+///   and `FooArray` is generated as a type alias for `Array<FooVT>`
 #[macro_export]
 macro_rules! vtable {
     ($V:ident) => {
         $crate::vtable!($V, $V);
     };
+    // Legacy form: FooArray is the inner struct name, no type alias generated.
     ($Base:ident, $VT:ident) => {
         $crate::aliases::paste::paste! {
-            impl AsRef<dyn $crate::DynArray> for [<$Base Array>] {
-                fn as_ref(&self) -> &dyn $crate::DynArray {
-                    // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$Base Array>] as *const $crate::ArrayAdapter<$VT>) }
-                }
-            }
-
-            impl std::ops::Deref for [<$Base Array>] {
-                type Target = dyn $crate::DynArray;
-
-                fn deref(&self) -> &Self::Target {
-                    // We can unsafe cast ourselves to an ArrayAdapter.
-                    unsafe { &*(self as *const [<$Base Array>] as *const $crate::ArrayAdapter<$VT>) }
-                }
-            }
-
             impl $crate::IntoArray for [<$Base Array>] {
                 fn into_array(self) -> $crate::ArrayRef {
-                    use $crate::vtable::VTable;
-                    let vtable = $VT::vtable(&self).clone();
-                    let dtype = $VT::dtype(&self).clone();
-                    let len = $VT::len(&self);
-                    let stats = $VT::stats(&self).to_array_stats();
-                    // SAFETY: dtype and len are extracted from `self` via VTable methods.
-                    std::sync::Arc::new(unsafe {
-                        $crate::vtable::Array::new_unchecked(vtable, dtype, len, self, stats)
-                    })
+                    use $crate::aliases::vortex_error::VortexExpect;
+                    $crate::ArrayRef::from($crate::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid"))
                 }
             }
 
@@ -378,6 +362,27 @@ macro_rules! vtable {
                 pub fn to_array(&self) -> $crate::ArrayRef {
                     use $crate::IntoArray;
                     self.clone().into_array()
+                }
+            }
+        }
+    };
+    // New form: Data is the inner struct, FooArray is a type alias for Array<VT>.
+    ($Base:ident, $VT:ident, $Data:ident) => {
+        $crate::aliases::paste::paste! {
+            /// Type alias: `FooArray = Array<Foo>`.
+            pub type [<$Base Array>] = $crate::Array<$VT>;
+
+            impl $crate::IntoArray for $Data {
+                fn into_array(self) -> $crate::ArrayRef {
+                    use $crate::aliases::vortex_error::VortexExpect;
+                    $crate::Array::<$VT>::try_from_data(self).vortex_expect("data is always valid").into_array()
+                }
+            }
+
+            impl From<$Data> for $crate::ArrayRef {
+                fn from(value: $Data) -> $crate::ArrayRef {
+                    use $crate::IntoArray;
+                    value.into_array()
                 }
             }
         }

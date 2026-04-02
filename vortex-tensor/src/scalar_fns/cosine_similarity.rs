@@ -26,6 +26,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::compute::cosine_similarity;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extension_element_ptype;
@@ -137,14 +139,11 @@ impl ScalarFnVTable for CosineSimilarity {
 
         // TurboQuant approximate path: compute dot product in quantized domain.
         if *options == ApproxOptions::Approximate {
-            use vortex_array::matcher::Matcher;
             if let (Some(lhs_tq), Some(rhs_tq)) = (
-                crate::encodings::turboquant::TurboQuant::try_match(&*lhs_storage),
-                crate::encodings::turboquant::TurboQuant::try_match(&*rhs_storage),
+                lhs_storage.as_opt::<TurboQuant>(),
+                rhs_storage.as_opt::<TurboQuant>(),
             ) {
-                return crate::encodings::turboquant::compute::cosine_similarity::cosine_similarity_quantized_column(
-                    lhs_tq, rhs_tq, ctx,
-                );
+                return cosine_similarity::cosine_similarity_quantized_column(lhs_tq, rhs_tq, ctx);
             }
         }
 
@@ -219,7 +218,7 @@ mod tests {
     fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
         let scalar_fn = ScalarFn::new(CosineSimilarity, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], len)?;
-        let prim = result.to_primitive();
+        let prim = result.as_array().to_primitive();
         Ok(prim.as_slice::<f64>().to_vec())
     }
 

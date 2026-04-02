@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::arrays::listview::vtable::ListViewArray;
-use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
+use vortex_error::VortexResult;
 
-impl ValidityHelper for ListViewArray {
-    fn validity(&self) -> Validity {
-        self.validity.clone()
+use crate::array::ArrayView;
+use crate::array::ValidityVTable;
+use crate::arrays::listview::vtable::ListView;
+use crate::validity::Validity;
+
+impl ValidityVTable<ListView> for ListView {
+    fn validity(array: ArrayView<'_, ListView>) -> VortexResult<Validity> {
+        Ok(array.data().validity())
     }
 }

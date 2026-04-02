@@ -5,7 +5,6 @@ use arrayref::array_mut_ref;
 use arrayref::array_ref;
 use fastlanes::RLE;
 use num_traits::AsPrimitive;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;

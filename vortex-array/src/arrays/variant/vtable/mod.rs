@@ -5,12 +5,9 @@ mod operations;
 mod validity;
 
 use std::hash::Hasher;
-use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::ArrayEq;
@@ -20,19 +17,20 @@ use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
-use crate::arrays::VariantArray;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::variant::NUM_SLOTS;
 use crate::arrays::variant::SLOT_NAMES;
+use crate::arrays::variant::VariantData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
 
-vtable!(Variant);
+vtable!(Variant, Variant, VariantData);
 
 #[derive(Clone, Debug)]
 pub struct Variant;
@@ -42,7 +40,7 @@ impl Variant {
 }
 
 impl VTable for Variant {
-    type Array = VariantArray;
+    type ArrayData = VariantData;
 
     type Metadata = EmptyMetadata;
 
@@ -50,7 +48,7 @@ impl VTable for Variant {
 
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Variant
     }
 
@@ -58,50 +56,39 @@ impl VTable for Variant {
         Self::ID
     }
 
-    fn len(array: &Self::Array) -> usize {
+    fn len(array: &Self::ArrayData) -> usize {
         array.child().len()
     }
 
-    fn dtype(array: &Self::Array) -> &DType {
+    fn dtype(array: &Self::ArrayData) -> &DType {
         array.child().dtype()
     }
 
-    fn stats(array: &Self::Array) -> StatsSetRef<'_> {
-        array.child().statistics()
+    fn stats(array: &Self::ArrayData) -> &ArrayStats {
+        &array.stats_set
     }
 
-    fn array_hash<H: Hasher>(array: &Self::Array, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: &VariantData, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
     }
 
-    fn array_eq(array: &Self::Array, other: &Self::Array, precision: Precision) -> bool {
+    fn array_eq(array: &VariantData, other: &VariantData, precision: Precision) -> bool {
         array.child().array_eq(other.child(), precision)
     }
 
-    fn nbuffers(_array: &Self::Array) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Self::Array, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("VariantArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn slots(array: &Self::Array) -> &[Option<ArrayRef>] {
-        &array.slots
-    }
-
-    fn slot_name(_array: &Self::Array, idx: usize) -> String {
-        match SLOT_NAMES.get(idx) {
-            Some(name) => (*name).to_string(),
-            None => vortex_panic!("VariantArray slot_name index {idx} out of bounds"),
-        }
-    }
-
-    fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -125,7 +112,7 @@ impl VTable for Variant {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::Array> {
+    ) -> VortexResult<Self::ArrayData> {
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         vortex_ensure!(
             children.len() == 1,
@@ -134,26 +121,36 @@ impl VTable for Variant {
         );
         // The child carries the nullability for the whole VariantArray.
         let child = children.get(0, dtype, len)?;
-        Ok(VariantArray::new(child))
+        Ok(VariantData::new(child))
     }
 
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
+    }
+
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        match SLOT_NAMES.get(idx) {
+            Some(name) => (*name).to_string(),
+            None => vortex_panic!("VariantArray slot_name index {idx} out of bounds"),
+        }
+    }
+
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == NUM_SLOTS,
             "VariantArray expects exactly {} slot, got {}",
             NUM_SLOTS,
             slots.len()
         );
-        let child = slots
-            .into_iter()
-            .next()
-            .vortex_expect("VariantArray slot vector length was validated")
-            .ok_or_else(|| vortex_err!("VariantArray child slot must be present"))?;
-        array.slots = [Some(child)];
+        vortex_ensure!(
+            slots[0].is_some(),
+            "VariantArray child slot must be present"
+        );
+        array.slots = slots;
         Ok(())
     }
 
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 }
@@ -166,9 +163,10 @@ mod tests {
 
     #[test]
     fn with_slots_rejects_missing_child() {
-        let mut array = VariantArray::new(PrimitiveArray::from_iter([1u8, 2, 3]).into_array());
+        let array = VariantArray::new(PrimitiveArray::from_iter([1u8, 2, 3]).into_array());
+        let mut data = array.into_data();
 
-        let err = <Variant as VTable>::with_slots(&mut array, vec![None]).unwrap_err();
+        let err = <Variant as VTable>::with_slots(&mut data, vec![None]).unwrap_err();
 
         assert!(err.to_string().contains("child slot must be present"));
     }

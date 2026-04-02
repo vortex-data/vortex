@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
@@ -11,24 +12,23 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::ALP;
-use crate::ALPArray;
 
 impl MaskReduce for ALP {
-    fn mask(array: &ALPArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // Masking sparse patches requires reading indices, fall back to kernel.
         if array.patches().is_some() {
             return Ok(None);
         }
         let masked_encoded = array.encoded().clone().mask(mask.clone())?;
         Ok(Some(
-            ALPArray::new(masked_encoded, array.exponents(), None).into_array(),
+            ALP::new(masked_encoded, array.exponents(), None).into_array(),
         ))
     }
 }
 
 impl MaskKernel for ALP {
     fn mask(
-        array: &ALPArray,
+        array: ArrayView<'_, Self>,
         mask: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -40,7 +40,7 @@ impl MaskKernel for ALP {
             .transpose()?
             .flatten();
         Ok(Some(
-            ALPArray::new(masked_encoded, array.exponents(), masked_patches).into_array(),
+            ALP::new(masked_encoded, array.exponents(), masked_patches).into_array(),
         ))
     }
 }

@@ -72,7 +72,7 @@ where
     let primitive = canonical.into_primitive();
     let PrimitiveArrayParts {
         buffer, validity, ..
-    } = primitive.into_parts();
+    } = primitive.into_data().into_parts();
 
     let device_buffer = ctx.ensure_on_device(buffer).await?;
 
@@ -102,7 +102,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
-    use vortex::encodings::zigzag::ZigZagArray;
+    use vortex::encodings::zigzag::ZigZag;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
 
@@ -119,7 +119,7 @@ mod tests {
         // So encoded [0, 2, 4, 1, 3] should decode to [0, 1, 2, -1, -2]
         let encoded_data: Vec<u32> = vec![0, 2, 4, 1, 3];
 
-        let zigzag_array = ZigZagArray::try_new(
+        let zigzag_array = ZigZag::try_new(
             PrimitiveArray::new(Buffer::from(encoded_data), NonNullable).into_array(),
         )?;
 

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -9,10 +10,9 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::ZigZag;
-use crate::ZigZagArray;
-
+use crate::ZigZagData;
 impl CastReduce for ZigZag {
-    fn cast(array: &ZigZagArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_signed_int() {
             return Ok(None);
         }
@@ -20,14 +20,13 @@ impl CastReduce for ZigZag {
         let new_encoded_dtype =
             DType::Primitive(dtype.as_ptype().to_unsigned(), dtype.nullability());
         let new_encoded = array.encoded().cast(new_encoded_dtype)?;
-        Ok(Some(ZigZagArray::try_new(new_encoded)?.into_array()))
+        Ok(Some(ZigZagData::try_new(new_encoded)?.into_array()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;

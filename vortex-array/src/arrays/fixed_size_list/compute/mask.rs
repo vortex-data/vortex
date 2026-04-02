@@ -5,14 +5,17 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 impl MaskReduce for FixedSizeList {
-    fn mask(array: &FixedSizeListArray, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn mask(
+        array: ArrayView<'_, FixedSizeList>,
+        mask: &ArrayRef,
+    ) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: masking the validity does not affect the invariants
         Ok(Some(
             unsafe {

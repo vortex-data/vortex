@@ -2,11 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFnVTable;
 use vortex_array::dtype::DType;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
@@ -15,7 +17,7 @@ use vortex_array::scalar_fn::fns::fill_null::FillNullReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndArray;
+use crate::RunEndData;
 
 pub(super) const RULES: ParentRuleSet<RunEnd> = ParentRuleSet::new(&[
     // CastReduceAdaptor must come before RunEndScalarFnRule so that cast operations are executed
@@ -37,8 +39,8 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
 
     fn reduce_parent(
         &self,
-        run_end: &RunEndArray,
-        parent: &ScalarFnArray,
+        run_end: ArrayView<'_, RunEnd>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         for (idx, child) in parent.iter_children().enumerate() {
@@ -79,7 +81,7 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
 
         Ok(Some(
             unsafe {
-                RunEndArray::new_unchecked(
+                RunEndData::new_unchecked(
                     run_end.ends().clone(),
                     new_values,
                     run_end.offset(),

@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -17,7 +16,11 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::ConstantArray;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::constant::ConstantData;
 use crate::arrays::constant::array::NUM_SLOTS;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
@@ -36,16 +39,13 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
 pub(crate) mod canonical;
 mod operations;
 mod validity;
 
-vtable!(Constant);
+vtable!(Constant, Constant, ConstantData);
 
 #[derive(Clone, Debug)]
 pub struct Constant;
@@ -55,13 +55,13 @@ impl Constant {
 }
 
 impl VTable for Constant {
-    type Array = ConstantArray;
+    type ArrayData = ConstantData;
 
     type Metadata = Scalar;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Constant
     }
 
@@ -69,36 +69,35 @@ impl VTable for Constant {
         Self::ID
     }
 
-    fn len(array: &ConstantArray) -> usize {
+    fn len(array: &ConstantData) -> usize {
         array.len
     }
 
-    fn dtype(array: &ConstantArray) -> &DType {
+    fn dtype(array: &ConstantData) -> &DType {
         array.scalar.dtype()
     }
 
-    fn stats(array: &ConstantArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
+    fn stats(array: &ConstantData) -> &ArrayStats {
+        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &ConstantArray,
+        array: &ConstantData,
         state: &mut H,
         _precision: Precision,
     ) {
         array.scalar.hash(state);
-        array.len.hash(state);
     }
 
-    fn array_eq(array: &ConstantArray, other: &ConstantArray, _precision: Precision) -> bool {
-        array.scalar == other.scalar && array.len == other.len
+    fn array_eq(array: &ConstantData, other: &ConstantData, _precision: Precision) -> bool {
+        array.scalar == other.scalar
     }
 
-    fn nbuffers(_array: &ConstantArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn buffer(array: &ConstantArray, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => BufferHandle::new_host(
                 ScalarValue::to_proto_bytes::<ByteBufferMut>(array.scalar.value()).freeze(),
@@ -107,33 +106,32 @@ impl VTable for Constant {
         }
     }
 
-    fn buffer_name(_array: &ConstantArray, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
             0 => Some("scalar".to_string()),
             _ => None,
         }
     }
 
-    fn slots(array: &ConstantArray) -> &[Option<ArrayRef>] {
-        &array.slots
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn slot_name(_array: &ConstantArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
 
-    fn with_slots(array: &mut ConstantArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == NUM_SLOTS,
             "ConstantArray expects exactly {} slots, got {}",
             NUM_SLOTS,
             slots.len()
         );
-        array.slots = slots;
         Ok(())
     }
 
-    fn metadata(array: &ConstantArray) -> VortexResult<Self::Metadata> {
+    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(array.scalar().clone())
     }
 
@@ -171,26 +169,26 @@ impl VTable for Constant {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-    ) -> VortexResult<ConstantArray> {
-        Ok(ConstantArray::new(metadata.clone(), len))
+    ) -> VortexResult<ConstantData> {
+        Ok(ConstantData::new(metadata.clone(), len))
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(
-            constant_canonicalize(&array)?.into_array(),
-        ))
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::done(constant_canonicalize(
+            array.as_view(),
+        )?))
     }
 
     fn append_to_builder(
-        array: &ConstantArray,
+        array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
@@ -254,8 +252,8 @@ impl VTable for Constant {
             // TODO: add fast paths for DType::Struct, DType::List, DType::FixedSizeList, DType::Extension.
             _ => {
                 let canonical = array
+                    .array()
                     .clone()
-                    .into_array()
                     .execute::<Canonical>(ctx)?
                     .into_array();
                 builder.extend_from_array(&canonical);
@@ -311,7 +309,7 @@ mod tests {
 
     /// Appends `array` into a fresh builder and asserts the result matches `constant_canonicalize`.
     fn assert_append_matches_canonical(array: ConstantArray) -> vortex_error::VortexResult<()> {
-        let expected = constant_canonicalize(&array)?.into_array();
+        let expected = constant_canonicalize(array.as_view())?.into_array();
         let mut builder = builder_with_capacity(array.dtype(), array.len());
         array
             .into_array()

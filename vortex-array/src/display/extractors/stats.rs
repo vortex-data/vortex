@@ -4,7 +4,7 @@
 use std::fmt::Write;
 use std::fmt::{self};
 
-use crate::DynArray;
+use crate::ArrayRef;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
 use crate::expr::stats::Stat;
@@ -13,7 +13,7 @@ use crate::expr::stats::StatsProvider;
 /// Display wrapper for array statistics in compact format.
 ///
 /// Produces output like ` [nulls=3, min=5, max=100]` (with leading space).
-pub(crate) struct StatsDisplay<'a>(pub(crate) &'a dyn DynArray);
+pub(crate) struct StatsDisplay<'a>(pub(crate) &'a ArrayRef);
 
 impl fmt::Display for StatsDisplay<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -117,7 +117,7 @@ pub struct StatsExtractor;
 impl TreeExtractor for StatsExtractor {
     fn write_header(
         &self,
-        array: &dyn DynArray,
+        array: &ArrayRef,
         _ctx: &TreeContext,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {

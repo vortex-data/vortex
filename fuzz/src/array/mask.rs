@@ -3,7 +3,6 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
@@ -17,7 +16,6 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::Nullability;
 use vortex_array::match_each_decimal_value_type;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
@@ -83,7 +81,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             let new_validity = mask_validity(&array.validity(), mask);
             VarBinViewArray::new_handle(
                 array.views_handle().clone(),
-                array.buffers().clone(),
+                array.data_buffers().clone(),
                 array.dtype().with_nullability(new_validity.nullability()),
                 new_validity,
             )
@@ -118,7 +116,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         Canonical::Struct(array) => {
             let new_validity = mask_validity(&array.validity(), mask);
             StructArray::try_new_with_dtype(
-                array.unmasked_fields().clone(),
+                array.unmasked_fields(),
                 array.struct_fields().clone(),
                 array.len(),
                 new_validity,
@@ -142,7 +140,6 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::DecimalArray;

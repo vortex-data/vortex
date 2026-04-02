@@ -9,6 +9,7 @@ use std::slice;
 use std::sync::Arc;
 
 use vortex::dtype::FieldName;
+use vortex::error::VortexExpect;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
@@ -21,6 +22,8 @@ use vortex::expr::select;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
+
+use crate::to_field_names;
 
 // Expressions are Arc'ed inside
 crate::box_wrapper!(
@@ -56,7 +59,7 @@ crate::box_wrapper!(
 ///
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
-    vx_expression::new(Box::new(root()))
+    vx_expression::new(root())
 }
 
 /// Create an expression that selects (includes) specific fields from a child
@@ -80,21 +83,10 @@ pub unsafe extern "C" fn vx_expression_select(
     if child.is_null() {
         return ptr::null_mut();
     }
-
-    #[expect(clippy::expect_used)]
-    let names: Vec<FieldName> = (0..len)
-        .map(|i| unsafe {
-            let name = *names.offset(i.try_into().expect("pointer offset overflow"));
-            let name = CStr::from_ptr(name)
-                .to_str()
-                .expect("converting pointer to str");
-            let name: Arc<str> = Arc::from(name);
-            name.into()
-        })
-        .collect();
-
+    let names =
+        unsafe { to_field_names(names, len) }.vortex_expect("converting names to field names");
     let expr = select(names, vx_expression::as_ref(child).clone());
-    vx_expression::new(Box::new(expr))
+    vx_expression::new(expr)
 }
 
 /// Create an AND expression for multiple child expressions.
@@ -109,7 +101,7 @@ pub unsafe extern "C" fn vx_expression_and(
     }
     let slice = unsafe { slice::from_raw_parts(expressions, len) };
     match and_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
-        Some(expr) => vx_expression::new(expr.into()),
+        Some(expr) => vx_expression::new(expr),
         None => ptr::null_mut(),
     }
 }
@@ -126,7 +118,7 @@ pub unsafe extern "C" fn vx_expression_or(
     }
     let slice = unsafe { slice::from_raw_parts(expressions, len) };
     match or_collect(slice.iter().map(|x| vx_expression::as_ref(*x).clone())) {
-        Some(expr) => vx_expression::new(expr.into()),
+        Some(expr) => vx_expression::new(expr),
         None => ptr::null_mut(),
     }
 }
@@ -220,7 +212,7 @@ pub unsafe extern "C" fn vx_expression_binary(
     }
     let lhs = vx_expression::as_ref(lhs).clone();
     let rhs = vx_expression::as_ref(rhs).clone();
-    vx_expression::new(Box::new(Binary.new_expr(operator.into(), [lhs, rhs])))
+    vx_expression::new(Binary.new_expr(operator.into(), [lhs, rhs]))
 }
 
 /// Create a logical NOT of the child expression.
@@ -231,7 +223,7 @@ pub unsafe extern "C" fn vx_expression_not(child: *const vx_expression) -> *cons
     if child.is_null() {
         return child;
     }
-    vx_expression::new(not(vx_expression::as_ref(child).clone()).into())
+    vx_expression::new(not(vx_expression::as_ref(child).clone()))
 }
 
 /// Create an expression that checks for null values.
@@ -242,7 +234,7 @@ pub unsafe extern "C" fn vx_expression_is_null(child: *const vx_expression) -> *
     if child.is_null() {
         return ptr::null_mut();
     }
-    vx_expression::new(is_null(vx_expression::as_ref(child).clone()).into())
+    vx_expression::new(is_null(vx_expression::as_ref(child).clone()))
 }
 
 /// Create an expression that extracts a named field from a struct expression.
@@ -270,7 +262,7 @@ pub unsafe extern "C" fn vx_expression_get_item(
     };
     let item: Arc<str> = Arc::from(item);
     let item: FieldName = item.into();
-    vx_expression::new(get_item(item, vx_expression::as_ref(child).clone()).into())
+    vx_expression::new(get_item(item, vx_expression::as_ref(child).clone()))
 }
 
 /// Create an expression that checks if a value is contained in a list.
@@ -289,7 +281,7 @@ pub unsafe extern "C" fn vx_expression_list_contains(
     }
     let list = vx_expression::as_ref(list).clone();
     let value = vx_expression::as_ref(value).clone();
-    vx_expression::new(Box::new(list_contains(list, value)))
+    vx_expression::new(list_contains(list, value))
 }
 
 #[cfg(test)]
@@ -525,7 +517,7 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
             let array = vx_array::new(Arc::new(array.into_array()));
-            let expression_value = vx_expression::new(Box::new(lit(1)));
+            let expression_value = vx_expression::new(lit(1));
 
             let expression = vx_expression_list_contains(root, expression_value);
             assert!(!expression.is_null());

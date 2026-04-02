@@ -3,8 +3,8 @@
 
 use pyo3::prelude::*;
 use pyo3::types::PyType;
+use vortex::array::ArrayId;
 use vortex::array::stats::ArrayStats;
-use vortex::array::vtable::ArrayId;
 use vortex::dtype::DType;
 
 use crate::arrays::PyArray;

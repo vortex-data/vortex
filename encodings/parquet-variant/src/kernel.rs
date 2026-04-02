@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
@@ -18,7 +18,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ParquetVariant;
-use crate::array::ParquetVariantArray;
+use crate::array::ParquetVariantData;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&FilterExecuteAdaptor(ParquetVariant)),
@@ -28,7 +28,7 @@ pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernel
 
 impl SliceKernel for ParquetVariant {
     fn slice(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, Self>,
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -43,14 +43,14 @@ impl SliceKernel for ParquetVariant {
             .map(|tv| tv.slice(range))
             .transpose()?;
         Ok(Some(
-            ParquetVariantArray::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariantData::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
 
 impl FilterKernel for ParquetVariant {
     fn filter(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -65,29 +65,29 @@ impl FilterKernel for ParquetVariant {
             .map(|tv| tv.filter(mask.clone()))
             .transpose()?;
         Ok(Some(
-            ParquetVariantArray::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariantData::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
 
 impl TakeExecute for ParquetVariant {
     fn take(
-        array: &ParquetVariantArray,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity.take(indices)?;
-        let metadata = array.metadata_array().take(indices.to_array())?;
+        let metadata = array.metadata_array().take(indices.clone())?;
         let value = array
             .value_array()
-            .map(|v| v.take(indices.to_array()))
+            .map(|v| v.take(indices.clone()))
             .transpose()?;
         let typed_value = array
             .typed_value_array()
-            .map(|tv| tv.take(indices.to_array()))
+            .map(|tv| tv.take(indices.clone()))
             .transpose()?;
         Ok(Some(
-            ParquetVariantArray::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariantData::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
@@ -105,13 +105,12 @@ mod tests {
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use vortex_array::ArrayRef;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::ParquetVariantArray;
+    use crate::ParquetVariantData;
 
     fn make_unshredded_array() -> VortexResult<ArrayRef> {
         let mut builder = VariantArrayBuilder::new(4);
@@ -119,7 +118,7 @@ mod tests {
         builder.append_variant(PqVariant::from("hello"));
         builder.append_variant(PqVariant::from(true));
         builder.append_variant(PqVariant::from(99i64));
-        ParquetVariantArray::from_arrow_variant(&builder.build())
+        ParquetVariantData::from_arrow_variant(&builder.build())
     }
 
     fn make_nullable_array() -> VortexResult<ArrayRef> {
@@ -137,7 +136,7 @@ mod tests {
         )
         .unwrap();
         let arrow_variant = ArrowVariantArray::try_new(&null_struct).unwrap();
-        ParquetVariantArray::from_arrow_variant(&arrow_variant)
+        ParquetVariantData::from_arrow_variant(&arrow_variant)
     }
 
     #[test]
@@ -247,7 +246,7 @@ mod tests {
         )
         .unwrap();
         let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
-        let arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        let arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         let sliced = arr.slice(1..3)?;
         assert_eq!(sliced.len(), 2);

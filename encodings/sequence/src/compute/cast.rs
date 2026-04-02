@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -12,10 +13,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::Sequence;
-use crate::SequenceArray;
-
+use crate::SequenceData;
 impl CastReduce for Sequence {
-    fn cast(array: &SequenceArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // SequenceArray represents arithmetic sequences (base + i * multiplier) which
         // only makes sense for integer types. Floating-point sequences would accumulate
         // rounding errors, and other types don't support arithmetic operations.
@@ -32,7 +32,7 @@ impl CastReduce for Sequence {
             // For SequenceArray, we can just create a new one with the same parameters
             // but different nullability
             return Ok(Some(
-                SequenceArray::try_new(
+                SequenceData::try_new(
                     array.base(),
                     array.multiplier(),
                     *target_ptype,
@@ -71,7 +71,7 @@ impl CastReduce for Sequence {
                 .ok_or_else(|| vortex_err!("Cast resulted in null multiplier value"))?;
 
             return Ok(Some(
-                SequenceArray::try_new(
+                SequenceData::try_new(
                     new_base,
                     new_multiplier,
                     *target_ptype,
@@ -99,12 +99,12 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
 
+    use crate::Sequence;
     use crate::SequenceArray;
 
     #[test]
     fn test_cast_sequence_nullability() {
-        let sequence =
-            SequenceArray::try_new_typed(0u32, 1u32, Nullability::NonNullable, 4).unwrap();
+        let sequence = Sequence::try_new_typed(0u32, 1u32, Nullability::NonNullable, 4).unwrap();
 
         // Cast to nullable
         let casted = sequence
@@ -119,8 +119,7 @@ mod tests {
 
     #[test]
     fn test_cast_sequence_u32_to_i64() {
-        let sequence =
-            SequenceArray::try_new_typed(100u32, 10u32, Nullability::NonNullable, 4).unwrap();
+        let sequence = Sequence::try_new_typed(100u32, 10u32, Nullability::NonNullable, 4).unwrap();
 
         let casted = sequence
             .into_array()
@@ -139,8 +138,7 @@ mod tests {
     #[test]
     fn test_cast_sequence_i16_to_i32_nullable() {
         // Test ptype change AND nullability change in one cast
-        let sequence =
-            SequenceArray::try_new_typed(5i16, 3i16, Nullability::NonNullable, 3).unwrap();
+        let sequence = Sequence::try_new_typed(5i16, 3i16, Nullability::NonNullable, 3).unwrap();
 
         let casted = sequence
             .into_array()
@@ -161,8 +159,7 @@ mod tests {
 
     #[test]
     fn test_cast_sequence_to_float_delegates_to_canonical() {
-        let sequence =
-            SequenceArray::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap();
+        let sequence = Sequence::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap();
 
         // Cast to float should delegate to canonical (SequenceArray doesn't support float)
         let casted = sequence
@@ -184,15 +181,15 @@ mod tests {
     }
 
     #[rstest]
-    #[case::i32(SequenceArray::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap())]
-    #[case::u64(SequenceArray::try_new_typed(1000u64, 100u64, Nullability::NonNullable, 4).unwrap())]
+    #[case::i32(Sequence::try_new_typed(0i32, 1i32, Nullability::NonNullable, 5).unwrap())]
+    #[case::u64(Sequence::try_new_typed(1000u64, 100u64, Nullability::NonNullable, 4).unwrap())]
     // TODO(DK): SequenceArray does not actually conform. You cannot cast this array to u8 even
     // though all its values are representable therein.
     //
-    // #[case::negative_step(SequenceArray::try_new_typed(100i32, -10i32, Nullability::NonNullable,
+    // #[case::negative_step(Sequence::try_new_typed(100i32, -10i32, Nullability::NonNullable,
     // 5).unwrap())]
-    #[case::single(SequenceArray::try_new_typed(42i64, 0i64, Nullability::NonNullable, 1).unwrap())]
-    #[case::constant(SequenceArray::try_new_typed(
+    #[case::single(Sequence::try_new_typed(42i64, 0i64, Nullability::NonNullable, 1).unwrap())]
+    #[case::constant(Sequence::try_new_typed(
         100i32,
         0i32, // multiplier of 0 means constant array
         Nullability::NonNullable,

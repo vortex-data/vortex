@@ -65,7 +65,7 @@ impl CudaExecute for DictExecutor {
 
 #[expect(clippy::cognitive_complexity)]
 async fn execute_dict_prim(dict: DictArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-    let DictArrayParts { values, codes, .. } = dict.into_parts();
+    let DictArrayParts { values, codes, .. } = dict.into_data().into_parts();
 
     // Execute both children to get them as primitives on the device
     let values_canonical = values.execute_cuda(ctx).await?;
@@ -98,12 +98,12 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
         buffer: values_buffer,
         validity: values_validity,
         ..
-    } = values.into_parts();
+    } = values.into_data().into_parts();
     let output_validity = values_validity.take(&codes.clone().into_array())?;
     let PrimitiveArrayParts {
         buffer: codes_buffer,
         ..
-    } = codes.into_parts();
+    } = codes.into_data().into_parts();
 
     // Get device buffers for values and codes
     let values_device = ctx.ensure_on_device(values_buffer).await?;
@@ -148,7 +148,7 @@ async fn execute_dict_decimal(
         codes,
         dtype,
         ..
-    } = dict.into_parts();
+    } = dict.into_data().into_parts();
 
     // Execute codes to get them as primitives on the device
     let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
@@ -183,13 +183,13 @@ async fn execute_dict_decimal_typed<
         values: values_buffer,
         validity: values_validity,
         ..
-    } = values.into_parts();
+    } = values.into_data().into_parts();
     let output_validity = values_validity.take(&codes.clone().into_array())?;
 
     let PrimitiveArrayParts {
         buffer: codes_buffer,
         ..
-    } = codes.into_parts();
+    } = codes.into_data().into_parts();
 
     // Copy buffers to device if needed
     let values_device = ctx.ensure_on_device(values_buffer).await?;
@@ -239,7 +239,7 @@ async fn execute_dict_varbinview(
         codes,
         dtype,
         ..
-    } = dict.into_parts();
+    } = dict.into_data().into_parts();
 
     let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
     let codes_ptype = codes_prim.ptype();
@@ -251,13 +251,13 @@ async fn execute_dict_varbinview(
         buffers: values_data_buffers,
         validity: values_validity,
         ..
-    } = values_vbv.into_parts();
+    } = values_vbv.into_data().into_parts();
     let output_validity = values_validity.take(&codes_prim.clone().into_array())?;
 
     let PrimitiveArrayParts {
         buffer: codes_buffer,
         ..
-    } = codes_prim.into_parts();
+    } = codes_prim.into_data().into_parts();
 
     // Move buffers to device if needed.
     let values_device = ctx.ensure_on_device(values_views_handle).await?;

@@ -62,21 +62,21 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity", "metadata", "value
 /// 3. **Typed-value child nullability**: the `typed_value` child carries its own `DType`
 ///    (which includes nullability).
 #[derive(Clone, Debug)]
-pub struct ParquetVariantArray {
+pub struct ParquetVariantData {
     pub(crate) dtype: DType,
     pub(crate) validity: Validity,
     pub(crate) slots: Vec<Option<ArrayRef>>,
     pub(crate) stats_set: ArrayStats,
 }
 
-impl ParquetVariantArray {
+impl ParquetVariantData {
     /// Creates a Parquet Variant array with explicit outer validity.
     pub fn try_new(
         validity: Validity,
         metadata: ArrayRef,
         value: Option<ArrayRef>,
         typed_value: Option<ArrayRef>,
-    ) -> VortexResult<Self> {
+    ) -> VortexResult<ParquetVariantData> {
         vortex_ensure!(
             value.is_some() || typed_value.is_some(),
             "at least one of value or typed_value must be present"
@@ -168,7 +168,7 @@ impl ParquetVariantArray {
             .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
             .transpose()?;
 
-        let pv = ParquetVariantArray::try_new(validity, metadata, value, typed_value)?;
+        let pv = ParquetVariantData::try_new(validity, metadata, value, typed_value)?;
         Ok(VariantArray::new(pv.into_array()).into_array())
     }
 
@@ -242,17 +242,14 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::ParquetVariant;
-    use crate::ParquetVariantArray;
+    use crate::ParquetVariantData;
 
     fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
         let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
-        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
-        let inner = vortex_arr
-            .as_opt::<Variant>()
-            .unwrap()
-            .child()
-            .as_opt::<ParquetVariant>()
-            .unwrap();
+        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
+        let child = variant_view.child();
+        let inner = child.as_opt::<ParquetVariant>().unwrap();
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner.to_arrow(&mut ctx)?;
@@ -300,7 +297,7 @@ mod tests {
         builder.append_variant(PqVariant::from(true));
         let arrow_variant = builder.build();
 
-        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.len(), 3);
         assert_eq!(
@@ -333,7 +330,7 @@ mod tests {
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
 
-        let vortex_arr = ParquetVariantArray::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
         assert_eq!(vortex_arr.len(), 3);
         assert_eq!(
             vortex_arr.dtype(),
@@ -352,7 +349,7 @@ mod tests {
         let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
         let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
         let pv_array =
-            ParquetVariantArray::try_new(Validity::NonNullable, metadata, Some(value), None)?;
+            ParquetVariantData::try_new(Validity::NonNullable, metadata, Some(value), None)?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let variant_arr = pv_array.to_arrow(&mut ctx)?;
@@ -369,7 +366,7 @@ mod tests {
         let metadata = VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00"]).into_array();
         let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11"]).into_array();
         let typed_value = buffer![1i32, 2].into_array();
-        let pv_array = ParquetVariantArray::try_new(
+        let pv_array = ParquetVariantData::try_new(
             Validity::NonNullable,
             metadata,
             Some(value),

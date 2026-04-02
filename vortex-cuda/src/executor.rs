@@ -17,7 +17,6 @@ use tracing::debug;
 use tracing::trace;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Struct;
@@ -343,7 +342,7 @@ pub trait CudaExecute: 'static + Send + Sync + Debug {
 
 /// Extension trait for executing arrays on CUDA.
 #[async_trait]
-pub trait CudaArrayExt: DynArray {
+pub trait CudaArrayExt {
     /// Recursively walks the encoding tree, dispatching each layer to its
     /// registered [`CudaExecute`] implementation and returning a canonical array
     /// on the device.

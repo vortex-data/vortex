@@ -27,6 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::encodings::turboquant::TurboQuant;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extension_element_ptype;
@@ -120,8 +121,7 @@ impl ScalarFnVTable for L2Norm {
         // Norms are currently stored as f32; cast to the target dtype if needed
         // (e.g., if the input extension has f64 elements).
         {
-            use vortex_array::matcher::Matcher;
-            if let Some(tq) = crate::encodings::turboquant::TurboQuant::try_match(&*storage) {
+            if let Some(tq) = storage.as_opt::<TurboQuant>() {
                 let norms: PrimitiveArray = tq.norms().clone().execute(ctx)?;
                 let target_dtype = DType::Primitive(target_ptype, input.dtype().nullability());
                 return norms.into_array().cast(target_dtype);
@@ -187,7 +187,7 @@ mod tests {
     fn eval_l2_norm(input: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
         let scalar_fn = ScalarFn::new(L2Norm, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![input], len)?;
-        let prim = result.to_primitive();
+        let prim = result.as_array().to_primitive();
         Ok(prim.as_slice::<f64>().to_vec())
     }
 

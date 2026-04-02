@@ -9,7 +9,6 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
@@ -348,7 +347,7 @@ mod test {
                 .unwrap();
 
             let expected = PrimitiveArray::new(buffer![3i32, 4], Validity::AllValid).into_array();
-            assert_arrays_eq!(result.as_ref(), expected.as_ref());
+            assert_arrays_eq!(result, expected);
         })
     }
 }

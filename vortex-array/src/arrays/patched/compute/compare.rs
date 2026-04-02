@@ -9,6 +9,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
@@ -23,7 +24,7 @@ use crate::scalar_fn::fns::operators::CompareOperator;
 
 impl CompareKernel for Patched {
     fn compare(
-        lhs: &Self::Array,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
@@ -160,10 +161,10 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::Patched;
@@ -190,13 +191,17 @@ mod tests {
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
+        let lhs = Array::<Patched>::try_from_data(
+            PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx).unwrap(),
+        )
+        .unwrap();
 
         let rhs = ConstantArray::new(u32::MAX, 512).into_array();
 
-        let result = <Patched as CompareKernel>::compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx)
-            .unwrap()
-            .unwrap();
+        let result =
+            <Patched as CompareKernel>::compare(lhs.as_view(), &rhs, CompareOperator::Eq, &mut ctx)
+                .unwrap()
+                .unwrap();
 
         let expected =
             BoolArray::from_indices(512, [509, 510, 511], Validity::NonNullable).into_array();
@@ -220,21 +225,17 @@ mod tests {
 
         let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
         // Slice the array so that the first patch should be skipped.
-        let lhs = lhs
-            .slice(10..lhs.len())
-            .unwrap()
-            .optimize()
-            .unwrap()
-            .try_into::<Patched>()
-            .unwrap();
+        let lhs_ref = lhs.into_array().slice(10..512).unwrap().optimize().unwrap();
+        let lhs = lhs_ref.try_into::<Patched>().unwrap();
 
         assert_eq!(lhs.len(), 502);
 
         let rhs = ConstantArray::new(u32::MAX, lhs.len()).into_array();
 
-        let result = <Patched as CompareKernel>::compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx)
-            .unwrap()
-            .unwrap();
+        let result =
+            <Patched as CompareKernel>::compare(lhs.as_view(), &rhs, CompareOperator::Eq, &mut ctx)
+                .unwrap()
+                .unwrap();
 
         let expected = BoolArray::from_indices(502, [500, 501], Validity::NonNullable).into_array();
 
@@ -258,13 +259,19 @@ mod tests {
         )?;
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)?;
+        let lhs = Array::<Patched>::try_from_data(PatchedArray::from_array_and_patches(
+            lhs, &patches, &mut ctx,
+        )?)?;
 
         let rhs = ConstantArray::new(subnormal, 512).into_array();
 
-        let result =
-            <Patched as CompareKernel>::compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx)?
-                .unwrap();
+        let result = <Patched as CompareKernel>::compare(
+            lhs.as_view(),
+            &rhs,
+            CompareOperator::Eq,
+            &mut ctx,
+        )?
+        .unwrap();
 
         let expected = BoolArray::from_indices(512, [510], Validity::NonNullable).into_array();
 
@@ -285,13 +292,19 @@ mod tests {
         )?;
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)?;
+        let lhs = Array::<Patched>::try_from_data(PatchedArray::from_array_and_patches(
+            lhs, &patches, &mut ctx,
+        )?)?;
 
         let rhs = ConstantArray::new(0.0f32, 10).into_array();
 
-        let result =
-            <Patched as CompareKernel>::compare(&lhs, &rhs, CompareOperator::Eq, &mut ctx)?
-                .unwrap();
+        let result = <Patched as CompareKernel>::compare(
+            lhs.as_view(),
+            &rhs,
+            CompareOperator::Eq,
+            &mut ctx,
+        )?
+        .unwrap();
 
         let expected = BoolArray::from_indices(10, [7], Validity::NonNullable).into_array();
 

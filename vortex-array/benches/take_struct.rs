@@ -8,7 +8,6 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::rngs::StdRng;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
@@ -42,7 +41,8 @@ fn take_struct_simple(bencher: Bencher) {
         ARRAY_SIZE,
         Validity::NonNullable,
     )
-    .unwrap();
+    .unwrap()
+    .into_array();
 
     let indices: Buffer<u64> = (0..TAKE_SIZE)
         .map(|_| rng.random_range(0..ARRAY_SIZE) as u64)
@@ -59,7 +59,7 @@ fn take_struct_simple(bencher: Bencher) {
         })
         .bench_refs(|(array, indices, ctx)| {
             array
-                .take(indices.to_array())
+                .take((*indices).clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
         });
@@ -83,8 +83,9 @@ fn take_struct_wide(bencher: Bencher, width: usize) {
         "field1", "field2", "field3", "field4", "field5", "field6", "field7", "field8",
     ]);
 
-    let struct_array =
-        StructArray::try_new(field_names, fields, ARRAY_SIZE, Validity::NonNullable).unwrap();
+    let struct_array = StructArray::try_new(field_names, fields, ARRAY_SIZE, Validity::NonNullable)
+        .unwrap()
+        .into_array();
 
     let indices: Buffer<u64> = (0..TAKE_SIZE)
         .map(|_| rng.random_range(0..ARRAY_SIZE) as u64)
@@ -101,7 +102,7 @@ fn take_struct_wide(bencher: Bencher, width: usize) {
         })
         .bench_refs(|(array, indices, ctx)| {
             array
-                .take(indices.clone())
+                .take((*indices).clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
         });
@@ -124,7 +125,8 @@ fn take_struct_sequential_indices(bencher: Bencher) {
         ARRAY_SIZE,
         Validity::NonNullable,
     )
-    .unwrap();
+    .unwrap()
+    .into_array();
 
     // Sequential indices for better cache performance
     let indices: Buffer<u64> = (0..TAKE_SIZE as u64).collect();
@@ -140,7 +142,7 @@ fn take_struct_sequential_indices(bencher: Bencher) {
         })
         .bench_refs(|(array, indices, ctx)| {
             array
-                .take(indices.to_array())
+                .take((*indices).clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(ctx)
         });

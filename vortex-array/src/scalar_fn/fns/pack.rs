@@ -166,7 +166,6 @@ mod tests {
     use super::Pack;
     use super::PackOptions;
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;

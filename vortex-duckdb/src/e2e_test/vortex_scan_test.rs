@@ -36,8 +36,8 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::scalar::PValue;
 use vortex::scalar::Scalar;
-use vortex_runend::RunEndArray;
-use vortex_sequence::SequenceArray;
+use vortex_runend::RunEnd;
+use vortex_sequence::Sequence;
 
 use crate::RUNTIME;
 use crate::SESSION;
@@ -71,7 +71,7 @@ async fn write_vortex_file(
     let mut file = async_fs::File::create(&temp_file_path).await.unwrap();
     SESSION
         .write_options()
-        .write(&mut file, struct_array.to_array_stream())
+        .write(&mut file, struct_array.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -167,7 +167,7 @@ async fn write_vortex_file_to_dir(
     let mut file = async_fs::File::create(&temp_file_path).await.unwrap();
     SESSION
         .write_options()
-        .write(&mut file, struct_array.to_array_stream())
+        .write(&mut file, struct_array.into_array().to_array_stream())
         .await
         .unwrap();
 
@@ -789,10 +789,10 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     // 4. Run-End
     let run_ends = buffer![3u32, 5];
     let run_values = buffer![100i32, 200];
-    let rle_array = RunEndArray::try_new(run_ends.into_array(), run_values.into_array()).unwrap();
+    let rle_array = RunEnd::try_new(run_ends.into_array(), run_values.into_array()).unwrap();
 
     // 5. Sequence array
-    let sequence_array = SequenceArray::try_new(
+    let sequence_array = Sequence::try_new(
         PValue::I64(0),
         PValue::I64(10),
         PType::I64,
@@ -844,7 +844,7 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     let mut file = async_fs::File::create(&temp_file_path).await.unwrap();
     SESSION
         .write_options()
-        .write(&mut file, struct_array.to_array_stream())
+        .write(&mut file, struct_array.into_array().to_array_stream())
         .await
         .unwrap();
 

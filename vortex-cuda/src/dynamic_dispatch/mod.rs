@@ -434,14 +434,15 @@ mod tests {
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::dtype::PType;
-    use vortex::encodings::alp::ALPArray;
+    use vortex::encodings::alp::ALP;
     use vortex::encodings::alp::ALPFloat;
     use vortex::encodings::alp::Exponents;
     use vortex::encodings::alp::alp_encode;
+    use vortex::encodings::fastlanes::BitPacked;
     use vortex::encodings::fastlanes::BitPackedArray;
-    use vortex::encodings::fastlanes::FoRArray;
-    use vortex::encodings::runend::RunEndArray;
-    use vortex::encodings::zigzag::ZigZagArray;
+    use vortex::encodings::fastlanes::FoR;
+    use vortex::encodings::runend::RunEnd;
+    use vortex::encodings::zigzag::ZigZag;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
@@ -464,7 +465,7 @@ mod tests {
             .map(|i| ((i as u64) % (max_val + 1)) as u32)
             .collect();
         let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
-        BitPackedArray::encode(&primitive.into_array(), bit_width)
+        BitPacked::encode(&primitive.into_array(), bit_width)
             .vortex_expect("failed to create BitPacked array")
     }
 
@@ -702,7 +703,7 @@ mod tests {
         let expected: Vec<u32> = raw.iter().map(|&v| v + reference).collect();
 
         let bp = bitpacked_array_u32(bit_width, len);
-        let for_arr = FoRArray::try_new(bp.into_array(), Scalar::from(reference))?;
+        let for_arr = FoR::try_new(bp.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&for_arr.into_array(), &cuda_ctx)?;
@@ -728,7 +729,7 @@ mod tests {
 
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEndArray::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr);
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&re.into_array(), &cuda_ctx)?;
@@ -754,12 +755,12 @@ mod tests {
 
         // BitPack+FoR the dict values
         let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-        let dict_bp = BitPackedArray::encode(&dict_prim.into_array(), 6)?;
-        let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
+        let dict_bp = BitPacked::encode(&dict_prim.into_array(), 6)?;
+        let dict_for = FoR::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
 
         // BitPack the codes
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), 6)?;
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), 6)?;
 
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 
@@ -786,11 +787,11 @@ mod tests {
 
         let alp = alp_encode(&float_prim, Some(exponents))?;
         assert!(alp.patches().is_none());
-        let for_arr = FoRArray::encode(alp.encoded().to_primitive())?;
-        let bp = BitPackedArray::encode(for_arr.encoded(), 6)?;
+        let for_arr = FoR::encode(alp.encoded().to_primitive())?;
+        let bp = BitPacked::encode(for_arr.encoded(), 6)?;
 
-        let tree = ALPArray::new(
-            FoRArray::try_new(bp.into_array(), for_arr.reference_scalar().clone())?.into_array(),
+        let tree = ALP::new(
+            FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())?.into_array(),
             exponents,
             None,
         );
@@ -821,8 +822,8 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
-        let bp = BitPackedArray::encode(&prim.into_array(), bit_width)?;
-        let zz = ZigZagArray::try_new(bp.into_array())?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let zz = ZigZag::try_new(bp.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&zz.into_array(), &cuda_ctx)?;
@@ -850,8 +851,8 @@ mod tests {
 
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEndArray::new(ends_arr, values_arr);
-        let for_arr = FoRArray::try_new(re.into_array(), Scalar::from(reference))?;
+        let re = RunEnd::new(ends_arr, values_arr);
+        let for_arr = FoR::try_new(re.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&for_arr.into_array(), &cuda_ctx)?;
@@ -880,7 +881,7 @@ mod tests {
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
         let dict = DictArray::try_new(codes_prim.into_array(), values_prim.into_array())?;
-        let for_arr = FoRArray::try_new(dict.into_array(), Scalar::from(reference))?;
+        let for_arr = FoR::try_new(dict.into_array(), Scalar::from(reference))?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&for_arr.into_array(), &cuda_ctx)?;
@@ -904,8 +905,8 @@ mod tests {
         // BitPack codes, then wrap in FoR (reference=0 so values unchanged)
         let bit_width: u8 = 3;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), bit_width)?;
-        let codes_for = FoRArray::try_new(codes_bp.into_array(), Scalar::from(0u32))?;
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), bit_width)?;
+        let codes_for = FoR::try_new(codes_bp.into_array(), Scalar::from(0u32))?;
 
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
         let dict = DictArray::try_new(codes_for.into_array(), values_prim.into_array())?;
@@ -930,7 +931,7 @@ mod tests {
 
         let bit_width: u8 = 2;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), bit_width)?;
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), bit_width)?;
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
 
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
@@ -971,7 +972,7 @@ mod tests {
 
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEndArray::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr);
 
         // DispatchPlan::new should return Unfused because u64 ends != i32 values in byte width.
         assert!(matches!(
@@ -1056,8 +1057,8 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
-        let bp = BitPackedArray::encode(&prim.into_array(), bit_width)?;
-        let zz = ZigZagArray::try_new(bp.into_array())?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let zz = ZigZag::try_new(bp.into_array())?;
 
         let sliced = zz.into_array().slice(slice_start..slice_end)?;
         let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
@@ -1152,7 +1153,7 @@ mod tests {
 
         let data: Vec<u32> = (0..len).map(|i| (i as u32) % max_val).collect();
         let prim = PrimitiveArray::new(Buffer::from(data.clone()), NonNullable);
-        let bp = BitPackedArray::encode(&prim.into_array(), bit_width)?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
 
         let sliced = bp.into_array().slice(slice_start..slice_end)?;
         let expected: Vec<u32> = data[slice_start..slice_end].to_vec();
@@ -1198,8 +1199,8 @@ mod tests {
 
         let encoded_data: Vec<u32> = (0..len).map(|i| (i as u32) % max_val).collect();
         let prim = PrimitiveArray::new(Buffer::from(encoded_data.clone()), NonNullable);
-        let bp = BitPackedArray::encode(&prim.into_array(), bit_width)?;
-        let for_arr = FoRArray::try_new(bp.into_array(), Scalar::from(reference))?;
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
+        let for_arr = FoR::try_new(bp.into_array(), Scalar::from(reference))?;
 
         let all_decoded: Vec<u32> = encoded_data.iter().map(|&v| v + reference).collect();
 
@@ -1251,12 +1252,12 @@ mod tests {
 
         // BitPack+FoR the dict values
         let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-        let dict_bp = BitPackedArray::encode(&dict_prim.into_array(), 6)?;
-        let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
+        let dict_bp = BitPacked::encode(&dict_prim.into_array(), 6)?;
+        let dict_for = FoR::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
 
         // BitPack the codes
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), 6)?;
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), 6)?;
 
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 
@@ -1289,11 +1290,11 @@ mod tests {
         #[case] len: usize,
     ) -> VortexResult<()> {
         use vortex::dtype::Nullability;
-        use vortex::encodings::sequence::SequenceArray;
+        use vortex::encodings::sequence::Sequence;
 
         let expected: Vec<u32> = (0..len).map(|i| base + (i as u32) * multiplier).collect();
 
-        let seq = SequenceArray::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
+        let seq = Sequence::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&seq.into_array(), &cuda_ctx)?;
@@ -1322,11 +1323,11 @@ mod tests {
         #[case] len: usize,
     ) -> VortexResult<()> {
         use vortex::dtype::Nullability;
-        use vortex::encodings::sequence::SequenceArray;
+        use vortex::encodings::sequence::Sequence;
 
         let expected: Vec<i32> = (0..len).map(|i| base + (i as i32) * multiplier).collect();
 
-        let seq = SequenceArray::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
+        let seq = Sequence::try_new_typed(base, multiplier, Nullability::NonNullable, len)?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let plan = dispatch_plan(&seq.into_array(), &cuda_ctx)?;

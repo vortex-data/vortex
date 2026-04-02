@@ -4,10 +4,10 @@
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 
-use crate::array::ParquetVariantArray;
+use crate::array::ParquetVariantData;
 
-impl ValidityHelper for ParquetVariantArray {
-    fn validity(&self) -> Validity {
-        self.validity.clone()
+impl ValidityHelper for ParquetVariantData {
+    fn validity(&self) -> &Validity {
+        &self.validity
     }
 }

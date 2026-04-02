@@ -6,6 +6,7 @@ use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -20,14 +21,13 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::RunEnd;
-use crate::RunEndArray;
+use crate::RunEndData;
 use crate::compute::take::take_indices_unchecked;
-
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
 impl FilterKernel for RunEnd {
     fn filter(
-        array: &RunEndArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -39,7 +39,7 @@ impl FilterKernel for RunEnd {
 
         if runs_ratio < FILTER_TAKE_THRESHOLD || mask_values.true_count() < 25 {
             Ok(Some(take_indices_unchecked(
-                array,
+                &array,
                 mask_values.indices(),
                 &Validity::NonNullable,
             )?))
@@ -59,7 +59,7 @@ impl FilterKernel for RunEnd {
             // SAFETY: guaranteed by implementation of filter_run_end_primitive
             unsafe {
                 Ok(Some(
-                    RunEndArray::new_unchecked(
+                    RunEndData::new_unchecked(
                         run_ends.into_array(),
                         values,
                         0,
@@ -114,20 +114,18 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use crate::RunEnd;
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
-        RunEndArray::encode(
-            PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
-        )
-        .unwrap()
+        RunEnd::encode(PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array())
+            .unwrap()
     }
 
     #[test]
@@ -137,7 +135,7 @@ mod tests {
 
         assert_arrays_eq!(
             filtered,
-            RunEndArray::new(
+            RunEnd::new(
                 PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
                 PrimitiveArray::from_iter([1i32, 4, 2]).into_array()
             )

@@ -7,9 +7,9 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
-use crate::arrays::PrimitiveArray;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::match_each_native_ptype;
@@ -19,7 +19,7 @@ use crate::scalar_fn::fns::between::StrictComparison;
 
 impl BetweenKernel for Primitive {
     fn between(
-        arr: &PrimitiveArray,
+        arr: ArrayView<'_, Primitive>,
         lower: &ArrayRef,
         upper: &ArrayRef,
         options: &BetweenOptions,
@@ -48,7 +48,7 @@ impl BetweenKernel for Primitive {
 }
 
 fn between_impl<T: NativePType + Copy>(
-    arr: &PrimitiveArray,
+    arr: ArrayView<'_, Primitive>,
     lower: T,
     upper: T,
     nullability: Nullability,
@@ -92,7 +92,7 @@ fn between_impl<T: NativePType + Copy>(
 }
 
 fn between_impl_<T>(
-    arr: &PrimitiveArray,
+    arr: ArrayView<'_, Primitive>,
     lower: T,
     lower_fn: impl Fn(T, T) -> bool,
     upper: T,

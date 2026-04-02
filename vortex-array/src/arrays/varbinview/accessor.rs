@@ -13,7 +13,7 @@ impl ArrayAccessor<[u8]> for VarBinViewArray {
         &self,
         f: F,
     ) -> R {
-        let bytes = (0..self.nbuffers())
+        let bytes = (0..self.data_buffers().len())
             .map(|i| self.buffer(i))
             .collect::<Vec<_>>();
 

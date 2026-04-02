@@ -4,23 +4,23 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
+use crate::arrays::masked::MaskedData;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 
 impl TakeReduce for Masked {
-    fn take(array: &MaskedArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: ArrayView<'_, Masked>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let taken_child = if !indices.all_valid()? {
             // This is safe because we'll mask out these positions in the validity.
             let fill_scalar = Scalar::zero_value(indices.dtype());
-            let filled_take_indices = indices.to_array().fill_null(fill_scalar)?;
+            let filled_take_indices = indices.clone().fill_null(fill_scalar)?;
             array.child().take(filled_take_indices)?
         } else {
-            array.child().take(indices.to_array())?
+            array.child().take(indices.clone())?
         };
 
         // Compute the new validity by taking from array's validity and merging with indices validity
@@ -28,7 +28,7 @@ impl TakeReduce for Masked {
 
         // Construct new MaskedArray
         Ok(Some(
-            MaskedArray::try_new(taken_child, taken_validity)?.into_array(),
+            MaskedData::try_new(taken_child, taken_validity)?.into_array(),
         ))
     }
 }

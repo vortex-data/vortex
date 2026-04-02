@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use super::Delta;
-use crate::DeltaArray;
-
 impl OperationsVTable<Delta> for Delta {
     fn scalar_at(
-        array: &DeltaArray,
+        array: ArrayView<'_, Delta>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let decompressed = array.slice(index..index + 1)?.to_primitive();
-        decompressed.scalar_at(0)
+        let decompressed = array.array().slice(index..index + 1)?.to_primitive();
+        decompressed.into_array().scalar_at(0)
     }
 }
 
@@ -35,20 +35,26 @@ mod tests {
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use crate::DeltaArray;
+    use crate::DeltaData;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
+    fn da(array: &PrimitiveArray) -> DeltaArray {
+        DeltaArray::try_from_data(
+            DeltaData::try_from_primitive_array(array, &mut SESSION.create_execution_ctx())
+                .unwrap(),
+        )
+        .vortex_expect("DeltaData is always valid")
+    }
+
     #[test]
     fn test_slice_non_jagged_array_first_chunk_of_two() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2048).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..2048).collect());
 
         let actual = delta.slice(10..250).unwrap();
         let expected = PrimitiveArray::from_iter(10u32..250).into_array();
@@ -57,11 +63,7 @@ mod tests {
 
     #[test]
     fn test_slice_non_jagged_array_second_chunk_of_two() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2048).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..2048).collect());
 
         let actual = delta.slice(1024 + 10..1024 + 250).unwrap();
         let expected = PrimitiveArray::from_iter((1024 + 10u32)..(1024 + 250)).into_array();
@@ -70,11 +72,7 @@ mod tests {
 
     #[test]
     fn test_slice_non_jagged_array_span_two_chunks_chunk_of_two() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2048).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..2048).collect());
 
         let actual = delta.slice(1000..1048).unwrap();
         let expected = PrimitiveArray::from_iter(1000u32..1048).into_array();
@@ -83,11 +81,7 @@ mod tests {
 
     #[test]
     fn test_slice_non_jagged_array_span_two_chunks_chunk_of_four() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..4096).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..4096).collect());
 
         let actual = delta.slice(2040..2050).unwrap();
         let expected = PrimitiveArray::from_iter(2040u32..2050).into_array();
@@ -96,11 +90,7 @@ mod tests {
 
     #[test]
     fn test_slice_non_jagged_array_whole() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..4096).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..4096).collect());
 
         let actual = delta.slice(0..4096).unwrap();
         let expected = PrimitiveArray::from_iter(0u32..4096).into_array();
@@ -109,11 +99,7 @@ mod tests {
 
     #[test]
     fn test_slice_non_jagged_array_empty() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..4096).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..4096).collect());
 
         let actual = delta.slice(0..0).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
@@ -130,11 +116,7 @@ mod tests {
 
     #[test]
     fn test_slice_jagged_array_second_chunk_of_two() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2000).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..2000).collect());
 
         let actual = delta.slice(1024 + 10..1024 + 250).unwrap();
         let expected = PrimitiveArray::from_iter((1024 + 10u32)..(1024 + 250)).into_array();
@@ -143,11 +125,7 @@ mod tests {
 
     #[test]
     fn test_slice_jagged_array_empty() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..4000).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..4000).collect());
 
         let actual = delta.slice(0..0).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
@@ -164,11 +142,7 @@ mod tests {
 
     #[test]
     fn test_slice_of_slice_of_non_jagged() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2048).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..2048).collect());
 
         let sliced = delta.slice(10..1013).unwrap();
         let sliced_again = sliced.slice(0..2).unwrap();
@@ -179,11 +153,7 @@ mod tests {
 
     #[test]
     fn test_slice_of_slice_of_jagged() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2000).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..2000).collect());
 
         let sliced = delta.slice(10..1013).unwrap();
         let sliced_again = sliced.slice(0..2).unwrap();
@@ -194,11 +164,7 @@ mod tests {
 
     #[test]
     fn test_slice_of_slice_second_chunk_of_non_jagged() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2048).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..2048).collect());
 
         let sliced = delta.slice(1034..1050).unwrap();
         let sliced_again = sliced.slice(0..2).unwrap();
@@ -209,11 +175,7 @@ mod tests {
 
     #[test]
     fn test_slice_of_slice_second_chunk_of_jagged() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2000).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..2000).collect());
 
         let sliced = delta.slice(1034..1050).unwrap();
         let sliced_again = sliced.slice(0..2).unwrap();
@@ -224,11 +186,7 @@ mod tests {
 
     #[test]
     fn test_slice_of_slice_spanning_two_chunks_of_non_jagged() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2048).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..2048).collect());
 
         let sliced = delta.slice(1010..1050).unwrap();
         let sliced_again = sliced.slice(5..20).unwrap();
@@ -239,11 +197,7 @@ mod tests {
 
     #[test]
     fn test_slice_of_slice_spanning_two_chunks_of_jagged() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2000).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap();
+        let delta = da(&(0u32..2000).collect());
 
         let sliced = delta.slice(1010..1050).unwrap();
         let sliced_again = sliced.slice(5..20).unwrap();
@@ -254,12 +208,7 @@ mod tests {
 
     #[test]
     fn test_scalar_at_non_jagged_array() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2048).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .into_array();
+        let delta = da(&(0u32..2048).collect()).into_array();
 
         let expected = PrimitiveArray::from_iter(0u32..2048).into_array();
         assert_arrays_eq!(delta, expected);
@@ -268,22 +217,12 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_scalar_at_non_jagged_array_oob() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2048).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .into_array();
+        let delta = da(&(0u32..2048).collect()).into_array();
         delta.scalar_at(2048).unwrap();
     }
     #[test]
     fn test_scalar_at_jagged_array() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2000).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .into_array();
+        let delta = da(&(0u32..2000).collect()).into_array();
 
         let expected = PrimitiveArray::from_iter(0u32..2000).into_array();
         assert_arrays_eq!(delta, expected);
@@ -292,12 +231,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_scalar_at_jagged_array_oob() {
-        let delta = DeltaArray::try_from_primitive_array(
-            &(0u32..2000).collect(),
-            &mut SESSION.create_execution_ctx(),
-        )
-        .unwrap()
-        .into_array();
+        let delta = da(&(0u32..2000).collect()).into_array();
         delta.scalar_at(2000).unwrap();
     }
 
@@ -311,11 +245,7 @@ mod tests {
     // Single element
     #[case::delta_single(PrimitiveArray::new(buffer![42u32], Validity::NonNullable))]
     fn test_delta_consistency(#[case] array: PrimitiveArray) {
-        test_array_consistency(
-            &DeltaArray::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())
-                .unwrap()
-                .into_array(),
-        );
+        test_array_consistency(&da(&array).into_array());
     }
 
     #[rstest]
@@ -325,10 +255,6 @@ mod tests {
     #[case::delta_u64_basic(PrimitiveArray::new(buffer![1u64, 1, 1, 1, 1], Validity::NonNullable))]
     #[case::delta_u32_large(PrimitiveArray::new(buffer![1u32; 100], Validity::NonNullable))]
     fn test_delta_binary_numeric(#[case] array: PrimitiveArray) {
-        test_binary_numeric_array(
-            DeltaArray::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())
-                .unwrap()
-                .into_array(),
-        );
+        test_binary_numeric_array(da(&array).into_array());
     }
 }

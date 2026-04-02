@@ -126,7 +126,7 @@ pub fn vortex_file::BlockingWriter<'_, '_, B>::bytes_written(&self) -> u64
 
 pub fn vortex_file::BlockingWriter<'_, '_, B>::finish(self) -> vortex_error::VortexResult<vortex_file::WriteSummary>
 
-pub fn vortex_file::BlockingWriter<'_, '_, B>::push(&mut self, chunk: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<()>
+pub fn vortex_file::BlockingWriter<'_, '_, B>::push(&mut self, chunk: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
 pub struct vortex_file::FileStatistics
 
@@ -276,7 +276,7 @@ pub fn vortex_file::VortexFile::layout_reader(&self) -> vortex_error::VortexResu
 
 pub fn vortex_file::VortexFile::row_count(&self) -> u64
 
-pub fn vortex_file::VortexFile::scan(&self) -> vortex_error::VortexResult<vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::ArrayRef>>
+pub fn vortex_file::VortexFile::scan(&self) -> vortex_error::VortexResult<vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::erased::ArrayRef>>
 
 pub fn vortex_file::VortexFile::segment_source(&self) -> alloc::sync::Arc<dyn vortex_layout::segments::source::SegmentSource>
 
@@ -382,7 +382,7 @@ pub fn vortex_file::Writer<'_>::bytes_written(&self) -> u64
 
 pub async fn vortex_file::Writer<'_>::finish(self) -> vortex_error::VortexResult<vortex_file::WriteSummary>
 
-pub async fn vortex_file::Writer<'_>::push(&mut self, chunk: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<()>
+pub async fn vortex_file::Writer<'_>::push(&mut self, chunk: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
 pub async fn vortex_file::Writer<'_>::push_stream(&mut self, stream: vortex_array::stream::SendableArrayStream) -> vortex_error::VortexResult<()>
 

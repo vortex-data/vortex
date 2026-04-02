@@ -70,12 +70,12 @@ pub(crate) async fn execute_patches<
     let PrimitiveArrayParts {
         buffer: indices_buffer,
         ..
-    } = indices.into_parts();
+    } = indices.into_data().into_parts();
 
     let PrimitiveArrayParts {
         buffer: values_buffer,
         ..
-    } = values.into_parts();
+    } = values.into_data().into_parts();
 
     let d_patch_indices = ctx.ensure_on_device(indices_buffer).await?;
     let d_patch_values = ctx.ensure_on_device(values_buffer).await?;
@@ -170,7 +170,7 @@ mod tests {
         let PrimitiveArrayParts {
             buffer: cuda_buffer,
             ..
-        } = values.into_parts();
+        } = values.into_data().into_parts();
 
         let handle = ctx.ensure_on_device(cuda_buffer).await.unwrap();
         let device_buf = handle

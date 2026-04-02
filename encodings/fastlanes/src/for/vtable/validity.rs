@@ -5,10 +5,10 @@ use vortex_array::ArrayRef;
 use vortex_array::vtable::ValidityChild;
 
 use super::FoR;
-use crate::FoRArray;
+use crate::FoRData;
 
 impl ValidityChild<FoR> for FoR {
-    fn validity_child(array: &FoRArray) -> &ArrayRef {
+    fn validity_child(array: &FoRData) -> &ArrayRef {
         array.encoded()
     }
 }

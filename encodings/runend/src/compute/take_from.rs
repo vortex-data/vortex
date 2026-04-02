@@ -2,16 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Dict;
-use vortex_array::arrays::DictArray;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndArray;
 
 #[derive(Debug)]
 pub(crate) struct RunEndTakeFrom;
@@ -21,8 +20,8 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
 
     fn execute_parent(
         &self,
-        array: &RunEndArray,
-        dict: &DictArray,
+        array: ArrayView<'_, RunEnd>,
+        dict: ArrayView<'_, Dict>,
         child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -38,7 +37,7 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
         // Create a new run-end array containing values as values, instead of indices as values.
         // SAFETY: we are copying ends from an existing valid RunEndArray
         let ree_array = unsafe {
-            RunEndArray::new_unchecked(
+            RunEnd::new_unchecked(
                 array.ends().clone(),
                 dict.values().take(array.values().clone())?,
                 array.offset(),
@@ -52,7 +51,6 @@ impl ExecuteParentKernel<RunEnd> for RunEndTakeFrom {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::DictArray;
@@ -63,6 +61,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::RunEnd;
     use crate::RunEndArray;
     use crate::compute::take_from::RunEndTakeFrom;
 
@@ -73,7 +72,7 @@ mod tests {
     /// Codes:       `[0, 0, 0, 1, 1, 0, 0]`
     /// RunEnd encoded codes: ends=`[3, 5, 7]`, values=`[0, 1, 0]`
     fn make_dict_with_runend_codes() -> (RunEndArray, DictArray) {
-        let codes = RunEndArray::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array()).unwrap();
+        let codes = RunEnd::encode(buffer![0u32, 0, 0, 1, 1, 0, 0].into_array()).unwrap();
         let values = buffer![2i32, 3].into_array();
         let dict = DictArray::try_new(codes.clone().into_array(), values).unwrap();
         (codes, dict)
@@ -85,7 +84,7 @@ mod tests {
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
-            .execute_parent(&codes, &dict, 0, &mut ctx)?
+            .execute_parent(codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 2, 2, 3, 3, 2, 2]);
@@ -98,7 +97,7 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         // Slice codes to positions 2..5 → logical codes [0, 1, 1] → values [2, 3, 3]
         let sliced_codes = unsafe {
-            RunEndArray::new_unchecked(
+            RunEnd::new_unchecked(
                 codes.ends().clone(),
                 codes.values().clone(),
                 2, // offset
@@ -108,7 +107,7 @@ mod tests {
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
-            .execute_parent(&sliced_codes, &dict, 0, &mut ctx)?
+            .execute_parent(sliced_codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([2i32, 3, 3]);
@@ -121,7 +120,7 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         // Slice codes to positions 3..7 → logical codes [1, 1, 0, 0] → values [3, 3, 2, 2]
         let sliced_codes = unsafe {
-            RunEndArray::new_unchecked(
+            RunEnd::new_unchecked(
                 codes.ends().clone(),
                 codes.values().clone(),
                 3, // offset at exact run boundary
@@ -131,7 +130,7 @@ mod tests {
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
-            .execute_parent(&sliced_codes, &dict, 0, &mut ctx)?
+            .execute_parent(sliced_codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32, 3, 2, 2]);
@@ -144,7 +143,7 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         // Slice to single element at position 4 → code=1 → value=3
         let sliced_codes = unsafe {
-            RunEndArray::new_unchecked(
+            RunEnd::new_unchecked(
                 codes.ends().slice(1..3)?,
                 codes.values().slice(1..3)?,
                 4, // offset
@@ -154,7 +153,7 @@ mod tests {
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
         let result = RunEndTakeFrom
-            .execute_parent(&sliced_codes, &dict, 0, &mut ctx)?
+            .execute_parent(sliced_codes.as_view(), dict.as_view(), 0, &mut ctx)?
             .expect("kernel should return Some");
 
         let expected = PrimitiveArray::from_iter([3i32]);
@@ -167,7 +166,7 @@ mod tests {
         let (codes, dict) = make_dict_with_runend_codes();
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        let result = RunEndTakeFrom.execute_parent(&codes, &dict, 1, &mut ctx)?;
+        let result = RunEndTakeFrom.execute_parent(codes.as_view(), dict.as_view(), 1, &mut ctx)?;
         assert!(result.is_none());
         Ok(())
     }

@@ -4,9 +4,6 @@ mod canonical;
 mod operations;
 mod validity;
 
-use std::hash::Hash;
-use std::sync::Arc;
-
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -18,8 +15,12 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::ConstantArray;
-use crate::arrays::MaskedArray;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::arrays::constant::ConstantData;
+use crate::arrays::masked::MaskedData;
 use crate::arrays::masked::array::NUM_SLOTS;
 use crate::arrays::masked::array::SLOT_NAMES;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
@@ -32,13 +33,10 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::StatsSetRef;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
-vtable!(Masked);
+vtable!(Masked, Masked, MaskedData);
 
 #[derive(Clone, Debug)]
 pub struct Masked;
@@ -48,13 +46,13 @@ impl Masked {
 }
 
 impl VTable for Masked {
-    type Array = MaskedArray;
+    type ArrayData = MaskedData;
 
     type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::Array) -> &Self {
+    fn vtable(_array: &Self::ArrayData) -> &Self {
         &Masked
     }
 
@@ -62,43 +60,41 @@ impl VTable for Masked {
         Self::ID
     }
 
-    fn len(array: &MaskedArray) -> usize {
+    fn len(array: &MaskedData) -> usize {
         array.child().len()
     }
 
-    fn dtype(array: &MaskedArray) -> &DType {
+    fn dtype(array: &MaskedData) -> &DType {
         &array.dtype
     }
 
-    fn stats(array: &MaskedArray) -> StatsSetRef<'_> {
-        array.stats.to_ref(array.as_ref())
+    fn stats(array: &MaskedData) -> &ArrayStats {
+        &array.stats
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &MaskedArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: &MaskedData, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
         array.validity().array_hash(state, precision);
-        array.dtype.hash(state);
     }
 
-    fn array_eq(array: &MaskedArray, other: &MaskedArray, precision: Precision) -> bool {
+    fn array_eq(array: &MaskedData, other: &MaskedData, precision: Precision) -> bool {
         array.child().array_eq(other.child(), precision)
             && array.validity().array_eq(&other.validity(), precision)
-            && array.dtype == other.dtype
     }
 
-    fn nbuffers(_array: &Self::Array) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Self::Array, _idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, _idx: usize) -> BufferHandle {
         vortex_panic!("MaskedArray has no buffers")
     }
 
-    fn buffer_name(_array: &Self::Array, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
+    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -122,7 +118,7 @@ impl VTable for Masked {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<MaskedArray> {
+    ) -> VortexResult<MaskedData> {
         if !buffers.is_empty() {
             vortex_bail!("Expected 0 buffer, got {}", buffers.len());
         }
@@ -142,16 +138,16 @@ impl VTable for Masked {
             Validity::from(dtype.nullability())
         };
 
-        MaskedArray::try_new(child, validity)
+        MaskedData::try_new(child, validity)
     }
 
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
             return Ok(ExecutionResult::done(
-                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
+                ConstantData::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),
             ));
         }
@@ -169,22 +165,22 @@ impl VTable for Masked {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn slots(array: &MaskedArray) -> &[Option<ArrayRef>] {
-        &array.slots
+    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
+        &array.data().slots
     }
 
-    fn slot_name(_array: &MaskedArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut MaskedArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
+    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
         vortex_ensure!(
             slots.len() == NUM_SLOTS,
             "MaskedArray expects exactly {} slots, got {}",
@@ -291,7 +287,7 @@ mod tests {
         let result: Canonical = array.into_array().execute(&mut ctx)?;
 
         assert_eq!(
-            result.as_ref().dtype().nullability(),
+            result.dtype().nullability(),
             Nullability::Nullable,
             "MaskedArray execute should produce Nullable dtype"
         );

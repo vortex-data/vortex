@@ -4,9 +4,9 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::validity::Validity;
-use crate::vtable::VTable;
 
 pub trait ValidityVTable<V: VTable> {
     /// Returns the [`Validity`] of the array.
@@ -14,7 +14,7 @@ pub trait ValidityVTable<V: VTable> {
     /// ## Pre-conditions
     ///
     /// - The array DType is nullable.
-    fn validity(array: &V::Array) -> VortexResult<Validity>;
+    fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity>;
 }
 
 /// An implementation of the [`ValidityVTable`] for arrays that hold validity as a child array.
@@ -22,15 +22,15 @@ pub struct ValidityVTableFromValidityHelper;
 
 /// Expose validity held as a child array.
 pub trait ValidityHelper {
-    fn validity(&self) -> Validity;
+    fn validity(&self) -> &Validity;
 }
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValidityHelper
 where
-    V::Array: ValidityHelper,
+    V::ArrayData: ValidityHelper,
 {
-    fn validity(array: &V::Array) -> VortexResult<Validity> {
-        Ok(array.validity())
+    fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {
+        Ok(array.data().validity().clone())
     }
 }
 
@@ -49,10 +49,10 @@ pub trait ValiditySliceHelper {
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValiditySliceHelper
 where
-    V::Array: ValiditySliceHelper,
+    V::ArrayData: ValiditySliceHelper,
 {
-    fn validity(array: &V::Array) -> VortexResult<Validity> {
-        array.sliced_validity()
+    fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {
+        array.data().sliced_validity()
     }
 }
 
@@ -61,15 +61,15 @@ where
 pub struct ValidityVTableFromChild;
 
 pub trait ValidityChild<V: VTable> {
-    fn validity_child(array: &V::Array) -> &ArrayRef;
+    fn validity_child(array: &V::ArrayData) -> &ArrayRef;
 }
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromChild
 where
     V: ValidityChild<V>,
 {
-    fn validity(array: &V::Array) -> VortexResult<Validity> {
-        V::validity_child(array).validity()
+    fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {
+        V::validity_child(array.data()).validity()
     }
 }
 
@@ -88,9 +88,9 @@ pub trait ValidityChildSliceHelper {
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromChildSliceHelper
 where
-    V::Array: ValidityChildSliceHelper,
+    V::ArrayData: ValidityChildSliceHelper,
 {
-    fn validity(array: &V::Array) -> VortexResult<Validity> {
-        array.sliced_child_array()?.validity()
+    fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {
+        array.data().sliced_child_array()?.validity()
     }
 }

@@ -21,7 +21,7 @@ use vortex_compressor::scheme::SchemeId;
 use vortex_compressor::stats::FloatStats;
 use vortex_compressor::stats::IntegerStats;
 use vortex_error::VortexResult;
-use vortex_fastlanes::RLEArray;
+use vortex_fastlanes::RLE;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -237,7 +237,7 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
     ) -> VortexResult<ArrayRef> {
         let array = data.array().clone();
         let stats = data.get_or_insert_with::<C::Stats>(|| C::generate_stats(&array));
-        let rle_array = RLEArray::encode(RLEStats::source(stats))?;
+        let rle_array = RLE::encode(RLEStats::source(stats))?;
 
         let compressed_values = compressor.compress_child(
             &rle_array.values().to_primitive().into_array(),
@@ -277,7 +277,7 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
 
         // SAFETY: Recursive compression doesn't affect the invariants.
         unsafe {
-            Ok(RLEArray::new_unchecked(
+            Ok(RLE::new_unchecked(
                 compressed_values,
                 compressed_indices,
                 compressed_offsets,
@@ -306,6 +306,6 @@ fn try_compress_delta(
     let compressed_deltas =
         compressor.compress_child(&deltas.into_array(), parent_ctx, parent_id, child_index)?;
 
-    vortex_fastlanes::DeltaArray::try_new(compressed_bases, compressed_deltas, 0, child.len())
-        .map(vortex_fastlanes::DeltaArray::into_array)
+    vortex_fastlanes::DeltaData::try_new(compressed_bases, compressed_deltas, 0, child.len())
+        .map(IntoArray::into_array)
 }

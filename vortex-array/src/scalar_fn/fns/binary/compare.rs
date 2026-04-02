@@ -15,6 +15,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnVTable;
@@ -29,7 +31,6 @@ use crate::kernel::ExecuteParentKernel;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::operators::CompareOperator;
-use crate::vtable::VTable;
 
 /// Trait for encoding-specific comparison kernels that operate in encoded space.
 ///
@@ -38,7 +39,7 @@ use crate::vtable::VTable;
 /// the left-hand side, swapping the operator when necessary.
 pub trait CompareKernel: VTable {
     fn compare(
-        lhs: &Self::Array,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
@@ -61,7 +62,7 @@ where
 
     fn execute_parent(
         &self,
-        array: &V::Array,
+        array: ArrayView<'_, V>,
         parent: ScalarFnArrayView<'_, Binary>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -150,8 +151,8 @@ fn arrow_compare_arrays(
     // Arrow's vectorized comparison kernels don't support nested types.
     // For nested types, fall back to `make_comparator` which does element-wise comparison.
     let arrow_array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
-        let rhs = right.to_array().into_arrow_preferred()?;
-        let lhs = left.to_array().into_arrow(rhs.data_type())?;
+        let rhs = right.clone().into_arrow_preferred()?;
+        let lhs = left.clone().into_arrow(rhs.data_type())?;
 
         assert!(
             lhs.data_type().equals_datatype(rhs.data_type()),

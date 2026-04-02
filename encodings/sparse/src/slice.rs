@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceKernel;
@@ -11,11 +12,11 @@ use vortex_error::VortexResult;
 
 use crate::ConstantArray;
 use crate::Sparse;
-use crate::SparseArray;
+use crate::SparseData;
 
 impl SliceKernel for Sparse {
     fn slice(
-        array: &SparseArray,
+        array: ArrayView<'_, Self>,
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -35,7 +36,7 @@ impl SliceKernel for Sparse {
         // patches slice will ensure that dtype of patches is unchanged and the indices and
         // values match
         Ok(Some(
-            unsafe { SparseArray::new_unchecked(new_patches, array.fill_scalar().clone()) }
+            unsafe { SparseData::new_unchecked(new_patches, array.fill_scalar().clone()) }
                 .into_array(),
         ))
     }

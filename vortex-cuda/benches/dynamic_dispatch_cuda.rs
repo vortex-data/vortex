@@ -25,13 +25,13 @@ use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
 use vortex::dtype::PType;
-use vortex::encodings::alp::ALPArray;
+use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::Exponents;
 use vortex::encodings::alp::alp_encode;
-use vortex::encodings::fastlanes::BitPackedArray;
-use vortex::encodings::fastlanes::FoRArray;
-use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::fastlanes::BitPackedData;
+use vortex::encodings::fastlanes::FoRData;
+use vortex::encodings::runend::RunEnd;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -186,9 +186,9 @@ fn bench_for_bitpacked(c: &mut Criterion) {
             .map(|i| (i as u64 % (max_val + 1)) as u32)
             .collect();
         let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-        let bp = BitPackedArray::encode(&prim.into_array(), bit_width).vortex_expect("bitpack");
+        let bp = BitPackedData::encode(&prim.into_array(), bit_width).vortex_expect("bitpack");
         let for_arr =
-            FoRArray::try_new(bp.into_array(), Scalar::from(reference)).vortex_expect("for");
+            FoRData::try_new(bp.into_array(), Scalar::from(reference)).vortex_expect("for");
         let array = for_arr.into_array();
 
         group.bench_with_input(
@@ -230,7 +230,7 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), dict_bit_width)
+        let codes_bp = BitPackedData::encode(&codes_prim.into_array(), dict_bit_width)
             .vortex_expect("bitpack codes");
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
@@ -277,7 +277,7 @@ fn bench_runend(c: &mut Criterion) {
 
         let ends_arr = PrimitiveArray::new(Buffer::from(ends), NonNullable).into_array();
         let values_arr = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-        let re = RunEndArray::new(ends_arr, values_arr);
+        let re = RunEnd::new(ends_arr, values_arr);
         let array = re.into_array();
 
         group.bench_with_input(
@@ -318,9 +318,9 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
     // Dict values: residuals 0..63 bitpacked, FoR adds 1_000_000
     let dict_residuals: Vec<u32> = (0..dict_size as u32).collect();
     let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-    let dict_bp = BitPackedArray::encode(&dict_prim.into_array(), dict_bit_width)
+    let dict_bp = BitPackedData::encode(&dict_prim.into_array(), dict_bit_width)
         .vortex_expect("bitpack dict");
-    let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))
+    let dict_for = FoRData::try_new(dict_bp.into_array(), Scalar::from(dict_reference))
         .vortex_expect("for dict");
 
     for (len, len_str) in BENCH_ARGS {
@@ -328,7 +328,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
 
         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), codes_bit_width)
+        let codes_bp = BitPackedData::encode(&codes_prim.into_array(), codes_bit_width)
             .vortex_expect("bitpack codes");
 
         let dict = DictArray::new(codes_bp.into_array(), dict_for.clone().into_array());
@@ -379,12 +379,12 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
         // Encode: ALP → FoR → BitPacked
         let alp = alp_encode(&float_prim, Some(exponents)).vortex_expect("alp_encode");
         assert!(alp.patches().is_none());
-        let for_arr = FoRArray::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
+        let for_arr = FoRData::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
         let bp =
-            BitPackedArray::encode(for_arr.encoded(), bit_width).vortex_expect("bitpack encode");
+            BitPackedData::encode(for_arr.encoded(), bit_width).vortex_expect("bitpack encode");
 
-        let tree = ALPArray::new(
-            FoRArray::try_new(bp.into_array(), for_arr.reference_scalar().clone())
+        let tree = ALP::new(
+            FoRData::try_new(bp.into_array(), for_arr.reference_scalar().clone())
                 .vortex_expect("for_new")
                 .into_array(),
             exponents,

@@ -5,15 +5,16 @@ use std::cmp::min;
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
-use crate::DeltaArray;
+use crate::DeltaData;
 use crate::delta::vtable::Delta;
 
 impl SliceReduce for Delta {
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let physical_start = range.start + array.offset();
         let physical_stop = range.end + array.offset();
 
@@ -34,7 +35,7 @@ impl SliceReduce for Delta {
 
         // SAFETY: slicing valid bases/deltas preserves correctness
         Ok(Some(unsafe {
-            DeltaArray::new_unchecked(new_bases, new_deltas, physical_start % 1024, range.len())
+            DeltaData::new_unchecked(new_bases, new_deltas, physical_start % 1024, range.len())
                 .into_array()
         }))
     }

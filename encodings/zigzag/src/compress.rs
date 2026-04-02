@@ -13,7 +13,7 @@ use vortex_error::vortex_panic;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::ZigZagArray;
-
+use crate::ZigZagData;
 pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
     let validity = parray.validity();
     let encoded = match parray.ptype() {
@@ -26,7 +26,7 @@ pub fn zigzag_encode(parray: PrimitiveArray) -> VortexResult<ZigZagArray> {
             parray.ptype()
         ),
     };
-    ZigZagArray::try_new(encoded.into_array())
+    ZigZagArray::try_from_data(ZigZagData::try_new(encoded.into_array())?)
 }
 
 fn zigzag_encode_primitive<T: ExternalZigZag + NativePType>(
@@ -71,6 +71,7 @@ where
 
 #[cfg(test)]
 mod test {
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::assert_arrays_eq;
 
@@ -79,7 +80,9 @@ mod test {
 
     #[test]
     fn test_compress_i8() {
-        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100)).unwrap();
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i8..100))
+            .unwrap()
+            .into_array();
         assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
@@ -88,7 +91,9 @@ mod test {
     }
     #[test]
     fn test_compress_i16() {
-        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i16..100)).unwrap();
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i16..100))
+            .unwrap()
+            .into_array();
         assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
@@ -97,7 +102,9 @@ mod test {
     }
     #[test]
     fn test_compress_i32() {
-        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i32..100)).unwrap();
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i32..100))
+            .unwrap()
+            .into_array();
         assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
@@ -106,7 +113,9 @@ mod test {
     }
     #[test]
     fn test_compress_i64() {
-        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i64..100)).unwrap();
+        let compressed = zigzag_encode(PrimitiveArray::from_iter(-100_i64..100))
+            .unwrap()
+            .into_array();
         assert!(compressed.is::<ZigZag>());
         assert_arrays_eq!(
             compressed.to_primitive(),
