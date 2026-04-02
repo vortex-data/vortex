@@ -6,12 +6,15 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Columnar;
+use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
@@ -29,6 +32,29 @@ pub fn count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
         .as_primitive()
         .typed_value::<u64>()
         .vortex_expect("count result should not be null"))
+}
+
+/// Encoding-agnostic count kernel.
+///
+/// Count-non-null only depends on validity, not data values. Since every encoding
+/// exposes validity independently, this avoids decompressing the data.
+#[derive(Debug)]
+pub(crate) struct CountKernel;
+
+impl DynAggregateKernel for CountKernel {
+    fn aggregate(
+        &self,
+        aggregate_fn: &AggregateFnRef,
+        batch: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Scalar>> {
+        if !aggregate_fn.is::<Count>() {
+            return Ok(None);
+        }
+
+        let count = batch.valid_count()? as u64;
+        Ok(Some(Scalar::primitive(count, Nullability::NonNullable)))
+    }
 }
 
 /// Count the number of non-null elements in an array.
