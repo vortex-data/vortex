@@ -379,7 +379,11 @@ impl ALPRD {
             right_bit_width,
             left_parts_patches,
         )?;
-        Array::try_from_parts(ArrayParts::new(ALPRD, logical_dtype, len, data))
+        Ok(
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(ALPRD, logical_dtype, len, data))
+            },
+        )
     }
 
     /// # Safety
@@ -404,8 +408,7 @@ impl ALPRD {
                 left_parts_patches,
             )
         };
-        Array::try_from_parts(ArrayParts::new(ALPRD, logical_dtype, len, data))
-            .vortex_expect("ALPRDData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ALPRD, logical_dtype, len, data)) }
     }
 }
 

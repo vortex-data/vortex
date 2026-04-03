@@ -41,7 +41,8 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     let data = list.reset_offsets(false).vortex_expect("This can't fail");
     let dtype = data.dtype();
     let len = data.len();
-    let list: ListArray = Array::try_from_parts(ArrayParts::new(List, dtype, len, data))?;
+    let list: ListArray =
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data)) };
 
     let list_offsets = list.offsets().clone();
 

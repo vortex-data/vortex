@@ -452,13 +452,14 @@ impl ALP {
     pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> ALPArray {
         let dtype = ALPData::logical_dtype(&encoded).vortex_expect("ALP encoded dtype");
         let len = encoded.len();
-        Array::try_from_parts(ArrayParts::new(
-            ALP,
-            dtype,
-            len,
-            ALPData::new(encoded, exponents, patches),
-        ))
-        .vortex_expect("ALPData is always valid")
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(
+                ALP,
+                dtype,
+                len,
+                ALPData::new(encoded, exponents, patches),
+            ))
+        }
     }
 
     pub fn try_new(
@@ -469,7 +470,7 @@ impl ALP {
         let dtype = ALPData::logical_dtype(&encoded)?;
         let len = encoded.len();
         let data = ALPData::try_new(encoded, exponents, patches)?;
-        Array::try_from_parts(ArrayParts::new(ALP, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(ALP, dtype, len, data)) })
     }
 
     /// # Safety
@@ -481,10 +482,8 @@ impl ALP {
     ) -> ALPArray {
         let dtype = ALPData::logical_dtype(&encoded).vortex_expect("ALP encoded dtype");
         let len = encoded.len();
-        Array::try_from_parts(ArrayParts::new(ALP, dtype, len, unsafe {
-            ALPData::new_unchecked(encoded, exponents, patches)
-        }))
-        .vortex_expect("ALPData is always valid")
+        let data = unsafe { ALPData::new_unchecked(encoded, exponents, patches) };
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ALP, dtype, len, data)) }
     }
 }
 

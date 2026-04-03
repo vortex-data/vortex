@@ -234,7 +234,11 @@ impl DateTimeParts {
     ) -> VortexResult<DateTimePartsArray> {
         let data = DateTimePartsData::try_new(dtype.clone(), days, seconds, subseconds)?;
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(DateTimeParts, dtype, len, data))
+        Ok(
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(DateTimeParts, dtype, len, data))
+            },
+        )
     }
 
     /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`].
@@ -242,7 +246,11 @@ impl DateTimeParts {
         let dtype = temporal.dtype().clone();
         let data = DateTimePartsData::try_from(temporal)?;
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(DateTimeParts, dtype, len, data))
+        Ok(
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(DateTimeParts, dtype, len, data))
+            },
+        )
     }
 }
 

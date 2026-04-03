@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
-
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -47,7 +45,6 @@ impl Array<Constant> {
         let scalar = scalar.into();
         let dtype = scalar.dtype().clone();
         let data = ConstantData::new(scalar);
-        Array::try_from_parts(ArrayParts::new(Constant, dtype, len, data))
-            .vortex_expect("ConstantData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Constant, dtype, len, data)) }
     }
 }

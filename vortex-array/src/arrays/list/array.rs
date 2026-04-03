@@ -361,8 +361,7 @@ impl Array<List> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len().saturating_sub(1);
         let data = ListData::new(elements, offsets, validity);
-        Array::try_from_parts(ArrayParts::new(List, dtype, len, data))
-            .vortex_expect("ListData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data)) }
     }
 
     /// Constructs a new `ListArray`.
@@ -374,7 +373,7 @@ impl Array<List> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len().saturating_sub(1);
         let data = ListData::try_new(elements, offsets, validity)?;
-        Array::try_from_parts(ArrayParts::new(List, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data)) })
     }
 
     /// Creates a new `ListArray` without validation.
@@ -386,8 +385,7 @@ impl Array<List> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len().saturating_sub(1);
         let data = unsafe { ListData::new_unchecked(elements, offsets, validity) };
-        Array::try_from_parts(ArrayParts::new(List, dtype, len, data))
-            .vortex_expect("ListData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data)) }
     }
 }
 
@@ -400,7 +398,9 @@ impl ListData {
             let data = child_list_array.reset_offsets(recurse)?;
             let dtype = data.dtype();
             let len = data.len();
-            elements = Array::try_from_parts(ArrayParts::new(List, dtype, len, data))?.into_array();
+            elements =
+                unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data)) }
+                    .into_array();
         }
 
         let offsets = self.offsets();

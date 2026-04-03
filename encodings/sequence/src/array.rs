@@ -408,9 +408,8 @@ impl Sequence {
             .vortex_expect("SequenceArray parts must be normalized to the target ptype");
         let stats = Self::stats(multiplier);
         let data = unsafe { SequenceData::new_unchecked(base, multiplier) };
-        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data))
-            .map(|array| array.with_stats_set(stats))
-            .vortex_expect("pre-validated SequenceArray parts must be valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
+            .with_stats_set(stats)
     }
 
     /// Construct a new [`SequenceArray`] from its components.
@@ -424,8 +423,10 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new(base, multiplier, ptype, nullability, length)?;
         let stats = Self::stats(data.multiplier());
-        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data))
-            .map(|array| array.with_stats_set(stats))
+        Ok(
+            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
+                .with_stats_set(stats),
+        )
     }
 
     /// Construct a new typed [`SequenceArray`] from base/multiplier values.
@@ -439,8 +440,10 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new_typed(base, multiplier, nullability, length)?;
         let stats = Self::stats(data.multiplier());
-        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data))
-            .map(|array| array.with_stats_set(stats))
+        Ok(
+            unsafe { Array::from_parts_unchecked(ArrayParts::new(Sequence, dtype, length, data)) }
+                .with_stats_set(stats),
+        )
     }
 }
 

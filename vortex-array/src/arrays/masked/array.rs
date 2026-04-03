@@ -92,6 +92,6 @@ impl Array<Masked> {
         let dtype = child.dtype().as_nullable();
         let len = child.len();
         let data = MaskedData::try_new(child, validity)?;
-        Array::try_from_parts(ArrayParts::new(Masked, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Masked, dtype, len, data)) })
     }
 }

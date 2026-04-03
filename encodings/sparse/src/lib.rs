@@ -253,22 +253,21 @@ impl Sparse {
     ) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
         let data = SparseData::try_new(indices, values, len, fill_value)?;
-        Array::try_from_parts(ArrayParts::new(Sparse, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data)) })
     }
 
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
         let len = patches.array_len();
         let data = SparseData::try_new_from_patches(patches, fill_value)?;
-        Array::try_from_parts(ArrayParts::new(Sparse, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data)) })
     }
 
     pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> SparseArray {
         let dtype = fill_value.dtype().clone();
         let len = patches.array_len();
         let data = unsafe { SparseData::new_unchecked(patches, fill_value) };
-        Array::try_from_parts(ArrayParts::new(Sparse, dtype, len, data))
-            .vortex_expect("pre-validated SparseArray parts must be valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data)) }
     }
 
     /// Encode the given array as a [`SparseArray`].

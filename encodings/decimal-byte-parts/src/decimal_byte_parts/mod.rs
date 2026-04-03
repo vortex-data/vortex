@@ -266,7 +266,9 @@ impl DecimalByteParts {
         let data = DecimalBytePartsData::try_new(msp, decimal_dtype)?;
         let dtype = DType::Decimal(decimal_dtype, data.msp().dtype().nullability());
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(DecimalByteParts, dtype, len, data))
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(DecimalByteParts, dtype, len, data))
+        })
     }
 }
 

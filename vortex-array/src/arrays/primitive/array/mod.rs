@@ -198,8 +198,7 @@ impl Array<Primitive> {
         let dtype = DType::Primitive(T::PTYPE, nullability);
         let len = 0;
         let data = PrimitiveData::empty::<T>(nullability);
-        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data))
-            .vortex_expect("PrimitiveData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data)) }
     }
 
     /// Creates a new `PrimitiveArray`.
@@ -212,8 +211,7 @@ impl Array<Primitive> {
         let dtype = DType::Primitive(T::PTYPE, validity.nullability());
         let len = buffer.len();
         let data = PrimitiveData::new(buffer, validity);
-        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data))
-            .vortex_expect("PrimitiveData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data)) }
     }
 
     /// Constructs a new `PrimitiveArray`.
@@ -221,7 +219,7 @@ impl Array<Primitive> {
         let dtype = DType::Primitive(T::PTYPE, validity.nullability());
         let len = buffer.len();
         let data = PrimitiveData::try_new(buffer, validity)?;
-        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data)) })
     }
 
     /// Creates a new `PrimitiveArray` without validation.
@@ -233,8 +231,7 @@ impl Array<Primitive> {
         let dtype = DType::Primitive(T::PTYPE, validity.nullability());
         let len = buffer.len();
         let data = unsafe { PrimitiveData::new_unchecked(buffer, validity) };
-        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data))
-            .vortex_expect("PrimitiveData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data)) }
     }
 
     /// Create a new array from a buffer handle.
@@ -250,8 +247,7 @@ impl Array<Primitive> {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let len = handle.len() / ptype.byte_width();
         let data = unsafe { PrimitiveData::new_unchecked_from_handle(handle, ptype, validity) };
-        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data))
-            .vortex_expect("PrimitiveData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data)) }
     }
 
     /// Creates a new `PrimitiveArray` from a [`BufferHandle`].
@@ -268,8 +264,7 @@ impl Array<Primitive> {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let len = buffer.len() / ptype.byte_width();
         let data = PrimitiveData::from_byte_buffer(buffer, ptype, validity);
-        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data))
-            .vortex_expect("PrimitiveData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data)) }
     }
 
     /// Create a PrimitiveArray from a byte buffer containing only the valid elements.
@@ -283,8 +278,7 @@ impl Array<Primitive> {
         let len = n_rows;
         let data =
             PrimitiveData::from_values_byte_buffer(valid_elems_buffer, ptype, validity, n_rows);
-        Array::try_from_parts(ArrayParts::new(Primitive, dtype, len, data))
-            .vortex_expect("PrimitiveData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data)) }
     }
 
     /// Validates the components that would be used to create a `PrimitiveArray`.

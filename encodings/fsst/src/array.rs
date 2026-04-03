@@ -362,7 +362,7 @@ impl FSST {
     ) -> VortexResult<FSSTArray> {
         let len = codes.len();
         let data = FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, &dtype)?;
-        Array::try_from_parts(ArrayParts::new(FSST, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data)) })
     }
 
     pub(crate) unsafe fn new_unchecked(
@@ -376,8 +376,7 @@ impl FSST {
         let data = unsafe {
             FSSTData::new_unchecked(symbols, symbol_lengths, codes, uncompressed_lengths)
         };
-        Array::try_from_parts(ArrayParts::new(FSST, dtype, len, data))
-            .vortex_expect("pre-validated FSST parts must be valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data)) }
     }
 }
 

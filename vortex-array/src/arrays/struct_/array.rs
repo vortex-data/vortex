@@ -559,8 +559,7 @@ impl Array<Struct> {
         let data = StructData::new(names, fields, length, validity);
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
-            .vortex_expect("StructData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data)) }
     }
 
     /// Constructs a new `StructArray`.
@@ -573,7 +572,7 @@ impl Array<Struct> {
         let data = StructData::try_new(names, fields, length, validity)?;
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data)) })
     }
 
     /// Creates a new `StructArray` without validation.
@@ -590,8 +589,7 @@ impl Array<Struct> {
         let data = unsafe { StructData::new_unchecked(fields, dtype, length, validity) };
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
-            .vortex_expect("StructData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data)) }
     }
 
     /// Constructs a new `StructArray` with an explicit dtype.
@@ -604,7 +602,7 @@ impl Array<Struct> {
         let data = StructData::try_new_with_dtype(fields, dtype, length, validity)?;
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data)) })
     }
 
     /// Construct a `StructArray` from named fields.
@@ -612,7 +610,7 @@ impl Array<Struct> {
         let data = StructData::from_fields(items)?;
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data)) })
     }
 
     /// Create a `StructArray` from an iterator of (name, array) pairs with validity.
@@ -627,7 +625,7 @@ impl Array<Struct> {
         let data = StructData::try_from_iter_with_validity(iter, validity)?;
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data)) })
     }
 
     /// Create a `StructArray` from an iterator of (name, array) pairs.
@@ -637,7 +635,7 @@ impl Array<Struct> {
         let data = StructData::try_from_iter(iter)?;
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data)) })
     }
 
     /// Create a fieldless `StructArray` with the given length.
@@ -645,8 +643,7 @@ impl Array<Struct> {
         let data = StructData::new_fieldless_with_len(len);
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
-            .vortex_expect("StructData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data)) }
     }
 }
 

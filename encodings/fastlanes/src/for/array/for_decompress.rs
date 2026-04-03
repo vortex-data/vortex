@@ -18,6 +18,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
+use crate::BitPackedArrayExt;
 use crate::FoRArray;
 use crate::bitpack_decompress;
 use crate::unpack_iter::UnpackStrategy;
@@ -92,13 +93,13 @@ pub(crate) fn fused_decompress<
     let strategy = FoRStrategy { reference: ref_ };
 
     // Create [`UnpackedChunks`] with FoR strategy.
-    let mut unpacked = UnpackedChunks::new_with_strategy(
+    let mut unpacked = UnpackedChunks::try_new_with_strategy(
         strategy,
         bp.packed().as_host().clone(),
         bp.bit_width() as usize,
         bp.offset() as usize,
         bp.len(),
-    );
+    )?;
 
     let mut builder = PrimitiveBuilder::<T>::with_capacity(
         for_.reference_scalar().dtype().nullability(),
@@ -107,7 +108,7 @@ pub(crate) fn fused_decompress<
     let mut uninit_range = builder.uninit_range(bp.len());
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(bp.validity_mask(bp.len(), bp.dtype().nullability()));
+        uninit_range.append_mask(bp.validity_mask());
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -116,7 +117,7 @@ pub(crate) fn fused_decompress<
     // Decode all chunks (initial, full, and trailer) in one call.
     unpacked.decode_into(uninit_slice);
 
-    if let Some(ref patches) = bp.patches(bp.len()) {
+    if let Some(ref patches) = bp.patches() {
         bitpack_decompress::apply_patches_to_uninit_range_fn(
             &mut uninit_range,
             patches,

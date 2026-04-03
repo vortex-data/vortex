@@ -80,7 +80,9 @@ impl ParquetVariant {
         let len = metadata.len();
         let dtype = DType::Variant(validity.nullability());
         let data = ParquetVariantData::try_new(validity, metadata, value, typed_value)?;
-        Array::try_from_parts(ArrayParts::new(ParquetVariant, dtype, len, data))
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(ParquetVariant, dtype, len, data))
+        })
     }
 }
 

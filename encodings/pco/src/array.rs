@@ -281,7 +281,8 @@ impl Pco {
 
     pub(crate) fn try_new(dtype: DType, data: PcoData) -> VortexResult<PcoArray> {
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Pco, dtype, len, data))
+        data.validate(&dtype, len)?;
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data)) })
     }
 
     /// Compress a primitive array using pcodec.

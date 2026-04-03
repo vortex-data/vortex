@@ -123,8 +123,14 @@ impl Array<Shared> {
     pub fn new(source: ArrayRef) -> Self {
         let dtype = source.dtype().clone();
         let len = source.len();
-        Array::try_from_parts(ArrayParts::new(Shared, dtype, len, SharedData::new(source)))
-            .vortex_expect("SharedData is always valid")
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(
+                Shared,
+                dtype,
+                len,
+                SharedData::new(source),
+            ))
+        }
     }
 }
 

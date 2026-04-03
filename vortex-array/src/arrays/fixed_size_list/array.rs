@@ -275,8 +275,7 @@ impl Array<FixedSizeList> {
             validity.nullability(),
         );
         let data = FixedSizeListData::new(elements, list_size, validity, len);
-        Array::try_from_parts(ArrayParts::new(FixedSizeList, dtype, len, data))
-            .vortex_expect("FixedSizeListData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data)) }
     }
 
     /// Constructs a new `FixedSizeListArray`.
@@ -292,7 +291,11 @@ impl Array<FixedSizeList> {
             validity.nullability(),
         );
         let data = FixedSizeListData::try_new(elements, list_size, validity, len)?;
-        Array::try_from_parts(ArrayParts::new(FixedSizeList, dtype, len, data))
+        Ok(
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data))
+            },
+        )
     }
 
     /// Creates a new `FixedSizeListArray` without validation.
@@ -312,8 +315,7 @@ impl Array<FixedSizeList> {
             validity.nullability(),
         );
         let data = unsafe { FixedSizeListData::new_unchecked(elements, list_size, validity, len) };
-        Array::try_from_parts(ArrayParts::new(FixedSizeList, dtype, len, data))
-            .vortex_expect("FixedSizeListData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data)) }
     }
 }
 

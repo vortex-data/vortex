@@ -65,13 +65,14 @@ impl Array<Variant> {
         let dtype = DType::Variant(child.dtype().nullability());
         let len = child.len();
         let stats = child.statistics().to_owned();
-        Array::try_from_parts(ArrayParts::new(
-            Variant,
-            dtype,
-            len,
-            VariantData::new(child),
-        ))
-        .map(|array| array.with_stats_set(stats))
-        .vortex_expect("VariantData is always valid")
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(
+                Variant,
+                dtype,
+                len,
+                VariantData::new(child),
+            ))
+        }
+        .with_stats_set(stats)
     }
 }

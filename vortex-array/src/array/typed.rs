@@ -178,7 +178,8 @@ impl<V: VTable> Array<V> {
     ///
     /// # Safety
     /// Caller must ensure the provided parts are logically consistent.
-    pub(crate) unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
+    #[doc(hidden)]
+    pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
         let inner = ArrayRef::from_inner(Arc::new(unsafe {
             ArrayInner::<V>::from_data_unchecked(
                 new.vtable,

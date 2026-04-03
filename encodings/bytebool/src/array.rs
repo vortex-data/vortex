@@ -28,7 +28,6 @@ use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -189,8 +188,7 @@ impl ByteBool {
         let dtype = DType::Bool(validity.nullability());
         let data = ByteBoolData::new(buffer, validity);
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(ByteBool, dtype, len, data))
-            .vortex_expect("ByteBoolData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ByteBool, dtype, len, data)) }
     }
 
     /// Construct a [`ByteBoolArray`] from a `Vec<bool>` and validity.
@@ -198,8 +196,7 @@ impl ByteBool {
         let data = ByteBoolData::from_vec(data, validity);
         let dtype = DType::Bool(data.validity.nullability());
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(ByteBool, dtype, len, data))
-            .vortex_expect("ByteBoolData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ByteBool, dtype, len, data)) }
     }
 
     /// Construct a [`ByteBoolArray`] from optional bools.
@@ -207,8 +204,7 @@ impl ByteBool {
         let data = ByteBoolData::from(data);
         let dtype = DType::Bool(data.validity.nullability());
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(ByteBool, dtype, len, data))
-            .vortex_expect("ByteBoolData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ByteBool, dtype, len, data)) }
     }
 }
 

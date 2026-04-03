@@ -176,7 +176,7 @@ impl ZigZag {
         let data = ZigZagData::try_new(encoded)?;
         let dtype = ZigZagData::dtype_from_encoded_dtype(data.encoded().dtype())?;
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(ZigZag, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(ZigZag, dtype, len, data)) })
     }
 }
 

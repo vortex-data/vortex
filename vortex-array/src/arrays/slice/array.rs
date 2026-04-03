@@ -91,7 +91,7 @@ impl Array<Slice> {
         let len = range.len();
         let dtype = child.dtype().clone();
         let data = SliceData::try_new(child, range)?;
-        Array::try_from_parts(ArrayParts::new(Slice, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Slice, dtype, len, data)) })
     }
 
     /// Constructs a new `SliceArray`.
@@ -99,7 +99,6 @@ impl Array<Slice> {
         let len = range.len();
         let dtype = child.dtype().clone();
         let data = SliceData::new(child, range);
-        Array::try_from_parts(ArrayParts::new(Slice, dtype, len, data))
-            .vortex_expect("SliceData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Slice, dtype, len, data)) }
     }
 }

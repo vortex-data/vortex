@@ -151,8 +151,7 @@ impl Array<Extension> {
         let dtype = DType::Extension(ext_dtype.clone());
         let len = storage_array.len();
         let data = ExtensionData::new(ext_dtype, storage_array);
-        Array::try_from_parts(ArrayParts::new(Extension, dtype, len, data))
-            .vortex_expect("ExtensionData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Extension, dtype, len, data)) }
     }
 
     /// Tries to construct a new `ExtensionArray`.
@@ -160,6 +159,6 @@ impl Array<Extension> {
         let dtype = DType::Extension(ext_dtype.clone());
         let len = storage_array.len();
         let data = ExtensionData::try_new(ext_dtype, storage_array)?;
-        Array::try_from_parts(ArrayParts::new(Extension, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Extension, dtype, len, data)) })
     }
 }

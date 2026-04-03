@@ -23,7 +23,6 @@ use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -216,7 +215,7 @@ impl RLE {
     ) -> VortexResult<RLEArray> {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
         let data = RLEData::try_new(values, indices, values_idx_offsets, offset, length)?;
-        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data)) })
     }
 
     /// Create a new RLE array without validation.
@@ -232,8 +231,7 @@ impl RLE {
     ) -> RLEArray {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
         let data = unsafe { RLEData::new_unchecked(values, indices, values_idx_offsets, offset) };
-        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data))
-            .vortex_expect("pre-validated RLE parts must be valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data)) }
     }
 
     /// Encode a primitive array using FastLanes RLE.

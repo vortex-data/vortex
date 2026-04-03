@@ -189,7 +189,7 @@ impl Array<Bool> {
         let dtype = DType::Bool(validity.nullability());
         let len = bits.len();
         let data = BoolData::try_new(bits, validity)?;
-        Array::try_from_parts(ArrayParts::new(Bool, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data)) })
     }
 
     /// Build a new bool array from a `BufferHandle`, returning an error if the offset is
@@ -202,7 +202,7 @@ impl Array<Bool> {
     ) -> VortexResult<Self> {
         let dtype = DType::Bool(validity.nullability());
         let data = BoolData::try_new_from_handle(bits, offset, len, validity)?;
-        Array::try_from_parts(ArrayParts::new(Bool, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data)) })
     }
 
     /// Creates a new [`BoolArray`] without validation.
@@ -215,8 +215,7 @@ impl Array<Bool> {
         let len = bits.len();
         // SAFETY: caller guarantees validity length equals bit buffer length.
         let data = unsafe { BoolData::new_unchecked(bits, validity) };
-        Array::try_from_parts(ArrayParts::new(Bool, dtype, len, data))
-            .vortex_expect("BoolData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Bool, dtype, len, data)) }
     }
 
     /// Validates the components that would be used to create a [`BoolArray`].

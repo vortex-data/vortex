@@ -215,8 +215,7 @@ impl RunEnd {
     ) -> RunEndArray {
         let data = unsafe { RunEndData::new_unchecked(ends, values, offset, length) };
         let dtype = data.dtype().clone();
-        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data))
-            .vortex_expect("RunEndData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, length, data)) }
     }
 
     /// Build a new [`RunEndArray`] from ends and values.
@@ -224,7 +223,7 @@ impl RunEnd {
         let len = RunEndData::logical_len_from_ends(&ends)?;
         let data = RunEndData::try_new_offset_length(ends, values, 0, len)?;
         let dtype = data.dtype().clone();
-        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, len, data)) })
     }
 
     /// Build a new [`RunEndArray`] from ends, values, offset, and length.
@@ -236,7 +235,7 @@ impl RunEnd {
     ) -> VortexResult<RunEndArray> {
         let data = RunEndData::try_new_offset_length(ends, values, offset, length)?;
         let dtype = data.dtype().clone();
-        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, length, data)) })
     }
 
     /// Build a new [`RunEndArray`] from ends and values (panics on invalid input).
@@ -249,7 +248,7 @@ impl RunEnd {
         let len = array.len();
         let data = RunEndData::encode(array)?;
         let dtype = data.dtype().clone();
-        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, len, data)) })
     }
 }
 

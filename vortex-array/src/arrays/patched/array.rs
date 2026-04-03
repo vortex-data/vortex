@@ -132,9 +132,10 @@ impl IntoArray for PatchedArray {
     fn into_array(self) -> ArrayRef {
         let dtype = self.base_array().dtype().clone();
         let len = self.len();
-        Array::<Patched>::try_from_parts(ArrayParts::new(Patched, dtype, len, self))
-            .vortex_expect("PatchedArray is always valid")
-            .into_array()
+        unsafe {
+            Array::<Patched>::from_parts_unchecked(ArrayParts::new(Patched, dtype, len, self))
+        }
+        .into_array()
     }
 }
 

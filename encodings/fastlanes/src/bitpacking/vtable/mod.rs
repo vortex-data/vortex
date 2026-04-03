@@ -37,6 +37,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::BitPackedArrayExt;
 use crate::BitPackedData;
 use crate::BitPackedDataParts;
 use crate::bitpack_decompress::unpack_array;
@@ -88,10 +89,34 @@ impl VTable for BitPacked {
         array.offset.hash(state);
         array.bit_width.hash(state);
         array.packed.array_hash(state, precision);
-        option_array_hash(&array.slots[PATCH_INDICES_SLOT], state, precision);
-        option_array_hash(&array.slots[PATCH_VALUES_SLOT], state, precision);
-        option_array_hash(&array.slots[PATCH_CHUNK_OFFSETS_SLOT], state, precision);
-        option_array_hash(&array.slots[VALIDITY_SLOT], state, precision);
+        match array.patch_indices() {
+            Some(indices) => {
+                true.hash(state);
+                indices.array_hash(state, precision);
+            }
+            None => false.hash(state),
+        }
+        match array.patch_values() {
+            Some(values) => {
+                true.hash(state);
+                values.array_hash(state, precision);
+            }
+            None => false.hash(state),
+        }
+        match array.patch_chunk_offsets() {
+            Some(offsets) => {
+                true.hash(state);
+                offsets.array_hash(state, precision);
+            }
+            None => false.hash(state),
+        }
+        match array.validity_child() {
+            Some(validity) => {
+                true.hash(state);
+                validity.array_hash(state, precision);
+            }
+            None => false.hash(state),
+        }
         array.patch_offset.hash(state);
         array.patch_offset_within_chunk.hash(state);
     }
@@ -100,26 +125,26 @@ impl VTable for BitPacked {
         array.offset == other.offset
             && array.bit_width == other.bit_width
             && array.packed.array_eq(&other.packed, precision)
-            && option_array_eq(
-                &array.slots[PATCH_INDICES_SLOT],
-                &other.slots[PATCH_INDICES_SLOT],
-                precision,
-            )
-            && option_array_eq(
-                &array.slots[PATCH_VALUES_SLOT],
-                &other.slots[PATCH_VALUES_SLOT],
-                precision,
-            )
-            && option_array_eq(
-                &array.slots[PATCH_CHUNK_OFFSETS_SLOT],
-                &other.slots[PATCH_CHUNK_OFFSETS_SLOT],
-                precision,
-            )
-            && option_array_eq(
-                &array.slots[VALIDITY_SLOT],
-                &other.slots[VALIDITY_SLOT],
-                precision,
-            )
+            && match (array.patch_indices(), other.patch_indices()) {
+                (Some(lhs), Some(rhs)) => lhs.array_eq(rhs, precision),
+                (None, None) => true,
+                _ => false,
+            }
+            && match (array.patch_values(), other.patch_values()) {
+                (Some(lhs), Some(rhs)) => lhs.array_eq(rhs, precision),
+                (None, None) => true,
+                _ => false,
+            }
+            && match (array.patch_chunk_offsets(), other.patch_chunk_offsets()) {
+                (Some(lhs), Some(rhs)) => lhs.array_eq(rhs, precision),
+                (None, None) => true,
+                _ => false,
+            }
+            && match (array.validity_child(), other.validity_child()) {
+                (Some(lhs), Some(rhs)) => lhs.array_eq(rhs, precision),
+                (None, None) => true,
+                _ => false,
+            }
             && array.patch_offset == other.patch_offset
             && array.patch_offset_within_chunk == other.patch_offset_within_chunk
     }
@@ -182,7 +207,7 @@ impl VTable for BitPacked {
                 bit_width: array.bit_width() as u32,
                 offset: array.offset() as u32,
                 patches: array
-                    .patches(array.len())
+                    .patches()
                     .map(|p| p.to_metadata(array.len(), array.dtype()))
                     .transpose()?,
             }
@@ -271,7 +296,7 @@ impl VTable for BitPacked {
     ) -> VortexResult<()> {
         match_each_integer_ptype!(array.dtype().as_ptype(), |T| {
             unpack_into_primitive_builder::<T>(
-                &array,
+                array,
                 builder
                     .as_any_mut()
                     .downcast_mut()
@@ -284,14 +309,14 @@ impl VTable for BitPacked {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         require_patches!(
             array,
-            array.patches(array.len()),
+            array.patches(),
             PATCH_INDICES_SLOT,
             PATCH_VALUES_SLOT,
             PATCH_CHUNK_OFFSETS_SLOT
         );
         require_validity!(
             array,
-            &array.validity(array.dtype().nullability()),
+            &array.validity(),
             VALIDITY_SLOT => AnyCanonical
         );
 
@@ -328,7 +353,7 @@ impl BitPacked {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let data =
             BitPackedData::try_new(packed, ptype, validity, patches, bit_width, len, offset)?;
-        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(BitPacked, dtype, len, data)) })
     }
 
     pub fn into_parts(array: BitPackedArray) -> BitPackedDataParts {
@@ -340,27 +365,5 @@ impl BitPacked {
     /// Encode an array into a bitpacked representation with the given bit width.
     pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<BitPackedArray> {
         BitPackedData::encode(array, bit_width)
-    }
-}
-
-fn option_array_hash<H: std::hash::Hasher>(
-    array: &Option<ArrayRef>,
-    state: &mut H,
-    precision: Precision,
-) {
-    match array {
-        Some(array) => {
-            true.hash(state);
-            array.array_hash(state, precision);
-        }
-        None => false.hash(state),
-    }
-}
-
-fn option_array_eq(lhs: &Option<ArrayRef>, rhs: &Option<ArrayRef>, precision: Precision) -> bool {
-    match (lhs, rhs) {
-        (Some(lhs), Some(rhs)) => lhs.array_eq(rhs, precision),
-        (None, None) => true,
-        _ => false,
     }
 }

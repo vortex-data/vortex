@@ -400,12 +400,15 @@ impl VarBinData {
 
 /// Forwarding constructors for `VarBinArray` (= `Array<VarBin>`).
 impl Array<VarBin> {
-    pub fn from_vec<T: AsRef<[u8]>>(vec: Vec<T>, dtype: DType) -> Self {
-        let data = VarBinData::from_vec(vec, dtype);
+    #[inline]
+    fn from_prevalidated_data(data: VarBinData) -> Self {
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data)) }
+    }
+
+    pub fn from_vec<T: AsRef<[u8]>>(vec: Vec<T>, dtype: DType) -> Self {
+        Self::from_prevalidated_data(VarBinData::from_vec(vec, dtype))
     }
 
     #[expect(
@@ -416,22 +419,14 @@ impl Array<VarBin> {
         iter: I,
         dtype: DType,
     ) -> Self {
-        let data = VarBinData::from_iter(iter, dtype);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::from_iter(iter, dtype))
     }
 
     pub fn from_iter_nonnull<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(
         iter: I,
         dtype: DType,
     ) -> Self {
-        let data = VarBinData::from_iter_nonnull(iter, dtype);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::from_iter_nonnull(iter, dtype))
     }
 
     /// Create from a vector of string slices.
@@ -500,11 +495,7 @@ impl VarBinData {
 impl Array<VarBin> {
     /// Creates a new `VarBinArray`.
     pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
-        let data = VarBinData::new(offsets, bytes, dtype, validity);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::new(offsets, bytes, dtype, validity))
     }
 
     /// Creates a new `VarBinArray` without validation.
@@ -518,11 +509,9 @@ impl Array<VarBin> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        let data = unsafe { VarBinData::new_unchecked(offsets, bytes, dtype, validity) };
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(unsafe {
+            VarBinData::new_unchecked(offsets, bytes, dtype, validity)
+        })
     }
 
     /// Creates a new `VarBinArray` without validation from a [`BufferHandle`].
@@ -536,12 +525,9 @@ impl Array<VarBin> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        let data =
-            unsafe { VarBinData::new_unchecked_from_handle(offsets, bytes, dtype, validity) };
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(unsafe {
+            VarBinData::new_unchecked_from_handle(offsets, bytes, dtype, validity)
+        })
     }
 
     /// Constructs a new `VarBinArray`.
@@ -551,10 +537,9 @@ impl Array<VarBin> {
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        let data = VarBinData::try_new(offsets, bytes, dtype, validity)?;
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
+        Ok(Self::from_prevalidated_data(VarBinData::try_new(
+            offsets, bytes, dtype, validity,
+        )?))
     }
 }
 
@@ -634,120 +619,72 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinData {
 
 impl From<Vec<&[u8]>> for Array<VarBin> {
     fn from(value: Vec<&[u8]>) -> Self {
-        let data = VarBinData::from(value);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::from(value))
     }
 }
 
 impl From<Vec<Vec<u8>>> for Array<VarBin> {
     fn from(value: Vec<Vec<u8>>) -> Self {
-        let data = VarBinData::from(value);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::from(value))
     }
 }
 
 impl From<Vec<String>> for Array<VarBin> {
     fn from(value: Vec<String>) -> Self {
-        let data = VarBinData::from(value);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::from(value))
     }
 }
 
 impl From<Vec<&str>> for Array<VarBin> {
     fn from(value: Vec<&str>) -> Self {
-        let data = VarBinData::from(value);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::from(value))
     }
 }
 
 impl From<Vec<Option<&[u8]>>> for Array<VarBin> {
     fn from(value: Vec<Option<&[u8]>>) -> Self {
-        let data = VarBinData::from(value);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::from(value))
     }
 }
 
 impl From<Vec<Option<Vec<u8>>>> for Array<VarBin> {
     fn from(value: Vec<Option<Vec<u8>>>) -> Self {
-        let data = VarBinData::from(value);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::from(value))
     }
 }
 
 impl From<Vec<Option<String>>> for Array<VarBin> {
     fn from(value: Vec<Option<String>>) -> Self {
-        let data = VarBinData::from(value);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::from(value))
     }
 }
 
 impl From<Vec<Option<&str>>> for Array<VarBin> {
     fn from(value: Vec<Option<&str>>) -> Self {
-        let data = VarBinData::from(value);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("VarBinData is always valid")
+        Self::from_prevalidated_data(VarBinData::from(value))
     }
 }
 
 impl<'a> FromIterator<Option<&'a [u8]>> for Array<VarBin> {
     fn from_iter<T: IntoIterator<Item = Option<&'a [u8]>>>(iter: T) -> Self {
-        let data = <VarBinData as FromIterator<_>>::from_iter(iter);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("<VarBinData as FromIterator<_> is always valid")
+        Self::from_prevalidated_data(<VarBinData as FromIterator<_>>::from_iter(iter))
     }
 }
 
 impl FromIterator<Option<Vec<u8>>> for Array<VarBin> {
     fn from_iter<T: IntoIterator<Item = Option<Vec<u8>>>>(iter: T) -> Self {
-        let data = <VarBinData as FromIterator<_>>::from_iter(iter);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("<VarBinData as FromIterator<_> is always valid")
+        Self::from_prevalidated_data(<VarBinData as FromIterator<_>>::from_iter(iter))
     }
 }
 
 impl FromIterator<Option<String>> for Array<VarBin> {
     fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
-        let data = <VarBinData as FromIterator<_>>::from_iter(iter);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("<VarBinData as FromIterator<_> is always valid")
+        Self::from_prevalidated_data(<VarBinData as FromIterator<_>>::from_iter(iter))
     }
 }
 
 impl<'a> FromIterator<Option<&'a str>> for Array<VarBin> {
     fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
-        let data = <VarBinData as FromIterator<_>>::from_iter(iter);
-        let dtype = data.dtype();
-        let len = data.len();
-        Array::try_from_parts(ArrayParts::new(VarBin, dtype, len, data))
-            .vortex_expect("<VarBinData as FromIterator<_> is always valid")
+        Self::from_prevalidated_data(<VarBinData as FromIterator<_>>::from_iter(iter))
     }
 }

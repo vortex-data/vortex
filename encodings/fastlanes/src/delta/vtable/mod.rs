@@ -183,7 +183,7 @@ impl Delta {
     ) -> VortexResult<DeltaArray> {
         let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         let data = DeltaData::try_new(bases, deltas, offset, len)?;
-        Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Delta, dtype, len, data)) })
     }
 
     /// Compress a primitive array using Delta encoding.

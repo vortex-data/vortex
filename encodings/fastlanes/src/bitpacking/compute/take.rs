@@ -24,6 +24,7 @@ use vortex_error::VortexResult;
 
 use super::chunked_indices;
 use crate::BitPacked;
+use crate::BitPackedArrayExt;
 use crate::bitpack_decompress;
 
 // TODO(connor): This is duplicated in `encodings/fastlanes/src/bitpacking/kernels/mod.rs`.
@@ -47,13 +48,13 @@ impl TakeExecute for BitPacked {
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
         //  be non-negative (pre-condition of creating the BitPackedArray).
         let ptype: PType = PType::try_from(array.dtype())?;
-        let validity = array.validity(array.dtype().nullability());
+        let validity = array.validity();
         let taken_validity = validity.take(indices)?;
 
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
         let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
             match_each_integer_ptype!(indices.ptype(), |I| {
-                take_primitive::<T, I>(&array, &indices, taken_validity, ctx)?
+                take_primitive::<T, I>(array, &indices, taken_validity, ctx)?
             })
         });
         let taken = if ptype.is_signed_int() {
@@ -70,7 +71,7 @@ impl TakeExecute for BitPacked {
 }
 
 fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
-    array: &ArrayView<'_, BitPacked>,
+    array: ArrayView<'_, BitPacked>,
     indices: &PrimitiveArray,
     taken_validity: Validity,
     ctx: &mut ExecutionCtx,
@@ -146,7 +147,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     } else {
         PrimitiveArray::new(output, taken_validity)
     };
-    if let Some(patches) = array.patches(array.len())
+    if let Some(patches) = array.patches()
         && let Some(patches) = patches.take(&indices.clone().into_array(), ctx)?
     {
         let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
@@ -255,7 +256,7 @@ mod test {
             BitPackedData::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
 
         let taken_primitive = take_primitive::<u32, u64>(
-            &start.as_view(),
+            start.as_view(),
             &PrimitiveArray::from_iter([0u64, 1, 2, 3]),
             Validity::NonNullable,
             &mut LEGACY_SESSION.create_execution_ctx(),

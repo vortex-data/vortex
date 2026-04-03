@@ -48,13 +48,14 @@ impl ChunkedData {
     ) -> Vec<Option<ArrayRef>> {
         let mut slots = Vec::with_capacity(1 + chunks.len());
         slots.push(Some(
-            Array::try_from_parts(ArrayParts::new(
-                crate::arrays::Primitive,
-                chunk_offsets.dtype(),
-                chunk_offsets.len(),
-                chunk_offsets.clone(),
-            ))
-            .vortex_expect("chunk offsets are always valid")
+            unsafe {
+                Array::from_parts_unchecked(ArrayParts::new(
+                    crate::arrays::Primitive,
+                    chunk_offsets.dtype(),
+                    chunk_offsets.len(),
+                    chunk_offsets.clone(),
+                ))
+            }
             .into_array(),
         ));
         slots.extend(chunks.iter().map(|c| Some(c.clone())));
@@ -275,17 +276,19 @@ impl Array<Chunked> {
         let data = ChunkedData::try_new(chunks, dtype)?;
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Chunked, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Chunked, dtype, len, data)) })
     }
 
     pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
         let data = self.data().rechunk(target_bytesize, target_rowsize)?;
-        Array::try_from_parts(ArrayParts::new(
-            Chunked,
-            self.dtype().clone(),
-            data.len(),
-            data,
-        ))
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(
+                Chunked,
+                self.dtype().clone(),
+                data.len(),
+                data,
+            ))
+        })
     }
 
     /// Creates a new `ChunkedArray` without validation.
@@ -297,8 +300,7 @@ impl Array<Chunked> {
         let data = unsafe { ChunkedData::new_unchecked(chunks, dtype) };
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Chunked, dtype, len, data))
-            .vortex_expect("ChunkedData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Chunked, dtype, len, data)) }
     }
 }
 

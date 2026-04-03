@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -162,8 +161,9 @@ impl Null {
 
 impl Array<Null> {
     pub fn new(len: usize) -> Self {
-        Array::try_from_parts(ArrayParts::new(Null, DType::Null, len, NullData::new()))
-            .vortex_expect("NullData is always valid")
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Null, DType::Null, len, NullData::new()))
+        }
     }
 }
 

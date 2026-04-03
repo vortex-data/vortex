@@ -98,8 +98,7 @@ impl Array<Filter> {
         let dtype = array.dtype().clone();
         let len = mask.true_count();
         let data = FilterData::new(array, mask);
-        Array::try_from_parts(ArrayParts::new(Filter, dtype, len, data))
-            .vortex_expect("FilterData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Filter, dtype, len, data)) }
     }
 
     /// Constructs a new `FilterArray`.
@@ -107,6 +106,6 @@ impl Array<Filter> {
         let dtype = array.dtype().clone();
         let len = mask.true_count();
         let data = FilterData::try_new(array, mask)?;
-        Array::try_from_parts(ArrayParts::new(Filter, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Filter, dtype, len, data)) })
     }
 }

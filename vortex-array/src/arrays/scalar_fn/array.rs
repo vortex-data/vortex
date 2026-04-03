@@ -92,6 +92,6 @@ impl Array<ScalarFnVTable> {
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
         let data = ScalarFnData::try_new(scalar_fn.clone(), children, len)?;
         let vtable = ScalarFnVTable { scalar_fn };
-        Array::try_from_parts(ArrayParts::new(vtable, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(vtable, dtype, len, data)) })
     }
 }

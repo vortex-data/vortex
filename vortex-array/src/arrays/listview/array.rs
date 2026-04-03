@@ -481,8 +481,7 @@ impl Array<ListView> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
         let data = ListViewData::new(elements, offsets, sizes, validity);
-        Array::try_from_parts(ArrayParts::new(ListView, dtype, len, data))
-            .vortex_expect("ListViewData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data)) }
     }
 
     /// Constructs a new `ListViewArray`.
@@ -495,7 +494,7 @@ impl Array<ListView> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
         let data = ListViewData::try_new(elements, offsets, sizes, validity)?;
-        Array::try_from_parts(ArrayParts::new(ListView, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data)) })
     }
 
     /// Creates a new `ListViewArray` without validation.
@@ -512,8 +511,7 @@ impl Array<ListView> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
         let data = unsafe { ListViewData::new_unchecked(elements, offsets, sizes, validity) };
-        Array::try_from_parts(ArrayParts::new(ListView, dtype, len, data))
-            .vortex_expect("ListViewData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data)) }
     }
 
     /// Mark whether this list view can be zero-copy converted to a list.
@@ -525,8 +523,7 @@ impl Array<ListView> {
         let dtype = self.dtype().clone();
         let len = self.len();
         let data = unsafe { self.into_data().with_zero_copy_to_list(is_zctl) };
-        Array::try_from_parts(ArrayParts::new(ListView, dtype, len, data))
-            .vortex_expect("data is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data)) }
     }
 }
 

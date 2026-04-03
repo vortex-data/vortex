@@ -265,7 +265,8 @@ impl Zstd {
 
     pub fn try_new(dtype: DType, data: ZstdData) -> VortexResult<ZstdArray> {
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Zstd, dtype, len, data))
+        data.validate(&dtype, len)?;
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data)) })
     }
 
     /// Compress a [`VarBinViewArray`] using Zstd without a dictionary.

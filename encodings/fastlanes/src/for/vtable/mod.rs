@@ -172,7 +172,7 @@ impl FoR {
         let reference = reference.cast(&dtype)?;
         let len = encoded.len();
         let data = FoRData::try_new(encoded, reference)?;
-        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(FoR, dtype, len, data)) })
     }
 
     /// Encode a primitive array using Frame of Reference encoding.

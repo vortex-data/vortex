@@ -200,8 +200,7 @@ impl Array<Dict> {
         let data = DictData::new(codes, values);
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Dict, dtype, len, data))
-            .vortex_expect("DictData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data)) }
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
@@ -209,7 +208,7 @@ impl Array<Dict> {
         let data = DictData::try_new(codes, values)?;
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Dict, dtype, len, data))
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data)) })
     }
 
     /// Build a new `DictArray` without validating the codes or values.
@@ -221,8 +220,7 @@ impl Array<Dict> {
         let data = unsafe { DictData::new_unchecked(codes, values) };
         let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayParts::new(Dict, dtype, len, data))
-            .vortex_expect("DictData is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data)) }
     }
 
     /// Set whether all values in the dictionary are referenced by at least one code.
@@ -237,8 +235,7 @@ impl Array<Dict> {
             self.into_data()
                 .set_all_values_referenced(all_values_referenced)
         };
-        Array::try_from_parts(ArrayParts::new(Dict, dtype, len, data))
-            .vortex_expect("data is always valid")
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data)) }
     }
 }
 

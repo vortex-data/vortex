@@ -196,7 +196,10 @@ pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
             slots: children.into_iter().map(Some).collect(),
         };
         let vtable = ScalarFnVTable { scalar_fn };
-        Array::try_from_parts(ArrayParts::new(vtable, dtype, len, data)).map(IntoArray::into_array)
+        Ok(
+            unsafe { Array::from_parts_unchecked(ArrayParts::new(vtable, dtype, len, data)) }
+                .into_array(),
+        )
     }
 }
 impl<V: scalar_fn::ScalarFnVTable> ScalarFnArrayExt for V {}
