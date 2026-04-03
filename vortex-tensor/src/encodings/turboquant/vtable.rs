@@ -131,7 +131,6 @@ impl VTable for TurboQuant {
         Ok(ProstMetadata(TurboQuantMetadata {
             dimension: array.dimension,
             bit_width: array.bit_width as u32,
-            has_qjl: array.has_qjl(),
         }))
     }
 
@@ -165,11 +164,8 @@ impl VTable for TurboQuant {
 
         let u8_nn = DType::Primitive(PType::U8, Nullability::NonNullable);
         let f32_nn = DType::Primitive(PType::F32, Nullability::NonNullable);
-        let codes_dtype = DType::FixedSizeList(
-            Arc::new(u8_nn.clone()),
-            padded_dim as u32,
-            Nullability::NonNullable,
-        );
+        let codes_dtype =
+            DType::FixedSizeList(Arc::new(u8_nn), padded_dim as u32, Nullability::NonNullable);
         let codes = children.get(0, &codes_dtype, len)?;
 
         let norms = children.get(1, &f32_nn, len)?;
@@ -178,24 +174,14 @@ impl VTable for TurboQuant {
         let signs_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
         let rotation_signs = children.get(3, &signs_dtype, 3 * padded_dim)?;
 
-        let mut slots = vec![None; Slot::COUNT];
-        slots[Slot::Codes as usize] = Some(codes);
-        slots[Slot::Norms as usize] = Some(norms);
-        slots[Slot::Centroids as usize] = Some(centroids);
-        slots[Slot::RotationSigns as usize] = Some(rotation_signs);
-
-        if metadata.has_qjl {
-            let qjl_signs_dtype =
-                DType::FixedSizeList(Arc::new(u8_nn), padded_dim as u32, Nullability::NonNullable);
-            slots[Slot::QjlSigns as usize] = Some(children.get(4, &qjl_signs_dtype, len)?);
-            slots[Slot::QjlResidualNorms as usize] = Some(children.get(5, &f32_nn, len)?);
-            slots[Slot::QjlRotationSigns as usize] =
-                Some(children.get(6, &signs_dtype, 3 * padded_dim)?);
-        }
-
         Ok(TurboQuantData {
             dtype: dtype.clone(),
-            slots,
+            slots: vec![
+                Some(codes),
+                Some(norms),
+                Some(centroids),
+                Some(rotation_signs),
+            ],
             dimension: metadata.dimension,
             bit_width,
             stats_set: Default::default(),

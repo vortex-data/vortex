@@ -120,7 +120,7 @@ impl BtrBlocksCompressorBuilder {
     /// Adds compact encoding schemes (Zstd for strings, Pco for numerics).
     ///
     /// This provides better compression ratios than the default, especially for floating-point
-    /// heavy datasets. Requires the `zstd` feature. When the `pco` rfeature is also enabled,
+    /// heavy datasets. Requires the `zstd` feature. When the `pco` feature is also enabled,
     /// Pco schemes for integers and floats are included.
     ///
     /// # Panics
@@ -140,8 +140,8 @@ impl BtrBlocksCompressorBuilder {
 
     /// Adds the TurboQuant lossy vector quantization scheme.
     ///
-    /// When enabled, [`Vector`] extension arrays are compressed using the TurboQuant algorithm with
-    /// QJL correction for unbiased inner product estimation.
+    /// When enabled, [`Vector`] extension arrays are compressed using the TurboQuant algorithm
+    /// with MSE-optimal scalar quantization.
     ///
     /// # Panics
     ///

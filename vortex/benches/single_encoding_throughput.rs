@@ -441,8 +441,7 @@ mod turboquant_benches {
     use vortex_array::VortexSessionExecute;
     use vortex_buffer::BufferMut;
     use vortex_tensor::encodings::turboquant::TurboQuantConfig;
-    use vortex_tensor::encodings::turboquant::turboquant_encode_mse;
-    use vortex_tensor::encodings::turboquant::turboquant_encode_qjl;
+    use vortex_tensor::encodings::turboquant::turboquant_encode;
 
     use super::SESSION;
     use super::with_byte_counter;
@@ -483,48 +482,23 @@ mod turboquant_benches {
     macro_rules! turboquant_bench {
         (compress, $dim:literal, $bits:literal, $name:ident) => {
             paste! {
-                #[divan::bench(name = concat!("turboquant_compress_dim", stringify!($dim), "_", stringify!($bits), "bit_mse"))]
-                fn [<$name _mse>](bencher: Bencher) {
+                #[divan::bench(name = concat!("turboquant_compress_dim", stringify!($dim), "_", stringify!($bits), "bit"))]
+                fn $name(bencher: Bencher) {
                     let fsl = setup_vector_fsl($dim);
                     let config = turboquant_config($bits);
                     with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
                         .with_inputs(|| &fsl)
-                        .bench_refs(|a| turboquant_encode_mse(a, &config).unwrap());
-                }
-
-                #[divan::bench(name = concat!("turboquant_compress_dim", stringify!($dim), "_", stringify!($bits), "bit_qjl"))]
-                fn [<$name _qjl>](bencher: Bencher) {
-                    let fsl = setup_vector_fsl($dim);
-                    let config = turboquant_config($bits);
-                    with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
-                        .with_inputs(|| &fsl)
-                        .bench_refs(|a| turboquant_encode_qjl(a, &config).unwrap());
+                        .bench_refs(|a| turboquant_encode(a, &config).unwrap());
                 }
             }
         };
         (decompress, $dim:literal, $bits:literal, $name:ident) => {
             paste! {
-                #[divan::bench(name = concat!("turboquant_decompress_dim", stringify!($dim), "_", stringify!($bits), "bit_mse"))]
-                fn [<$name _mse>](bencher: Bencher) {
+                #[divan::bench(name = concat!("turboquant_decompress_dim", stringify!($dim), "_", stringify!($bits), "bit"))]
+                fn $name(bencher: Bencher) {
                     let fsl = setup_vector_fsl($dim);
                     let config = turboquant_config($bits);
-                    let compressed = turboquant_encode_mse(&fsl, &config).unwrap();
-                    with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
-                        .with_inputs(|| &compressed)
-                        .bench_refs(|a| {
-                            let mut ctx = SESSION.create_execution_ctx();
-                            a.clone()
-                                .into_array()
-                                .execute::<FixedSizeListArray>(&mut ctx)
-                                .unwrap()
-                        });
-                }
-
-                #[divan::bench(name = concat!("turboquant_decompress_dim", stringify!($dim), "_", stringify!($bits), "bit_qjl"))]
-                fn [<$name _qjl>](bencher: Bencher) {
-                    let fsl = setup_vector_fsl($dim);
-                    let config = turboquant_config($bits);
-                    let compressed = turboquant_encode_qjl(&fsl, &config).unwrap();
+                    let compressed = turboquant_encode(&fsl, &config).unwrap();
                     with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
                         .with_inputs(|| &compressed)
                         .bench_refs(|a| {

@@ -21,13 +21,12 @@ use vortex_error::vortex_ensure;
 use super::FIXED_SHAPE_TENSOR_EXT_ID;
 use super::TurboQuantConfig;
 use super::VECTOR_EXT_ID;
-use super::turboquant_encode_qjl;
+use super::turboquant_encode;
 
 /// TurboQuant compression scheme for tensor extension types.
 ///
 /// Applies lossy vector quantization to `Vector` and `FixedShapeTensor` extension
-/// arrays using the TurboQuant algorithm with QJL correction for unbiased inner
-/// product estimation.
+/// arrays using the TurboQuant algorithm with MSE-optimal encoding.
 ///
 /// Register this scheme with the compressor builder via `with_scheme`:
 /// ```ignore
@@ -85,30 +84,26 @@ impl Scheme for TurboQuantScheme {
         let fsl = storage.to_canonical()?.into_fixed_size_list();
 
         let config = TurboQuantConfig::default();
-        let encoded = turboquant_encode_qjl(&fsl, &config)?;
+        let encoded = turboquant_encode(&fsl, &config)?;
 
         Ok(ExtensionArray::new(ext_array.ext_dtype().clone(), encoded).into_array())
     }
 }
 
-/// Estimate the compression ratio for TurboQuant QJL encoding with the default config.
-///
-/// Uses the default [`TurboQuantConfig`] (5-bit QJL = 4-bit MSE + 1-bit QJL signs).
+/// Estimate the compression ratio for TurboQuant MSE encoding with the default config.
 fn estimate_compression_ratio(bits_per_element: usize, dimensions: u32, num_vectors: usize) -> f64 {
     let config = TurboQuantConfig::default();
     let padded_dim = dimensions.next_power_of_two() as usize;
 
-    // Per-vector: MSE codes + QJL signs per padded coordinate,
-    // plus two f32 values (norm and QJL residual norm).
-    let compressed_bits_per_vector = 2 * 32 // norm + residual_norm are always f32
-        + (config.bit_width as usize) * padded_dim; // MSE codes + QJL sign bits
+    // Per-vector: MSE codes per padded coordinate, plus one f32 norm.
+    let compressed_bits_per_vector = 32 // norm is always f32
+        + (config.bit_width as usize) * padded_dim; // MSE codes
 
-    // Shared overhead: codebook centroids (2^mse_bit_width f32 values) and
-    // rotation signs (3 * padded_dim bits each for MSE and QJL rotations).
-    let mse_bit_width = config.bit_width - 1; // QJL uses bit_width-1 for MSE
-    let num_centroids = 1usize << mse_bit_width;
+    // Shared overhead: codebook centroids (2^bit_width f32 values) and
+    // rotation signs (3 * padded_dim bits).
+    let num_centroids = 1usize << config.bit_width;
     let overhead_bits = num_centroids * 32 // centroids are always f32
-        + 2 * 3 * padded_dim; // MSE + QJL rotation signs, 1 bit each
+        + 3 * padded_dim; // rotation signs, 1 bit each
 
     let compressed_size_bits = compressed_bits_per_vector * num_vectors + overhead_bits;
     let uncompressed_size_bits = bits_per_element * num_vectors * dimensions as usize;
@@ -160,12 +155,12 @@ mod tests {
     /// f32 input at 768-d (padded to 1024) with 1000 vectors should give ~4-6x.
     /// f32 input at 1024-d (no padding) should give higher ratio since no waste.
     #[rstest]
-    #[case::f32_768d(32, 768, 1000, 3.5, 6.0)]
-    #[case::f32_1024d(32, 1024, 1000, 4.5, 7.0)]
-    #[case::f32_1536d(32, 1536, 1000, 3.0, 6.0)]
-    #[case::f32_128d(32, 128, 1000, 4.0, 6.0)]
-    #[case::f64_768d(64, 768, 1000, 7.0, 12.0)]
-    #[case::f16_768d(16, 768, 1000, 1.5, 3.5)]
+    #[case::f32_768d(32, 768, 1000, 3.5, 8.0)]
+    #[case::f32_1024d(32, 1024, 1000, 5.0, 9.0)]
+    #[case::f32_1536d(32, 1536, 1000, 3.0, 8.0)]
+    #[case::f32_128d(32, 128, 1000, 4.0, 8.0)]
+    #[case::f64_768d(64, 768, 1000, 7.0, 16.0)]
+    #[case::f16_768d(16, 768, 1000, 1.5, 4.5)]
     fn compression_ratio_in_expected_range(
         #[case] bits_per_element: usize,
         #[case] dim: u32,

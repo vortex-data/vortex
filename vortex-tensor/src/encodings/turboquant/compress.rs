@@ -25,10 +25,7 @@ use crate::encodings::turboquant::rotation::RotationMatrix;
 /// Configuration for TurboQuant encoding.
 #[derive(Clone, Debug)]
 pub struct TurboQuantConfig {
-    /// Bits per coordinate.
-    ///
-    /// For MSE encoding: 1-8.
-    /// For QJL encoding: 2-9 (the MSE component uses `bit_width - 1`).
+    /// Bits per coordinate (1-8).
     pub bit_width: u8,
     /// Optional seed for the rotation matrix. If None, the default seed is used.
     pub seed: Option<u64>,
@@ -37,7 +34,7 @@ pub struct TurboQuantConfig {
 impl Default for TurboQuantConfig {
     fn default() -> Self {
         Self {
-            bit_width: 5,
+            bit_width: 4,
             seed: Some(42),
         }
     }
@@ -73,9 +70,8 @@ fn l2_norm(x: &[f32]) -> f32 {
 }
 
 /// Shared intermediate results from the MSE quantization loop.
-struct MseQuantizationResult {
+struct QuantizationResult {
     rotation: RotationMatrix,
-    f32_elements: PrimitiveArray,
     centroids: Vec<f32>,
     all_indices: BufferMut<u8>,
     norms: BufferMut<f32>,
@@ -88,7 +84,7 @@ fn turboquant_quantize_core(
     fsl: &FixedSizeListArray,
     seed: u64,
     bit_width: u8,
-) -> VortexResult<MseQuantizationResult> {
+) -> VortexResult<QuantizationResult> {
     let dimension = fsl.list_size() as usize;
     let num_rows = fsl.len();
 
@@ -126,9 +122,8 @@ fn turboquant_quantize_core(
         }
     }
 
-    Ok(MseQuantizationResult {
+    Ok(QuantizationResult {
         rotation,
-        f32_elements,
         centroids,
         all_indices,
         norms,
@@ -136,11 +131,11 @@ fn turboquant_quantize_core(
     })
 }
 
-/// Build a `TurboQuantArray` (MSE-only) from quantization results.
+/// Build a `TurboQuantArray` from quantization results.
 #[allow(clippy::cast_possible_truncation)]
-fn build_turboquant_mse(
+fn build_turboquant(
     fsl: &FixedSizeListArray,
-    core: MseQuantizationResult,
+    core: QuantizationResult,
     bit_width: u8,
 ) -> VortexResult<TurboQuantData> {
     let dimension = fsl.list_size();
@@ -168,7 +163,7 @@ fn build_turboquant_mse(
 
     let rotation_signs = bitpack_rotation_signs(&core.rotation)?;
 
-    TurboQuantData::try_new_mse(
+    TurboQuantData::try_new(
         fsl.dtype().clone(),
         codes,
         norms_array,
@@ -179,11 +174,11 @@ fn build_turboquant_mse(
     )
 }
 
-/// Encode a FixedSizeListArray into a MSE-only `TurboQuantArray`.
+/// Encode a FixedSizeListArray into a `TurboQuantArray`.
 ///
 /// The input must be non-nullable. TurboQuant is a lossy encoding that does not
 /// preserve null positions; callers must handle validity externally.
-pub fn turboquant_encode_mse(
+pub fn turboquant_encode(
     fsl: &FixedSizeListArray,
     config: &TurboQuantConfig,
 ) -> VortexResult<ArrayRef> {
@@ -193,7 +188,7 @@ pub fn turboquant_encode_mse(
     );
     vortex_ensure!(
         config.bit_width >= 1 && config.bit_width <= 8,
-        "MSE bit_width must be 1-8, got {}",
+        "bit_width must be 1-8, got {}",
         config.bit_width
     );
     let dimension = fsl.list_size();
@@ -209,141 +204,12 @@ pub fn turboquant_encode_mse(
     let seed = config.seed.unwrap_or(42);
     let core = turboquant_quantize_core(fsl, seed, config.bit_width)?;
 
-    Ok(build_turboquant_mse(fsl, core, config.bit_width)?.into_array())
-}
-
-/// Encode a FixedSizeListArray into a `TurboQuantArray` with QJL correction.
-///
-/// The QJL variant uses `bit_width - 1` MSE bits plus 1 bit of QJL residual
-/// correction, giving unbiased inner product estimation. The input must be
-/// non-nullable.
-#[allow(clippy::cast_possible_truncation)]
-pub fn turboquant_encode_qjl(
-    fsl: &FixedSizeListArray,
-    config: &TurboQuantConfig,
-) -> VortexResult<ArrayRef> {
-    vortex_ensure!(
-        fsl.dtype().nullability() == Nullability::NonNullable,
-        "TurboQuant requires non-nullable input, got nullable FixedSizeListArray"
-    );
-    vortex_ensure!(
-        config.bit_width >= 2 && config.bit_width <= 9,
-        "QJL bit_width must be 2-9, got {}",
-        config.bit_width
-    );
-    let dimension = fsl.list_size();
-    vortex_ensure!(
-        dimension >= 3,
-        "TurboQuant requires dimension >= 3, got {dimension}"
-    );
-
-    if fsl.is_empty() {
-        return Ok(fsl.clone().into_array());
-    }
-
-    let seed = config.seed.unwrap_or(42);
-    let dim = dimension as usize;
-    let mse_bit_width = config.bit_width - 1;
-
-    let core = turboquant_quantize_core(fsl, seed, mse_bit_width)?;
-    let padded_dim = core.padded_dim;
-
-    // QJL uses a different rotation than the MSE stage to ensure statistical
-    // independence between the quantization noise and the sign projection.
-    let qjl_rotation = RotationMatrix::try_new(seed.wrapping_add(25), dim)?;
-
-    let num_rows = fsl.len();
-    let mut residual_norms_buf = BufferMut::<f32>::with_capacity(num_rows);
-    let mut qjl_sign_u8 = BufferMut::<u8>::with_capacity(num_rows * padded_dim);
-
-    let mut dequantized_rotated = vec![0.0f32; padded_dim];
-    let mut dequantized = vec![0.0f32; padded_dim];
-    let mut residual = vec![0.0f32; padded_dim];
-    let mut projected = vec![0.0f32; padded_dim];
-
-    // Compute QJL residuals using precomputed indices and norms from the core.
-    {
-        let f32_slice = core.f32_elements.as_slice::<f32>();
-        let indices_slice: &[u8] = &core.all_indices;
-        let norms_slice: &[f32] = &core.norms;
-
-        for row in 0..num_rows {
-            let x = &f32_slice[row * dim..(row + 1) * dim];
-            let norm = norms_slice[row];
-
-            // Dequantize from precomputed indices.
-            let row_indices = &indices_slice[row * padded_dim..(row + 1) * padded_dim];
-            for j in 0..padded_dim {
-                dequantized_rotated[j] = core.centroids[row_indices[j] as usize];
-            }
-
-            core.rotation
-                .inverse_rotate(&dequantized_rotated, &mut dequantized);
-            if norm > 0.0 {
-                for val in dequantized[..dim].iter_mut() {
-                    *val *= norm;
-                }
-            }
-
-            // Compute residual: r = x_padded - x̂.
-            // For positions 0..dim: r[j] = x[j] - dequantized[j].
-            // For pad positions dim..padded_dim: the original was zero-padded,
-            // so r[j] = 0 - dequantized[j]. These pad artifacts are nonzero
-            // because the SRHT mixes quantization error into the padded region.
-            // Omitting them would corrupt the QJL signs for non-power-of-2 dims.
-            for j in 0..dim {
-                residual[j] = x[j] - dequantized[j];
-            }
-            for j in dim..padded_dim {
-                residual[j] = -dequantized[j];
-            }
-            // The residual norm for QJL scaling is over the dim-dimensional
-            // subspace only — pad artifacts don't contribute to reconstruction
-            // error in the output space. The pad positions are still included
-            // in the sign projection to avoid corrupting the SRHT mixing.
-            let residual_norm = l2_norm(&residual[..dim]);
-            residual_norms_buf.push(residual_norm);
-
-            // QJL: sign(S · r).
-            if residual_norm > 0.0 {
-                qjl_rotation.rotate(&residual, &mut projected);
-            } else {
-                projected.fill(0.0);
-            }
-
-            for j in 0..padded_dim {
-                qjl_sign_u8.push(if projected[j] >= 0.0 { 1u8 } else { 0u8 });
-            }
-        }
-    }
-
-    // Build the MSE part.
-    let mut array = build_turboquant_mse(fsl, core, mse_bit_width)?;
-
-    // Attach QJL correction.
-    let residual_norms_array =
-        PrimitiveArray::new::<f32>(residual_norms_buf.freeze(), Validity::NonNullable);
-    let qjl_signs_elements = PrimitiveArray::new::<u8>(qjl_sign_u8.freeze(), Validity::NonNullable);
-    let qjl_signs = FixedSizeListArray::try_new(
-        qjl_signs_elements.into_array(),
-        padded_dim as u32,
-        Validity::NonNullable,
-        num_rows,
-    )?;
-    let qjl_rotation_signs = bitpack_rotation_signs(&qjl_rotation)?;
-
-    array.set_qjl(crate::encodings::turboquant::array::QjlCorrection {
-        signs: qjl_signs.into_array(),
-        residual_norms: residual_norms_array.into_array(),
-        rotation_signs: qjl_rotation_signs,
-    });
-
-    Ok(array.into_array())
+    Ok(build_turboquant(fsl, core, config.bit_width)?.into_array())
 }
 
 /// Export rotation signs as a 1-bit `BitPackedArray` for efficient storage.
 ///
-/// The rotation matrix's 3 × padded_dim sign values are exported as 0/1 u8
+/// The rotation matrix's 3 x padded_dim sign values are exported as 0/1 u8
 /// values in inverse application order, then bitpacked to 1 bit per sign.
 /// On decode, FastLanes SIMD-unpacks back to `&[u8]` of 0/1 values.
 fn bitpack_rotation_signs(rotation: &RotationMatrix) -> VortexResult<ArrayRef> {

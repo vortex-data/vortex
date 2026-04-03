@@ -17,14 +17,9 @@
 //!
 //! # Bias and error bounds
 //!
-//! This estimate is **biased** — it uses only the MSE-quantized codes and does
-//! not incorporate the QJL residual correction. The MSE quantizer minimizes
-//! reconstruction error but does not guarantee unbiased inner products; the
-//! discrete centroid grid introduces systematic bias in the dot product.
-//!
-//! The TurboQuant paper's Theorem 2 shows that unbiased inner product estimation
-//! requires the full QJL correction term, which involves decoding the per-row
-//! QJL signs and computing cross-terms — nearly as expensive as full decompression.
+//! This estimate is **biased**. The MSE quantizer minimizes reconstruction error
+//! but does not guarantee unbiased inner products; the discrete centroid grid
+//! introduces systematic bias in the dot product.
 //!
 //! The approximation error is bounded by the MSE quantization distortion. For
 //! unit-norm vectors quantized at `b` bits, the per-coordinate MSE is bounded by
