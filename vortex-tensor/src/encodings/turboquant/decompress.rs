@@ -36,7 +36,7 @@ pub fn execute_decompress(
     let dim = array.dimension() as usize;
     let padded_dim = array.padded_dim() as usize;
     let num_rows = array.norms().len();
-    let ext_dtype = array.dtype.as_extension().clone();
+    let ext_dtype = array.dtype().as_extension().clone();
     let element_ptype = extension_element_ptype(&ext_dtype)?;
 
     if num_rows == 0 {

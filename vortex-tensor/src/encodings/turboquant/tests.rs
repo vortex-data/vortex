@@ -8,7 +8,6 @@ use rand::rngs::StdRng;
 use rand_distr::Distribution;
 use rand_distr::Normal;
 use rstest::rstest;
-use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
@@ -448,82 +447,6 @@ fn stored_rotation_signs_produce_correct_decode() -> VortexResult<()> {
 
     // Also verify decode output is non-empty and has expected size.
     assert_eq!(decoded_slice.len(), 20 * 128);
-    Ok(())
-}
-
-// -----------------------------------------------------------------------
-// Serde roundtrip
-// -----------------------------------------------------------------------
-
-#[test]
-fn serde_roundtrip() -> VortexResult<()> {
-    use vortex_array::vtable::VTable;
-
-    let fsl = make_fsl(10, 128, 42);
-    let ext = make_vector_ext(&fsl);
-    let config = TurboQuantConfig {
-        bit_width: 3,
-        seed: Some(123),
-    };
-    let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
-    let encoded = encoded.as_opt::<TurboQuant>().unwrap();
-
-    // Serialize metadata.
-    let metadata = <TurboQuant as VTable>::metadata(encoded)?;
-    let serialized =
-        <TurboQuant as VTable>::serialize(metadata)?.expect("metadata should serialize");
-
-    // Collect children.
-    let nchildren = <TurboQuant as VTable>::nchildren(encoded);
-    assert_eq!(nchildren, 4);
-    let children: Vec<ArrayRef> = (0..nchildren)
-        .map(|i| <TurboQuant as VTable>::child(encoded, i))
-        .collect();
-
-    // Deserialize and rebuild.
-    let deserialized = <TurboQuant as VTable>::deserialize(
-        &serialized,
-        encoded.dtype(),
-        encoded.len(),
-        &[],
-        &SESSION,
-    )?;
-
-    // Verify metadata fields survived roundtrip.
-    assert_eq!(deserialized.bit_width, encoded.bit_width());
-
-    // Verify the rebuilt array decodes identically.
-    let mut ctx = SESSION.create_execution_ctx();
-    let decoded_original = encoded
-        .array()
-        .clone()
-        .execute::<ExtensionArray>(&mut ctx)?;
-    let original_fsl = decoded_original
-        .storage_array()
-        .to_canonical()?
-        .into_fixed_size_list();
-    let original_elements = original_fsl.elements().to_canonical()?.into_primitive();
-
-    // Rebuild from children (simulating deserialization).
-    let rebuilt = crate::encodings::turboquant::TurboQuantData::try_new(
-        encoded.dtype().clone(),
-        children[0].clone(),
-        children[1].clone(),
-        children[2].clone(),
-        children[3].clone(),
-    )?;
-    let decoded_rebuilt = rebuilt.into_array().execute::<ExtensionArray>(&mut ctx)?;
-    let rebuilt_fsl = decoded_rebuilt
-        .storage_array()
-        .to_canonical()?
-        .into_fixed_size_list();
-    let rebuilt_elements = rebuilt_fsl.elements().to_canonical()?.into_primitive();
-
-    assert_eq!(
-        original_elements.as_slice::<f32>(),
-        rebuilt_elements.as_slice::<f32>()
-    );
     Ok(())
 }
 

@@ -100,7 +100,6 @@ pub fn initialize(session: &mut VortexSession) {
 
 mod array;
 pub use array::data::TurboQuantData;
-pub use array::metadata::TurboQuantMetadata;
 pub use array::scheme::TurboQuantScheme;
 
 pub(crate) mod compute;

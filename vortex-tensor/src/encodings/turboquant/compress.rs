@@ -20,11 +20,12 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 
-use crate::encodings::turboquant::TurboQuantData;
+use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::array::centroids::compute_boundaries;
 use crate::encodings::turboquant::array::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::array::centroids::get_centroids;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
+use crate::encodings::turboquant::vtable::TurboQuantArray;
 use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_norm::L2Norm;
 
@@ -168,7 +169,7 @@ fn build_turboquant(
     fsl: &FixedSizeListArray,
     core: QuantizationResult,
     ext_dtype: DType,
-) -> VortexResult<TurboQuantData> {
+) -> VortexResult<TurboQuantArray> {
     let num_rows = fsl.len();
     let padded_dim = core.padded_dim;
     let codes_elements =
@@ -190,7 +191,7 @@ fn build_turboquant(
 
     let rotation_signs = bitpack_rotation_signs(&core.rotation)?;
 
-    TurboQuantData::try_new(
+    TurboQuant::try_new_array(
         ext_dtype,
         codes,
         core.norms_array,
@@ -241,7 +242,7 @@ pub fn turboquant_encode(
 
         let empty_centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
         let empty_signs = PrimitiveArray::empty::<u8>(Nullability::NonNullable);
-        return Ok(TurboQuantData::try_new(
+        return Ok(TurboQuant::try_new_array(
             ext_dtype,
             empty_codes.into_array(),
             empty_norms,

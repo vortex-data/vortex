@@ -5,7 +5,6 @@
 //! and rotation signs.
 
 pub(crate) mod data;
-pub(crate) mod metadata;
 pub(crate) mod slots;
 
 pub(crate) mod centroids;

@@ -9,7 +9,6 @@ use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
-use crate::encodings::turboquant::TurboQuantData;
 
 impl TakeExecute for TurboQuant {
     fn take(
@@ -21,14 +20,15 @@ impl TakeExecute for TurboQuant {
         let taken_codes = array.codes().take(indices.clone())?;
         let taken_norms = array.norms().take(indices.clone())?;
 
-        let result = TurboQuantData::try_new(
-            array.dtype.clone(),
-            taken_codes,
-            taken_norms,
-            array.centroids().clone(),
-            array.rotation_signs().clone(),
-        )?;
-
-        Ok(Some(result.into_array()))
+        Ok(Some(
+            TurboQuant::try_new_array(
+                array.dtype().clone(),
+                taken_codes,
+                taken_norms,
+                array.centroids().clone(),
+                array.rotation_signs().clone(),
+            )?
+            .into_array(),
+        ))
     }
 }

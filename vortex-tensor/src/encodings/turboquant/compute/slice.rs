@@ -10,7 +10,6 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
-use crate::encodings::turboquant::TurboQuantData;
 
 impl SliceReduce for TurboQuant {
     fn slice(
@@ -20,14 +19,15 @@ impl SliceReduce for TurboQuant {
         let sliced_codes = array.codes().slice(range.clone())?;
         let sliced_norms = array.norms().slice(range)?;
 
-        let result = TurboQuantData::try_new(
-            array.dtype.clone(),
-            sliced_codes,
-            sliced_norms,
-            array.centroids().clone(),
-            array.rotation_signs().clone(),
-        )?;
-
-        Ok(Some(result.into_array()))
+        Ok(Some(
+            TurboQuant::try_new_array(
+                array.dtype().clone(),
+                sliced_codes,
+                sliced_norms,
+                array.centroids().clone(),
+                array.rotation_signs().clone(),
+            )?
+            .into_array(),
+        ))
     }
 }

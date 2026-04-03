@@ -7,7 +7,6 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::stats::ArrayStats;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -29,12 +28,6 @@ use crate::utils::extension_list_size;
 /// A degenerate TurboQuant array has zero rows and `bit_width == 0`, with all slots empty.
 #[derive(Clone, Debug)]
 pub struct TurboQuantData {
-    /// The [`Vector`](crate::vector::Vector) extension dtype that this array encodes.
-    ///
-    /// The storage dtype within the extension determines the element type (f16, f32, or f64) and
-    /// the list size (dimension).
-    pub(crate) dtype: DType,
-
     /// Child arrays stored as slots. See [`Slot`] for positions:
     ///
     /// - [`Codes`](Slot::Codes): Non-nullable `FixedSizeListArray<u8>` with
@@ -66,9 +59,6 @@ pub struct TurboQuantData {
     ///
     /// This is 0 for degenerate empty arrays.
     pub(crate) bit_width: u8,
-
-    /// The stats for this array.
-    pub(crate) stats_set: ArrayStats,
 }
 
 impl TurboQuantData {
@@ -83,13 +73,13 @@ impl TurboQuantData {
     /// Returns an error if the provided components do not satisfy the invariants documented
     /// in [`new_unchecked`](Self::new_unchecked).
     pub fn try_new(
-        dtype: DType,
+        dtype: &DType,
         codes: ArrayRef,
         norms: ArrayRef,
         centroids: ArrayRef,
         rotation_signs: ArrayRef,
     ) -> VortexResult<Self> {
-        Self::validate(&dtype, &codes, &norms, &centroids, &rotation_signs)?;
+        Self::validate(dtype, &codes, &norms, &centroids, &rotation_signs)?;
 
         // SAFETY: we validate that the inputs are valid above.
         Ok(unsafe { Self::new_unchecked(dtype, codes, norms, centroids, rotation_signs) })
@@ -115,14 +105,14 @@ impl TurboQuantData {
     ///
     /// Violating these invariants may produce incorrect results during decompression.
     pub unsafe fn new_unchecked(
-        dtype: DType,
+        dtype: &DType,
         codes: ArrayRef,
         norms: ArrayRef,
         centroids: ArrayRef,
         rotation_signs: ArrayRef,
     ) -> Self {
         #[cfg(debug_assertions)]
-        Self::validate(&dtype, &codes, &norms, &centroids, &rotation_signs)
+        Self::validate(dtype, &codes, &norms, &centroids, &rotation_signs)
             .vortex_expect("[Debug Assertion]: Invalid TurboQuantData parameters");
 
         let dimension = dtype
@@ -147,11 +137,9 @@ impl TurboQuantData {
         slots[Slot::RotationSigns as usize] = Some(rotation_signs);
 
         Self {
-            dtype,
             slots,
             dimension,
             bit_width,
-            stats_set: Default::default(),
         }
     }
 
