@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrayref::array_mut_ref;
-use fastlanes::RLE;
+use fastlanes::RLE as FastLanesRLE;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -15,6 +15,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
+use crate::RLE;
 use crate::RLEArray;
 use crate::RLEData;
 use crate::fill_forward_nulls;
@@ -31,8 +32,8 @@ impl RLEData {
 /// In case the input array length is % 1024 != 0, the last chunk is padded.
 fn rle_encode_typed<T>(array: &PrimitiveArray) -> VortexResult<RLEArray>
 where
-    T: NativePType + RLE,
-    NativeValue<T>: RLE,
+    T: NativePType + FastLanesRLE,
+    NativeValue<T>: FastLanesRLE,
 {
     // Fill-forward null values so the RLE encoder doesn't see garbage at null positions,
     // which would create spurious run boundaries and inflate the dictionary.
@@ -98,13 +99,13 @@ where
     // SAFETY: NativeValue<T> is repr(transparent) to T.
     let values_buf = unsafe { values_buf.transmute::<T>().freeze() };
 
-    RLEArray::try_from_data(RLEData::try_new(
+    RLE::try_new(
         values_buf.into_array(),
         PrimitiveArray::new(indices_buf.freeze(), padded_validity(array)).into_array(),
         values_idx_offsets.into_array(),
         0,
         array.len(),
-    )?)
+    )
 }
 
 /// Returns validity padded to the next 1024 chunk for a given array.
@@ -264,7 +265,7 @@ mod tests {
     #[case(vec![f16::ZERO, f16::NEG_ZERO])]
     #[case(vec![0f32, -0f32])]
     #[case(vec![0f64, -0f64])]
-    fn test_float_zeros<T: NativePType + RLE>(#[case] values: Vec<T>) {
+    fn test_float_zeros<T: NativePType + fastlanes::RLE>(#[case] values: Vec<T>) {
         let primitive = PrimitiveArray::from_iter(values);
         let rle = RLEData::encode(&primitive).unwrap();
         let decoded = rle.as_array().to_primitive();

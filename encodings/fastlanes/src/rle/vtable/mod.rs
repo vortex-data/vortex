@@ -8,24 +8,21 @@ use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -61,29 +58,15 @@ pub struct RLEMetadata {
 impl VTable for RLE {
     type ArrayData = RLEData;
 
-    type Metadata = ProstMetadata<RLEMetadata>;
-
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromChildSliceHelper;
-
-    fn vtable(_array: &RLEData) -> &Self {
-        &RLE
-    }
+    type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &RLEData) -> usize {
-        array.len()
-    }
-
-    fn dtype(array: &RLEData) -> &DType {
-        array.dtype()
-    }
-
-    fn stats(array: &RLEData) -> &ArrayStats {
-        array.stats_set()
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+        data.validate_against_outer(dtype, len)
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &RLEData, state: &mut H, precision: Precision) {
@@ -141,39 +124,36 @@ impl VTable for RLE {
         Ok(())
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(RLEMetadata {
-            values_len: array.values().len() as u64,
-            indices_len: array.indices().len() as u64,
-            indices_ptype: PType::try_from(array.indices().dtype())? as i32,
-            values_idx_offsets_len: array.values_idx_offsets().len() as u64,
-            values_idx_offsets_ptype: PType::try_from(array.values_idx_offsets().dtype())? as i32,
-            offset: array.offset() as u64,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.0.encode_to_vec()))
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            RLEMetadata {
+                values_len: array.values().len() as u64,
+                indices_len: array.indices().len() as u64,
+                indices_ptype: PType::try_from(array.indices().dtype())? as i32,
+                values_idx_offsets_len: array.values_idx_offsets().len() as u64,
+                values_idx_offsets_ptype: PType::try_from(array.values_idx_offsets().dtype())?
+                    as i32,
+                offset: array.offset() as u64,
+            }
+            .encode_to_vec(),
+        ))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(RLEMetadata::decode(bytes)?))
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
-        _buffers: &[BufferHandle],
+        metadata: &[u8],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<RLEData> {
-        let metadata = &metadata.0;
+        vortex_ensure!(
+            buffers.is_empty(),
+            "RLEArray expects 0 buffers, got {}",
+            buffers.len()
+        );
+        let metadata = RLEMetadata::decode(metadata)?;
         let values = children.get(
             0,
             &DType::Primitive(dtype.as_ptype(), Nullability::NonNullable),
@@ -226,6 +206,18 @@ pub struct RLE;
 impl RLE {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
 
+    pub fn try_new(
+        values: ArrayRef,
+        indices: ArrayRef,
+        values_idx_offsets: ArrayRef,
+        offset: usize,
+        length: usize,
+    ) -> VortexResult<RLEArray> {
+        let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
+        let data = RLEData::try_new(values, indices, values_idx_offsets, offset, length)?;
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data)) })
+    }
+
     /// Create a new RLE array without validation.
     ///
     /// # Safety
@@ -234,14 +226,12 @@ impl RLE {
         values: ArrayRef,
         indices: ArrayRef,
         values_idx_offsets: ArrayRef,
-        dtype: DType,
         offset: usize,
         length: usize,
     ) -> RLEArray {
-        Array::try_from_data(unsafe {
-            RLEData::new_unchecked(values, indices, values_idx_offsets, dtype, offset, length)
-        })
-        .vortex_expect("RLEData is always valid")
+        let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
+        let data = unsafe { RLEData::new_unchecked(values, indices, values_idx_offsets, offset) };
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data)) }
     }
 
     /// Encode a primitive array using FastLanes RLE.
@@ -252,9 +242,9 @@ impl RLE {
 
 #[cfg(test)]
 mod tests {
+    use prost::Message;
     use vortex_array::test_harness::check_metadata;
 
-    use super::ProstMetadata;
     use super::RLEMetadata;
 
     #[cfg_attr(miri, ignore)]
@@ -262,14 +252,15 @@ mod tests {
     fn test_rle_metadata() {
         check_metadata(
             "rle.metadata",
-            ProstMetadata(RLEMetadata {
+            &RLEMetadata {
                 values_len: u64::MAX,
                 indices_len: u64::MAX,
                 indices_ptype: i32::MAX,
                 values_idx_offsets_len: u64::MAX,
                 values_idx_offsets_ptype: i32::MAX,
                 offset: u64::MAX,
-            }),
+            }
+            .encode_to_vec(),
         );
     }
 }

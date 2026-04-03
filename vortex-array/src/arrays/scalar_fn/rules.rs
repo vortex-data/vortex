@@ -19,7 +19,6 @@ use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::Slice;
 use crate::arrays::StructArray;
-use crate::arrays::scalar_fn::ScalarFnData;
 use crate::dtype::DType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
@@ -61,7 +60,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
             StructArray::try_new(
                 pack_options.names.clone(),
                 array.children(),
-                array.len,
+                array.len(),
                 validity,
             )?
             .into_array(),
@@ -80,7 +79,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
             Ok(Some(Canonical::empty(array.dtype()).into_array()))
         } else {
             let result = array.array().scalar_at(0)?;
-            Ok(Some(ConstantArray::new(result, array.len).into_array()))
+            Ok(Some(ConstantArray::new(result, array.len()).into_array()))
         }
     }
 }
@@ -104,7 +103,7 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
             .collect::<VortexResult<_>>()?;
 
         Ok(Some(
-            ScalarFnData::try_new(array.scalar_fn().clone(), children, range.len())?.into_array(),
+            ScalarFnArray::try_new(array.scalar_fn().clone(), children, range.len())?.into_array(),
         ))
     }
 }
@@ -115,7 +114,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
         if let Some(reduced) = array
             .scalar_fn()
-            .reduce(array.as_ref(), &ArrayReduceCtx { len: array.len })?
+            .reduce(array.as_ref(), &ArrayReduceCtx { len: array.len() })?
         {
             return Ok(Some(
                 reduced

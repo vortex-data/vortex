@@ -11,7 +11,7 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
@@ -46,7 +46,9 @@ impl CudaExecute for ALPExecutor {
             .try_into::<ALP>()
             .map_err(|_| vortex_err!("Expected ALPArray"))?;
 
-        match_each_alp_float_ptype!(array.ptype(), |A| { decode_alp::<A>(array, ctx).await })
+        match_each_alp_float_ptype!(array.dtype().as_ptype(), |A| {
+            decode_alp::<A>(array, ctx).await
+        })
     }
 }
 
@@ -66,7 +68,7 @@ where
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer, validity, ..
     } = primitive.into_data().into_parts();
 

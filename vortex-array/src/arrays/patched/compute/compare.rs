@@ -14,7 +14,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::bool::BoolArrayParts;
+use crate::arrays::bool::BoolDataParts;
 use crate::arrays::primitive::NativeValue;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
@@ -50,12 +50,13 @@ impl CompareKernel for Patched {
             .execute::<Canonical>(ctx)?
             .into_bool();
 
-        let BoolArrayParts {
+        let result = result.into_parts();
+        let BoolDataParts {
             bits,
             offset,
             len,
             validity,
-        } = result.into_parts();
+        } = result.data.into_parts();
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 
@@ -164,7 +165,6 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::Patched;
@@ -191,10 +191,11 @@ mod tests {
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let lhs = Array::<Patched>::try_from_data(
-            PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx).unwrap(),
-        )
-        .unwrap();
+        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)
+            .unwrap()
+            .into_array()
+            .try_into::<Patched>()
+            .unwrap();
 
         let rhs = ConstantArray::new(u32::MAX, 512).into_array();
 
@@ -259,9 +260,10 @@ mod tests {
         )?;
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-        let lhs = Array::<Patched>::try_from_data(PatchedArray::from_array_and_patches(
-            lhs, &patches, &mut ctx,
-        )?)?;
+        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)?
+            .into_array()
+            .try_into::<Patched>()
+            .unwrap();
 
         let rhs = ConstantArray::new(subnormal, 512).into_array();
 
@@ -292,9 +294,10 @@ mod tests {
         )?;
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-        let lhs = Array::<Patched>::try_from_data(PatchedArray::from_array_and_patches(
-            lhs, &patches, &mut ctx,
-        )?)?;
+        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)?
+            .into_array()
+            .try_into::<Patched>()
+            .unwrap();
 
         let rhs = ConstantArray::new(0.0f32, 10).into_array();
 

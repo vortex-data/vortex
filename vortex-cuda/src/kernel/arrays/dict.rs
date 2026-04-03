@@ -15,10 +15,10 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::decimal::DecimalArrayParts;
-use vortex::array::arrays::dict::DictArrayParts;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
-use vortex::array::arrays::varbinview::VarBinViewArrayParts;
+use vortex::array::arrays::decimal::DecimalDataParts;
+use vortex::array::arrays::dict::DictDataParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::match_each_integer_ptype;
@@ -65,7 +65,7 @@ impl CudaExecute for DictExecutor {
 
 #[expect(clippy::cognitive_complexity)]
 async fn execute_dict_prim(dict: DictArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-    let DictArrayParts { values, codes, .. } = dict.into_data().into_parts();
+    let DictDataParts { values, codes, .. } = dict.into_data().into_parts();
 
     // Execute both children to get them as primitives on the device
     let values_canonical = values.execute_cuda(ctx).await?;
@@ -93,14 +93,14 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     assert!(!codes.is_empty());
     let codes_len = codes.len();
 
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         ptype: value_ptype,
         buffer: values_buffer,
         validity: values_validity,
         ..
     } = values.into_data().into_parts();
     let output_validity = values_validity.take(&codes.clone().into_array())?;
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: codes_buffer,
         ..
     } = codes.into_data().into_parts();
@@ -143,12 +143,8 @@ async fn execute_dict_decimal(
     dict: DictArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let DictArrayParts {
-        values,
-        codes,
-        dtype,
-        ..
-    } = dict.into_data().into_parts();
+    let dtype = dict.dtype().clone();
+    let DictDataParts { values, codes, .. } = dict.into_data().into_parts();
 
     // Execute codes to get them as primitives on the device
     let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
@@ -179,14 +175,14 @@ async fn execute_dict_decimal_typed<
     let codes_len = codes.len();
     let codes_len_u64 = codes_len as u64;
 
-    let DecimalArrayParts {
+    let DecimalDataParts {
         values: values_buffer,
         validity: values_validity,
         ..
     } = values.into_data().into_parts();
     let output_validity = values_validity.take(&codes.clone().into_array())?;
 
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: codes_buffer,
         ..
     } = codes.into_data().into_parts();
@@ -234,19 +230,15 @@ async fn execute_dict_varbinview(
     dict: DictArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let DictArrayParts {
-        values,
-        codes,
-        dtype,
-        ..
-    } = dict.into_data().into_parts();
+    let dtype = dict.dtype().clone();
+    let DictDataParts { values, codes, .. } = dict.into_data().into_parts();
 
     let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
     let codes_ptype = codes_prim.ptype();
     let codes_len = codes_prim.len();
     let values_vbv = values.execute_cuda(ctx).await?.into_varbinview();
 
-    let VarBinViewArrayParts {
+    let VarBinViewDataParts {
         views: values_views_handle,
         buffers: values_data_buffers,
         validity: values_validity,
@@ -254,7 +246,7 @@ async fn execute_dict_varbinview(
     } = values_vbv.into_data().into_parts();
     let output_validity = values_validity.take(&codes_prim.clone().into_array())?;
 
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: codes_buffer,
         ..
     } = codes_prim.into_data().into_parts();

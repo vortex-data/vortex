@@ -51,7 +51,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
     }
     if id == BitPacked::ID {
-        return array.as_::<BitPacked>().patches().is_none();
+        return array.as_::<BitPacked>().patches(array.len()).is_none();
     }
     if id == Dict::ID {
         let arr = array.as_::<Dict>();
@@ -412,7 +412,7 @@ impl FusedPlan {
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Stage> {
         let bp = array.as_::<BitPacked>();
 
-        if bp.patches().is_some() {
+        if bp.patches(array.len()).is_some() {
             vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
         }
 

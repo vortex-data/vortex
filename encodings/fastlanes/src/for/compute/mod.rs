@@ -16,7 +16,6 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::FoR;
-use crate::FoRData;
 
 impl TakeExecute for FoR {
     fn take(
@@ -25,7 +24,7 @@ impl TakeExecute for FoR {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            FoRData::try_new(
+            FoR::try_new(
                 array.encoded().take(indices.clone())?,
                 array.reference_scalar().clone(),
             )?
@@ -36,7 +35,7 @@ impl TakeExecute for FoR {
 
 impl FilterReduce for FoR {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        FoRData::try_new(
+        FoR::try_new(
             array.encoded().filter(mask.clone())?,
             array.reference_scalar().clone(),
         )
@@ -55,12 +54,11 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
+    use crate::FoR;
     use crate::FoRArray;
-    use crate::FoRData;
 
     fn fa(encoded: ArrayRef, reference: Scalar) -> FoRArray {
-        FoRArray::try_from_data(FoRData::try_new(encoded, reference).unwrap())
-            .vortex_expect("FoRData is always valid")
+        FoR::try_new(encoded, reference).vortex_expect("FoR array construction should succeed")
     }
 
     #[test]
@@ -110,12 +108,11 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
+    use crate::FoR;
     use crate::FoRArray;
-    use crate::FoRData;
 
     fn fa(encoded: ArrayRef, reference: Scalar) -> FoRArray {
-        FoRArray::try_from_data(FoRData::try_new(encoded, reference).unwrap())
-            .vortex_expect("FoRData is always valid")
+        FoR::try_new(encoded, reference).vortex_expect("FoR array construction should succeed")
     }
 
     #[rstest]

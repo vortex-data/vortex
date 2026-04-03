@@ -39,7 +39,6 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::vtable;
 pub(crate) mod canonical;
 mod operations;
@@ -57,28 +56,19 @@ impl Constant {
 impl VTable for Constant {
     type ArrayData = ConstantData;
 
-    type Metadata = Scalar;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Constant
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &ConstantData) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &ConstantData) -> &DType {
-        array.scalar.dtype()
-    }
-
-    fn stats(array: &ConstantData) -> &ArrayStats {
-        &array.stats_set
+    fn validate(&self, data: &ConstantData, dtype: &DType, _len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.scalar.dtype() == dtype,
+            "ConstantArray scalar dtype does not match outer dtype"
+        );
+        Ok(())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -131,23 +121,22 @@ impl VTable for Constant {
         Ok(())
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(array.scalar().clone())
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
         // metadata at all.
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
+        &self,
         dtype: &DType,
         _len: usize,
+        _metadata: &[u8],
+
         buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
+    ) -> VortexResult<ConstantData> {
         vortex_ensure!(
             buffers.len() == 1,
             "Expected 1 buffer, got {}",
@@ -160,17 +149,7 @@ impl VTable for Constant {
         let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
         let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        Ok(scalar)
-    }
-
-    fn build(
-        _dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-    ) -> VortexResult<ConstantData> {
-        Ok(ConstantData::new(metadata.clone(), len))
+        Ok(ConstantData::new(scalar))
     }
 
     fn reduce_parent(

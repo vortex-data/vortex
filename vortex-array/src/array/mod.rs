@@ -304,15 +304,12 @@ impl<V: VTable> DynArray for ArrayInner<V> {
 
     fn metadata(&self, this: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::serialize(V::metadata(view)?)
+        V::serialize(view)
     }
 
     fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        match V::metadata(view) {
-            Err(e) => write!(f, "<serde error: {e}>"),
-            Ok(metadata) => Debug::fmt(&metadata, f),
-        }
+        V::fmt_metadata(view, f)
     }
 
     fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision) {

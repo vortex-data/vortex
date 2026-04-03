@@ -3,7 +3,7 @@
 
 use vortex::array::Canonical;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::varbinview::VarBinViewArrayParts;
+use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -15,7 +15,7 @@ pub(super) async fn filter_varbinview(
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let VarBinViewArrayParts {
+    let VarBinViewDataParts {
         views,
         buffers,
         validity,

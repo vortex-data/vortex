@@ -15,6 +15,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
+use crate::array::ArrayParts;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Decimal;
@@ -27,10 +28,10 @@ use crate::dtype::DecimalDType;
 use crate::dtype::DecimalType;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativeDecimalType;
+use crate::dtype::Nullability;
 use crate::match_each_decimal_value_type;
 use crate::match_each_integer_ptype;
 use crate::patches::Patches;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// The validity bitmap indicating which elements are non-null.
@@ -98,13 +99,13 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct DecimalData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) dtype: DType,
+    pub(super) decimal_dtype: DecimalDType,
+    pub(super) nullability: Nullability,
     pub(super) values: BufferHandle,
     pub(super) values_type: DecimalType,
-    pub(super) stats_set: ArrayStats,
 }
 
-pub struct DecimalArrayParts {
+pub struct DecimalDataParts {
     pub decimal_dtype: DecimalDType,
     pub values: BufferHandle,
     pub values_type: DecimalType,
@@ -242,8 +243,8 @@ impl DecimalData {
             slots: Self::make_slots(&validity, len),
             values,
             values_type,
-            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
-            stats_set: Default::default(),
+            decimal_dtype,
+            nullability: validity.nullability(),
         }
     }
 
@@ -300,8 +301,8 @@ impl DecimalData {
     }
 
     /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
+    pub fn dtype(&self) -> DType {
+        DType::Decimal(self.decimal_dtype, self.nullability)
     }
 
     /// Returns `true` if this array is empty.
@@ -311,15 +312,13 @@ impl DecimalData {
 
     /// Reconstructs the validity from the slot state.
     pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
     }
 
-    pub fn into_parts(self) -> DecimalArrayParts {
+    pub fn into_parts(self) -> DecimalDataParts {
         let validity = self.validity();
-        let decimal_dtype = self.dtype.into_decimal_opt().vortex_expect("cannot fail");
-
-        DecimalArrayParts {
-            decimal_dtype,
+        DecimalDataParts {
+            decimal_dtype: self.decimal_dtype,
             values: self.values,
             values_type: self.values_type,
             validity,
@@ -344,11 +343,7 @@ impl DecimalData {
 
     /// Returns the decimal type information
     pub fn decimal_dtype(&self) -> DecimalDType {
-        if let DType::Decimal(decimal_dtype, _) = self.dtype {
-            decimal_dtype
-        } else {
-            vortex_panic!("Expected Decimal dtype, got {:?}", self.dtype)
-        }
+        self.decimal_dtype
     }
 
     /// Return the `DecimalType` used to represent the values in the array.
@@ -450,8 +445,10 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(DecimalData::new(buffer, decimal_dtype, validity))
-            .vortex_expect("DecimalData is always valid")
+        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+        let len = buffer.len();
+        let data = DecimalData::new(buffer, decimal_dtype, validity);
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
     }
 
     /// Creates a new [`DecimalArray`] without validation.
@@ -464,8 +461,10 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) })
-            .vortex_expect("DecimalData is always valid")
+        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+        let len = buffer.len();
+        let data = unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) };
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
     }
 
     /// Creates a new [`DecimalArray`] from a host-native buffer with validation.
@@ -474,7 +473,10 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Array::try_from_data(DecimalData::try_new(buffer, decimal_dtype, validity)?)
+        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+        let len = buffer.len();
+        let data = DecimalData::try_new(buffer, decimal_dtype, validity)?;
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) })
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.
@@ -486,8 +488,10 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        Array::try_from_data(DecimalData::from_iter(iter, decimal_dtype))
-            .vortex_expect("DecimalData is always valid")
+        let data = DecimalData::from_iter(iter, decimal_dtype);
+        let dtype = data.dtype();
+        let len = data.len();
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of optional values.
@@ -495,8 +499,10 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        Array::try_from_data(DecimalData::from_option_iter(iter, decimal_dtype))
-            .vortex_expect("DecimalData is always valid")
+        let data = DecimalData::from_option_iter(iter, decimal_dtype);
+        let dtype = data.dtype();
+        let len = data.len();
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
     }
 
     /// Creates a new [`DecimalArray`] from a [`BufferHandle`].
@@ -506,13 +512,10 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(DecimalData::new_handle(
-            values,
-            values_type,
-            decimal_dtype,
-            validity,
-        ))
-        .vortex_expect("DecimalData is always valid")
+        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+        let len = values.len() / values_type.byte_width();
+        let data = DecimalData::new_handle(values, values_type, decimal_dtype, validity);
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
     }
 
     /// Creates a new [`DecimalArray`] without validation from a [`BufferHandle`].
@@ -526,10 +529,12 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(unsafe {
+        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
+        let len = values.len() / values_type.byte_width();
+        let data = unsafe {
             DecimalData::new_unchecked_handle(values, values_type, decimal_dtype, validity)
-        })
-        .vortex_expect("DecimalData is always valid")
+        };
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
     }
 }
 

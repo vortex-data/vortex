@@ -4,7 +4,7 @@
 use cudarc::driver::DeviceRepr;
 use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::dtype::NativeDecimalType;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -18,7 +18,7 @@ pub(super) async fn filter_decimal<D: NativeDecimalType + DeviceRepr + CubFilter
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let DecimalArrayParts {
+    let DecimalDataParts {
         values,
         validity,
         decimal_dtype,

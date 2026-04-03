@@ -16,12 +16,12 @@ impl OperationsVTable<BitPacked> for BitPacked {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(
-            if let Some(patches) = array.patches()
+            if let Some(patches) = array.patches(array.len())
                 && let Some(patch) = patches.get_patched(index)?
             {
                 patch
             } else {
-                bitpack_decompress::unpack_single(&array, index)
+                bitpack_decompress::unpack_single(array, index)
             },
         )
     }
@@ -141,14 +141,14 @@ mod test {
         // We create an array that has 1 element that does not fit in the 6-bit range.
         let array = BitPackedData::encode(&buffer![0u32..=64].into_array(), 6).unwrap();
 
-        assert!(array.patches().is_some());
+        assert!(array.patches(array.len()).is_some());
 
-        let patch_indices = array.patches().unwrap().indices().clone();
+        let patch_indices = array.patches(array.len()).unwrap().indices().clone();
         assert_eq!(patch_indices.len(), 1);
 
         // Slicing drops the empty patches array.
         let sliced_bp = slice_via_reduce(&array, 0..64);
-        assert!(sliced_bp.patches().is_none());
+        assert!(sliced_bp.patches(sliced_bp.len()).is_none());
     }
 
     #[test]
@@ -177,30 +177,29 @@ mod test {
 
     #[test]
     fn scalar_at_invalid_patches() {
-        let packed_array = unsafe {
-            BitPackedData::new_unchecked(
-                BufferHandle::new_host(ByteBuffer::copy_from_aligned(
-                    [0u8; 128],
-                    Alignment::of::<u32>(),
-                )),
-                DType::Primitive(PType::U32, true.into()),
-                Validity::AllInvalid,
-                Some(
-                    Patches::new(
-                        8,
-                        0,
-                        buffer![1u32].into_array(),
-                        PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
-                        None,
-                    )
-                    .unwrap(),
-                ),
-                1,
-                8,
-                0,
-            )
-            .into_array()
-        };
+        let packed_array = BitPacked::try_new(
+            BufferHandle::new_host(ByteBuffer::copy_from_aligned(
+                [0u8; 128],
+                Alignment::of::<u32>(),
+            )),
+            PType::U32,
+            Validity::AllInvalid,
+            Some(
+                Patches::new(
+                    8,
+                    0,
+                    buffer![1u32].into_array(),
+                    PrimitiveArray::new(buffer![999u32], Validity::AllValid).into_array(),
+                    None,
+                )
+                .unwrap(),
+            ),
+            1,
+            8,
+            0,
+        )
+        .unwrap()
+        .into_array();
         assert_eq!(
             packed_array.scalar_at(1).unwrap(),
             Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable))
@@ -212,9 +211,9 @@ mod test {
         let values = (0u32..257).collect::<Buffer<_>>();
         let uncompressed = values.clone().into_array();
         let packed = BitPackedData::encode(&uncompressed, 8).unwrap();
-        assert!(packed.patches().is_some());
+        assert!(packed.patches(packed.len()).is_some());
 
-        let patches = packed.patches().unwrap().indices().clone();
+        let patches = packed.patches(packed.len()).unwrap().indices().clone();
         assert_eq!(
             usize::try_from(&patches.scalar_at(0).unwrap()).unwrap(),
             256

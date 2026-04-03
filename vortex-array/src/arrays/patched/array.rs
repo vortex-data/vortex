@@ -14,6 +14,9 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::Array;
+use crate::array::ArrayParts;
+use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::TransposedPatches;
 use crate::arrays::patched::patch_lanes;
@@ -24,7 +27,6 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// The inner array containing the base unpatched values.
@@ -59,10 +61,23 @@ pub struct PatchedArray {
     /// should be subtracted out of the remaining offsets to get their final position in the
     /// executed array.
     pub(super) offset: usize,
-    /// Length of the array
-    pub(super) len: usize,
+}
 
-    pub(super) stats_set: ArrayStats,
+impl IntoArray for PatchedArray {
+    fn into_array(self) -> ArrayRef {
+        let dtype = self.base_array().dtype().clone();
+        let len = self.len();
+        unsafe {
+            Array::<Patched>::from_parts_unchecked(ArrayParts::new(Patched, dtype, len, self))
+        }
+        .into_array()
+    }
+}
+
+impl From<PatchedArray> for ArrayRef {
+    fn from(value: PatchedArray) -> Self {
+        value.into_array()
+    }
 }
 
 impl PatchedArray {
@@ -127,14 +142,10 @@ impl PatchedArray {
         )
         .into_array();
 
-        let len = inner.len();
-
         Ok(Self {
             slots: vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
             n_lanes,
             offset: 0,
-            len,
-            stats_set: ArrayStats::default(),
         })
     }
 }
@@ -171,6 +182,16 @@ impl PatchedArray {
             .as_ref()
             .vortex_expect("PatchedArray values slot")
     }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.base_array().len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl PatchedArray {
@@ -181,7 +202,7 @@ impl PatchedArray {
     ///
     /// Note that this function will panic if the caller requests out of bounds chunk/lane ordinals.
     pub(crate) fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
-        assert!(chunk * 1024 <= self.len + self.offset);
+        assert!(chunk * 1024 <= self.len() + self.offset);
         assert!(lane < self.n_lanes);
 
         let start = self.lane_offsets().scalar_at(chunk * self.n_lanes + lane)?;
@@ -219,13 +240,11 @@ impl PatchedArray {
         let begin = (chunks.start * 1024).saturating_sub(self.offset);
         let end = (chunks.end * 1024)
             .saturating_sub(self.offset)
-            .min(self.len);
+            .min(self.len());
 
         let offset = if chunks.start == 0 { self.offset } else { 0 };
 
         let inner = self.base_array().slice(begin..end)?;
-
-        let len = end - begin;
 
         Ok(PatchedArray {
             slots: vec![
@@ -236,8 +255,6 @@ impl PatchedArray {
             ],
             n_lanes: self.n_lanes,
             offset,
-            len,
-            stats_set: ArrayStats::default(),
         })
     }
 }

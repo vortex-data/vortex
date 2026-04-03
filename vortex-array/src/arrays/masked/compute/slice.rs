@@ -9,7 +9,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Masked;
-use crate::arrays::masked::MaskedData;
+use crate::arrays::MaskedArray;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Masked {
@@ -17,6 +17,6 @@ impl SliceReduce for Masked {
         let child = array.child().slice(range.clone())?;
         let validity = array.validity().slice(range)?;
 
-        Ok(Some(MaskedData::try_new(child, validity)?.into_array()))
+        Ok(Some(MaskedArray::try_new(child, validity)?.into_array()))
     }
 }

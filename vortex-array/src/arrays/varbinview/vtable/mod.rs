@@ -14,7 +14,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
@@ -32,7 +31,6 @@ use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 mod kernel;
@@ -50,27 +48,11 @@ impl VarBinView {
 impl VTable for VarBinView {
     type ArrayData = VarBinViewData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &VarBinViewData) -> &Self {
-        &VarBinView
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn len(array: &VarBinViewData) -> usize {
-        array.views_handle().len() / size_of::<BinaryView>()
-    }
-
-    fn dtype(array: &VarBinViewData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &VarBinViewData) -> &ArrayStats {
-        &array.stats_set
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -100,6 +82,22 @@ impl VTable for VarBinView {
         array.data_buffers().len() + 1
     }
 
+    fn validate(&self, data: &VarBinViewData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.len() == len,
+            "VarBinViewArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        vortex_ensure!(
+            data.dtype() == *dtype,
+            "VarBinViewArray dtype {} does not match outer dtype {}",
+            data.dtype(),
+            dtype
+        );
+        Ok(())
+    }
+
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         let ndata = array.data_buffers().len();
         if idx < ndata {
@@ -122,31 +120,26 @@ impl VTable for VarBinView {
         }
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &[u8],
+
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<VarBinViewData> {
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "VarBinViewArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
         let Some((views_handle, data_handles)) = buffers.split_last() else {
             vortex_bail!("Expected at least 1 buffer, got 0");
         };
@@ -242,8 +235,8 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::assert_arrays_eq;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
 
     #[test]
     fn test_nullable_varbinview_serde_roundtrip() {
@@ -268,7 +261,7 @@ mod tests {
         for buf in serialized {
             concat.extend_from_slice(buf.as_ref());
         }
-        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

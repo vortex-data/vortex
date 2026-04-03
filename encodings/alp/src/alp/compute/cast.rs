@@ -45,8 +45,7 @@ impl CastReduce for ALP {
             // SAFETY: casting nullability doesn't alter the invariants
             unsafe {
                 Ok(Some(
-                    ALP::new_unchecked(new_encoded, array.exponents(), new_patches, dtype.clone())
-                        .into_array(),
+                    ALP::new_unchecked(new_encoded, array.exponents(), new_patches).into_array(),
                 ))
             }
         } else {

@@ -7,20 +7,16 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayParts;
 use crate::arrays::ScalarFnVTable;
-use crate::dtype::DType;
 use crate::scalar_fn::ScalarFnRef;
-use crate::stats::ArrayStats;
 
 // ScalarFnArray has a variable number of slots (one per child)
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnData {
-    pub(super) vtable: ScalarFnVTable,
-    pub(super) dtype: DType,
-    pub(super) len: usize,
+    pub(super) scalar_fn: ScalarFnRef,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats: ArrayStats,
 }
 
 impl ScalarFnData {
@@ -30,9 +26,6 @@ impl ScalarFnData {
         children: Vec<ArrayRef>,
         len: usize,
     ) -> VortexResult<Self> {
-        let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
-        let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
-
         vortex_ensure!(
             children.iter().all(|c| c.len() == len),
             "ScalarFnArray must have children equal to the array length"
@@ -40,35 +33,14 @@ impl ScalarFnData {
 
         let slots = children.into_iter().map(Some).collect();
 
-        Ok(Self {
-            vtable: ScalarFnVTable { scalar_fn },
-            dtype,
-            len,
-            slots,
-            stats: Default::default(),
-        })
-    }
-
-    /// Returns the dtype of the array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    /// Returns the length of the array.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Returns `true` if the array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        Ok(Self { scalar_fn, slots })
     }
 
     /// Get the scalar function bound to this array.
     #[allow(clippy::same_name_method)]
     #[inline(always)]
     pub fn scalar_fn(&self) -> &ScalarFnRef {
-        &self.vtable.scalar_fn
+        &self.scalar_fn
     }
 
     /// Get a child array by index.
@@ -116,6 +88,10 @@ impl Array<ScalarFnVTable> {
         children: Vec<ArrayRef>,
         len: usize,
     ) -> VortexResult<Self> {
-        Array::try_from_data(ScalarFnData::try_new(scalar_fn, children, len)?)
+        let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
+        let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
+        let data = ScalarFnData::try_new(scalar_fn.clone(), children, len)?;
+        let vtable = ScalarFnVTable { scalar_fn };
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(vtable, dtype, len, data)) })
     }
 }

@@ -19,7 +19,7 @@ use crate::arrays::Chunked;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::struct_::StructArrayParts;
+use crate::arrays::struct_::StructDataParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
@@ -49,13 +49,14 @@ pub(super) fn to_arrow_struct(
     // Attempt to short-circuit if the array is already a Struct:
     let array = match array.try_into::<Struct>() {
         Ok(array) => {
-            let len = array.len();
-            let StructArrayParts {
+            let parts = array.into_parts();
+            let len = parts.len;
+            let StructDataParts {
                 validity,
                 fields,
                 struct_fields,
                 ..
-            } = array.into_parts();
+            } = parts.data.into_parts();
             let validity = to_arrow_null_buffer(validity, len, ctx)?;
             return create_from_fields(
                 target_fields.ok_or_else(|| struct_fields.names().clone()),
@@ -97,13 +98,14 @@ pub(super) fn to_arrow_struct(
     };
 
     let struct_array = array.execute::<StructArray>(ctx)?;
-    let len = struct_array.len();
-    let StructArrayParts {
+    let parts = struct_array.into_parts();
+    let len = parts.len;
+    let StructDataParts {
         validity,
         fields,
         struct_fields,
         ..
-    } = struct_array.into_parts();
+    } = parts.data.into_parts();
 
     let validity = to_arrow_null_buffer(validity, len, ctx)?;
     create_from_fields(

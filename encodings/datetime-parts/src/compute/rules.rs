@@ -26,7 +26,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
-use crate::DateTimePartsData;
 use crate::timestamp;
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DTPFilterPushDownRule),
@@ -57,7 +56,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
             return Ok(None);
         }
 
-        DateTimePartsData::try_new(
+        DateTimeParts::try_new(
             child.dtype().clone(),
             child.days().clone().filter(parent.filter_mask().clone())?,
             ConstantArray::new(
@@ -192,6 +191,7 @@ mod tests {
     use vortex_buffer::Buffer;
 
     use super::*;
+    use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
     const SECONDS_PER_DAY: i64 = 86400;
@@ -215,8 +215,8 @@ mod tests {
             time_unit,
             None,
         );
-        DateTimePartsArray::try_from_data(DateTimePartsData::try_from(temporal).unwrap())
-            .vortex_expect("DateTimePartsData is always valid")
+        DateTimeParts::try_from_temporal(temporal)
+            .vortex_expect("TemporalArray must produce valid DateTimeParts")
     }
 
     /// Create a constant timestamp scalar at midnight for the given day.
@@ -348,7 +348,7 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let dtp = DateTimePartsData::try_from(temporal).unwrap();
+        let dtp = DateTimeParts::try_from_temporal(temporal).unwrap();
         let len = dtp.len();
 
         // Compare against midnight constant

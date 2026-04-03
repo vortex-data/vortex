@@ -8,7 +8,7 @@ use bytes::Buf;
 use flatbuffers::root;
 use flatbuffers::root_unchecked;
 use vortex_array::ArrayId;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::SerializedArray;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -25,7 +25,7 @@ use vortex_session::registry::ReadContext;
 /// A message decoded from an IPC stream.
 #[derive(Debug)]
 pub enum DecoderMessage {
-    Array((ArrayParts, ReadContext, usize)),
+    Array((SerializedArray, ReadContext, usize)),
     Buffer(ByteBuffer),
     DType(FlatBuffer),
 }
@@ -115,7 +115,7 @@ impl MessageDecoder {
                         MessageHeader::ArrayMessage => {
                             // We don't care about alignment here since ArrayParts will handle it.
                             let body = bytes.copy_to_aligned(body_length, Alignment::new(1));
-                            let parts = ArrayParts::try_from(body)?;
+                            let parts = SerializedArray::try_from(body)?;
 
                             let header = msg
                                 .header_as_array_message()

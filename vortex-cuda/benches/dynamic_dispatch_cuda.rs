@@ -30,6 +30,7 @@ use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::Exponents;
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::BitPackedData;
+use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRData;
 use vortex::encodings::runend::RunEnd;
 use vortex::error::VortexExpect;
@@ -187,9 +188,9 @@ fn bench_for_bitpacked(c: &mut Criterion) {
             .collect();
         let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
         let bp = BitPackedData::encode(&prim.into_array(), bit_width).vortex_expect("bitpack");
-        let for_arr =
-            FoRData::try_new(bp.into_array(), Scalar::from(reference)).vortex_expect("for");
-        let array = for_arr.into_array();
+        let array = FoR::try_new(bp.into_array(), Scalar::from(reference))
+            .vortex_expect("for")
+            .into_array();
 
         group.bench_with_input(
             BenchmarkId::new("dynamic_dispatch_u32", len_str),
@@ -320,8 +321,8 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
     let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
     let dict_bp = BitPackedData::encode(&dict_prim.into_array(), dict_bit_width)
         .vortex_expect("bitpack dict");
-    let dict_for = FoRData::try_new(dict_bp.into_array(), Scalar::from(dict_reference))
-        .vortex_expect("for dict");
+    let dict_for =
+        FoR::try_new(dict_bp.into_array(), Scalar::from(dict_reference)).vortex_expect("for dict");
 
     for (len, len_str) in BENCH_ARGS {
         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
@@ -384,7 +385,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
             BitPackedData::encode(for_arr.encoded(), bit_width).vortex_expect("bitpack encode");
 
         let tree = ALP::new(
-            FoRData::try_new(bp.into_array(), for_arr.reference_scalar().clone())
+            FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())
                 .vortex_expect("for_new")
                 .into_array(),
             exponents,

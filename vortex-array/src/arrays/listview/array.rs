@@ -13,6 +13,7 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
+use crate::array::ArrayParts;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::ListView;
@@ -21,8 +22,8 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::bool;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::dtype::Nullability;
 use crate::match_each_integer_ptype;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// The `elements` data array, where each list scalar is a _slice_ of the `elements` array, and
@@ -107,10 +108,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "sizes"
 /// [`ListArray`]: crate::arrays::ListArray
 #[derive(Clone, Debug)]
 pub struct ListViewData {
-    /// The [`DType`] of the list array.
-    ///
-    /// This type **must** be the variant [`DType::List`].
-    pub(super) dtype: DType,
+    /// The nullability of the list array.
+    pub(super) nullability: Nullability,
 
     /// Slots holding [elements, offsets, sizes].
     pub(super) slots: Vec<Option<ArrayRef>>,
@@ -124,12 +123,9 @@ pub struct ListViewData {
     /// `offsets[i] + sizes[i]` are in order), conversions can bypass the very expensive rebuild
     /// process which must rebuild the array from scratch.
     is_zero_copy_to_list: bool,
-
-    /// The stats for this array.
-    pub(super) stats_set: ArrayStats,
 }
 
-pub struct ListViewArrayParts {
+pub struct ListViewDataParts {
     pub elements_dtype: Arc<DType>,
 
     /// See `ListViewArray::elements`
@@ -175,10 +171,9 @@ impl ListViewData {
         let validity_slot = validity_to_child(&validity, len);
 
         Ok(Self {
-            dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
+            nullability: validity.nullability(),
             slots: vec![Some(elements), Some(offsets), Some(sizes), validity_slot],
             is_zero_copy_to_list: false,
-            stats_set: Default::default(),
         })
     }
 
@@ -216,10 +211,9 @@ impl ListViewData {
         let validity_slot = validity_to_child(&validity, len);
 
         Self {
-            dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
+            nullability: validity.nullability(),
             slots: vec![Some(elements), Some(offsets), Some(sizes), validity_slot],
             is_zero_copy_to_list: false,
-            stats_set: Default::default(),
         }
     }
 
@@ -343,11 +337,10 @@ impl ListViewData {
         .is_ok()
     }
 
-    pub fn into_parts(mut self) -> ListViewArrayParts {
+    pub fn into_parts(mut self) -> ListViewDataParts {
         let validity = self.validity();
-        let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
-        ListViewArrayParts {
-            elements_dtype: dtype,
+        ListViewDataParts {
+            elements_dtype: Arc::new(self.elements().dtype().clone()),
             elements: self.slots[ELEMENTS_SLOT]
                 .take()
                 .vortex_expect("ListViewArray elements slot"),
@@ -362,8 +355,8 @@ impl ListViewData {
     }
 
     /// Returns the dtype of the array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
+    pub fn dtype(&self) -> DType {
+        DType::List(Arc::new(self.elements().dtype().clone()), self.nullability)
     }
 
     /// Returns the length of the array.
@@ -380,7 +373,7 @@ impl ListViewData {
     /// Returns the validity of the array.
     #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
     }
 
     /// Returns the validity as a [`Mask`](vortex_mask::Mask).
@@ -485,8 +478,10 @@ impl ListViewData {
 impl Array<ListView> {
     /// Creates a new `ListViewArray`.
     pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
-        Array::try_from_data(ListViewData::new(elements, offsets, sizes, validity))
-            .vortex_expect("ListViewData is always valid")
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len();
+        let data = ListViewData::new(elements, offsets, sizes, validity);
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data)) }
     }
 
     /// Constructs a new `ListViewArray`.
@@ -496,7 +491,10 @@ impl Array<ListView> {
         sizes: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Array::try_from_data(ListViewData::try_new(elements, offsets, sizes, validity)?)
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len();
+        let data = ListViewData::try_new(elements, offsets, sizes, validity)?;
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data)) })
     }
 
     /// Creates a new `ListViewArray` without validation.
@@ -510,10 +508,10 @@ impl Array<ListView> {
         sizes: ArrayRef,
         validity: Validity,
     ) -> Self {
-        Array::try_from_data(unsafe {
-            ListViewData::new_unchecked(elements, offsets, sizes, validity)
-        })
-        .vortex_expect("ListViewData is always valid")
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len();
+        let data = unsafe { ListViewData::new_unchecked(elements, offsets, sizes, validity) };
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data)) }
     }
 
     /// Mark whether this list view can be zero-copy converted to a list.
@@ -522,8 +520,10 @@ impl Array<ListView> {
     ///
     /// See [`ListViewData::with_zero_copy_to_list`].
     pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
-        Array::try_from_data(unsafe { self.into_data().with_zero_copy_to_list(is_zctl) })
-            .vortex_expect("data is always valid")
+        let dtype = self.dtype().clone();
+        let len = self.len();
+        let data = unsafe { self.into_data().with_zero_copy_to_list(is_zctl) };
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data)) }
     }
 }
 

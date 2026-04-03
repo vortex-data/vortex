@@ -11,9 +11,9 @@ use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use super::DecimalBytePartsData;
 use crate::DecimalByteParts;
 
 pub(super) const PARENT_RULES: ParentRuleSet<DecimalByteParts> = ParentRuleSet::new(&[
@@ -43,8 +43,14 @@ impl ArrayParentReduceRule<DecimalByteParts> for DecimalBytePartsFilterPushDownR
         }
 
         let new_msp = child.msp().filter(parent.filter_mask().clone())?;
-        let new_child =
-            DecimalBytePartsData::try_new(new_msp, *child.decimal_dtype())?.into_array();
+        let new_child = DecimalByteParts::try_new(
+            new_msp,
+            *child
+                .dtype()
+                .as_decimal_opt()
+                .vortex_expect("must be a decimal dtype"),
+        )?
+        .into_array();
         Ok(Some(new_child))
     }
 }

@@ -3,17 +3,20 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
-use crate::RLEData;
 use crate::rle::RLE;
 impl CastReduce for RLE {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Cast RLE values.
-        let casted_values = array.values().cast(dtype.clone())?;
+        let casted_values = array
+            .values()
+            .cast(DType::Primitive(dtype.as_ptype(), Nullability::NonNullable))?;
 
         // Cast RLE indices such that validity matches the target dtype.
         let casted_indices = if array.indices().dtype().nullability() != dtype.nullability() {
@@ -25,17 +28,16 @@ impl CastReduce for RLE {
             array.indices().clone()
         };
 
-        Ok(Some(unsafe {
-            RLEData::new_unchecked(
+        Ok(Some(
+            RLE::try_new(
                 casted_values,
                 casted_indices,
                 array.values_idx_offsets().clone(),
-                dtype.clone(),
                 array.offset(),
                 array.len(),
-            )
-            .into()
-        }))
+            )?
+            .into_array(),
+        ))
     }
 }
 

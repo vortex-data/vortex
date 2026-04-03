@@ -7,10 +7,10 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::bool::BoolArrayParts;
-use vortex::array::arrays::decimal::DecimalArrayParts;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
-use vortex::array::arrays::struct_::StructArrayParts;
+use vortex::array::arrays::bool::BoolDataParts;
+use vortex::array::arrays::decimal::DecimalDataParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::DecimalType;
 use vortex::error::VortexResult;
@@ -66,7 +66,7 @@ fn export_canonical(
             Canonical::Struct(struct_array) => export_struct(struct_array, ctx).await,
             Canonical::Primitive(primitive) => {
                 let len = primitive.len();
-                let PrimitiveArrayParts {
+                let PrimitiveDataParts {
                     buffer, validity, ..
                 } = primitive.into_data().into_parts();
 
@@ -90,7 +90,7 @@ fn export_canonical(
             }
             Canonical::Decimal(decimal) => {
                 let len = decimal.len();
-                let DecimalArrayParts {
+                let DecimalDataParts {
                     values,
                     values_type,
                     validity,
@@ -118,7 +118,7 @@ fn export_canonical(
                 let values = extension.storage_array().to_primitive();
                 let len = extension.len();
 
-                let PrimitiveArrayParts {
+                let PrimitiveDataParts {
                     buffer, validity, ..
                 } = values.into_data().into_parts();
 
@@ -128,13 +128,13 @@ fn export_canonical(
                 export_fixed_size(buffer, len, 0, ctx)
             }
             Canonical::Bool(bool_array) => {
-                let BoolArrayParts {
+                let BoolDataParts {
                     bits,
                     offset,
                     len,
                     validity,
                     ..
-                } = bool_array.into_parts();
+                } = bool_array.into_data().into_parts();
 
                 check_validity_empty(&validity)?;
 
@@ -182,9 +182,9 @@ async fn export_struct(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
     let len = array.len();
-    let StructArrayParts {
+    let StructDataParts {
         validity, fields, ..
-    } = array.into_parts();
+    } = array.into_data().into_parts();
 
     check_validity_empty(&validity)?;
 

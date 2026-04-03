@@ -177,7 +177,7 @@ fn mask_validity_struct(
     let len = array.len();
     let new_validity = combine_validity(&array.validity(), mask, len, ctx)?;
     let fields = array.unmasked_fields();
-    let struct_fields = array.struct_fields().clone();
+    let struct_fields = array.struct_fields();
     // SAFETY: We're only changing validity, not the data structure
     Ok(unsafe { StructArray::new_unchecked(fields, struct_fields, len, new_validity) })
 }

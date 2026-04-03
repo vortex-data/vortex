@@ -21,7 +21,7 @@ use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::listview::ListViewArrayParts;
+use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
@@ -133,7 +133,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         )));
     }
 
-    let ListViewArrayParts {
+    let ListViewDataParts {
         elements,
         offsets,
         sizes,

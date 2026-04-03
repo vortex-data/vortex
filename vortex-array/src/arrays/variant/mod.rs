@@ -9,8 +9,8 @@ pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayParts;
 use crate::dtype::DType;
-use crate::stats::ArrayStats;
 
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
@@ -21,21 +21,18 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 /// (e.g. a `ParquetVariantArray` or any other variant encoding).
 ///
 /// Nullability is delegated to the child array: `VariantArray`'s dtype is
-/// always the child's dtype. The child's validity determines which rows are
-/// null.
+/// always `DType::Variant(child.dtype().nullability())`. The child's validity
+/// determines which rows are null.
 #[derive(Clone, Debug)]
 pub struct VariantData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(crate) stats_set: ArrayStats,
 }
 
 impl VariantData {
     /// Creates a new VariantArray. Nullability comes from the child's dtype.
     pub fn new(child: ArrayRef) -> Self {
-        let stats_set = child.statistics().to_array_stats();
         Self {
             slots: vec![Some(child)],
-            stats_set,
         }
     }
 
@@ -45,8 +42,8 @@ impl VariantData {
     }
 
     /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        self.child().dtype()
+    pub fn dtype(&self) -> DType {
+        DType::Variant(self.child().dtype().nullability())
     }
 
     /// Returns `true` if this array is empty.
@@ -65,6 +62,17 @@ impl VariantData {
 impl Array<Variant> {
     /// Creates a new `VariantArray`.
     pub fn new(child: ArrayRef) -> Self {
-        Array::try_from_data(VariantData::new(child)).vortex_expect("VariantData is always valid")
+        let dtype = DType::Variant(child.dtype().nullability());
+        let len = child.len();
+        let stats = child.statistics().to_owned();
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(
+                Variant,
+                dtype,
+                len,
+                VariantData::new(child),
+            ))
+        }
+        .with_stats_set(stats)
     }
 }

@@ -9,20 +9,19 @@ use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
@@ -55,29 +54,15 @@ pub struct DeltaMetadata {
 impl VTable for Delta {
     type ArrayData = DeltaData;
 
-    type Metadata = ProstMetadata<DeltaMetadata>;
-
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
-    fn vtable(_array: &DeltaData) -> &Self {
-        &Delta
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &DeltaData) -> usize {
-        array.len()
-    }
-
-    fn dtype(array: &DeltaData) -> &DType {
-        array.dtype()
-    }
-
-    fn stats(array: &DeltaData) -> &ArrayStats {
-        array.stats_set()
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+        data.validate(dtype, len)
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &DeltaData, state: &mut H, precision: Precision) {
@@ -131,41 +116,42 @@ impl VTable for Delta {
         Ok(())
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(DeltaMetadata {
-            deltas_len: array.deltas().len() as u64,
-            offset: array.offset() as u32,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.0.encode_to_vec()))
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            DeltaMetadata {
+                deltas_len: array.deltas().len() as u64,
+                offset: array.offset() as u32,
+            }
+            .encode_to_vec(),
+        ))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(DeltaMetadata::decode(bytes)?))
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
-        _buffers: &[BufferHandle],
+        metadata: &[u8],
+        buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<DeltaData> {
-        assert_eq!(children.len(), 2);
+        vortex_ensure!(
+            buffers.is_empty(),
+            "DeltaArray expects 0 buffers, got {}",
+            buffers.len()
+        );
+        vortex_ensure!(
+            children.len() == 2,
+            "DeltaArray expects 2 children, got {}",
+            children.len()
+        );
+        let metadata = DeltaMetadata::decode(metadata)?;
         let ptype = PType::try_from(dtype)?;
         let lanes = match_each_unsigned_integer_ptype!(ptype, |T| { <T as FastLanes>::LANES });
 
         // Compute the length of the bases array
-        let deltas_len = usize::try_from(metadata.0.deltas_len)
-            .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.0.deltas_len))?;
+        let deltas_len = usize::try_from(metadata.deltas_len)
+            .map_err(|_| vortex_err!("deltas_len {} overflowed usize", metadata.deltas_len))?;
         let num_chunks = deltas_len / 1024;
         let remainder_base_size = if deltas_len % 1024 > 0 { 1 } else { 0 };
         let bases_len = num_chunks * lanes + remainder_base_size;
@@ -173,7 +159,7 @@ impl VTable for Delta {
         let bases = children.get(0, dtype, bases_len)?;
         let deltas = children.get(1, dtype, deltas_len)?;
 
-        DeltaData::try_new(bases, deltas, metadata.0.offset as usize, len)
+        DeltaData::try_new(bases, deltas, metadata.offset as usize, len)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -189,31 +175,45 @@ pub struct Delta;
 impl Delta {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.delta");
 
+    pub fn try_new(
+        bases: ArrayRef,
+        deltas: ArrayRef,
+        offset: usize,
+        len: usize,
+    ) -> VortexResult<DeltaArray> {
+        let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
+        let data = DeltaData::try_new(bases, deltas, offset, len)?;
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Delta, dtype, len, data)) })
+    }
+
     /// Compress a primitive array using Delta encoding.
     pub fn try_from_primitive_array(
         array: &PrimitiveArray,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<DeltaArray> {
-        Array::try_from_data(DeltaData::try_from_primitive_array(array, ctx)?)
+        let logical_len = array.len();
+        let (bases, deltas) = crate::delta::array::delta_compress::delta_compress(array, ctx)?;
+        Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use prost::Message;
     use vortex_array::test_harness::check_metadata;
 
     use super::DeltaMetadata;
-    use super::ProstMetadata;
 
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_delta_metadata() {
         check_metadata(
             "delta.metadata",
-            ProstMetadata(DeltaMetadata {
+            &DeltaMetadata {
                 offset: u32::MAX,
                 deltas_len: u64::MAX,
-            }),
+            }
+            .encode_to_vec(),
         );
     }
 }

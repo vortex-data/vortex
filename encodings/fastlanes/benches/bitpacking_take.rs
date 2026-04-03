@@ -160,9 +160,9 @@ fn patched_take_10_stratified(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
 
-    assert!(packed.patches().is_some());
+    assert!(packed.patches(packed.len()).is_some());
     assert_eq!(
-        packed.patches().unwrap().num_patches(),
+        packed.patches(packed.len()).unwrap().num_patches(),
         NUM_EXCEPTIONS as usize
     );
 
@@ -185,9 +185,9 @@ fn patched_take_10_contiguous(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
 
-    assert!(packed.patches().is_some());
+    assert!(packed.patches(packed.len()).is_some());
     assert_eq!(
-        packed.patches().unwrap().num_patches(),
+        packed.patches(packed.len()).unwrap().num_patches(),
         NUM_EXCEPTIONS as usize
     );
 
@@ -249,9 +249,9 @@ fn patched_take_10k_contiguous_patches(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
 
-    assert!(packed.patches().is_some());
+    assert!(packed.patches(packed.len()).is_some());
     assert_eq!(
-        packed.patches().unwrap().num_patches(),
+        packed.patches(packed.len()).unwrap().num_patches(),
         NUM_EXCEPTIONS as usize
     );
 

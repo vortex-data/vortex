@@ -7,7 +7,7 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Slice;
-use vortex::array::arrays::slice::SliceArrayParts;
+use vortex::array::arrays::slice::SliceDataParts;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
@@ -33,7 +33,7 @@ impl CudaExecute for SliceExecutor {
             )
         })?;
 
-        let SliceArrayParts { child, range } = slice_array.into_data().into_parts();
+        let SliceDataParts { child, range } = slice_array.into_data().into_parts();
         let child = child.execute_cuda(ctx).await?;
 
         match child {

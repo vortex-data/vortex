@@ -13,7 +13,6 @@ use vortex_error::vortex_panic;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
@@ -27,7 +26,6 @@ use crate::arrays::variant::VariantData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::vtable;
 
 vtable!(Variant, Variant, VariantData);
@@ -42,30 +40,32 @@ impl Variant {
 impl VTable for Variant {
     type ArrayData = VariantData;
 
-    type Metadata = EmptyMetadata;
-
     type OperationsVTable = Self;
 
     type ValidityVTable = Self;
-
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Variant
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &Self::ArrayData) -> usize {
-        array.child().len()
-    }
-
-    fn dtype(array: &Self::ArrayData) -> &DType {
-        array.child().dtype()
-    }
-
-    fn stats(array: &Self::ArrayData) -> &ArrayStats {
-        &array.stats_set
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            matches!(dtype, DType::Variant(_)),
+            "Expected Variant DType, got {dtype}"
+        );
+        vortex_ensure!(
+            data.child().dtype() == dtype,
+            "VariantArray child dtype {} does not match outer dtype {}",
+            data.child().dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            data.len() == len,
+            "VariantArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        Ok(())
     }
 
     fn array_hash<H: Hasher>(array: &VariantData, state: &mut H, precision: Precision) {
@@ -88,31 +88,25 @@ impl VTable for Variant {
         None
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &vortex_session::VortexSession,
     ) -> VortexResult<Self::ArrayData> {
+        vortex_ensure!(
+            metadata.is_empty(),
+            "VariantArray expects empty metadata, got {} bytes",
+            metadata.len()
+        );
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         vortex_ensure!(
             children.len() == 1,
@@ -159,11 +153,16 @@ impl VTable for Variant {
 mod tests {
     use super::*;
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::ConstantArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::scalar::Scalar;
 
     #[test]
     fn with_slots_rejects_missing_child() {
-        let array = VariantArray::new(PrimitiveArray::from_iter([1u8, 2, 3]).into_array());
+        let child =
+            ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 3).into_array();
+        let array = VariantArray::new(child);
         let mut data = array.into_data();
 
         let err = <Variant as VTable>::with_slots(&mut data, vec![None]).unwrap_err();

@@ -18,7 +18,7 @@ use vortex::array::match_each_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArray;
-use vortex::encodings::fastlanes::BitPackedArrayParts;
+use vortex::encodings::fastlanes::BitPackedDataParts;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -52,7 +52,7 @@ impl CudaExecute for BitPackedExecutor {
         let array =
             Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected BitPackedArray"))?;
 
-        match_each_integer_ptype!(array.ptype(), |A| {
+        match_each_integer_ptype!(array.ptype(array.dtype()), |A| {
             decode_bitpacked::<A>(array, A::default(), ctx).await
         })
     }
@@ -96,14 +96,14 @@ where
     A: BitPackedUnpack + NativePType + DeviceRepr + Send + Sync + 'static,
     A::Physical: DeviceRepr + Send + Sync + 'static,
 {
-    let BitPackedArrayParts {
+    let BitPackedDataParts {
         offset,
         bit_width,
         len,
         packed,
         patches,
         validity,
-    } = array.into_data().into_parts();
+    } = BitPacked::into_parts(array);
 
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;
@@ -199,7 +199,7 @@ mod tests {
 
         // Last two items should be patched
         let bp_with_patches = BitPacked::encode(&array.into_array(), bw)?;
-        assert!(bp_with_patches.patches().is_some());
+        assert!(bp_with_patches.patches(bp_with_patches.len()).is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
 
@@ -230,7 +230,7 @@ mod tests {
 
         // Last two items should be patched
         let bp_with_patches = BitPacked::encode(&array.into_array(), 9)?;
-        assert!(bp_with_patches.patches().is_some());
+        assert!(bp_with_patches.patches(bp_with_patches.len()).is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
 

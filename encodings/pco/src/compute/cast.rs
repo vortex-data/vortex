@@ -29,18 +29,17 @@ impl CastReduce for Pco {
                 .clone()
                 .cast_nullability(dtype.nullability(), array.len())?;
 
-            return Ok(Some(
-                PcoData::new(
-                    array.chunk_metas.clone(),
-                    array.pages.clone(),
-                    dtype.clone(),
-                    array.metadata.clone(),
-                    array.unsliced_n_rows(),
-                    new_validity,
-                )
-                ._slice(array.slice_start(), array.slice_stop())
-                .into_array(),
-            ));
+            let data = PcoData::new(
+                array.chunk_metas.clone(),
+                array.pages.clone(),
+                dtype.as_ptype(),
+                array.metadata.clone(),
+                array.unsliced_n_rows(),
+                new_validity,
+            )
+            ._slice(array.slice_start(), array.slice_stop());
+
+            return Ok(Some(Pco::try_new(dtype.clone(), data)?.into_array()));
         }
 
         // For other casts (e.g., numeric type changes), decode to canonical and let PrimitiveArray handle it

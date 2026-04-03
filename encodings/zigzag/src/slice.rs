@@ -10,12 +10,11 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::ZigZag;
-use crate::ZigZagData;
 
 impl SliceReduce for ZigZag {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ZigZagData::new(array.encoded().slice(range)?).into_array(),
+            ZigZag::try_new(array.encoded().slice(range)?)?.into_array(),
         ))
     }
 }

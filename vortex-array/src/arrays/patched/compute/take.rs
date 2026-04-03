@@ -12,7 +12,7 @@ use crate::array::ArrayView;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::primitive::PrimitiveArrayParts;
+use crate::arrays::primitive::PrimitiveDataParts;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
@@ -35,7 +35,7 @@ impl TakeExecute for Patched {
             .take(indices.clone())?
             .execute::<PrimitiveArray>(ctx)?;
 
-        let PrimitiveArrayParts {
+        let PrimitiveDataParts {
             buffer,
             validity,
             ptype,
@@ -63,7 +63,7 @@ impl TakeExecute for Patched {
                     output.as_mut(),
                     indices.as_slice::<I>(),
                     array.offset,
-                    array.len,
+                    array.len(),
                     array.n_lanes,
                     lane_offsets.as_slice::<u32>(),
                     patch_indices.as_slice::<u16>(),

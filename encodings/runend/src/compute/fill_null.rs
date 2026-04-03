@@ -10,7 +10,6 @@ use vortex_array::scalar_fn::fns::fill_null::FillNullReduce;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
-use crate::RunEndData;
 
 impl FillNullReduce for RunEnd {
     fn fill_null(
@@ -21,7 +20,7 @@ impl FillNullReduce for RunEnd {
         // SAFETY: modifying values only, does not affect ends
         Ok(Some(
             unsafe {
-                RunEndData::new_unchecked(
+                RunEnd::new_unchecked(
                     array.ends().clone(),
                     new_values,
                     array.offset(),

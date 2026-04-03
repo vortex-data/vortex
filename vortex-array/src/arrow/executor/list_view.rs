@@ -14,7 +14,7 @@ use crate::ExecutionCtx;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::listview::ListViewArrayParts;
+use crate::arrays::listview::ListViewDataParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
@@ -43,7 +43,7 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
-    let ListViewArrayParts {
+    let ListViewDataParts {
         elements,
         offsets,
         sizes,

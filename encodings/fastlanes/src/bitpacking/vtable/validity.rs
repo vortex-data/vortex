@@ -10,6 +10,6 @@ use crate::BitPacked;
 
 impl ValidityVTable<BitPacked> for BitPacked {
     fn validity(array: ArrayView<'_, BitPacked>) -> VortexResult<Validity> {
-        Ok(array.data().validity())
+        Ok(array.data().validity(array.dtype().nullability()))
     }
 }

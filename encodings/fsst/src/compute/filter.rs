@@ -12,7 +12,6 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::FSST;
-use crate::FSSTData;
 
 impl FilterKernel for FSST {
     fn filter(
@@ -31,7 +30,7 @@ impl FilterKernel for FSST {
             .vortex_expect("must be VarBin");
 
         Ok(Some(
-            FSSTData::try_new(
+            FSST::try_new(
                 array.dtype().clone(),
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),

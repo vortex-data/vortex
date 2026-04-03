@@ -10,8 +10,10 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::array::Array;
+use crate::array::ArrayParts;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
@@ -36,8 +38,11 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // We reset the offsets here because mostly for convenience, and also because callers of this
     // function might not expect the output `ListViewArray` to have a bunch of leading and trailing
     // garbage data when they turn it back into a `ListArray`.
+    let data = list.reset_offsets(false).vortex_expect("This can't fail");
+    let dtype = data.dtype();
+    let len = data.len();
     let list: ListArray =
-        Array::try_from_data(list.reset_offsets(false).vortex_expect("This can't fail"))?;
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data)) };
 
     let list_offsets = list.offsets().clone();
 

@@ -8,22 +8,14 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayParts;
 use crate::arrays::Filter;
 use crate::dtype::DType;
-use crate::stats::ArrayStats;
 
 /// The source array being filtered.
 pub(super) const CHILD_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
-
-/// Decomposed parts of the filter array.
-pub struct FilterArrayParts {
-    /// Child array that is filtered by the mask
-    pub child: ArrayRef,
-    /// Mask to apply at filter time. Child elements with set indices are kept, the rest discarded.
-    pub mask: Mask,
-}
 
 // TODO(connor): Write docs on why we have this, and what we had in the old world so that the future
 // does not repeat the mistakes of the past.
@@ -36,9 +28,11 @@ pub struct FilterData {
 
     /// The boolean mask selecting which elements to keep.
     pub(super) mask: Mask,
+}
 
-    /// The stats for this array.
-    pub(super) stats: ArrayStats,
+pub struct FilterDataParts {
+    pub child: ArrayRef,
+    pub mask: Mask,
 }
 
 impl FilterData {
@@ -46,7 +40,7 @@ impl FilterData {
         Self::try_new(array, mask).vortex_expect("FilterArray construction failed")
     }
 
-    pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
+    fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
         vortex_ensure_eq!(
             array.len(),
             mask.len(),
@@ -58,7 +52,6 @@ impl FilterData {
         Ok(Self {
             slots: vec![Some(array)],
             mask,
-            stats: ArrayStats::default(),
         })
     }
 
@@ -88,29 +81,31 @@ impl FilterData {
     pub fn filter_mask(&self) -> &Mask {
         &self.mask
     }
-}
 
-impl Array<Filter> {
-    /// Creates a new `FilterArray`.
-    pub fn new(array: ArrayRef, mask: Mask) -> Self {
-        Array::try_from_data(FilterData::new(array, mask))
-            .vortex_expect("FilterData is always valid")
-    }
-
-    /// Constructs a new `FilterArray`.
-    pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
-        Array::try_from_data(FilterData::try_new(array, mask)?)
-    }
-}
-
-impl FilterData {
-    /// Consume the array and return its individual components.
-    pub fn into_parts(mut self) -> FilterArrayParts {
-        FilterArrayParts {
+    pub fn into_parts(mut self) -> FilterDataParts {
+        FilterDataParts {
             child: self.slots[CHILD_SLOT]
                 .take()
                 .vortex_expect("FilterArray child slot"),
             mask: self.mask,
         }
+    }
+}
+
+impl Array<Filter> {
+    /// Creates a new `FilterArray`.
+    pub fn new(array: ArrayRef, mask: Mask) -> Self {
+        let dtype = array.dtype().clone();
+        let len = mask.true_count();
+        let data = FilterData::new(array, mask);
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Filter, dtype, len, data)) }
+    }
+
+    /// Constructs a new `FilterArray`.
+    pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
+        let dtype = array.dtype().clone();
+        let len = mask.true_count();
+        let data = FilterData::try_new(array, mask)?;
+        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Filter, dtype, len, data)) })
     }
 }

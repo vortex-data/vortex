@@ -12,14 +12,13 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::constant::ConstantData;
+use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedData;
 use crate::arrays::masked::array::NUM_SLOTS;
 use crate::arrays::masked::array::SLOT_NAMES;
@@ -33,7 +32,6 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 vtable!(Masked, Masked, MaskedData);
@@ -48,28 +46,23 @@ impl Masked {
 impl VTable for Masked {
     type ArrayData = MaskedData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Masked
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &MaskedData) -> usize {
-        array.child().len()
-    }
-
-    fn dtype(array: &MaskedData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &MaskedData) -> &ArrayStats {
-        &array.stats
+    fn validate(&self, data: &MaskedData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.child().len() == len,
+            "MaskedArray child length mismatch"
+        );
+        vortex_ensure!(
+            data.dtype() == *dtype,
+            "MaskedArray dtype does not match child and validity"
+        );
+        Ok(())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &MaskedData, state: &mut H, precision: Precision) {
@@ -94,31 +87,26 @@ impl VTable for Masked {
         None
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &[u8],
+
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<MaskedData> {
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "MaskedArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
         if !buffers.is_empty() {
             vortex_bail!("Expected 0 buffer, got {}", buffers.len());
         }
@@ -147,7 +135,7 @@ impl VTable for Masked {
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
             return Ok(ExecutionResult::done(
-                ConstantData::new(Scalar::null(array.dtype().as_nullable()), array.len())
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),
             ));
         }
@@ -208,8 +196,8 @@ mod tests {
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[rstest]
@@ -249,7 +237,7 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

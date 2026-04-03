@@ -15,8 +15,8 @@ mod vtable;
 
 use std::ops::Range;
 
-pub use array::SliceArrayParts;
 pub use array::SliceData;
+pub use array::SliceDataParts;
 use vortex_error::VortexResult;
 pub use vtable::*;
 

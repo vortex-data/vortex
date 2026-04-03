@@ -12,7 +12,7 @@ use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Slice;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::NativePType;
@@ -52,7 +52,7 @@ impl CudaExecute for FoRExecutor {
 
         // Fuse FOR + BP => FFOR
         if let Some(bitpacked) = array.encoded().as_opt::<BitPacked>() {
-            match_each_integer_ptype!(bitpacked.ptype(), |P| {
+            match_each_integer_ptype!(bitpacked.ptype(bitpacked.dtype()), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
                 return decode_bitpacked(bitpacked.into_owned(), reference, ctx).await;
             })
@@ -63,7 +63,7 @@ impl CudaExecute for FoRExecutor {
             && let Some(bitpacked) = slice_array.child().as_opt::<BitPacked>()
         {
             let slice_range = slice_array.slice_range().clone();
-            let unpacked = match_each_integer_ptype!(bitpacked.ptype(), |P| {
+            let unpacked = match_each_integer_ptype!(bitpacked.ptype(bitpacked.dtype()), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
                 decode_bitpacked(bitpacked.into_owned(), reference, ctx).await?
             });
@@ -96,7 +96,7 @@ where
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer, validity, ..
     } = primitive.into_data().into_parts();
 

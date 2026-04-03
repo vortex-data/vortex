@@ -23,8 +23,8 @@ use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
+use crate::BitPacked;
 use crate::BitPackedArray;
-use crate::BitPackedData;
 use crate::bitpack_decompress;
 
 pub fn bitpack_to_best_bit_width(array: &PrimitiveArray) -> VortexResult<BitPackedArray> {
@@ -71,27 +71,16 @@ pub fn bitpack_encode(
         .transpose()?
         .flatten();
 
-    // SAFETY: all components validated above
-    let bitpacked = unsafe {
-        BitPackedData::new_unchecked(
-            BufferHandle::new_host(packed),
-            array.dtype().clone(),
-            array.validity(),
-            patches,
-            bit_width,
-            array.len(),
-            0,
-        )
-    };
-    let bitpacked =
-        BitPackedArray::try_from_data(bitpacked).vortex_expect("BitPackedData is always valid");
-    {
-        let bp_ref = bitpacked.clone().into_array();
-        bitpacked
-            .stats_set
-            .to_ref(&bp_ref)
-            .inherit_from(array.statistics());
-    }
+    let bitpacked = BitPacked::try_new(
+        BufferHandle::new_host(packed),
+        array.ptype(),
+        array.validity(),
+        patches,
+        bit_width,
+        array.len(),
+        0,
+    )?;
+    bitpacked.statistics().inherit_from(array.statistics());
     Ok(bitpacked)
 }
 
@@ -110,28 +99,18 @@ pub unsafe fn bitpack_encode_unchecked(
     // SAFETY: non-negativity of input checked by caller.
     let packed = unsafe { bitpack_unchecked(&array, bit_width) };
 
-    // SAFETY: checked by bitpack_unchecked
-    let data = unsafe {
-        BitPackedData::new_unchecked(
-            BufferHandle::new_host(packed),
-            array.dtype().clone(),
-            array.validity(),
-            None,
-            bit_width,
-            array.len(),
-            0,
-        )
-    };
-    let bitpacked =
-        BitPackedArray::try_from_data(data).vortex_expect("BitPackedData is always valid");
-    {
-        let bp_ref = bitpacked.clone().into_array();
-        let arr_ref = array.into_array();
-        bitpacked
-            .stats_set
-            .to_ref(&bp_ref)
-            .inherit_from(arr_ref.statistics());
-    }
+    let arr_ref = array.clone().into_array();
+    let bitpacked = BitPacked::try_new(
+        BufferHandle::new_host(packed),
+        array.ptype(),
+        array.validity(),
+        None,
+        bit_width,
+        array.len(),
+        0,
+    )
+    .vortex_expect("bitpacked array construction should succeed");
+    bitpacked.statistics().inherit_from(arr_ref.statistics());
     Ok(bitpacked)
 }
 
@@ -444,6 +423,7 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::BitPackedData;
     use crate::bitpack_compress::test_harness::make_array;
 
     static SESSION: LazyLock<VortexSession> =
@@ -469,7 +449,7 @@ mod test {
         );
         assert!(values.ptype().is_unsigned_int());
         let compressed = BitPackedData::encode(&values.into_array(), 4).unwrap();
-        assert!(compressed.patches().is_none());
+        assert!(compressed.patches(compressed.len()).is_none());
         assert_eq!(
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
@@ -531,7 +511,7 @@ mod test {
         let array = PrimitiveArray::from_iter(values);
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
-        let patches = bitpacked.patches().unwrap();
+        let patches = bitpacked.patches(bitpacked.len()).unwrap();
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
@@ -554,7 +534,7 @@ mod test {
         let array = PrimitiveArray::from_iter(values);
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
-        let patches = bitpacked.patches().unwrap();
+        let patches = bitpacked.patches(bitpacked.len()).unwrap();
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64, 2, 2]));
@@ -573,7 +553,7 @@ mod test {
         let array = PrimitiveArray::from_iter(values);
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
-        let patches = bitpacked.patches().unwrap();
+        let patches = bitpacked.patches(bitpacked.len()).unwrap();
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // chunk 0 (0-1023): patches at 100, 200 -> starts at patch index 0
@@ -597,7 +577,7 @@ mod test {
         let array = PrimitiveArray::from_iter(values);
         let bitpacked = bitpack_encode(&array, 4, None).unwrap();
 
-        let patches = bitpacked.patches().unwrap();
+        let patches = bitpacked.patches(bitpacked.len()).unwrap();
         let chunk_offsets = patches.chunk_offsets().as_ref().unwrap().to_primitive();
 
         // Single chunk starting at patch index 0.

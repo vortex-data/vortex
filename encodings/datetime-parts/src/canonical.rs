@@ -119,8 +119,7 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::DateTimePartsArray;
-    use crate::DateTimePartsData;
+    use crate::DateTimeParts;
     use crate::canonical::decode_to_temporal;
 
     #[rstest]
@@ -140,14 +139,11 @@ mod test {
             ],
             validity.clone(),
         );
-        let date_times = DateTimePartsArray::try_from_data(
-            DateTimePartsData::try_from(TemporalArray::new_timestamp(
-                milliseconds.clone().into_array(),
-                TimeUnit::Milliseconds,
-                Some("UTC".into()),
-            ))
-            .unwrap(),
-        )?;
+        let date_times = DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
+            milliseconds.clone().into_array(),
+            TimeUnit::Milliseconds,
+            Some("UTC".into()),
+        ))?;
 
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 

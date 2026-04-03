@@ -11,7 +11,6 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -21,6 +20,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::CHUNK_OFFSETS_SLOT;
 use crate::arrays::chunked::array::CHUNKS_OFFSET;
@@ -36,7 +36,6 @@ use crate::dtype::PType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 mod canonical;
@@ -54,47 +53,39 @@ impl Chunked {
 impl VTable for Chunked {
     type ArrayData = ChunkedData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Chunked
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &ChunkedData) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &ChunkedData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ChunkedData) -> &ArrayStats {
-        &array.stats_set
-    }
-
     fn array_hash<H: std::hash::Hasher>(array: &ChunkedData, state: &mut H, precision: Precision) {
-        array
-            .chunk_offsets
-            .clone()
-            .into_array()
-            .array_hash(state, precision);
+        PrimitiveArray::new(
+            array.chunk_offsets.to_buffer::<u64>(),
+            Validity::NonNullable,
+        )
+        .into_array()
+        .array_hash(state, precision);
         for chunk in &array.chunks {
             chunk.array_hash(state, precision);
         }
     }
 
     fn array_eq(array: &ChunkedData, other: &ChunkedData, precision: Precision) -> bool {
-        array
-            .chunk_offsets
-            .clone()
-            .into_array()
-            .array_eq(&other.chunk_offsets.clone().into_array(), precision)
-            && array.chunks.len() == other.chunks.len()
+        PrimitiveArray::new(
+            array.chunk_offsets.to_buffer::<u64>(),
+            Validity::NonNullable,
+        )
+        .into_array()
+        .array_eq(
+            &PrimitiveArray::new(
+                other.chunk_offsets.to_buffer::<u64>(),
+                Validity::NonNullable,
+            )
+            .into_array(),
+            precision,
+        ) && array.chunks.len() == other.chunks.len()
             && array
                 .iter_chunks()
                 .zip(other.iter_chunks())
@@ -113,31 +104,42 @@ impl VTable for Chunked {
         vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
+    fn validate(&self, data: &ChunkedData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.len() == len,
+            "ChunkedArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        vortex_ensure!(
+            data.dtype() == dtype,
+            "ChunkedArray dtype {} does not match outer dtype {}",
+            data.dtype(),
+            dtype
+        );
+        Ok(())
     }
 
-    fn build(
+    fn deserialize(
+        &self,
         dtype: &DType,
         _len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        _session: &VortexSession,
     ) -> VortexResult<ChunkedData> {
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "ChunkedArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
         if children.is_empty() {
             vortex_bail!("Chunked array needs at least one child");
         }
@@ -168,23 +170,15 @@ impl VTable for Chunked {
             })
             .try_collect()?;
 
-        let chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
-
-        let total_len = chunk_offsets_buf
-            .last()
-            .ok_or_else(|| vortex_err!("chunk_offsets must not be empty"))?;
-        let len = usize::try_from(*total_len)
-            .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
+        let chunk_offsets = PrimitiveData::new(chunk_offsets_buf, Validity::NonNullable);
 
         let slots = ChunkedData::make_slots(&chunk_offsets, &chunks);
         // Construct directly using the struct fields to avoid recomputing chunk_offsets
         Ok(ChunkedData {
-            dtype: dtype.clone(),
-            len,
+            empty_dtype: chunks.is_empty().then_some(dtype.clone()),
             chunk_offsets,
             chunks,
             slots,
-            stats_set: Default::default(),
         })
     }
 
@@ -223,15 +217,10 @@ impl VTable for Chunked {
                     .ok_or_else(|| vortex_err!("chunk slot must not be None"))
             })
             .try_collect()?;
-        array.chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
+        array.chunk_offsets = PrimitiveData::new(chunk_offsets_buf, Validity::NonNullable);
+        array.empty_dtype = chunks.is_empty().then_some(array.dtype().clone());
         array.chunks = chunks;
         array.slots = slots;
-
-        let total_len = chunk_offsets_buf
-            .last()
-            .ok_or_else(|| vortex_err!("chunk_offsets must not be empty"))?;
-        array.len = usize::try_from(*total_len)
-            .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
 
         Ok(())
     }

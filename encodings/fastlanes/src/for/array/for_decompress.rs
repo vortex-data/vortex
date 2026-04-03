@@ -18,6 +18,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
+use crate::BitPackedArrayExt;
 use crate::FoRArray;
 use crate::bitpack_decompress;
 use crate::unpack_iter::UnpackStrategy;
@@ -92,13 +93,13 @@ pub(crate) fn fused_decompress<
     let strategy = FoRStrategy { reference: ref_ };
 
     // Create [`UnpackedChunks`] with FoR strategy.
-    let mut unpacked = UnpackedChunks::new_with_strategy(
+    let mut unpacked = UnpackedChunks::try_new_with_strategy(
         strategy,
         bp.packed().as_host().clone(),
         bp.bit_width() as usize,
         bp.offset() as usize,
         bp.len(),
-    );
+    )?;
 
     let mut builder = PrimitiveBuilder::<T>::with_capacity(
         for_.reference_scalar().dtype().nullability(),

@@ -16,14 +16,12 @@ use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
-use crate::array::ArrayInner;
+use crate::array::ArrayParts;
 use crate::array::VTable;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
-
 /// Reference-counted DynVTable
 pub type DynVTableRef = Arc<dyn DynVTable>;
 
@@ -85,27 +83,11 @@ impl<V: VTable> DynVTable for V {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let metadata = V::deserialize(metadata, dtype, len, buffers, session)?;
-        let inner = V::build(dtype, len, &metadata, buffers, children)?;
-        // Validate the inner array's properties before wrapping.
-        assert_eq!(V::len(&inner), len, "Array length mismatch after building");
-        assert_eq!(
-            V::dtype(&inner),
-            dtype,
-            "Array dtype mismatch after building"
-        );
-        // Wrap in ArrayInner<V> for safe downcasting.
-        // SAFETY: We just validated that V::len(&inner) == len and V::dtype(&inner) == dtype.
-        let array = unsafe {
-            ArrayInner::from_data_unchecked(
-                self.clone(),
-                dtype.clone(),
-                len,
-                inner,
-                ArrayStats::default(),
-            )
-        };
-        Ok(array.into_array())
+        let inner = self.deserialize(dtype, len, metadata, buffers, children, session)?;
+        Ok(
+            Array::<V>::try_from_parts(ArrayParts::new(self.clone(), dtype.clone(), len, inner))?
+                .into_array(),
+        )
     }
 
     fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
@@ -114,7 +96,17 @@ impl<V: VTable> DynVTable for V {
             .vortex_expect("Failed to downcast array");
         let mut data = typed.data().clone();
         V::with_slots(&mut data, slots)?;
-        Ok(Array::<V>::try_from_data(data)?.into_array())
+        let stats = array.statistics().to_owned();
+        Ok(unsafe {
+            Array::<V>::from_parts_unchecked(ArrayParts::new(
+                self.clone(),
+                array.dtype().clone(),
+                array.len(),
+                data,
+            ))
+            .with_stats_set(stats)
+            .into_array()
+        })
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
