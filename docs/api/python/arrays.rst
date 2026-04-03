@@ -144,7 +144,7 @@ Registry and Serde
 .. autoclass:: vortex.ArrayContext
     :members:
 
-.. autoclass:: vortex.ArrayParts
+.. autoclass:: vortex.SerializedArray
     :members:
 
 

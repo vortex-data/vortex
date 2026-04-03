@@ -180,3 +180,16 @@ impl FoR {
         FoRData::encode(array)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::scalar::ScalarValue;
+    use vortex_array::test_harness::check_metadata;
+
+    #[cfg_attr(miri, ignore)]
+    #[test]
+    fn test_for_metadata() {
+        let metadata: Vec<u8> = ScalarValue::to_proto_bytes(Some(&ScalarValue::from(i64::MAX)));
+        check_metadata("for.metadata", &metadata);
+    }
+}

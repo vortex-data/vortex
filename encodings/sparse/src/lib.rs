@@ -277,6 +277,44 @@ impl Sparse {
 }
 
 impl SparseData {
+    fn normalize_values_dtype(values: ArrayRef, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+        let fill_dtype = fill_value.dtype();
+        let values_dtype = values.dtype();
+
+        vortex_ensure!(
+            values_dtype.eq_ignore_nullability(fill_dtype),
+            "fill value, {:?}, should be instance of values dtype, {} but was {}.",
+            fill_value,
+            values_dtype,
+            fill_dtype,
+        );
+
+        if values_dtype == fill_dtype {
+            Ok(values)
+        } else {
+            values.cast(fill_dtype.clone())
+        }
+    }
+
+    fn normalize_patches_dtype(patches: Patches, fill_value: &Scalar) -> VortexResult<Patches> {
+        let fill_dtype = fill_value.dtype();
+        let values_dtype = patches.values().dtype();
+
+        vortex_ensure!(
+            values_dtype.eq_ignore_nullability(fill_dtype),
+            "fill value, {:?}, should be instance of values dtype, {} but was {}.",
+            fill_value,
+            values_dtype,
+            fill_dtype,
+        );
+
+        if values_dtype == fill_dtype {
+            Ok(patches)
+        } else {
+            patches.cast_values(fill_dtype)
+        }
+    }
+
     pub fn validate(
         patches: &Patches,
         fill_value: &Scalar,
@@ -343,6 +381,8 @@ impl SparseData {
             }
         }
 
+        let values = Self::normalize_values_dtype(values, &fill_value)?;
+
         // TODO(0ax1): handle chunk offsets
         let patches = Patches::new(len, 0, indices, values, None)?;
         Self::try_new_from_patches(patches, fill_value)
@@ -350,13 +390,7 @@ impl SparseData {
 
     /// Build a new SparseArray from an existing set of patches.
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
-        vortex_ensure!(
-            fill_value.dtype() == patches.values().dtype(),
-            "fill value, {:?}, should be instance of values dtype, {} but was {}.",
-            fill_value,
-            patches.values().dtype(),
-            fill_value.dtype(),
-        );
+        let patches = Self::normalize_patches_dtype(patches, &fill_value)?;
 
         let slots = Self::make_slots(&patches);
 
@@ -429,10 +463,10 @@ impl SparseData {
     /// Optionally provided fill value will be respected if the array is less than 90% null.
     pub fn encode(array: &ArrayRef, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
         if let Some(fill_value) = fill_value.as_ref()
-            && array.dtype() != fill_value.dtype()
+            && !array.dtype().eq_ignore_nullability(fill_value.dtype())
         {
             vortex_bail!(
-                "Array and fill value types must match. got {} and {}",
+                "Array and fill value types must have the same base type. got {} and {}",
                 array.dtype(),
                 fill_value.dtype()
             )
@@ -477,7 +511,7 @@ impl SparseData {
         }
 
         let fill = if let Some(fill) = fill_value {
-            fill
+            fill.cast(array.dtype())?
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
             let (top_pvalue, _) = array
