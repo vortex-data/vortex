@@ -26,8 +26,6 @@ impl SliceReduce for TurboQuant {
             sliced_norms,
             array.centroids().clone(),
             array.rotation_signs().clone(),
-            array.dimension,
-            array.bit_width,
         )?;
 
         Ok(Some(result.into_array()))

@@ -12,12 +12,9 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -29,6 +26,7 @@ use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
@@ -36,11 +34,15 @@ use crate::encodings::turboquant::array::Slot;
 use crate::encodings::turboquant::array::TurboQuant;
 use crate::encodings::turboquant::array::TurboQuantData;
 use crate::encodings::turboquant::array::TurboQuantMetadata;
+use crate::encodings::turboquant::compute::rules::PARENT_KERNELS;
+use crate::encodings::turboquant::compute::rules::RULES;
 use crate::encodings::turboquant::decompress::execute_decompress;
+use crate::utils::extension_element_ptype;
+use crate::utils::extension_list_size;
 
 impl VTable for TurboQuant {
     type ArrayData = TurboQuantData;
-    type Metadata = ProstMetadata<TurboQuantMetadata>;
+    type Metadata = TurboQuantMetadata;
     type OperationsVTable = TurboQuant;
     type ValidityVTable = ValidityVTableFromChild;
 
@@ -128,14 +130,13 @@ impl VTable for TurboQuant {
     }
 
     fn metadata(array: ArrayView<Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(TurboQuantMetadata {
-            dimension: array.dimension,
-            bit_width: array.bit_width as u32,
-        }))
+        Ok(TurboQuantMetadata {
+            bit_width: array.bit_width,
+        })
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+        Ok(Some(vec![metadata.bit_width]))
     }
 
     fn deserialize(
@@ -145,9 +146,21 @@ impl VTable for TurboQuant {
         _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(
-            <ProstMetadata<TurboQuantMetadata> as DeserializeMetadata>::deserialize(bytes)?,
-        ))
+        vortex_ensure_eq!(
+            bytes.len(),
+            1,
+            "TurboQuant metadata must be exactly 1 byte, got {}",
+            bytes.len()
+        );
+        vortex_ensure!(
+            bytes[0] <= 8,
+            "bit_width is expected to be between 0 and 8, got {}",
+            bytes[0]
+        );
+
+        Ok(TurboQuantMetadata {
+            bit_width: bytes[0],
+        })
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -158,31 +171,52 @@ impl VTable for TurboQuant {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<TurboQuantData> {
-        let bit_width = u8::try_from(metadata.bit_width)?;
-        let padded_dim = metadata.dimension.next_power_of_two() as usize;
-        let num_centroids = 1usize << bit_width;
+        let bit_width = metadata.bit_width;
 
-        let u8_nn = DType::Primitive(PType::U8, Nullability::NonNullable);
-        let f32_nn = DType::Primitive(PType::F32, Nullability::NonNullable);
-        let codes_dtype =
-            DType::FixedSizeList(Arc::new(u8_nn), padded_dim as u32, Nullability::NonNullable);
-        let codes = children.get(0, &codes_dtype, len)?;
+        // Derive dimension and element ptype from the Vector extension dtype.
+        let ext = dtype.as_extension();
+        let dimension = extension_list_size(ext)?;
 
-        let norms = children.get(1, &f32_nn, len)?;
-        let centroids = children.get(2, &f32_nn, num_centroids)?;
+        let element_ptype = extension_element_ptype(ext)?;
+        let element_dtype = DType::Primitive(element_ptype, Nullability::NonNullable);
 
+        let padded_dim = dimension.next_power_of_two() as usize;
+
+        // Get the codes array (indices into the codebook).
+        let codes_ptype = DType::Primitive(PType::U8, Nullability::NonNullable);
+        let codes_dtype = DType::FixedSizeList(
+            Arc::new(codes_ptype),
+            padded_dim as u32,
+            dtype.nullability(),
+        );
+        let codes_array = children.get(0, &codes_dtype, len)?;
+
+        // Get the L2 norms array.
+        let norms_array = children.get(1, &element_dtype, len)?;
+
+        // Get the centroids array (codebook).
+        let num_centroids = if bit_width == 0 {
+            0 // A degenerate TQ array.
+        } else {
+            1usize << bit_width
+        };
+        let centroids_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+        let centroids = children.get(2, &centroids_dtype, num_centroids)?;
+
+        // Get the rotation array.
+        let signs_len = if len == 0 { 0 } else { 3 * padded_dim };
         let signs_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
-        let rotation_signs = children.get(3, &signs_dtype, 3 * padded_dim)?;
+        let rotation_signs = children.get(3, &signs_dtype, signs_len)?;
 
         Ok(TurboQuantData {
             dtype: dtype.clone(),
             slots: vec![
-                Some(codes),
-                Some(norms),
+                Some(codes_array),
+                Some(norms_array),
                 Some(centroids),
                 Some(rotation_signs),
             ],
-            dimension: metadata.dimension,
+            dimension,
             bit_width,
             stats_set: Default::default(),
         })
@@ -193,7 +227,7 @@ impl VTable for TurboQuant {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        crate::encodings::turboquant::compute::rules::RULES.evaluate(array, parent, child_idx)
+        RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute_parent(
@@ -202,8 +236,7 @@ impl VTable for TurboQuant {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        crate::encodings::turboquant::compute::rules::PARENT_KERNELS
-            .execute(array, parent, child_idx, ctx)
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

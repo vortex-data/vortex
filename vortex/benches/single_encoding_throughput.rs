@@ -496,7 +496,10 @@ mod turboquant_benches {
                     let config = turboquant_config($bits);
                     with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
                         .with_inputs(|| &ext)
-                        .bench_refs(|a| turboquant_encode(a, &config).unwrap());
+                        .bench_refs(|a| {
+                            let mut ctx = SESSION.create_execution_ctx();
+                            turboquant_encode(a, &config, &mut ctx).unwrap()
+                        });
                 }
             }
         };
@@ -506,7 +509,8 @@ mod turboquant_benches {
                 fn $name(bencher: Bencher) {
                     let ext = setup_vector_ext($dim);
                     let config = turboquant_config($bits);
-                    let compressed = turboquant_encode(&ext, &config).unwrap();
+                    let mut ctx = SESSION.create_execution_ctx();
+                    let compressed = turboquant_encode(&ext, &config, &mut ctx).unwrap();
                     with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
                         .with_inputs(|| &compressed)
                         .bench_refs(|a| {

@@ -4,6 +4,7 @@
 //! TurboQuant encoding (quantization) logic.
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
@@ -11,6 +12,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_float_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
@@ -23,6 +25,8 @@ use crate::encodings::turboquant::centroids::compute_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
 use crate::encodings::turboquant::rotation::RotationMatrix;
+use crate::scalar_fns::ApproxOptions;
+use crate::scalar_fns::l2_norm::L2Norm;
 
 /// Configuration for TurboQuant encoding.
 #[derive(Clone, Debug)]
@@ -42,7 +46,9 @@ impl Default for TurboQuantConfig {
     }
 }
 
-/// Extract elements from a FixedSizeListArray as a flat f32 PrimitiveArray.
+/// Extract elements from a FixedSizeListArray as a flat f32 PrimitiveArray for quantization.
+///
+/// All quantization (rotation, centroid lookup) happens in f32. f16 is upcast; f64 is truncated.
 #[allow(clippy::cast_possible_truncation)]
 fn extract_f32_elements(fsl: &FixedSizeListArray) -> VortexResult<PrimitiveArray> {
     let elements = fsl.elements();
@@ -65,30 +71,45 @@ fn extract_f32_elements(fsl: &FixedSizeListArray) -> VortexResult<PrimitiveArray
     }
 }
 
-/// Compute the L2 norm of a vector.
-#[inline]
-fn l2_norm(x: &[f32]) -> f32 {
-    x.iter().map(|&v| v * v).sum::<f32>().sqrt()
-}
-
-/// Shared intermediate results from the MSE quantization loop.
+/// Shared intermediate results from the quantization loop.
 struct QuantizationResult {
     rotation: RotationMatrix,
     centroids: Vec<f32>,
     all_indices: BufferMut<u8>,
-    norms: BufferMut<f32>,
+    /// Native-precision norms (matching the Vector element type).
+    norms_array: ArrayRef,
     padded_dim: usize,
 }
 
-/// Core quantization: extract f32 elements, build rotation, normalize/rotate/quantize all rows.
+/// Core quantization: compute norms via [`L2Norm`], extract f32 elements, then
+/// normalize/rotate/quantize all rows.
+///
+/// Norms are computed in the native element precision via the [`L2Norm`] scalar function.
+/// The rotation and centroid lookup happen in f32.
 #[allow(clippy::cast_possible_truncation)]
 fn turboquant_quantize_core(
+    ext: &ExtensionArray,
     fsl: &FixedSizeListArray,
     seed: u64,
     bit_width: u8,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<QuantizationResult> {
     let dimension = fsl.list_size() as usize;
     let num_rows = fsl.len();
+
+    // Compute native-precision norms via the L2Norm scalar fn.
+    let norms_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, ext.as_ref().clone(), num_rows)?;
+    let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
+    let norms_prim: PrimitiveArray = norms_array.to_canonical()?.into_primitive();
+
+    // Extract f32 norms for the internal quantization loop.
+    let f32_norms: Vec<f32> = match_each_float_ptype!(norms_prim.ptype(), |T| {
+        norms_prim
+            .as_slice::<T>()
+            .iter()
+            .map(|&v| num_traits::ToPrimitive::to_f32(&v).unwrap_or(0.0))
+            .collect()
+    });
 
     let rotation = RotationMatrix::try_new(seed, dimension)?;
     let padded_dim = rotation.padded_dim();
@@ -99,15 +120,13 @@ fn turboquant_quantize_core(
     let boundaries = compute_boundaries(&centroids);
 
     let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * padded_dim);
-    let mut norms = BufferMut::<f32>::with_capacity(num_rows);
     let mut padded = vec![0.0f32; padded_dim];
     let mut rotated = vec![0.0f32; padded_dim];
 
     let f32_slice = f32_elements.as_slice::<f32>();
     for row in 0..num_rows {
         let x = &f32_slice[row * dimension..(row + 1) * dimension];
-        let norm = l2_norm(x);
-        norms.push(norm);
+        let norm = f32_norms[row];
 
         if norm > 0.0 {
             let inv_norm = 1.0 / norm;
@@ -128,7 +147,7 @@ fn turboquant_quantize_core(
         rotation,
         centroids,
         all_indices,
-        norms,
+        norms_array,
         padded_dim,
     })
 }
@@ -138,11 +157,8 @@ fn turboquant_quantize_core(
 fn build_turboquant(
     fsl: &FixedSizeListArray,
     core: QuantizationResult,
-    bit_width: u8,
     ext_dtype: DType,
 ) -> VortexResult<TurboQuantData> {
-    let dimension = fsl.list_size();
-
     let num_rows = fsl.len();
     let padded_dim = core.padded_dim;
     let codes_elements =
@@ -154,8 +170,6 @@ fn build_turboquant(
         num_rows,
     )?
     .into_array();
-    let norms_array =
-        PrimitiveArray::new::<f32>(core.norms.freeze(), Validity::NonNullable).into_array();
 
     // TODO(perf): `get_centroids` returns Vec<f32>; could avoid the copy by
     // supporting Buffer::from(Vec<T>) or caching as Buffer directly.
@@ -169,11 +183,9 @@ fn build_turboquant(
     TurboQuantData::try_new(
         ext_dtype,
         codes,
-        norms_array,
+        core.norms_array,
         centroids_array,
         rotation_signs,
-        dimension,
-        bit_width,
     )
 }
 
@@ -186,6 +198,7 @@ fn build_turboquant(
 pub fn turboquant_encode(
     ext: &ExtensionArray,
     config: &TurboQuantConfig,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let ext_dtype = ext.dtype().clone();
     let storage = ext.storage_array();
@@ -214,25 +227,29 @@ pub fn turboquant_encode(
             Validity::NonNullable,
             0,
         )?;
-        let empty_norms = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
+
+        // Norms dtype matches the element type.
+        let element_ptype = fsl.elements().dtype().as_ptype();
+        let empty_norms: ArrayRef = match_each_float_ptype!(element_ptype, |T| {
+            PrimitiveArray::empty::<T>(Nullability::NonNullable).into_array()
+        });
+
         let empty_centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
         let empty_signs = PrimitiveArray::empty::<u8>(Nullability::NonNullable);
         return Ok(TurboQuantData::try_new(
             ext_dtype,
             empty_codes.into_array(),
-            empty_norms.into_array(),
+            empty_norms,
             empty_centroids.into_array(),
             empty_signs.into_array(),
-            dimension,
-            config.bit_width,
         )?
         .into_array());
     }
 
     let seed = config.seed.unwrap_or(42);
-    let core = turboquant_quantize_core(&fsl, seed, config.bit_width)?;
+    let core = turboquant_quantize_core(ext, &fsl, seed, config.bit_width, ctx)?;
 
-    Ok(build_turboquant(&fsl, core, config.bit_width, ext_dtype)?.into_array())
+    Ok(build_turboquant(&fsl, core, ext_dtype)?.into_array())
 }
 
 /// Export rotation signs as a 1-bit `BitPackedArray` for efficient storage.

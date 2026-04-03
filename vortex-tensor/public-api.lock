@@ -28,7 +28,7 @@ impl core::marker::StructuralPartialEq for vortex_tensor::encodings::turboquant:
 
 impl vortex_compressor::scheme::Scheme for vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
 
-pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::compress(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::expected_compression_ratio(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<f64>
 
@@ -37,24 +37,6 @@ pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::matches(&
 pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::scheme_name(&self) -> &'static str
 
 pub static vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME: vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
-pub struct vortex_tensor::encodings::turboquant::QjlCorrection
-
-impl vortex_tensor::encodings::turboquant::QjlCorrection
-
-pub fn vortex_tensor::encodings::turboquant::QjlCorrection::residual_norms(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn vortex_tensor::encodings::turboquant::QjlCorrection::rotation_signs(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn vortex_tensor::encodings::turboquant::QjlCorrection::signs(&self) -> &vortex_array::array::erased::ArrayRef
-
-impl core::clone::Clone for vortex_tensor::encodings::turboquant::QjlCorrection
-
-pub fn vortex_tensor::encodings::turboquant::QjlCorrection::clone(&self) -> vortex_tensor::encodings::turboquant::QjlCorrection
-
-impl core::fmt::Debug for vortex_tensor::encodings::turboquant::QjlCorrection
-
-pub fn vortex_tensor::encodings::turboquant::QjlCorrection::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_tensor::encodings::turboquant::TurboQuant
 
@@ -74,7 +56,7 @@ impl vortex_array::array::vtable::VTable for vortex_tensor::encodings::turboquan
 
 pub type vortex_tensor::encodings::turboquant::TurboQuant::ArrayData = vortex_tensor::encodings::turboquant::TurboQuantData
 
-pub type vortex_tensor::encodings::turboquant::TurboQuant::Metadata = vortex_array::metadata::ProstMetadata<vortex_tensor::encodings::turboquant::array::TurboQuantMetadata>
+pub type vortex_tensor::encodings::turboquant::TurboQuant::Metadata = vortex_tensor::encodings::turboquant::array::TurboQuantMetadata
 
 pub type vortex_tensor::encodings::turboquant::TurboQuant::OperationsVTable = vortex_tensor::encodings::turboquant::TurboQuant
 
@@ -166,19 +148,17 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuantData::codes(&self) -> &vo
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::dimension(&self) -> u32
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantData::has_qjl(&self) -> bool
+pub unsafe fn vortex_tensor::encodings::turboquant::TurboQuantData::new_unchecked(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> Self
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::norms(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::padded_dim(&self) -> u32
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantData::qjl(&self) -> core::option::Option<vortex_tensor::encodings::turboquant::QjlCorrection>
-
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::rotation_signs(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantData::try_new_mse(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef, dimension: u32, bit_width: u8) -> vortex_error::VortexResult<Self>
+pub fn vortex_tensor::encodings::turboquant::TurboQuantData::try_new(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantData::try_new_qjl(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef, qjl: vortex_tensor::encodings::turboquant::QjlCorrection, dimension: u32, bit_width: u8) -> vortex_error::VortexResult<Self>
+pub fn vortex_tensor::encodings::turboquant::TurboQuantData::validate(dtype: &vortex_array::dtype::DType, codes: &vortex_array::array::erased::ArrayRef, norms: &vortex_array::array::erased::ArrayRef, centroids: &vortex_array::array::erased::ArrayRef, rotation_signs: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuantData
 
@@ -202,9 +182,7 @@ pub const vortex_tensor::encodings::turboquant::VECTOR_EXT_ID: &str
 
 pub fn vortex_tensor::encodings::turboquant::initialize(session: &mut vortex_session::VortexSession)
 
-pub fn vortex_tensor::encodings::turboquant::turboquant_encode_mse(fsl: &vortex_array::arrays::fixed_size_list::vtable::FixedSizeListArray, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_tensor::encodings::turboquant::turboquant_encode_qjl(fsl: &vortex_array::arrays::fixed_size_list::vtable::FixedSizeListArray, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_tensor::encodings::turboquant::turboquant_encode(ext: &vortex_array::arrays::extension::vtable::ExtensionArray, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub mod vortex_tensor::fixed_shape
 
@@ -439,6 +417,12 @@ pub enum vortex_tensor::scalar_fns::ApproxOptions
 pub vortex_tensor::scalar_fns::ApproxOptions::Approximate
 
 pub vortex_tensor::scalar_fns::ApproxOptions::Exact
+
+impl vortex_tensor::scalar_fns::ApproxOptions
+
+pub fn vortex_tensor::scalar_fns::ApproxOptions::is_approx(&self) -> bool
+
+pub fn vortex_tensor::scalar_fns::ApproxOptions::is_exact(&self) -> bool
 
 impl core::clone::Clone for vortex_tensor::scalar_fns::ApproxOptions
 

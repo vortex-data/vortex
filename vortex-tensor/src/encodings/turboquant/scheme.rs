@@ -72,7 +72,7 @@ impl Scheme for TurboQuantScheme {
 
     fn compress(
         &self,
-        _compressor: &CascadingCompressor,
+        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
@@ -80,7 +80,7 @@ impl Scheme for TurboQuantScheme {
         let ext_array = array.to_canonical()?.into_extension();
 
         let config = TurboQuantConfig::default();
-        turboquant_encode(&ext_array, &config)
+        turboquant_encode(&ext_array, &config, &mut compressor.execution_ctx())
     }
 }
 
