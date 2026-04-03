@@ -195,6 +195,7 @@ mod test {
     use vortex_array::expr::select;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
+    use vortex_btrblocks::BtrBlocksCompressorBuilder;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_file::OpenOptionsSessionExt;
@@ -309,7 +310,7 @@ mod test {
             .write_options()
             .with_strategy(
                 WriteStrategyBuilder::default()
-                    .with_compact_encodings()
+                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
                     .build(),
             )
             .write(

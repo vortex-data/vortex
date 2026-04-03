@@ -17,6 +17,7 @@ use vortex_array::dtype::StructFields;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
@@ -59,12 +60,11 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
     let write_options = match compressor_strategy {
         CompressorStrategy::Default => SESSION.write_options(),
-        CompressorStrategy::Compact => {
-            let strategy = WriteStrategyBuilder::default()
-                .with_compact_encodings()
-                .build();
-            SESSION.write_options().with_strategy(strategy)
-        }
+        CompressorStrategy::Compact => SESSION.write_options().with_strategy(
+            WriteStrategyBuilder::default()
+                .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                .build(),
+        ),
     };
 
     let mut full_buff = ByteBufferMut::empty();

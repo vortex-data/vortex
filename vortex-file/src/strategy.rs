@@ -28,7 +28,6 @@ use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::FieldPath;
 use vortex_array::session::ArrayRegistry;
 use vortex_array::session::ArraySession;
-use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
@@ -59,14 +58,6 @@ use vortex_sequence::Sequence;
 use vortex_sparse::Sparse;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_zigzag::ZigZag;
-
-#[rustfmt::skip]
-#[cfg(feature = "zstd")]
-use vortex_btrblocks::{
-    schemes::float,
-    schemes::integer,
-    schemes::string,
-};
 #[cfg(feature = "zstd")]
 use vortex_zstd::Zstd;
 #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
@@ -123,13 +114,24 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
     session.registry().clone()
 });
 
-/// Build a new [writer strategy][LayoutStrategy] to compress and reorganize chunks of a Vortex file.
+/// How the compressor was configured on [`WriteStrategyBuilder`].
+enum CompressorConfig {
+    /// A [`BtrBlocksCompressorBuilder`] that [`WriteStrategyBuilder::build`] will finalize.
+    /// `IntDictScheme` is automatically excluded from the data compressor to prevent recursive
+    /// dictionary encoding.
+    BtrBlocks(BtrBlocksCompressorBuilder),
+    /// An opaque compressor used as-is for both data and stats compression.
+    Opaque(Arc<dyn CompressorPlugin>),
+}
+
+/// Build a new [writer strategy](LayoutStrategy) to compress and reorganize chunks of a Vortex
+/// file.
 ///
 /// Vortex provides an out-of-the-box file writer that optimizes the layout of chunks on-disk,
 /// repartitioning and compressing them to strike a balance between size on-disk,
 /// bulk decoding performance, and IOPS required to perform an indexed read.
 pub struct WriteStrategyBuilder {
-    compressor_override: Option<Arc<dyn CompressorPlugin>>,
+    compressor: CompressorConfig,
     row_block_size: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<ArrayRegistry>,
@@ -141,7 +143,7 @@ impl Default for WriteStrategyBuilder {
     /// and then finally built yielding the [`LayoutStrategy`].
     fn default() -> Self {
         Self {
-            compressor_override: None,
+            compressor: CompressorConfig::BtrBlocks(BtrBlocksCompressorBuilder::default()),
             row_block_size: 8192,
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
@@ -183,97 +185,20 @@ impl WriteStrategyBuilder {
         self
     }
 
-    /// Override the [compressor](CompressorPlugin) used for compressing chunks in the file.
+    /// Override the default [`BtrBlocksCompressorBuilder`] used for compression.
     ///
-    /// If not provided, this will use a BtrBlocks-style cascading compressor that tries to balance
-    /// total size with decoding performance.
+    /// The builder is finalized during [`build`](Self::build), producing two compressors: one for
+    /// data (with `IntDictScheme` excluded) and one for stats.
+    pub fn with_btrblocks_builder(mut self, builder: BtrBlocksCompressorBuilder) -> Self {
+        self.compressor = CompressorConfig::BtrBlocks(builder);
+        self
+    }
+
+    /// Set the compressor to an opaque [`CompressorPlugin`].
     ///
-    /// # Panics
-    ///
-    /// Panics if a compressor has already been set via
-    /// [`with_compressor`](Self::with_compressor),
-    /// [`with_cuda_compatible_encodings`](Self::with_cuda_compatible_encodings), or
-    /// [`with_compact_encodings`](Self::with_compact_encodings).
-    ///
-    /// These methods are mutually exclusive.
+    /// The compressor is used as-is for both data and stats compression.
     pub fn with_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
-        assert!(
-            self.compressor_override.is_none(),
-            "A compressor has already been configured. `with_compressor`, \
-             `with_cuda_compatible_encodings`, and `with_compact_encodings` are mutually exclusive."
-        );
-        self.compressor_override = Some(Arc::new(compressor));
-        self
-    }
-
-    /// Configure a write strategy that emits only CUDA-compatible encodings.
-    ///
-    /// This method simply exists as a wrapper around [`with_compressor`].
-    ///
-    /// This configures BtrBlocks to exclude schemes without CUDA kernel support.
-    /// With the `unstable_encodings` feature, strings use buffer-level Zstd compression
-    /// (`ZstdBuffersArray`) which preserves the array buffer layout for zero-conversion
-    /// GPU decompression. Without it, strings use interleaved Zstd compression.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a compressor has already been set. See [`with_compressor`]
-    ///
-    /// [`with_compressor`]: Self::with_compressor.
-    #[cfg(feature = "zstd")]
-    pub fn with_cuda_compatible_encodings(mut self) -> Self {
-        assert!(
-            self.compressor_override.is_none(),
-            "A compressor has already been configured. `with_compressor`, \
-             `with_cuda_compatible_encodings`, and `with_compact_encodings` are mutually exclusive."
-        );
-
-        let mut builder = BtrBlocksCompressorBuilder::default().exclude([
-            integer::SparseScheme.id(),
-            integer::RLE_INTEGER_SCHEME.id(),
-            float::RLE_FLOAT_SCHEME.id(),
-            float::NullDominatedSparseScheme.id(),
-            string::StringDictScheme.id(),
-            string::FSSTScheme.id(),
-        ]);
-
-        #[cfg(feature = "unstable_encodings")]
-        {
-            builder = builder.with_new_scheme(&string::ZstdBuffersScheme);
-        }
-        #[cfg(not(feature = "unstable_encodings"))]
-        {
-            builder = builder.with_new_scheme(&string::ZstdScheme);
-        }
-
-        self.compressor_override = Some(Arc::new(builder.build()));
-        self
-    }
-
-    /// Configure a write strategy that uses compact encodings (Pco for numerics, Zstd for
-    /// strings/binary).
-    ///
-    /// This method simply exists as a wrapper around [`with_compressor`].
-    ///
-    /// This provides better compression ratios than the default BtrBlocks strategy,
-    /// especially for floating-point heavy datasets.
-    ///
-    /// # Panics
-    ///
-    /// Panics if a compressor has already been set. See [`with_compressor`]
-    ///
-    /// [`with_compressor`]: Self::with_compressor.
-    #[cfg(feature = "zstd")]
-    pub fn with_compact_encodings(mut self) -> Self {
-        assert!(
-            self.compressor_override.is_none(),
-            "A compressor has already been configured. `with_compressor`, \
-             `with_cuda_compatible_encodings`, and `with_compact_encodings` are mutually exclusive."
-        );
-
-        self.compressor_override = Some(Arc::new(
-            BtrBlocksCompressorBuilder::default().with_compact().build(),
-        ));
+        self.compressor = CompressorConfig::Opaque(Arc::new(compressor));
         self
     }
 
@@ -294,19 +219,18 @@ impl WriteStrategyBuilder {
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
         // 5. compress each chunk.
-        // Exclude IntDictScheme from the default compressor because DictStrategy (step 3) already
+        // Exclude IntDictScheme from the data compressor because DictStrategy (step 3) already
         // dictionary-encodes columns. Allowing IntDictScheme here would redundantly
         // dictionary-encode the integer codes produced by that earlier step.
-        let data_compressor: Arc<dyn CompressorPlugin> =
-            if let Some(ref compressor) = self.compressor_override {
-                compressor.clone()
-            } else {
-                Arc::new(
-                    BtrBlocksCompressorBuilder::default()
-                        .exclude([IntDictScheme.id()])
-                        .build(),
-                )
-            };
+        let data_compressor: Arc<dyn CompressorPlugin> = match &self.compressor {
+            CompressorConfig::BtrBlocks(builder) => Arc::new(
+                builder
+                    .clone()
+                    .exclude_schemes([IntDictScheme.id()])
+                    .build(),
+            ),
+            CompressorConfig::Opaque(compressor) => compressor.clone(),
+        };
         let compressing = CompressingStrategy::new(buffered, data_compressor);
 
         // 4. prior to compression, coalesce up to a minimum size
@@ -327,12 +251,10 @@ impl WriteStrategyBuilder {
         );
 
         // 2.1. | 3.1. compress stats tables and dict values.
-        let stats_compressor: Arc<dyn CompressorPlugin> =
-            if let Some(ref compressor) = self.compressor_override {
-                compressor.clone()
-            } else {
-                Arc::new(BtrBlocksCompressor::default())
-            };
+        let stats_compressor: Arc<dyn CompressorPlugin> = match self.compressor {
+            CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
+            CompressorConfig::Opaque(compressor) => compressor,
+        };
         let compress_then_flat = CompressingStrategy::new(flat, stats_compressor);
 
         // 3. apply dict encoding or fallback
