@@ -166,30 +166,44 @@ where
     T: NativePType + FastLanesComparable<Bitpacked = U>,
     U: UnsignedPType + BitPacking + BitPackingCompare,
 {
-    let mut bits = collect_chunk_masks::<U>(array, |bit_width, packed_chunk, lower_matches| {
-        let mut upper_matches = [0u64; 16];
-
-        unsafe {
-            U::unchecked_unpack_cmp(
-                bit_width,
-                packed_chunk,
-                lower_matches,
-                |value, lower_bound| lower_matches_bound(lower_bound, value, options.lower_strict),
+    let mut bits = match (options.lower_strict, options.upper_strict) {
+        (StrictComparison::Strict, StrictComparison::Strict) => {
+            collect_between_masks::<U, T, _, _>(
+                array,
                 lower,
-            );
-            U::unchecked_unpack_cmp(
-                bit_width,
-                packed_chunk,
-                &mut upper_matches,
-                |value, upper_bound| upper_matches_bound(value, upper_bound, options.upper_strict),
                 upper,
-            );
+                NativePType::is_lt,
+                NativePType::is_lt,
+            )
         }
-
-        for (lower_match, upper_match) in lower_matches.iter_mut().zip(upper_matches) {
-            *lower_match &= upper_match;
+        (StrictComparison::Strict, StrictComparison::NonStrict) => {
+            collect_between_masks::<U, T, _, _>(
+                array,
+                lower,
+                upper,
+                NativePType::is_lt,
+                NativePType::is_le,
+            )
         }
-    });
+        (StrictComparison::NonStrict, StrictComparison::Strict) => {
+            collect_between_masks::<U, T, _, _>(
+                array,
+                lower,
+                upper,
+                NativePType::is_le,
+                NativePType::is_lt,
+            )
+        }
+        (StrictComparison::NonStrict, StrictComparison::NonStrict) => {
+            collect_between_masks::<U, T, _, _>(
+                array,
+                lower,
+                upper,
+                NativePType::is_le,
+                NativePType::is_le,
+            )
+        }
+    };
 
     if let Some(patches) = array.patches() {
         apply_patch_predicate::<T>(&mut bits, &patches, ctx, |patched| {
@@ -203,6 +217,31 @@ where
         array.validity()?.union_nullability(nullability),
     )
     .into_array())
+}
+
+fn collect_between_masks<U, T, LF, UF>(
+    array: &BitPackedData,
+    lower: T,
+    upper: T,
+    lower_matches: LF,
+    upper_matches: UF,
+) -> BitBufferMut
+where
+    T: NativePType + FastLanesComparable<Bitpacked = U>,
+    U: UnsignedPType + BitPacking,
+    LF: Fn(T, T) -> bool + Copy,
+    UF: Fn(T, T) -> bool + Copy,
+{
+    collect_unpacked_chunk_masks::<U>(array, |unpacked, chunk_matches| {
+        fill_between_chunk::<U, T, LF, UF>(
+            unpacked,
+            chunk_matches,
+            lower,
+            upper,
+            lower_matches,
+            upper_matches,
+        );
+    })
 }
 
 fn collect_chunk_masks<U>(
@@ -242,6 +281,79 @@ where
             .freeze()
             .slice(array.offset() as usize..array.offset() as usize + array.len()),
     )
+}
+
+fn collect_unpacked_chunk_masks<U>(
+    array: &BitPackedData,
+    mut fill_chunk: impl FnMut(&[U; 1024], &mut [u64; 16]),
+) -> BitBufferMut
+where
+    U: UnsignedPType + BitPacking,
+{
+    if array.is_empty() {
+        return BitBufferMut::empty();
+    }
+
+    let bit_width = array.bit_width() as usize;
+    let packed = array.packed_slice::<U>();
+    let elems_per_chunk = 128 * bit_width / size_of::<U>();
+    let num_chunks = (array.offset() as usize + array.len()).div_ceil(1024);
+    let mut output = BufferMut::<u64>::with_capacity(num_chunks * 16);
+
+    for chunk_idx in 0..num_chunks {
+        let packed_chunk = &packed[chunk_idx * elems_per_chunk..][..elems_per_chunk];
+        let mut unpacked = [U::default(); 1024];
+        let mut chunk_matches = [0u64; 16];
+
+        unsafe {
+            U::unchecked_unpack(bit_width, packed_chunk, &mut unpacked);
+        }
+
+        fill_chunk(&unpacked, &mut chunk_matches);
+        output.extend_from_slice(&chunk_matches);
+    }
+
+    let total_len = num_chunks * 1024;
+    let mut output = BitBufferMut::from_buffer(output.into_byte_buffer(), 0, total_len);
+
+    if array.offset() == 0 {
+        output.truncate(array.len());
+        return output;
+    }
+
+    BitBufferMut::copy_from(
+        &output
+            .freeze()
+            .slice(array.offset() as usize..array.offset() as usize + array.len()),
+    )
+}
+
+#[inline]
+fn fill_between_chunk<U, T, LF, UF>(
+    unpacked: &[U; 1024],
+    chunk_matches: &mut [u64; 16],
+    lower: T,
+    upper: T,
+    lower_matches: LF,
+    upper_matches: UF,
+) where
+    T: NativePType + FastLanesComparable<Bitpacked = U>,
+    U: UnsignedPType,
+    LF: Fn(T, T) -> bool,
+    UF: Fn(T, T) -> bool,
+{
+    for (word_idx, word) in chunk_matches.iter_mut().enumerate() {
+        let start = word_idx * 64;
+        let mut mask = 0u64;
+
+        for bit_idx in 0..64 {
+            let value = T::as_unpacked(unpacked[start + bit_idx]);
+            mask |=
+                u64::from(lower_matches(lower, value) && upper_matches(value, upper)) << bit_idx;
+        }
+
+        *word = mask;
+    }
 }
 
 fn apply_patch_predicate<T>(
