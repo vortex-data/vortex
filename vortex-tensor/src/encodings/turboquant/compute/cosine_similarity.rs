@@ -39,7 +39,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::match_each_float_ptype;
-use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -54,6 +53,7 @@ use crate::utils::extension_element_ptype;
 /// [`match_each_float_ptype!`].
 #[inline]
 fn f32_to_t<T: FromPrimitive + Zero>(v: f32) -> T {
+    // TODO(connor): Is this actually correct? How should we handle f64 overflow?
     FromPrimitive::from_f32(v).unwrap_or_else(T::zero)
 }
 
@@ -70,8 +70,8 @@ fn compute_unit_dots(
 
     let lhs_codes_fsl: FixedSizeListArray = lhs.codes().clone().execute(ctx)?;
     let rhs_codes_fsl: FixedSizeListArray = rhs.codes().clone().execute(ctx)?;
-    let lhs_codes = lhs_codes_fsl.elements().to_canonical()?.into_primitive();
-    let rhs_codes = rhs_codes_fsl.elements().to_canonical()?.into_primitive();
+    let lhs_codes: PrimitiveArray = lhs_codes_fsl.elements().clone().execute(ctx)?;
+    let rhs_codes: PrimitiveArray = rhs_codes_fsl.elements().clone().execute(ctx)?;
     let ca = lhs_codes.as_slice::<u8>();
     let cb = rhs_codes.as_slice::<u8>();
 
@@ -116,15 +116,19 @@ pub fn cosine_similarity_quantized_column(
     );
 
     let element_ptype = extension_element_ptype(lhs.dtype().as_extension())?;
+    let validity = lhs.norms().validity()?.and(rhs.norms().validity()?)?;
     let dots = compute_unit_dots(&lhs, &rhs, ctx)?;
 
     // The unit-norm dot product IS the cosine similarity. Cast from f32 to the native type.
     match_each_float_ptype!(element_ptype, |T| {
         let mut result = BufferMut::<T>::with_capacity(dots.len());
         for &dot in &dots {
-            result.push(f32_to_t(dot));
+            // SAFETY: We allocated the correct amount.
+            unsafe { result.push_unchecked(f32_to_t(dot)) };
         }
-        Ok(PrimitiveArray::new::<T>(result.freeze(), Validity::NonNullable).into_array())
+
+        // SAFETY: `result` has the same length as the input arrays, matching `validity`.
+        Ok(unsafe { PrimitiveArray::new_unchecked(result.freeze(), validity) }.into_array())
     })
 }
 
@@ -146,6 +150,7 @@ pub fn dot_product_quantized_column(
     );
 
     let element_ptype = extension_element_ptype(lhs.dtype().as_extension())?;
+    let validity = lhs.norms().validity()?.and(rhs.norms().validity()?)?;
     let dots = compute_unit_dots(&lhs, &rhs, ctx)?;
     let num_rows = lhs.norms().len();
 
@@ -160,9 +165,11 @@ pub fn dot_product_quantized_column(
         let mut result = BufferMut::<T>::with_capacity(num_rows);
         for row in 0..num_rows {
             let dot_t: T = f32_to_t(dots[row]);
-            result.push(na[row] * nb[row] * dot_t);
+            // SAFETY: We allocated the correct amount.
+            unsafe { result.push_unchecked(na[row] * nb[row] * dot_t) };
         }
 
-        Ok(PrimitiveArray::new::<T>(result.freeze(), Validity::NonNullable).into_array())
+        // SAFETY: `result` has the same length as the input arrays, matching `validity`.
+        Ok(unsafe { PrimitiveArray::new_unchecked(result.freeze(), validity) }.into_array())
     })
 }
