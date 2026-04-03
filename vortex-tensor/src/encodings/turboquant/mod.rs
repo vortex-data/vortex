@@ -90,14 +90,6 @@
 //! assert!(encoded.nbytes() < 51200);
 //! ```
 
-use vortex_array::session::ArraySessionExt;
-use vortex_session::VortexSession;
-
-/// Initialize the TurboQuant encoding in the given session.
-pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(TurboQuant);
-}
-
 mod array;
 pub use array::data::TurboQuantData;
 pub use array::scheme::TurboQuantScheme;

@@ -798,3 +798,114 @@ fn nullable_slice_preserves_validity() -> VortexResult<()> {
     }
     Ok(())
 }
+
+// -----------------------------------------------------------------------
+// Serde roundtrip tests
+// -----------------------------------------------------------------------
+
+/// Verify that a TurboQuant array survives serialize/deserialize.
+#[test]
+fn serde_roundtrip() -> VortexResult<()> {
+    use vortex_array::ArrayContext;
+    use vortex_array::ArrayEq;
+    use vortex_array::Precision;
+    use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerializedArray;
+    use vortex_array::session::ArraySessionExt;
+    use vortex_buffer::ByteBufferMut;
+    use vortex_fastlanes::BitPacked;
+    use vortex_session::registry::ReadContext;
+
+    let fsl = make_fsl(20, 128, 42);
+    let ext = make_vector_ext(&fsl);
+    let config = TurboQuantConfig {
+        bit_width: 3,
+        seed: Some(123),
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+
+    let dtype = encoded.dtype().clone();
+    let len = encoded.len();
+
+    // Serialize.
+    let array_ctx = ArrayContext::empty();
+    let serialized = encoded.serialize(&array_ctx, &SerializeOptions::default())?;
+
+    let mut concat = ByteBufferMut::empty();
+    for buf in serialized {
+        concat.extend_from_slice(buf.as_ref());
+    }
+
+    // Deserialize. The session needs TurboQuant and BitPacked (for rotation signs) registered.
+    let serde_session = VortexSession::empty().with::<ArraySession>();
+    serde_session.arrays().register(TurboQuant);
+    serde_session.arrays().register(BitPacked);
+
+    let parts = SerializedArray::try_from(concat.freeze())?;
+    let decoded = parts.decode(
+        &dtype,
+        len,
+        &ReadContext::new(array_ctx.to_ids()),
+        &serde_session,
+    )?;
+
+    assert!(
+        decoded.array_eq(&encoded, Precision::Value),
+        "serde roundtrip did not preserve array equality"
+    );
+    Ok(())
+}
+
+/// Verify that a degenerate (empty) TurboQuant array survives serialize/deserialize.
+#[test]
+fn serde_roundtrip_empty() -> VortexResult<()> {
+    use vortex_array::ArrayContext;
+    use vortex_array::ArrayEq;
+    use vortex_array::Precision;
+    use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerializedArray;
+    use vortex_array::session::ArraySessionExt;
+    use vortex_buffer::ByteBufferMut;
+    use vortex_fastlanes::BitPacked;
+    use vortex_session::registry::ReadContext;
+
+    let fsl = make_fsl(0, 128, 42);
+    let ext = make_vector_ext(&fsl);
+    let config = TurboQuantConfig {
+        bit_width: 2,
+        seed: Some(123),
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    assert_eq!(encoded.len(), 0);
+
+    let dtype = encoded.dtype().clone();
+    let len = encoded.len();
+
+    let array_ctx = ArrayContext::empty();
+    let serialized = encoded.serialize(&array_ctx, &SerializeOptions::default())?;
+
+    let mut concat = ByteBufferMut::empty();
+    for buf in serialized {
+        concat.extend_from_slice(buf.as_ref());
+    }
+
+    let serde_session = VortexSession::empty().with::<ArraySession>();
+    serde_session.arrays().register(TurboQuant);
+    serde_session.arrays().register(BitPacked);
+
+    let parts = SerializedArray::try_from(concat.freeze())?;
+    let decoded = parts.decode(
+        &dtype,
+        len,
+        &ReadContext::new(array_ctx.to_ids()),
+        &serde_session,
+    )?;
+
+    assert!(
+        decoded.array_eq(&encoded, Precision::Value),
+        "serde roundtrip did not preserve array equality"
+    );
+    Ok(())
+}

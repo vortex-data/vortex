@@ -27,50 +27,46 @@
 //! distortion: at 4 bits the error is typically < 0.1, at 8 bits < 0.001.
 //!
 //! For approximate nearest neighbor (ANN) search, biased-but-accurate ranking is
-//! usually sufficient — the relative ordering of cosine similarities is preserved
+//! usually sufficient -- the relative ordering of cosine similarities is preserved
 //! even if the absolute values have bounded error.
 
+use num_traits::FromPrimitive;
+use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::match_each_float_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::encodings::turboquant::TurboQuant;
+use crate::utils::extension_element_ptype;
 
-/// Shared helper: read codes, norms, and centroids from two TurboQuant arrays,
-/// then compute per-row quantized unit-norm dot products.
+/// Convert an f32 value to `T`, returning `T::zero()` if the conversion fails.
 ///
-/// Both arrays must have the same dimension (vector length) and row count.
-/// They may have different codebooks (e.g., different bit widths), in which
-/// case each array's own centroids are used for its code lookups.
+/// This helper exists because `half::f16` has an inherent `from_f32` method that shadows
+/// the [`FromPrimitive`] trait method, causing compilation errors when used inside
+/// [`match_each_float_ptype!`].
+#[inline]
+fn f32_to_t<T: FromPrimitive + Zero>(v: f32) -> T {
+    FromPrimitive::from_f32(v).unwrap_or_else(T::zero)
+}
+
+/// Compute the per-row unit-norm dot products in f32 (centroids are always f32).
 ///
-/// Returns `(norms_a, norms_b, unit_dots)` where `unit_dots[i]` is the dot product
-/// of the unit-norm quantized vectors for row i.
-fn quantized_unit_dots(
-    lhs: ArrayView<TurboQuant>,
-    rhs: ArrayView<TurboQuant>,
+/// Returns a `Vec<f32>` of length `num_rows`.
+fn compute_unit_dots(
+    lhs: &ArrayView<TurboQuant>,
+    rhs: &ArrayView<TurboQuant>,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(Vec<f32>, Vec<f32>, Vec<f32>)> {
-    vortex_ensure!(
-        lhs.dimension() == rhs.dimension(),
-        "TurboQuant quantized dot product requires matching dimensions, got {} and {}",
-        lhs.dimension(),
-        rhs.dimension()
-    );
-
+) -> VortexResult<Vec<f32>> {
     let pd = lhs.padded_dim() as usize;
     let num_rows = lhs.norms().len();
-
-    let lhs_norms: PrimitiveArray = lhs.norms().clone().execute(ctx)?;
-    let rhs_norms: PrimitiveArray = rhs.norms().clone().execute(ctx)?;
-    let na = lhs_norms.as_slice::<f32>();
-    let nb = rhs_norms.as_slice::<f32>();
 
     let lhs_codes_fsl: FixedSizeListArray = lhs.codes().clone().execute(ctx)?;
     let rhs_codes_fsl: FixedSizeListArray = rhs.codes().clone().execute(ctx)?;
@@ -79,8 +75,8 @@ fn quantized_unit_dots(
     let ca = lhs_codes.as_slice::<u8>();
     let cb = rhs_codes.as_slice::<u8>();
 
-    // Read centroids from both arrays — they may have different codebooks
-    // (e.g., different bit widths).
+    // Read centroids from both arrays. They may have different codebooks (e.g., different bit
+    // widths).
     let lhs_centroids: PrimitiveArray = lhs.centroids().clone().execute(ctx)?;
     let rhs_centroids: PrimitiveArray = rhs.centroids().clone().execute(ctx)?;
     let cl = lhs_centroids.as_slice::<f32>();
@@ -98,49 +94,75 @@ fn quantized_unit_dots(
         dots.push(dot);
     }
 
-    Ok((na.to_vec(), nb.to_vec(), dots))
+    Ok(dots)
 }
 
 /// Compute approximate cosine similarity for all rows between two TurboQuant
 /// arrays (same rotation matrix and codebook) without full decompression.
+///
+/// Since TurboQuant stores unit-normalized rotated vectors, the dot product of the quantized
+/// codes directly approximates cosine similarity without needing the stored norms.
+///
+/// The output dtype matches the Vector's element type (f16, f32, or f64).
 pub fn cosine_similarity_quantized_column(
     lhs: ArrayView<TurboQuant>,
     rhs: ArrayView<TurboQuant>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let num_rows = lhs.norms().len();
-    let (na, nb, dots) = quantized_unit_dots(lhs, rhs, ctx)?;
+    vortex_ensure_eq!(
+        lhs.dimension(),
+        rhs.dimension(),
+        "TurboQuant quantized dot product requires matching dimensions",
+    );
 
-    let mut result = BufferMut::<f32>::with_capacity(num_rows);
-    for row in 0..num_rows {
-        if na[row] == 0.0 || nb[row] == 0.0 {
-            result.push(0.0);
-        } else {
-            // Unit-norm dot product IS the cosine similarity.
-            result.push(dots[row]);
+    let element_ptype = extension_element_ptype(lhs.dtype().as_extension())?;
+    let dots = compute_unit_dots(&lhs, &rhs, ctx)?;
+
+    // The unit-norm dot product IS the cosine similarity. Cast from f32 to the native type.
+    match_each_float_ptype!(element_ptype, |T| {
+        let mut result = BufferMut::<T>::with_capacity(dots.len());
+        for &dot in &dots {
+            result.push(f32_to_t(dot));
         }
-    }
-
-    Ok(PrimitiveArray::new::<f32>(result.freeze(), Validity::NonNullable).into_array())
+        Ok(PrimitiveArray::new::<T>(result.freeze(), Validity::NonNullable).into_array())
+    })
 }
 
 /// Compute approximate dot product for all rows between two TurboQuant
 /// arrays (same rotation matrix and codebook) without full decompression.
 ///
-/// `dot_product(a, b) ≈ ||a|| * ||b|| * sum(c[code_a[j]] * c[code_b[j]])`
+/// `dot_product(a, b) = ||a|| * ||b|| * sum(c[code_a[j]] * c[code_b[j]])`
+///
+/// The output dtype matches the Vector's element type (f16, f32, or f64).
 pub fn dot_product_quantized_column(
     lhs: ArrayView<TurboQuant>,
     rhs: ArrayView<TurboQuant>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    vortex_ensure_eq!(
+        lhs.dimension(),
+        rhs.dimension(),
+        "TurboQuant quantized dot product requires matching dimensions",
+    );
+
+    let element_ptype = extension_element_ptype(lhs.dtype().as_extension())?;
+    let dots = compute_unit_dots(&lhs, &rhs, ctx)?;
     let num_rows = lhs.norms().len();
-    let (na, nb, dots) = quantized_unit_dots(lhs, rhs, ctx)?;
 
-    let mut result = BufferMut::<f32>::with_capacity(num_rows);
-    for row in 0..num_rows {
-        // Scale the unit-norm dot product by both norms to get the actual dot product.
-        result.push(na[row] * nb[row] * dots[row]);
-    }
+    let lhs_norms: PrimitiveArray = lhs.norms().clone().execute(ctx)?;
+    let rhs_norms: PrimitiveArray = rhs.norms().clone().execute(ctx)?;
 
-    Ok(PrimitiveArray::new::<f32>(result.freeze(), Validity::NonNullable).into_array())
+    // Scale the f32 unit-norm dot product by native-precision norms.
+    match_each_float_ptype!(element_ptype, |T| {
+        let na = lhs_norms.as_slice::<T>();
+        let nb = rhs_norms.as_slice::<T>();
+
+        let mut result = BufferMut::<T>::with_capacity(num_rows);
+        for row in 0..num_rows {
+            let dot_t: T = f32_to_t(dots[row]);
+            result.push(na[row] * nb[row] * dot_t);
+        }
+
+        Ok(PrimitiveArray::new::<T>(result.freeze(), Validity::NonNullable).into_array())
+    })
 }

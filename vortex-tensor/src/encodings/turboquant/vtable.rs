@@ -74,7 +74,7 @@ impl TurboQuant {
 
     /// Creates a new [`TurboQuantArray`].
     ///
-    /// Internallay calls [`TurboQuantData::try_new`].
+    /// Internally calls [`TurboQuantData::try_new`].
     pub fn try_new_array(
         dtype: DType,
         codes: ArrayRef,
@@ -101,7 +101,7 @@ impl VTable for TurboQuant {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, _len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
         let ext = dtype
             .as_extension_opt()
             .filter(|e| e.is::<Vector>())
@@ -117,8 +117,15 @@ impl VTable for TurboQuant {
 
         vortex_ensure_eq!(data.dimension(), dimension);
 
-        // TODO(connor): In the future, we will not need to validate `len` on the array data because
+        // TODO(connor): In the future, we may not need to validate `len` on the array data because
         // the child arrays will be located somewhere else.
+        // bit_width == 0 is only valid for degenerate (empty) arrays. A non-empty array with
+        // bit_width == 0 would have zero centroids while codes reference centroid indices.
+        vortex_ensure!(
+            data.bit_width > 0 || len == 0,
+            "bit_width == 0 is only valid for empty arrays, got len={len}"
+        );
+
         Ok(())
     }
 
@@ -186,6 +193,13 @@ impl VTable for TurboQuant {
         );
 
         let bit_width = metadata[0];
+
+        // bit_width == 0 is only valid for degenerate (empty) arrays. A non-empty array with
+        // bit_width == 0 would have zero centroids while codes reference centroid indices.
+        vortex_ensure!(
+            bit_width > 0 || len == 0,
+            "bit_width == 0 is only valid for empty arrays, got len={len}"
+        );
 
         // Validate and derive dimension and element ptype from the Vector extension dtype.
         let ext = TurboQuant::validate_dtype(dtype)?;
