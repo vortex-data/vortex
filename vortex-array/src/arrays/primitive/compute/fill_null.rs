@@ -26,7 +26,7 @@ impl FillNullKernel for Primitive {
     ) -> VortexResult<Option<ArrayRef>> {
         let result_validity = Validity::from(fill_value.dtype().nullability());
 
-        Ok(Some(match array.validity() {
+        Ok(Some(match array.validity()? {
             Validity::Array(is_valid) => {
                 let is_invalid = is_valid.execute::<BoolArray>(ctx)?.into_bit_buffer().not();
                 match_each_native_ptype!(array.ptype(), |T| {

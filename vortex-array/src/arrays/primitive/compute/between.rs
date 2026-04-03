@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -109,7 +110,9 @@ where
             let i = unsafe { *slice.get_unchecked(idx) };
             lower_fn(lower, i) & upper_fn(i, upper)
         }),
-        arr.validity().union_nullability(nullability),
+        arr.validity()
+            .vortex_expect("validity should be derivable")
+            .union_nullability(nullability),
     )
     .into_array()
 }

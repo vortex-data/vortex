@@ -103,7 +103,7 @@ impl FilterKernel for List {
             Mask::Values(v) => v,
         };
 
-        let new_validity = match array.validity() {
+        let new_validity = match array.validity()? {
             Validity::NonNullable => Validity::NonNullable,
             Validity::AllValid => Validity::AllValid,
             Validity::AllInvalid => {

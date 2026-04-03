@@ -49,7 +49,7 @@ impl ArrayParentReduceRule<Decimal> for DecimalMaskedValidityRule {
                 DecimalArray::new_unchecked(
                     array.buffer::<D>(),
                     array.decimal_dtype(),
-                    array.validity().and(parent.validity())?,
+                    array.validity()?.and(parent.validity()?)?,
                 )
             }
             .into_array()
@@ -63,7 +63,7 @@ impl SliceReduce for Decimal {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let result = match_each_decimal_value_type!(array.values_type(), |D| {
             let sliced = array.buffer::<D>().slice(range.clone());
-            let validity = array.validity().slice(range)?;
+            let validity = array.validity()?.slice(range)?;
             // SAFETY: Slicing preserves all DecimalArray invariants
             unsafe { DecimalArray::new_unchecked(sliced, array.decimal_dtype(), validity) }
                 .into_array()

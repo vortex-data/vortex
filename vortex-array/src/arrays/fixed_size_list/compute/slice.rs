@@ -25,7 +25,7 @@ impl SliceReduce for FixedSizeList {
                         .elements()
                         .slice(range.start * list_size..range.end * list_size)?,
                     array.list_size(),
-                    array.validity().slice(range)?,
+                    array.validity()?.slice(range)?,
                     new_len,
                 )
             }

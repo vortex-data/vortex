@@ -45,7 +45,7 @@ impl TakeExecute for Bool {
         });
 
         Ok(Some(
-            BoolArray::new(buffer, array.validity().take(indices)?).into_array(),
+            BoolArray::new(buffer, array.validity()?.take(indices)?).into_array(),
         ))
     }
 }

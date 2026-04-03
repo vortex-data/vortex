@@ -52,7 +52,7 @@ fn list_to_list(
         "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"
     );
 
-    let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;
 
     Ok(Arc::new(
         arrow_array::FixedSizeListArray::try_new_with_length(

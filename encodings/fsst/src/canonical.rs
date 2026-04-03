@@ -33,7 +33,7 @@ pub(super) fn canonicalize_fsst(
             views,
             Arc::from(buffers),
             array.dtype().clone(),
-            array.codes().validity(),
+            array.codes().validity()?,
         )
         .into_array()
     })

@@ -38,7 +38,7 @@ impl DynAggregateKernel for FoRIsSortedKernel {
         let unsigned_array = PrimitiveArray::from_buffer_handle(
             encoded.buffer_handle().clone(),
             encoded.ptype().to_unsigned(),
-            encoded.validity(),
+            encoded.validity()?,
         )
         .into_array();
 

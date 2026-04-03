@@ -67,7 +67,7 @@ where
 
     let data = array.bytes().clone().into_arrow_buffer();
 
-    let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;
     Ok(Arc::new(unsafe {
         GenericByteArray::<T>::new_unchecked(offsets, data, null_buffer)
     }))

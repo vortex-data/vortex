@@ -27,7 +27,7 @@ impl SliceReduce for Struct {
                     fields,
                     array.struct_fields(),
                     range.len(),
-                    array.validity().slice(range)?,
+                    array.validity()?.slice(range)?,
                 )
             }
             .into_array(),

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -106,7 +107,9 @@ fn between_impl<T: NativeDecimalType>(
             let value = buffer[idx];
             lower_op(lower, value) & upper_op(value, upper)
         }),
-        arr.validity().union_nullability(nullability),
+        arr.validity()
+            .vortex_expect("validity should be derivable")
+            .union_nullability(nullability),
     )
     .into_array()
 }

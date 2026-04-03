@@ -60,7 +60,10 @@ macro_rules! typed_encode {
 
 /// Compresses a floating-point array into a dictionary array according to attached stats.
 pub fn dictionary_encode(stats: &FloatStats) -> DictArray {
-    let validity = stats.source().validity();
+    let validity = stats
+        .source()
+        .validity()
+        .vortex_expect("dictionary source validity should be derivable");
     match stats.erased() {
         FloatErasedStats::F16(typed) => typed_encode!(stats, typed, validity, f16),
         FloatErasedStats::F32(typed) => typed_encode!(stats, typed, validity, f32),

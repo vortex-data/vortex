@@ -58,7 +58,7 @@ pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<Prim
 
     // TODO(ngates): Do we need this to be into_encoded() somehow?
     let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
-    let validity = encoded.validity();
+    let validity = encoded.validity()?;
 
     Ok(match_each_integer_ptype!(ptype, |T| {
         let min = array

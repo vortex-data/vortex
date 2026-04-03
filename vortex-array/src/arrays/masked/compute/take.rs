@@ -24,7 +24,7 @@ impl TakeReduce for Masked {
         };
 
         // Compute the new validity by taking from array's validity and merging with indices validity
-        let taken_validity = array.validity().take(indices)?;
+        let taken_validity = array.validity()?.take(indices)?;
 
         // Construct new MaskedArray
         Ok(Some(

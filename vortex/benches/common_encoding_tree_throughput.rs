@@ -18,6 +18,7 @@ use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::error::VortexExpect;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
@@ -262,7 +263,9 @@ mod setup {
             offsets_bp.into_array(),
             codes.bytes().clone(),
             codes.dtype().clone(),
-            codes.validity(),
+            codes
+                .validity()
+                .vortex_expect("FSST code validity should be derivable"),
         )
         .unwrap();
 

@@ -43,7 +43,7 @@ impl TakeReduce for Struct {
                 .collect::<Result<Vec<_>, _>>()?,
             array.struct_fields(),
             indices.len(),
-            array.validity().take(indices)?,
+            array.validity()?.take(indices)?,
         )
         .map(|a| a.into_array())
         .map(Some)

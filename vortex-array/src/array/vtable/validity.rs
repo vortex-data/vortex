@@ -9,29 +9,12 @@ use crate::array::VTable;
 use crate::validity::Validity;
 
 pub trait ValidityVTable<V: VTable> {
-    /// Returns the [`Validity`] of the array.
+/// Returns the [`Validity`] of the array.
     ///
     /// ## Pre-conditions
     ///
     /// - The array DType is nullable.
     fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity>;
-}
-
-/// An implementation of the [`ValidityVTable`] for arrays that hold validity as a child array.
-pub struct ValidityVTableFromValidityHelper;
-
-/// Expose validity held as a child array.
-pub trait ValidityHelper {
-    fn validity(&self) -> &Validity;
-}
-
-impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValidityHelper
-where
-    V::ArrayData: ValidityHelper,
-{
-    fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {
-        Ok(array.data().validity().clone())
-    }
 }
 
 /// An implementation of the [`ValidityVTable`] for arrays that hold an unsliced validity

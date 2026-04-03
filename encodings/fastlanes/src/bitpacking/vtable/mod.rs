@@ -314,9 +314,10 @@ impl VTable for BitPacked {
             PATCH_VALUES_SLOT,
             PATCH_CHUNK_OFFSETS_SLOT
         );
+        let validity = array.validity()?;
         require_validity!(
             array,
-            &array.validity(),
+            &validity,
             VALIDITY_SLOT => AnyCanonical
         );
 

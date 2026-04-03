@@ -36,7 +36,7 @@ impl CastKernel for Primitive {
 
         // First, check that the cast is compatible with the source array's validity
         let new_validity = array
-            .validity()
+            .validity()?
             .cast_nullability(new_nullability, array.len())?;
 
         // Same ptype: zero-copy, just update validity.
@@ -156,7 +156,7 @@ mod test {
         // cast from u32 to u8
         let p = arr.cast(PType::U8.into()).unwrap().to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert!(matches!(p.validity(), Validity::NonNullable));
+        assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable
         let p = p
@@ -168,7 +168,7 @@ mod test {
             p,
             PrimitiveArray::new(buffer![0u8, 10, 200], Validity::AllValid)
         );
-        assert!(matches!(p.validity(), Validity::AllValid));
+        assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
         // back to non-nullable
         let p = p
@@ -177,7 +177,7 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert!(matches!(p.validity(), Validity::NonNullable));
+        assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
 
         // to nullable u32
         let p = p
@@ -189,7 +189,7 @@ mod test {
             p,
             PrimitiveArray::new(buffer![0u32, 10, 200], Validity::AllValid)
         );
-        assert!(matches!(p.validity(), Validity::AllValid));
+        assert!(matches!(p.validity(), Ok(Validity::AllValid)));
 
         // to non-nullable u8
         let p = p
@@ -198,7 +198,7 @@ mod test {
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([0u8, 10, 200]));
-        assert!(matches!(p.validity(), Validity::NonNullable));
+        assert!(matches!(p.validity(), Ok(Validity::NonNullable)));
     }
 
     #[test]
@@ -294,7 +294,7 @@ mod test {
             .cast(DType::Primitive(PType::I8, Nullability::Nullable))?
             .to_primitive();
         assert_eq!(casted.len(), 2);
-        assert!(matches!(casted.validity(), Validity::AllInvalid));
+        assert!(matches!(casted.validity(), Ok(Validity::AllInvalid)));
         Ok(())
     }
 

@@ -336,8 +336,8 @@ mod test {
         let recovered_primitive = recovered_array.execute::<PrimitiveArray>(&mut ctx)?;
         assert!(
             recovered_primitive
-                .validity()
-                .mask_eq(&array.validity(), &mut ctx)?
+                .validity()?
+                .mask_eq(&array.validity()?, &mut ctx)?
         );
         assert_eq!(
             recovered_primitive.to_buffer::<u64>(),

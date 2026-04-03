@@ -33,7 +33,7 @@ where
         let ends_array = PrimitiveArray::from_buffer_handle(
             ends.buffer_handle().clone(),
             ends.ptype(),
-            ends.validity(),
+            ends.validity()?,
         )
         .into_array();
         let (ends_slice, values_slice) = if offset == 0 && len == array.run_ends().max_value() {

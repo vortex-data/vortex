@@ -17,7 +17,7 @@ impl SliceReduce for Bool {
         Ok(Some(
             BoolArray::new(
                 array.to_bit_buffer().slice(range.clone()),
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array(),
         ))

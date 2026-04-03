@@ -16,7 +16,6 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ValidityHelper;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
@@ -294,17 +293,6 @@ impl<V: VTable> Array<V> {
     }
 }
 
-impl<V: VTable> Array<V>
-where
-    V::ArrayData: ValidityHelper,
-{
-    /// Returns a reference to the validity.
-    #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        ValidityHelper::validity(self.data())
-    }
-}
-
 /// Public API methods that shadow `DynArray` / `ArrayRef` methods.
 impl<V: VTable> Array<V> {
     #[allow(clippy::same_name_method)]
@@ -325,6 +313,11 @@ impl<V: VTable> Array<V> {
     #[allow(clippy::same_name_method)]
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
         self.inner.take(indices)
+    }
+
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> VortexResult<Validity> {
+        self.inner.validity()
     }
 
     #[allow(clippy::same_name_method)]

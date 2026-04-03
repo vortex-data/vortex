@@ -24,7 +24,12 @@ pub fn filter_fixed_size_list(
     array: &FixedSizeListArray,
     selection_mask: &Arc<MaskValues>,
 ) -> FixedSizeListArray {
-    let filtered_validity = filter_validity(array.validity(), selection_mask);
+    let filtered_validity = filter_validity(
+        array
+            .validity()
+            .vortex_expect("fixed-size-list validity should be derivable"),
+        selection_mask,
+    );
 
     let elements = array.elements();
     let new_len = selection_mask.true_count();

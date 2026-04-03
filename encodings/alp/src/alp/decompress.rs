@@ -11,6 +11,7 @@ use vortex_array::dtype::DType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
@@ -102,7 +103,9 @@ fn decompress_chunked_core(
     patches: &Patches,
     dtype: DType,
 ) -> PrimitiveArray {
-    let validity = encoded.validity();
+    let validity = encoded
+        .validity()
+        .vortex_expect("ALP validity should be derivable");
     let ptype = dtype.as_ptype();
     let array_len = encoded.len();
     let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
@@ -152,7 +155,7 @@ fn decompress_unchunked_core(
     dtype: DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let validity = encoded.validity();
+    let validity = encoded.validity()?;
     let ptype = dtype.as_ptype();
 
     let decoded = match_each_alp_float_ptype!(ptype, |T| {

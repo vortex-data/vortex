@@ -28,7 +28,7 @@ impl TakeExecute for VarBinView {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity().take(indices)?;
+        let validity = array.validity()?.take(indices)?;
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
         let indices_mask = indices.validity_mask()?;

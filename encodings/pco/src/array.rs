@@ -469,7 +469,7 @@ impl PcoData {
             parray.dtype().as_ptype(),
             metadata,
             parray.len(),
-            parray.validity(),
+            parray.validity()?,
         ))
     }
 

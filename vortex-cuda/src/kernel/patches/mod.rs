@@ -42,7 +42,7 @@ pub(crate) async fn execute_patches<
     let values = values.execute_cuda(ctx).await?.into_primitive();
 
     let supported = matches!(
-        values.validity(),
+        values.validity()?,
         Validity::NonNullable | Validity::AllValid
     );
     vortex_ensure!(

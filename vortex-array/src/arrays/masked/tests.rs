@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use rstest::rstest;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::*;
@@ -100,5 +101,11 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
     assert_eq!(array.len(), len);
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    assert!(array.validity().mask_eq(&validity, &mut ctx).unwrap(),);
+    assert!(
+        array
+            .validity()
+            .vortex_expect("masked validity should be derivable")
+            .mask_eq(&validity, &mut ctx)
+            .unwrap(),
+    );
 }

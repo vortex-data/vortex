@@ -25,7 +25,7 @@ impl FillNullKernel for Bool {
             .value()
             .ok_or_else(|| vortex_err!("Fill value must be non null"))?;
 
-        Ok(Some(match array.validity() {
+        Ok(Some(match array.validity()? {
             Validity::Array(v) => {
                 let v_bool = v.execute::<BoolArray>(ctx)?;
                 let bool_buffer = if fill {

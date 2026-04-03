@@ -25,7 +25,7 @@ impl VarBin {
                 array.offsets().slice(range.start..range.end + 1)?,
                 array.bytes_handle().clone(),
                 array.dtype().clone(),
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array()
         })

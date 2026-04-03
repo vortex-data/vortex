@@ -74,7 +74,7 @@ pub fn bitpack_encode(
     let bitpacked = BitPacked::try_new(
         BufferHandle::new_host(packed),
         array.ptype(),
-        array.validity(),
+        array.validity()?,
         patches,
         bit_width,
         array.len(),
@@ -103,7 +103,7 @@ pub unsafe fn bitpack_encode_unchecked(
     let bitpacked = BitPacked::try_new(
         BufferHandle::new_host(packed),
         array.ptype(),
-        array.validity(),
+        array.validity()?,
         None,
         bit_width,
         array.len(),
@@ -191,7 +191,7 @@ pub fn gather_patches(
     bit_width: u8,
     num_exceptions_hint: usize,
 ) -> VortexResult<Option<Patches>> {
-    let patch_validity = match parray.validity() {
+    let patch_validity = match parray.validity()? {
         Validity::NonNullable => Validity::NonNullable,
         _ => Validity::AllValid,
     };

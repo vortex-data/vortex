@@ -283,6 +283,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         // Append the patch value, handling null patches by appending defaults.
         if values
             .validity()
+            .vortex_expect("sparse fixed-size-list validity should be derivable")
             .is_valid(patch_idx)
             .vortex_expect("is_valid")
         {

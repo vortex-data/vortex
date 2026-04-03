@@ -629,7 +629,7 @@ impl Array<Struct> {
             FieldNames::from(names.as_slice()),
             children,
             self.len(),
-            self.validity(),
+            self.validity()?,
         )
     }
 

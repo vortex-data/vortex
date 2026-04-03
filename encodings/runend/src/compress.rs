@@ -33,7 +33,10 @@ use crate::iter::trimmed_ends_iter;
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.
 pub fn runend_encode(array: ArrayView<Primitive>) -> (PrimitiveArray, ArrayRef) {
-    let validity = match array.validity() {
+    let validity = match array
+        .validity()
+        .vortex_expect("run-end validity should be derivable")
+    {
         Validity::NonNullable => None,
         Validity::AllValid => None,
         Validity::AllInvalid => {

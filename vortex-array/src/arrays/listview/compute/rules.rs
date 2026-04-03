@@ -46,7 +46,7 @@ impl ArrayParentReduceRule<ListView> for ListViewFilterPushDown {
                     array.elements().clone(),
                     array.offsets().filter(parent.filter_mask().clone())?,
                     array.sizes().filter(parent.filter_mask().clone())?,
-                    array.validity().filter(parent.filter_mask())?,
+                    array.validity()?.filter(parent.filter_mask())?,
                 )
             }
             .into_array(),

@@ -63,7 +63,10 @@ macro_rules! typed_encode {
     reason = "complexity from match on all integer types"
 )]
 pub fn dictionary_encode(stats: &IntegerStats) -> DictArray {
-    let src_validity = stats.source().validity();
+    let src_validity = stats
+        .source()
+        .validity()
+        .vortex_expect("dictionary source validity should be derivable");
 
     match stats.erased() {
         IntegerErasedStats::U8(typed) => typed_encode!(stats, typed, src_validity, u8),

@@ -684,7 +684,7 @@ impl ZstdData {
             frames,
             metadata,
             parray.len(),
-            parray.validity(),
+            parray.validity()?,
         ))
     }
 
@@ -772,7 +772,7 @@ impl ZstdData {
             frames,
             metadata,
             vbv.len(),
-            vbv.validity(),
+            vbv.validity()?,
         ))
     }
 

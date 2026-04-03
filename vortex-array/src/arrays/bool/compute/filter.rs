@@ -21,7 +21,7 @@ const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
 impl FilterReduce for Bool {
     fn filter(array: ArrayView<'_, Bool>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity().filter(mask)?;
+        let validity = array.validity()?.filter(mask)?;
 
         let mask_values = mask
             .values()

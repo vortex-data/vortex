@@ -15,7 +15,7 @@ impl CastReduce for BitPacked {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity = array
-                .validity(array.dtype().nullability())
+                .validity()?
                 .cast_nullability(dtype.nullability(), array.len())?;
             return Ok(Some(
                 BitPacked::try_new(

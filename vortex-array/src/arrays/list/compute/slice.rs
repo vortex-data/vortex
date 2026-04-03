@@ -18,7 +18,7 @@ impl SliceReduce for List {
             ListArray::new(
                 array.elements().clone(),
                 array.offsets().slice(range.start..range.end + 1)?,
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array(),
         ))

@@ -22,7 +22,7 @@ impl MaskReduce for Decimal {
                     DecimalArray::new_unchecked(
                         array.buffer::<D>(),
                         array.decimal_dtype(),
-                        array.validity().and(Validity::Array(mask.clone()))?,
+                        array.validity()?.and(Validity::Array(mask.clone()))?,
                     )
                 }
                 .into_array()
