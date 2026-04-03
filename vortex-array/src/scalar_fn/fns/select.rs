@@ -163,7 +163,7 @@ impl ScalarFnVTable for Select {
             }
         }?;
 
-        let dtype = result.dtype().clone();
+        let dtype = result.dtype();
         let len = result.len();
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, result))?
             .into_array()

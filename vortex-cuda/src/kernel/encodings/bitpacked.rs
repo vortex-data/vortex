@@ -199,7 +199,7 @@ mod tests {
 
         // Last two items should be patched
         let bp_with_patches = BitPacked::encode(&array.into_array(), bw)?;
-        assert!(bp_with_patches.patches().is_some());
+        assert!(bp_with_patches.patches(bp_with_patches.len()).is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
 
@@ -230,7 +230,7 @@ mod tests {
 
         // Last two items should be patched
         let bp_with_patches = BitPacked::encode(&array.into_array(), 9)?;
-        assert!(bp_with_patches.patches().is_some());
+        assert!(bp_with_patches.patches(bp_with_patches.len()).is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
 

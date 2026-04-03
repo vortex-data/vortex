@@ -449,6 +449,7 @@ mod test {
     #[test]
     fn test_dict_metadata() {
         use prost::Message;
+
         use super::DictMetadata;
         use crate::test_harness::check_metadata;
 

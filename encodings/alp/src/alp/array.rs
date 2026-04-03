@@ -417,9 +417,9 @@ impl ALPData {
 
         Ok(Self {
             slots,
-            exponents,
             patch_offset,
             patch_offset_within_chunk,
+            exponents,
         })
     }
 
@@ -440,9 +440,9 @@ impl ALPData {
 
         Self {
             slots,
-            exponents,
             patch_offset,
             patch_offset_within_chunk,
+            exponents,
         }
     }
 }

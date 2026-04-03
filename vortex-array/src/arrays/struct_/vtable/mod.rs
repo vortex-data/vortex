@@ -67,7 +67,7 @@ impl VTable for Struct {
 
     fn validate(&self, data: &StructData, dtype: &DType, len: usize) -> VortexResult<()> {
         match dtype {
-            DType::Struct(_, _) => {}
+            DType::Struct(..) => {}
             _ => vortex_bail!("Expected struct dtype, found {:?}", dtype),
         }
         if data.len() != len {
@@ -111,7 +111,10 @@ impl VTable for Struct {
         _session: &VortexSession,
     ) -> VortexResult<StructData> {
         if !metadata.is_empty() {
-            vortex_bail!("StructArray expects empty metadata, got {} bytes", metadata.len());
+            vortex_bail!(
+                "StructArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
         }
         let DType::Struct(struct_dtype, nullability) = dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", dtype)

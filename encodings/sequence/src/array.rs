@@ -203,7 +203,6 @@ impl SequenceData {
             PValue::from(value)
         })
     }
-
 }
 
 impl VTable for Sequence {
@@ -381,7 +380,7 @@ impl Sequence {
         );
 
         // SAFETY: we don't have duplicate stats.
-        let stats_set = unsafe {
+        unsafe {
             StatsSet::new_unchecked(vec![
                 (Stat::IsSorted, StatPrecision::Exact(is_sorted.into())),
                 (
@@ -389,8 +388,7 @@ impl Sequence {
                     StatPrecision::Exact(is_strict_sorted.into()),
                 ),
             ])
-        };
-        stats_set
+        }
     }
 
     /// Construct a new [`SequenceArray`] from pre-validated parts.

@@ -37,8 +37,8 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::BitPackedDataParts;
 use crate::BitPackedData;
+use crate::BitPackedDataParts;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::NUM_SLOTS;

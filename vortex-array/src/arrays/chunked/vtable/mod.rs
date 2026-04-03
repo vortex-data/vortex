@@ -135,7 +135,10 @@ impl VTable for Chunked {
         _session: &VortexSession,
     ) -> VortexResult<ChunkedData> {
         if !metadata.is_empty() {
-            vortex_bail!("ChunkedArray expects empty metadata, got {} bytes", metadata.len());
+            vortex_bail!(
+                "ChunkedArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
         }
         if children.is_empty() {
             vortex_bail!("Chunked array needs at least one child");
@@ -167,7 +170,7 @@ impl VTable for Chunked {
             })
             .try_collect()?;
 
-        let chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
+        let chunk_offsets = PrimitiveData::new(chunk_offsets_buf, Validity::NonNullable);
 
         let slots = ChunkedData::make_slots(&chunk_offsets, &chunks);
         // Construct directly using the struct fields to avoid recomputing chunk_offsets
@@ -214,7 +217,7 @@ impl VTable for Chunked {
                     .ok_or_else(|| vortex_err!("chunk slot must not be None"))
             })
             .try_collect()?;
-        array.chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
+        array.chunk_offsets = PrimitiveData::new(chunk_offsets_buf, Validity::NonNullable);
         array.empty_dtype = chunks.is_empty().then_some(array.dtype().clone());
         array.chunks = chunks;
         array.slots = slots;

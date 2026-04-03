@@ -208,7 +208,6 @@ impl VTable for ParquetVariant {
         let typed_value = if has_typed_value {
             // typed_value can be any type — primitive, list, struct, etc.
             let dtype = typed_value_dtype
-                .clone()
                 .ok_or_else(|| vortex_err!("typed_value_dtype missing for typed_value child"))?;
             let tv = children.get(child_idx, &dtype, len)?;
             Some(tv)
@@ -274,8 +273,6 @@ mod tests {
     use vortex_session::registry::ReadContext;
 
     use crate::ParquetVariant;
-    use crate::ParquetVariantData;
-
     fn roundtrip(array: ArrayRef) -> ArrayRef {
         let dtype = array.dtype().clone();
         let len = array.len();

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
+
 use crate::ArrayRef;
 use crate::display::extractor::IndentedFormatter;
 use crate::display::extractor::TreeContext;

@@ -529,9 +529,9 @@ impl ALPRDData {
 
         Ok(Self {
             slots,
+            left_parts_patches,
             left_parts_dictionary,
             right_bit_width,
-            left_parts_patches,
         })
     }
 

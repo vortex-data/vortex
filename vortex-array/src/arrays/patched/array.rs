@@ -252,6 +252,10 @@ impl PatchedArray {
         self.base_array().len()
     }
 
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl PatchedArray {

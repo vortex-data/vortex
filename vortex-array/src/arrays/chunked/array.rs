@@ -50,7 +50,7 @@ impl ChunkedData {
         slots.push(Some(
             Array::try_from_parts(ArrayParts::new(
                 crate::arrays::Primitive,
-                chunk_offsets.dtype().clone(),
+                chunk_offsets.dtype(),
                 chunk_offsets.len(),
                 chunk_offsets.clone(),
             ))

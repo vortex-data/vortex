@@ -96,7 +96,10 @@ impl VTable for ByteBool {
         _session: &VortexSession,
     ) -> VortexResult<ByteBoolData> {
         if !metadata.is_empty() {
-            vortex_bail!("ByteBoolArray expects empty metadata, got {} bytes", metadata.len());
+            vortex_bail!(
+                "ByteBoolArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
         }
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())

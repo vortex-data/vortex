@@ -167,6 +167,12 @@ impl Array<Null> {
     }
 }
 
+impl Default for NullData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NullData {
     pub fn new() -> Self {
         Self { slots: vec![] }

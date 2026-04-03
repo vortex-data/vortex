@@ -180,7 +180,13 @@ impl<V: VTable> Array<V> {
     /// Caller must ensure the provided parts are logically consistent.
     pub(crate) unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
         let inner = ArrayRef::from_inner(Arc::new(unsafe {
-            ArrayInner::<V>::from_data_unchecked(new.vtable, new.dtype, new.len, new.data, ArrayStats::default())
+            ArrayInner::<V>::from_data_unchecked(
+                new.vtable,
+                new.dtype,
+                new.len,
+                new.data,
+                ArrayStats::default(),
+            )
         }));
         Self {
             inner,
@@ -443,9 +449,9 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::Array;
-    use crate::assert_arrays_eq;
     use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::validity::Validity;
 
     #[test]

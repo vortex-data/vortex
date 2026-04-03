@@ -84,8 +84,10 @@ impl<V: VTable> DynVTable for V {
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let inner = self.deserialize(dtype, len, metadata, buffers, children, session)?;
-        Ok(Array::<V>::try_from_parts(ArrayParts::new(self.clone(), dtype.clone(), len, inner))?
-            .into_array())
+        Ok(
+            Array::<V>::try_from_parts(ArrayParts::new(self.clone(), dtype.clone(), len, inner))?
+                .into_array(),
+        )
     }
 
     fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {

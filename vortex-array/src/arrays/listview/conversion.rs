@@ -39,7 +39,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // function might not expect the output `ListViewArray` to have a bunch of leading and trailing
     // garbage data when they turn it back into a `ListArray`.
     let data = list.reset_offsets(false).vortex_expect("This can't fail");
-    let dtype = data.dtype().clone();
+    let dtype = data.dtype();
     let len = data.len();
     let list: ListArray = Array::try_from_parts(ArrayParts::new(List, dtype, len, data))?;
 

@@ -298,8 +298,7 @@ mod tests {
         #[case] expected_ends: &[i32],
         #[case] expected_values: &[i32],
     ) -> VortexResult<()> {
-        let array =
-            RunEnd::encode(PrimitiveArray::from_iter(input.iter().copied()).into_array())?;
+        let array = RunEnd::encode(PrimitiveArray::from_iter(input.iter().copied()).into_array())?;
         let sliced = array.into_array().slice(slice_range.clone())?;
         let target = ree_type(DataType::Int32, DataType::Int32);
         let result = execute(sliced, &target)?;

@@ -241,7 +241,6 @@ impl Array<Bool> {
     pub fn into_bit_buffer(self) -> BitBuffer {
         self.into_data().into_bit_buffer()
     }
-
 }
 
 /// Internal constructors on BoolData (used by Array<Bool> constructors and VTable::build).

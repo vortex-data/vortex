@@ -29,13 +29,8 @@ pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray
         .map(|a| a.len())
         .unwrap_or_else(|| mask.true_count());
 
-    StructArray::try_new_with_dtype(
-        fields,
-        array.struct_fields().clone(),
-        length,
-        filtered_validity,
-    )
-    .vortex_expect("filtered StructArray fields have consistent lengths")
+    StructArray::try_new_with_dtype(fields, array.struct_fields(), length, filtered_validity)
+        .vortex_expect("filtered StructArray fields have consistent lengths")
 }
 
 #[cfg(test)]

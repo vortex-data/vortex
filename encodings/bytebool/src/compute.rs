@@ -84,8 +84,6 @@ impl TakeExecute for ByteBool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::ByteBoolArray;
     use rstest::rstest;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -97,6 +95,9 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar_fn::fns::operators::Operator;
+
+    use super::*;
+    use crate::ByteBoolArray;
 
     fn bb(v: Vec<bool>) -> ByteBoolArray {
         ByteBool::from_vec(v, Validity::AllValid)

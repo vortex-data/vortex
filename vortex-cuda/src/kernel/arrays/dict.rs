@@ -144,11 +144,7 @@ async fn execute_dict_decimal(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
     let dtype = dict.dtype().clone();
-    let DictDataParts {
-        values,
-        codes,
-        ..
-    } = dict.into_data().into_parts();
+    let DictDataParts { values, codes, .. } = dict.into_data().into_parts();
 
     // Execute codes to get them as primitives on the device
     let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
@@ -235,11 +231,7 @@ async fn execute_dict_varbinview(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
     let dtype = dict.dtype().clone();
-    let DictDataParts {
-        values,
-        codes,
-        ..
-    } = dict.into_data().into_parts();
+    let DictDataParts { values, codes, .. } = dict.into_data().into_parts();
 
     let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
     let codes_ptype = codes_prim.ptype();

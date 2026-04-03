@@ -96,7 +96,10 @@ impl VTable for ZigZag {
         _session: &VortexSession,
     ) -> VortexResult<ZigZagData> {
         if !metadata.is_empty() {
-            vortex_bail!("ZigZagArray expects empty metadata, got {} bytes", metadata.len());
+            vortex_bail!(
+                "ZigZagArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
         }
         if children.len() != 1 {
             vortex_bail!("Expected 1 child, got {}", children.len());

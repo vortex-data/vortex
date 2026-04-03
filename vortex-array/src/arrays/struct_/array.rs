@@ -512,7 +512,7 @@ impl StructData {
     pub fn remove_column(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
         let name = name.into();
 
-        let struct_dtype = self.struct_fields().clone();
+        let struct_dtype = self.struct_fields();
         let len = self.len();
 
         let position = struct_dtype
@@ -546,7 +546,6 @@ impl StructData {
         }
         None
     }
-
 }
 
 impl Array<Struct> {
@@ -558,7 +557,7 @@ impl Array<Struct> {
         validity: Validity,
     ) -> Self {
         let data = StructData::new(names, fields, length, validity);
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
             .vortex_expect("StructData is always valid")
@@ -572,7 +571,7 @@ impl Array<Struct> {
         validity: Validity,
     ) -> VortexResult<Self> {
         let data = StructData::try_new(names, fields, length, validity)?;
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
@@ -589,7 +588,7 @@ impl Array<Struct> {
         validity: Validity,
     ) -> Self {
         let data = unsafe { StructData::new_unchecked(fields, dtype, length, validity) };
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
             .vortex_expect("StructData is always valid")
@@ -603,7 +602,7 @@ impl Array<Struct> {
         validity: Validity,
     ) -> VortexResult<Self> {
         let data = StructData::try_new_with_dtype(fields, dtype, length, validity)?;
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
@@ -611,7 +610,7 @@ impl Array<Struct> {
     /// Construct a `StructArray` from named fields.
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
         let data = StructData::from_fields(items)?;
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
@@ -626,7 +625,7 @@ impl Array<Struct> {
         validity: Validity,
     ) -> VortexResult<Self> {
         let data = StructData::try_from_iter_with_validity(iter, validity)?;
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
@@ -636,7 +635,7 @@ impl Array<Struct> {
         iter: T,
     ) -> VortexResult<Self> {
         let data = StructData::try_from_iter(iter)?;
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
@@ -644,7 +643,7 @@ impl Array<Struct> {
     /// Create a fieldless `StructArray` with the given length.
     pub fn new_fieldless_with_len(len: usize) -> Self {
         let data = StructData::new_fieldless_with_len(len);
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
             .vortex_expect("StructData is always valid")
@@ -654,7 +653,7 @@ impl Array<Struct> {
 impl StructData {
     pub fn with_column(&self, name: impl Into<FieldName>, array: ArrayRef) -> VortexResult<Self> {
         let name = name.into();
-        let struct_dtype = self.struct_fields().clone();
+        let struct_dtype = self.struct_fields();
 
         let names = struct_dtype.names().iter().cloned().chain(once(name));
         let types = struct_dtype.fields().chain(once(array.dtype().clone()));

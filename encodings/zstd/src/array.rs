@@ -307,7 +307,6 @@ impl Zstd {
     pub fn decompress(array: &ZstdArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         array.data().decompress(array.dtype(), ctx)
     }
-
 }
 
 /// The validity bitmap indicating which elements are non-null.

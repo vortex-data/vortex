@@ -11,9 +11,9 @@ use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
 use vortex::encodings::decimal_byte_parts::DecimalBytePartsDataParts;
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::error::VortexExpect;
 
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;

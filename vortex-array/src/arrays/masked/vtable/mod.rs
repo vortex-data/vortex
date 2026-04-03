@@ -102,7 +102,10 @@ impl VTable for Masked {
         _session: &VortexSession,
     ) -> VortexResult<MaskedData> {
         if !metadata.is_empty() {
-            vortex_bail!("MaskedArray expects empty metadata, got {} bytes", metadata.len());
+            vortex_bail!(
+                "MaskedArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
         }
         if !buffers.is_empty() {
             vortex_bail!("Expected 0 buffer, got {}", buffers.len());

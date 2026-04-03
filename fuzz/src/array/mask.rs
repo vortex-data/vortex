@@ -117,7 +117,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             let new_validity = mask_validity(&array.validity(), mask);
             StructArray::try_new_with_dtype(
                 array.unmasked_fields(),
-                array.struct_fields().clone(),
+                array.struct_fields(),
                 array.len(),
                 new_validity,
             )

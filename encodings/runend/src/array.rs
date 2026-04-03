@@ -319,9 +319,7 @@ impl RunEndData {
         if offset != 0 && length != 0 {
             let first_run_end = usize::try_from(&ends.scalar_at(0)?)?;
             if first_run_end < offset {
-                vortex_bail!(
-                    "First run end {first_run_end} must be >= offset {offset}"
-                );
+                vortex_bail!("First run end {first_run_end} must be >= offset {offset}");
             }
         }
 

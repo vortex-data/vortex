@@ -26,8 +26,8 @@ use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::fastlanes::BitPackedData;
+use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
-use vortex::encodings::fastlanes::FoRData;
 use vortex::error::VortexExpect;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
@@ -57,17 +57,10 @@ where
 
     if bp && T::PTYPE != PType::U8 {
         let child = BitPackedData::encode(&primitive_array, 8).vortex_expect("failed to bitpack");
-        FoRArray::try_from_data(
-            FoRData::try_new(child.into_array(), reference.into())
-                .vortex_expect("failed to create FoR array"),
-        )
-        .vortex_expect("FoRData is always valid")
+        FoR::try_new(child.into_array(), reference.into())
+            .vortex_expect("failed to create FoR array")
     } else {
-        FoRArray::try_from_data(
-            FoRData::try_new(primitive_array, reference.into())
-                .vortex_expect("failed to create FoR array"),
-        )
-        .vortex_expect("FoRData is always valid")
+        FoR::try_new(primitive_array, reference.into()).vortex_expect("failed to create FoR array")
     }
 }
 

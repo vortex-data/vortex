@@ -48,8 +48,7 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
         }
 
         let base = seq.base();
-        let last = SequenceData::try_last(base, seq.multiplier(), seq.ptype(), seq.len())
-            .expect("validated array");
+        let last = SequenceData::try_last(base, seq.multiplier(), seq.ptype(), seq.len())?;
 
         // Determine min and max based on multiplier direction.
         // For unsigned types, multiplier is always >= 0.
