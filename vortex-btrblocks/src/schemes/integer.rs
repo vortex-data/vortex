@@ -335,6 +335,7 @@ impl Scheme for BitPackingScheme {
             return Ok(stats.source().clone().into_array());
         }
         let packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
+        let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
         let len = packed.len();
         let nullability = packed.dtype().nullability();
@@ -353,6 +354,7 @@ impl Scheme for BitPackingScheme {
             parts.len,
             parts.offset,
         )?
+        .with_stats_set(packed_stats)
         .into_array())
     }
 }
@@ -869,6 +871,9 @@ mod scheme_selection_tests {
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::expr::stats::StatsProviderExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
@@ -907,6 +912,18 @@ mod scheme_selection_tests {
         let btr = BtrBlocksCompressor::default();
         let compressed = btr.compress(&array.into_array())?;
         assert!(compressed.is::<BitPacked>());
+        assert_eq!(
+            compressed.statistics().get_as::<u64>(Stat::NullCount),
+            Some(Precision::exact(0u64))
+        );
+        assert_eq!(
+            compressed.statistics().get_as::<u32>(Stat::Min),
+            Some(Precision::exact(0u32))
+        );
+        assert_eq!(
+            compressed.statistics().get_as::<u32>(Stat::Max),
+            Some(Precision::exact(15u32))
+        );
         Ok(())
     }
 
