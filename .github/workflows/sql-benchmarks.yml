@@ -281,8 +281,8 @@ jobs:
             | jq -r '.workflow_runs[].head_sha' \
           )
 
-          # Download file sizes baseline
-          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/file-sizes.json.gz file-sizes.json.gz --no-sign-request || true
+          # Download file sizes baseline (per-benchmark file)
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/file-sizes-${{ matrix.id }}.json.gz file-sizes.json.gz --no-sign-request || true
 
           # Generate comparison report
           echo '# File Sizes: ${{ matrix.name }}' > sizes-comment.md
@@ -334,7 +334,7 @@ jobs:
             --benchmark ${{ matrix.subcommand }} \
             --commit ${{ github.sha }} \
             -o sizes.json
-          bash scripts/cat-s3.sh vortex-ci-benchmark-results file-sizes.json.gz sizes.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results file-sizes-${{ matrix.id }}.json.gz sizes.json
 
       - name: Alert incident.io
         if: failure() && inputs.mode == 'develop'
