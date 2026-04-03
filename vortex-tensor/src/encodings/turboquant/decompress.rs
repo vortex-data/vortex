@@ -15,7 +15,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
-use crate::encodings::turboquant::rotation::RotationMatrix;
+use crate::encodings::turboquant::array::rotation::RotationMatrix;
 
 /// Decompress a `TurboQuantArray` into a [`Vector`] extension array.
 ///

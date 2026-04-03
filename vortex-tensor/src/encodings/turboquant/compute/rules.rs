@@ -6,7 +6,7 @@ use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::optimizer::rules::ParentRuleSet;
 
-use crate::encodings::turboquant::array::TurboQuant;
+use crate::encodings::turboquant::TurboQuant;
 
 pub(crate) static RULES: ParentRuleSet<TurboQuant> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&SliceReduceAdaptor(TurboQuant))]);

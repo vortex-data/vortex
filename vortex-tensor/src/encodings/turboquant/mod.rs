@@ -90,26 +90,6 @@
 //! assert!(encoded.nbytes() < 51200);
 //! ```
 
-pub use array::TurboQuant;
-pub use array::TurboQuantData;
-pub use compress::TurboQuantConfig;
-pub use compress::turboquant_encode;
-
-mod array;
-pub(crate) mod centroids;
-mod compress;
-pub(crate) mod compute;
-pub(crate) mod decompress;
-pub(crate) mod rotation;
-pub mod scheme;
-mod vtable;
-
-/// Extension ID for the `Vector` type from `vortex-tensor`.
-pub const VECTOR_EXT_ID: &str = "vortex.tensor.vector";
-
-/// Extension ID for the `FixedShapeTensor` type from `vortex-tensor`.
-pub const FIXED_SHAPE_TENSOR_EXT_ID: &str = "vortex.tensor.fixed_shape_tensor";
-
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
@@ -117,6 +97,22 @@ use vortex_session::VortexSession;
 pub fn initialize(session: &mut VortexSession) {
     session.arrays().register(TurboQuant);
 }
+
+mod array;
+pub use array::data::TurboQuantData;
+pub use array::metadata::TurboQuantMetadata;
+pub use array::scheme::TurboQuantScheme;
+
+pub(crate) mod compute;
+
+mod vtable;
+pub use vtable::TurboQuant;
+
+mod compress;
+pub use compress::TurboQuantConfig;
+pub use compress::turboquant_encode;
+
+mod decompress;
 
 #[cfg(test)]
 mod tests;

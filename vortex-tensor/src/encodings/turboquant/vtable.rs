@@ -19,26 +19,61 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
+use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::encodings::turboquant::array::Slot;
-use crate::encodings::turboquant::array::TurboQuant;
-use crate::encodings::turboquant::array::TurboQuantData;
-use crate::encodings::turboquant::array::TurboQuantMetadata;
+use crate::encodings::turboquant::TurboQuantData;
+use crate::encodings::turboquant::TurboQuantMetadata;
+use crate::encodings::turboquant::array::slots::Slot;
 use crate::encodings::turboquant::compute::rules::PARENT_KERNELS;
 use crate::encodings::turboquant::compute::rules::RULES;
 use crate::encodings::turboquant::decompress::execute_decompress;
 use crate::utils::extension_element_ptype;
 use crate::utils::extension_list_size;
+use crate::vector::Vector;
+
+/// Encoding marker type for TurboQuant.
+#[derive(Clone, Debug)]
+pub struct TurboQuant;
+
+impl TurboQuant {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.turboquant");
+
+    /// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
+    /// dimension >= 3.
+    ///
+    /// Returns the validated [`ExtDTypeRef`] on success, which can be used to extract the
+    /// element ptype and list size.
+    pub fn validate_dtype(dtype: &DType) -> VortexResult<&ExtDTypeRef> {
+        let ext = dtype
+            .as_extension_opt()
+            .filter(|e| e.is::<Vector>())
+            .ok_or_else(|| {
+                vortex_err!("TurboQuant dtype must be a Vector extension type, got {dtype}")
+            })?;
+
+        let dimension = extension_list_size(ext)?;
+        vortex_ensure!(
+            dimension >= 3,
+            "TurboQuant requires dimension >= 3, got {dimension}"
+        );
+
+        Ok(ext)
+    }
+}
+
+vtable!(TurboQuant, TurboQuant, TurboQuantData);
 
 impl VTable for TurboQuant {
     type ArrayData = TurboQuantData;
@@ -173,10 +208,9 @@ impl VTable for TurboQuant {
     ) -> VortexResult<TurboQuantData> {
         let bit_width = metadata.bit_width;
 
-        // Derive dimension and element ptype from the Vector extension dtype.
-        let ext = dtype.as_extension();
+        // Validate and derive dimension and element ptype from the Vector extension dtype.
+        let ext = TurboQuant::validate_dtype(dtype)?;
         let dimension = extension_list_size(ext)?;
-
         let element_ptype = extension_element_ptype(ext)?;
         let element_dtype = DType::Primitive(element_ptype, Nullability::NonNullable);
 

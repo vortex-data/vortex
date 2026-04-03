@@ -10,7 +10,7 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::encodings::turboquant::array::TurboQuant;
+use crate::encodings::turboquant::TurboQuant;
 
 impl OperationsVTable<TurboQuant> for TurboQuant {
     fn scalar_at(

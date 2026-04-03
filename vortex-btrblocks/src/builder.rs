@@ -150,8 +150,8 @@ impl BtrBlocksCompressorBuilder {
     /// [`Vector`]: vortex_tensor::vector::Vector
     #[cfg(feature = "unstable_encodings")]
     pub fn with_turboquant(self) -> Self {
-        use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;
-        self.with_new_scheme(&TURBOQUANT_SCHEME)
+        use vortex_tensor::encodings::turboquant::TurboQuantScheme;
+        self.with_new_scheme(&TurboQuantScheme)
     }
 
     /// Excludes schemes without CUDA kernel support and adds Zstd for string compression.

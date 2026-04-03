@@ -5,41 +5,36 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::scheme::Scheme;
 use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 
-use super::FIXED_SHAPE_TENSOR_EXT_ID;
-use super::TurboQuantConfig;
-use super::VECTOR_EXT_ID;
-use super::turboquant_encode;
+use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::TurboQuantConfig;
+use crate::encodings::turboquant::turboquant_encode;
+use crate::utils::extension_element_ptype;
+use crate::utils::extension_list_size;
 
-/// TurboQuant compression scheme for tensor extension types.
+/// TurboQuant compression scheme for [`Vector`] extension types.
 ///
-/// Applies lossy vector quantization to `Vector` and `FixedShapeTensor` extension
-/// arrays using the TurboQuant algorithm with MSE-optimal encoding.
+/// Applies lossy vector quantization to [`Vector`] extension arrays using the TurboQuant
+/// algorithm with MSE-optimal encoding.
 ///
 /// Register this scheme with the compressor builder via `with_scheme`:
 /// ```ignore
 /// use vortex_btrblocks::BtrBlocksCompressorBuilder;
-/// use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;
+/// use vortex_tensor::encodings::turboquant::TurboQuantScheme;
 ///
 /// let compressor = BtrBlocksCompressorBuilder::default()
-///     .with_scheme(&TURBOQUANT_SCHEME)
+///     .with_scheme(&TurboQuantScheme)
 ///     .build();
 /// ```
+///
+/// [`Vector`]: crate::vector::Vector
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct TurboQuantScheme;
-
-/// Static instance for registration with `BtrBlocksCompressorBuilder::with_scheme`.
-pub static TURBOQUANT_SCHEME: TurboQuantScheme = TurboQuantScheme;
 
 impl Scheme for TurboQuantScheme {
     fn scheme_name(&self) -> &'static str {
@@ -51,7 +46,7 @@ impl Scheme for TurboQuantScheme {
             return false;
         };
 
-        get_tensor_element_ptype_and_length(ext.dtype()).is_ok()
+        TurboQuant::validate_dtype(ext.dtype()).is_ok()
     }
 
     fn expected_compression_ratio(
@@ -62,10 +57,14 @@ impl Scheme for TurboQuantScheme {
     ) -> VortexResult<f64> {
         let dtype = data.array().dtype();
         let len = data.array().len();
-        let (element_ptype, dimensions) = get_tensor_element_ptype_and_length(dtype)?;
+
+        let ext = TurboQuant::validate_dtype(dtype)?;
+        let element_ptype = extension_element_ptype(ext)?;
+        let dimension = extension_list_size(ext)?;
+
         Ok(estimate_compression_ratio(
             element_ptype.bit_width(),
-            dimensions,
+            dimension,
             len,
         ))
     }
@@ -76,8 +75,8 @@ impl Scheme for TurboQuantScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let array = data.array().clone();
-        let ext_array = array.to_canonical()?.into_extension();
+        // TODO(connor): Fix this once we ensure that the data array is always canonical.
+        let ext_array = data.array().to_canonical()?.into_extension();
 
         let config = TurboQuantConfig::default();
         turboquant_encode(&ext_array, &config, &mut compressor.execution_ctx())
@@ -102,40 +101,6 @@ fn estimate_compression_ratio(bits_per_element: usize, dimensions: u32, num_vect
     let compressed_size_bits = compressed_bits_per_vector * num_vectors + overhead_bits;
     let uncompressed_size_bits = bits_per_element * num_vectors * dimensions as usize;
     uncompressed_size_bits as f64 / compressed_size_bits as f64
-}
-
-fn get_tensor_element_ptype_and_length(dtype: &DType) -> VortexResult<(PType, u32)> {
-    let ext_id = dtype.as_extension().id();
-    let is_tensor = dtype.is_extension()
-        && (ext_id.as_ref() == VECTOR_EXT_ID || ext_id.as_ref() == FIXED_SHAPE_TENSOR_EXT_ID);
-    vortex_ensure!(is_tensor, "expected tensor extension dtype, got {}", dtype);
-
-    let storage_dtype = dtype.as_extension().storage_dtype();
-    let (element_dtype, fsl_len) = match storage_dtype {
-        DType::FixedSizeList(element_dtype, list_size, _) => (element_dtype, list_size),
-        _ => vortex_bail!(
-            "expected FixedSizeList storage dtype, got {}",
-            storage_dtype
-        ),
-    };
-
-    // TurboQuant requires dimension >= 3: the marginal coordinate distribution
-    // (1 - x^2)^((d-3)/2) has a singularity at d=2 (arcsine distribution) that
-    // causes NaN in the Max-Lloyd centroid computation.
-    vortex_ensure!(
-        *fsl_len >= 3,
-        "TurboQuant requires dimension >= 3, got {}",
-        fsl_len
-    );
-
-    if let &DType::Primitive(ptype, Nullability::NonNullable) = element_dtype.as_ref() {
-        Ok((ptype, *fsl_len))
-    } else {
-        vortex_bail!(
-            "expected non-nullable primitive element type, got {}",
-            element_dtype
-        );
-    }
 }
 
 #[cfg(test)]

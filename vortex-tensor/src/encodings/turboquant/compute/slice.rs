@@ -9,8 +9,8 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
-use crate::encodings::turboquant::array::TurboQuant;
-use crate::encodings::turboquant::array::TurboQuantData;
+use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::TurboQuantData;
 
 impl SliceReduce for TurboQuant {
     fn slice(

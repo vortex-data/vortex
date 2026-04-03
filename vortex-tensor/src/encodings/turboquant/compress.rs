@@ -20,11 +20,11 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 
-use crate::encodings::turboquant::array::TurboQuantData;
-use crate::encodings::turboquant::centroids::compute_boundaries;
-use crate::encodings::turboquant::centroids::find_nearest_centroid;
-use crate::encodings::turboquant::centroids::get_centroids;
-use crate::encodings::turboquant::rotation::RotationMatrix;
+use crate::encodings::turboquant::TurboQuantData;
+use crate::encodings::turboquant::array::centroids::compute_boundaries;
+use crate::encodings::turboquant::array::centroids::find_nearest_centroid;
+use crate::encodings::turboquant::array::centroids::get_centroids;
+use crate::encodings::turboquant::array::rotation::RotationMatrix;
 use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_norm::L2Norm;
 

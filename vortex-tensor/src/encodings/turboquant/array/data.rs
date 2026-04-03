@@ -1,76 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant array definition: stores quantized coordinate codes, norms,
-//! centroids (codebook), and rotation signs.
-
-use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::stats::ArrayStats;
-use vortex_array::vtable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::encodings::turboquant::array::slots::Slot;
+use crate::encodings::turboquant::vtable::TurboQuant;
 use crate::utils::extension_element_ptype;
 use crate::utils::extension_list_size;
-use crate::vector::Vector;
-
-/// Encoding marker type for TurboQuant.
-#[derive(Clone, Debug)]
-pub struct TurboQuant;
-
-impl TurboQuant {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.turboquant");
-}
-
-vtable!(TurboQuant, TurboQuant, TurboQuantData);
-
-/// Serialized metadata for TurboQuant encoding: a single byte holding the `bit_width` (0-8).
-///
-/// All other fields (dimension, element type) are derived from the dtype and children.
-/// A `bit_width` of 0 indicates a degenerate empty array.
-#[derive(Clone, Debug)]
-pub struct TurboQuantMetadata {
-    /// MSE bits per coordinate (0 for degenerate empty arrays, 1-8 otherwise).
-    pub bit_width: u8,
-}
-
-/// Slot positions for TurboQuantArray children.
-#[repr(usize)]
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum Slot {
-    Codes = 0,
-    Norms = 1,
-    Centroids = 2,
-    RotationSigns = 3,
-}
-
-impl Slot {
-    pub(crate) const COUNT: usize = 4;
-
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::Codes => "codes",
-            Self::Norms => "norms",
-            Self::Centroids => "centroids",
-            Self::RotationSigns => "rotation_signs",
-        }
-    }
-
-    pub(crate) fn from_index(idx: usize) -> Self {
-        match idx {
-            0 => Self::Codes,
-            1 => Self::Norms,
-            2 => Self::Centroids,
-            3 => Self::RotationSigns,
-            _ => vortex_error::vortex_panic!("invalid slot index {idx}"),
-        }
-    }
-}
 
 /// TurboQuant array data.
 ///
@@ -207,22 +150,8 @@ impl TurboQuantData {
         centroids: &ArrayRef,
         rotation_signs: &ArrayRef,
     ) -> VortexResult<()> {
-        // Dtype must be a Vector extension type.
-        let ext = dtype
-            .as_extension_opt()
-            .filter(|e| e.is::<Vector>())
-            .ok_or_else(|| {
-                vortex_error::vortex_err!(
-                    "TurboQuant dtype must be a Vector extension type, got {dtype}"
-                )
-            })?;
-
-        // Dimension is derived from the storage dtype's list size and must be >= 3.
+        let ext = TurboQuant::validate_dtype(dtype)?;
         let dimension = extension_list_size(ext)?;
-        vortex_ensure!(
-            dimension >= 3,
-            "TurboQuant requires dimension >= 3, got {dimension}"
-        );
 
         let num_rows = norms.len();
 

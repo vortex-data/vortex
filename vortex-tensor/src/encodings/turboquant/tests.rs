@@ -21,7 +21,7 @@ use vortex_session::VortexSession;
 
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantConfig;
-use crate::encodings::turboquant::rotation::RotationMatrix;
+use crate::encodings::turboquant::array::rotation::RotationMatrix;
 use crate::encodings::turboquant::turboquant_encode;
 use crate::vector::Vector;
 
@@ -365,7 +365,7 @@ fn stored_centroids_match_computed() -> VortexResult<()> {
     let stored = stored_centroids_prim.as_slice::<f32>();
 
     let padded_dim = encoded.padded_dim();
-    let computed = crate::encodings::turboquant::centroids::get_centroids(padded_dim, 3)?;
+    let computed = crate::encodings::turboquant::array::centroids::get_centroids(padded_dim, 3)?;
 
     assert_eq!(stored.len(), computed.len());
     for i in 0..stored.len() {
@@ -474,7 +474,7 @@ fn serde_roundtrip() -> VortexResult<()> {
     let original_elements = original_fsl.elements().to_canonical()?.into_primitive();
 
     // Rebuild from children (simulating deserialization).
-    let rebuilt = crate::encodings::turboquant::array::TurboQuantData::try_new(
+    let rebuilt = crate::encodings::turboquant::TurboQuantData::try_new(
         encoded.dtype().clone(),
         children[0].clone(),
         children[1].clone(),
