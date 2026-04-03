@@ -3934,8 +3934,6 @@ pub fn vortex_array::arrays::struct_::StructData::new_fieldless_with_len(len: us
 
 pub unsafe fn vortex_array::arrays::struct_::StructData::new_unchecked(fields: impl core::convert::Into<alloc::sync::Arc<[vortex_array::ArrayRef]>>, dtype: vortex_array::dtype::StructFields, length: usize, validity: vortex_array::validity::Validity) -> Self
 
-pub fn vortex_array::arrays::struct_::StructData::project(&self, projection: &[vortex_array::dtype::FieldName]) -> vortex_error::VortexResult<Self>
-
 pub fn vortex_array::arrays::struct_::StructData::remove_column(&mut self, name: impl core::convert::Into<vortex_array::dtype::FieldName>) -> core::option::Option<vortex_array::ArrayRef>
 
 pub fn vortex_array::arrays::struct_::StructData::struct_fields(&self) -> vortex_array::dtype::StructFields
@@ -21653,6 +21651,8 @@ pub fn vortex_array::Array<vortex_array::arrays::Struct>::new(names: vortex_arra
 pub fn vortex_array::Array<vortex_array::arrays::Struct>::new_fieldless_with_len(len: usize) -> Self
 
 pub unsafe fn vortex_array::Array<vortex_array::arrays::Struct>::new_unchecked(fields: impl core::convert::Into<alloc::sync::Arc<[vortex_array::ArrayRef]>>, dtype: vortex_array::dtype::StructFields, length: usize, validity: vortex_array::validity::Validity) -> Self
+
+pub fn vortex_array::Array<vortex_array::arrays::Struct>::project(&self, projection: &[vortex_array::dtype::FieldName]) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::Array<vortex_array::arrays::Struct>::try_from_iter<N: core::convert::AsRef<str>, A: vortex_array::IntoArray, T: core::iter::traits::collect::IntoIterator<Item = (N, A)>>(iter: T) -> vortex_error::VortexResult<Self>
 

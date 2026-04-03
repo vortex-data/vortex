@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Formatter;
+
 use kernel::PARENT_KERNELS;
 use prost::Message;
 use vortex_error::VortexExpect;
@@ -92,6 +94,10 @@ impl VTable for Bool {
             }
             .encode_to_vec(),
         ))
+    }
+
+    fn fmt_metadata(array: ArrayView<'_, Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BoolMetadata {{ offset: {} }}", array.offset)
     }
 
     fn validate(&self, data: &BoolData, dtype: &DType, len: usize) -> VortexResult<()> {
