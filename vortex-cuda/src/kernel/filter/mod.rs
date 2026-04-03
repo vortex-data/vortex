@@ -161,7 +161,7 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
     ));
 
     // Wrap the device buffer of outputs back up into a BufferHandle.
-    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
+    Ok(BufferHandle::new(Arc::new(CudaDeviceBuffer::new(
         d_output,
     ))))
 }

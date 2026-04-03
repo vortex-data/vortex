@@ -27,7 +27,7 @@ use cudarc::driver::PushKernelArg;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::buffer::DeviceBufferExt;
+use vortex::array::buffer::BufferTraitExt;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::buffer::Alignment;
@@ -411,7 +411,7 @@ impl MaterializedPlan {
         })?;
 
         Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_device(output_buf.slice_typed::<T>(0..len)),
+            BufferHandle::new(output_buf.slice_typed::<T>(0..len)),
             output_ptype,
             Validity::NonNullable,
         )))

@@ -150,8 +150,8 @@ pub(crate) async fn copy_varbinview_to_varbin(
 
     // now, offsets should contain the final offsets, and data_buf should contain all the
     // string data.
-    let bytes_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(data_buf)));
-    let offsets_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offsets)));
+    let bytes_handle = BufferHandle::new(Arc::new(CudaDeviceBuffer::new(data_buf)));
+    let offsets_handle = BufferHandle::new(Arc::new(CudaDeviceBuffer::new(offsets)));
 
     Ok(BinaryParts {
         bytes: bytes_handle,

@@ -114,7 +114,7 @@ impl VortexReadAt for PooledFileReadAt {
                 .map_err(VortexError::from)?;
 
             let cuda_buf = target.transfer_to_device(&stream)?;
-            Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
+            Ok(BufferHandle::new(Arc::new(cuda_buf)))
         }
         .boxed()
     }
@@ -272,7 +272,7 @@ impl VortexReadAt for PooledObjectStoreReadAt {
             }
 
             let cuda_buf = target.transfer_to_device(&stream)?;
-            Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
+            Ok(BufferHandle::new(Arc::new(cuda_buf)))
         }
         .boxed()
     }
@@ -342,7 +342,7 @@ impl VortexReadAt for PooledByteBufferReadAt {
             target.as_mut_slice().copy_from_slice(src);
 
             let cuda_buf = target.transfer_to_device(&stream)?;
-            Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
+            Ok(BufferHandle::new(Arc::new(cuda_buf)))
         }
         .boxed()
     }

@@ -355,7 +355,7 @@ mod tests {
     use std::sync::Arc;
 
     use cudarc::driver::CudaContext;
-    use vortex::array::buffer::DeviceBuffer;
+    use vortex::array::buffer::BufferTrait;
     use vortex::buffer::Alignment;
     use vortex::error::VortexResult;
 

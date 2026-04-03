@@ -13,7 +13,7 @@ use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::buffer::DeviceBufferExt;
+use vortex::array::buffer::BufferTraitExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPacked;
@@ -155,7 +155,7 @@ where
     ctx.synchronize_stream()?;
 
     let output_handle =
-        BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
+        BufferHandle::new(output_buf.slice_typed::<A>(offset..(offset + len)));
 
     // Build result with newly allocated buffer
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(

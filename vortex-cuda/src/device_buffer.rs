@@ -13,7 +13,7 @@ use cudarc::driver::DeviceRepr;
 use cudarc::driver::sys;
 use futures::future::BoxFuture;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::buffer::DeviceBuffer;
+use vortex::array::buffer::BufferTrait;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBuffer;
 use vortex::buffer::ByteBufferMut;
@@ -24,7 +24,7 @@ use vortex::error::vortex_panic;
 
 use crate::stream::await_stream_callback;
 
-/// A [`DeviceBuffer`] wrapping a CUDA GPU allocation.
+/// A [`BufferTrait`] wrapping a CUDA GPU allocation.
 ///
 /// Like the host `BufferHandle` variant, all slicing/referencing works in terms of byte units.
 #[derive(Clone)]
@@ -199,7 +199,7 @@ impl PartialEq for CudaDeviceBuffer {
     }
 }
 
-impl DeviceBuffer for CudaDeviceBuffer {
+impl BufferTrait for CudaDeviceBuffer {
     /// Returns the number of bytes in the device buffer.
     fn len(&self) -> usize {
         self.len
@@ -290,7 +290,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
     /// Slices the CUDA device buffer to a subrange.
     ///
     /// This is a byte range, not elements range, due to the DeviceBuffer interface.
-    fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
+    fn slice(&self, range: Range<usize>) -> Arc<dyn BufferTrait> {
         assert!(
             range.end <= self.len,
             "Slice range end {} exceeds allocation size {}",
@@ -326,7 +326,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
         self
     }
 
-    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
+    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn BufferTrait>> {
         let effective_ptr = self.device_ptr + self.offset as u64;
         if effective_ptr.is_multiple_of(*alignment as u64) {
             Ok(Arc::new(CudaDeviceBuffer {
@@ -341,5 +341,13 @@ impl DeviceBuffer for CudaDeviceBuffer {
         } else {
             vortex_panic!("some how we alloc a cuda buffer with alignment less than 256")
         }
+    }
+
+    fn is_on_device(&self) -> bool {
+        true
+    }
+
+    fn is_on_host(&self) -> bool {
+        false
     }
 }

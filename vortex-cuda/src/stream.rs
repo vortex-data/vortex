@@ -86,7 +86,7 @@ impl VortexCudaStream {
             // Keep source memory alive until copy completes.
             let _keep_alive = data;
 
-            Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
+            Ok(BufferHandle::new(Arc::new(cuda_buf)))
         }))
     }
 
@@ -109,7 +109,7 @@ impl VortexCudaStream {
             .map_err(|e| vortex_err!("Failed to schedule H2D copy: {}", e))?;
 
         let cuda_buf = CudaDeviceBuffer::new(cuda_slice);
-        Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
+        Ok(BufferHandle::new(Arc::new(cuda_buf)))
     }
 }
 

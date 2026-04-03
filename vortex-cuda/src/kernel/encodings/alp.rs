@@ -106,7 +106,7 @@ where
     // TODO(aduffy): scatter patch values validity. There are several places we'll need to start
     //  handling validity.
 
-    let output_handle = BufferHandle::new_device(Arc::new(output_buf));
+    let output_handle = BufferHandle::new(Arc::new(output_buf));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,
         A::PTYPE,

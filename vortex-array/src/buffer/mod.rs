@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod host;
+
 use std::any::Any;
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -32,18 +34,17 @@ use crate::Precision;
 /// A device allocation can be copied to the host, yielding a new [`ByteBuffer`] containing the
 /// copied data. Copying can fail at runtime, error recovery is system-dependent.
 #[derive(Debug, Clone)]
-pub struct BufferHandle(Inner);
+pub struct BufferHandle(Arc<dyn BufferTrait>);
 
-#[derive(Debug, Clone)]
-enum Inner {
-    /// On the host/cpu.
-    Host(ByteBuffer),
-    /// On the device/gpu.
-    Device(Arc<dyn DeviceBuffer>),
-}
-
-/// A buffer that is stored on the GPU.
-pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
+/// Core type for buffers that are held by arrays.
+///
+/// All array encodings in Vortex can be reasoned about logically, and many operations can be pushed down
+/// to them purely at the metadata layer. For instance, we know that slicing a primitive array is going to
+/// slice the underlying buffer at element boundaries.
+///
+/// Vortex encodings can reference buffers across different memory systems, such as a host (CPU), an external
+/// device such as a GPU, or even on-disk via a memory mapped file.
+pub trait BufferTrait: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Returns a reference as `Any` to enable downcasting.
     fn as_any(&self) -> &dyn Any;
 
@@ -52,6 +53,10 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
 
     /// Returns the alignment of the buffer.
     fn alignment(&self) -> Alignment;
+
+    fn is_on_device(&self) -> bool;
+
+    fn is_on_host(&self) -> bool;
 
     /// Returns true if the buffer is empty.
     fn is_empty(&self) -> bool {
@@ -85,82 +90,77 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// slice indices.
     ///
     /// Note that slice indices are in byte units.
-    fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
+    fn slice(&self, range: Range<usize>) -> Arc<dyn BufferTrait>;
 
     /// Return a buffer with the given alignment. Where possible, this will be zero-copy.
     ///
     /// # Errors
     ///
     /// Returns an error if the buffer cannot be aligned (e.g., allocation or copy failure).
-    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>>;
+    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn BufferTrait>>;
 }
 
-pub trait DeviceBufferExt: DeviceBuffer {
+pub trait BufferTraitExt: BufferTrait {
     /// Slice a range of elements `T` out of the device buffer.
-    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
+    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn BufferTrait>;
 }
 
-impl<B: DeviceBuffer> DeviceBufferExt for B {
-    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
+impl<B: BufferTrait> BufferTraitExt for B {
+    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn BufferTrait> {
         let start_bytes = range.start * size_of::<T>();
         let end_bytes = range.end * size_of::<T>();
         self.slice(start_bytes..end_bytes)
     }
 }
 
-impl Hash for dyn DeviceBuffer {
+impl Hash for dyn BufferTrait {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.dyn_hash(state);
     }
 }
 
-impl PartialEq for dyn DeviceBuffer {
+impl PartialEq for dyn BufferTrait {
     fn eq(&self, other: &Self) -> bool {
         self.dyn_eq(other)
     }
 }
-impl Eq for dyn DeviceBuffer {}
+impl Eq for dyn BufferTrait {}
 
 impl BufferHandle {
     /// Create a new handle to a host [`ByteBuffer`].
     pub fn new_host(byte_buffer: ByteBuffer) -> Self {
-        BufferHandle(Inner::Host(byte_buffer))
+        BufferHandle(Arc::new(byte_buffer))
     }
 
-    /// Create a new handle to a memory allocation that exists on an external device.
+    /// Create a new handle to a [buffer][BufferTrait].
     ///
     /// Allocations on external devices are not cheaply accessible from the CPU and most be copied
     /// into new memory when we read them.
-    pub fn new_device(device: Arc<dyn DeviceBuffer>) -> Self {
-        BufferHandle(Inner::Device(device))
+    pub fn new(device: Arc<dyn BufferTrait>) -> Self {
+        BufferHandle(device)
     }
 }
 
 impl BufferHandle {
     /// Returns `true` if this buffer resides on the device (GPU).
     pub fn is_on_device(&self) -> bool {
-        matches!(&self.0, Inner::Device(_))
+        // Verify if this is a device buffer or not.
+        self.0.is_on_device()
     }
 
     /// Returns `true` if this buffer resides on the host (CPU).
     pub fn is_on_host(&self) -> bool {
-        matches!(&self.0, Inner::Host(_))
+        self.0.is_on_host()
     }
 
     /// Gets the size of the buffer, in bytes.
     pub fn len(&self) -> usize {
-        match &self.0 {
-            Inner::Host(bytes) => bytes.len(),
-            Inner::Device(device) => device.len(),
-        }
+        self.0.len()
     }
 
     /// Returns the alignment of the buffer.
     pub fn alignment(&self) -> Alignment {
-        match &self.0 {
-            Inner::Host(bytes) => bytes.alignment(),
-            Inner::Device(device) => device.alignment(),
-        }
+        self.0.alignment()
     }
 
     /// Returns true if the buffer is aligned to the given alignment.
@@ -172,10 +172,7 @@ impl BufferHandle {
     ///
     /// Both host and device buffers will be copied if necessary to satisfy the alignment.
     pub fn ensure_aligned(self, alignment: Alignment) -> VortexResult<Self> {
-        match self.0 {
-            Inner::Host(buffer) => Ok(BufferHandle::new_host(buffer.aligned(alignment))),
-            Inner::Device(device) => Ok(BufferHandle::new_device(device.aligned(alignment)?)),
-        }
+        Ok(BufferHandle(self.0.aligned(alignment)?))
     }
 
     /// Check if the buffer is empty.
@@ -196,10 +193,7 @@ impl BufferHandle {
     /// assert_eq!(handle2.unwrap_host(), buffer![2u8,3,4]);
     /// ```
     pub fn slice(&self, range: Range<usize>) -> Self {
-        match &self.0 {
-            Inner::Host(host) => BufferHandle::new_host(host.slice(range)),
-            Inner::Device(device) => BufferHandle::new_device(device.slice(range)),
-        }
+        BufferHandle(self.0.slice(range))
     }
 
     /// Reinterpret the pointee as a buffer of `T` and slice the provided element range.
@@ -229,6 +223,16 @@ impl BufferHandle {
     ///
     /// This will panic if the handle points to device memory.
     pub fn unwrap_host(self) -> ByteBuffer {
+        // Check if underlying thing is host buffer
+        let host = self
+            .0
+            .as_any()
+            .downcast_ref::<ByteBuffer>()
+            .vortex_expect("unwrap_host called on non-host buffer");
+
+        // Or, we can unwrap the box instead.
+
+        // Unwrap self as a host buffer.
         match self.0 {
             Inner::Host(b) => b,
             Inner::Device(_) => panic!("unwrap_host called for Device allocation"),
@@ -241,7 +245,7 @@ impl BufferHandle {
     /// # Panics
     ///
     /// This will panic if the handle points to host memory.
-    pub fn unwrap_device(self) -> Arc<dyn DeviceBuffer> {
+    pub fn unwrap_device(self) -> Arc<dyn BufferTrait> {
         match self.0 {
             Inner::Device(b) => b,
             Inner::Host(_) => panic!("unwrap_device called for Host allocation"),
@@ -257,7 +261,7 @@ impl BufferHandle {
     }
 
     /// Downcast this handle as a handle to a device buffer, or `None`.
-    pub fn as_device_opt(&self) -> Option<&Arc<dyn DeviceBuffer>> {
+    pub fn as_device_opt(&self) -> Option<&Arc<dyn BufferTrait>> {
         match &self.0 {
             Inner::Host(_) => None,
             Inner::Device(device) => Some(device),
@@ -272,7 +276,7 @@ impl BufferHandle {
 
     /// A version of [`as_device_opt`][Self::as_device_opt] that panics if the allocation is
     /// not a device allocation.
-    pub fn as_device(&self) -> &Arc<dyn DeviceBuffer> {
+    pub fn as_device(&self) -> &Arc<dyn BufferTrait> {
         self.as_device_opt().vortex_expect("expected device buffer")
     }
 

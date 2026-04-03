@@ -185,7 +185,7 @@ mod tests {
             .unwrap();
 
         let gpu_result = PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_device(Arc::new(patched_buf)),
+            BufferHandle::new(Arc::new(patched_buf)),
             Values::PTYPE,
             Validity::NonNullable,
         )

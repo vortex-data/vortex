@@ -129,7 +129,7 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     })?;
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-        BufferHandle::new_device(Arc::new(output_device)),
+        BufferHandle::new(Arc::new(output_device)),
         value_ptype,
         output_validity,
     )))
@@ -218,7 +218,7 @@ async fn execute_dict_decimal_typed<
     })?;
 
     Ok(Canonical::Decimal(DecimalArray::new_handle(
-        BufferHandle::new_device(Arc::new(output_device)),
+        BufferHandle::new(Arc::new(output_device)),
         V::DECIMAL_TYPE,
         output_dtype.into_decimal_opt().vortex_expect("is decimal"),
         output_validity,
@@ -292,7 +292,7 @@ async fn execute_dict_varbinview(
     // and inlined views are self-contained within the 16-byte view.
     Ok(Canonical::VarBinView(unsafe {
         VarBinViewArray::new_handle_unchecked(
-            BufferHandle::new_device(Arc::new(output_device)),
+            BufferHandle::new(Arc::new(output_device)),
             values_data_buffers,
             dtype,
             output_validity,

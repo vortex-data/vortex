@@ -13,7 +13,7 @@ use cudarc::driver::DevicePtrMut;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::buffer::DeviceBuffer;
+use vortex::array::buffer::BufferTrait;
 use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::encodings::zstd::ZstdBuffers;
@@ -155,7 +155,7 @@ async fn decode_zstd_buffers(
 
     validate_decompress_results(&plan, device_actual_sizes, device_statuses).await?;
 
-    let output_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
+    let output_handle = BufferHandle::new(Arc::new(CudaDeviceBuffer::new(device_output)));
     let decompressed_buffers = plan.split_output_handle(&output_handle)?;
 
     let inner_array = array.build_inner(&decompressed_buffers, ctx.session())?;

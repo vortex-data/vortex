@@ -152,7 +152,7 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     };
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-        BufferHandle::new_device(Arc::new(output_device)),
+        BufferHandle::new(Arc::new(output_device)),
         value_ptype,
         output_validity,
     )))

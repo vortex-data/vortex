@@ -122,7 +122,7 @@ where
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
     let device_buffer = CudaDeviceBuffer::new(output_buffer);
-    let buffer_handle = BufferHandle::new_device(Arc::new(device_buffer));
+    let buffer_handle = BufferHandle::new(Arc::new(device_buffer));
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         buffer_handle,
@@ -179,7 +179,7 @@ where
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
     let device_buffer = CudaDeviceBuffer::new(output_buffer);
-    let buffer_handle = BufferHandle::new_device(Arc::new(device_buffer));
+    let buffer_handle = BufferHandle::new(Arc::new(device_buffer));
 
     Ok(Canonical::Decimal(DecimalArray::new_handle(
         buffer_handle,
