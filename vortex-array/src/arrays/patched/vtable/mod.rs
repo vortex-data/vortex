@@ -38,7 +38,7 @@ use crate::arrays::patched::array::NUM_SLOTS;
 use crate::arrays::patched::array::SLOT_NAMES;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
-use crate::arrays::primitive::PrimitiveArrayParts;
+use crate::arrays::primitive::PrimitiveDataParts;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
@@ -266,7 +266,7 @@ impl VTable for Patched {
             .execute::<Canonical>(ctx)?
             .into_primitive();
 
-        let PrimitiveArrayParts {
+        let PrimitiveDataParts {
             buffer,
             ptype,
             validity,

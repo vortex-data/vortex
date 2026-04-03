@@ -13,7 +13,7 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_signed_integer_ptype;
 use vortex::array::validity::Validity;
@@ -147,15 +147,15 @@ where
 {
     let output_len = days.len();
 
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: days_buffer,
         ..
     } = days.into_data().into_parts();
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: seconds_buffer,
         ..
     } = seconds.into_data().into_parts();
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: subseconds_buffer,
         ..
     } = subseconds.into_data().into_parts();

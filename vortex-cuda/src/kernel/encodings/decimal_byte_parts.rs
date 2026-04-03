@@ -8,11 +8,12 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
-use vortex::encodings::decimal_byte_parts::DecimalBytePartsArrayParts;
+use vortex::encodings::decimal_byte_parts::DecimalBytePartsDataParts;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::VortexExpect;
 
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
@@ -34,9 +35,12 @@ impl CudaExecute for DecimalBytePartsExecutor {
             vortex_bail!("cannot downcast to DecimalBytePartsArray")
         };
 
-        let decimal_dtype = *array.decimal_dtype();
-        let DecimalBytePartsArrayParts { msp, .. } = array.into_data().into_parts();
-        let PrimitiveArrayParts {
+        let decimal_dtype = *array
+            .dtype()
+            .as_decimal_opt()
+            .vortex_expect("DecimalBytePartsArray dtype must be decimal");
+        let DecimalBytePartsDataParts { msp, .. } = array.into_data().into_parts();
+        let PrimitiveDataParts {
             buffer,
             ptype,
             validity,

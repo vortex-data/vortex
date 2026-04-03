@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt;
-use std::fmt::Debug;
-
 use crate::ArrayRef;
 use crate::display::extractor::IndentedFormatter;
 use crate::display::extractor::TreeContext;
@@ -21,12 +19,7 @@ impl TreeExtractor for MetadataExtractor {
     ) -> fmt::Result {
         let (indent, f) = f.parts();
         write!(f, "{indent}metadata: ")?;
-        match array.metadata() {
-            Ok(Some(metadata)) if metadata.is_empty() => write!(f, "EmptyMetadata")?,
-            Ok(Some(metadata)) => Debug::fmt(&metadata, f)?,
-            Ok(None) => write!(f, "<unsupported>")?,
-            Err(err) => write!(f, "<serde error: {err}>")?,
-        }
+        array.metadata_fmt(f)?;
         writeln!(f)
     }
 }

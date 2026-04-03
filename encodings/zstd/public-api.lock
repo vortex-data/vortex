@@ -14,8 +14,6 @@ pub fn vortex_zstd::Zstd::from_var_bin_view(vbv: &vortex_array::arrays::varbinvi
 
 pub fn vortex_zstd::Zstd::from_var_bin_view_without_dict(vbv: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
 
-pub fn vortex_zstd::Zstd::into_parts(array: vortex_zstd::ZstdArray) -> vortex_zstd::ZstdArrayParts
-
 pub fn vortex_zstd::Zstd::try_new(dtype: vortex_array::dtype::DType, data: vortex_zstd::ZstdData) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
 
 impl core::clone::Clone for vortex_zstd::Zstd
@@ -74,28 +72,6 @@ impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_zstd::Zst
 
 pub fn vortex_zstd::Zstd::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub struct vortex_zstd::ZstdArrayParts
-
-pub vortex_zstd::ZstdArrayParts::dictionary: core::option::Option<vortex_buffer::ByteBuffer>
-
-pub vortex_zstd::ZstdArrayParts::dtype: vortex_array::dtype::DType
-
-pub vortex_zstd::ZstdArrayParts::frames: alloc::vec::Vec<vortex_buffer::ByteBuffer>
-
-pub vortex_zstd::ZstdArrayParts::metadata: vortex_zstd::ZstdMetadata
-
-pub vortex_zstd::ZstdArrayParts::n_rows: usize
-
-pub vortex_zstd::ZstdArrayParts::slice_start: usize
-
-pub vortex_zstd::ZstdArrayParts::slice_stop: usize
-
-pub vortex_zstd::ZstdArrayParts::validity: vortex_array::validity::Validity
-
-impl core::fmt::Debug for vortex_zstd::ZstdArrayParts
-
-pub fn vortex_zstd::ZstdArrayParts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
 pub struct vortex_zstd::ZstdBuffersMetadata
 
 pub vortex_zstd::ZstdBuffersMetadata::buffer_alignments: alloc::vec::Vec<u32>
@@ -140,6 +116,8 @@ pub fn vortex_zstd::ZstdData::from_var_bin_view(vbv: &vortex_array::arrays::varb
 
 pub fn vortex_zstd::ZstdData::from_var_bin_view_without_dict(vbv: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
 
+pub fn vortex_zstd::ZstdData::into_parts(self) -> vortex_zstd::ZstdDataParts
+
 pub fn vortex_zstd::ZstdData::is_empty(&self) -> bool
 
 pub fn vortex_zstd::ZstdData::len(&self) -> usize
@@ -159,6 +137,22 @@ pub fn vortex_zstd::ZstdData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> co
 impl vortex_array::array::vtable::validity::ValiditySliceHelper for vortex_zstd::ZstdData
 
 pub fn vortex_zstd::ZstdData::unsliced_validity_and_slice(&self) -> (&vortex_array::validity::Validity, usize, usize)
+
+pub struct vortex_zstd::ZstdDataParts
+
+pub vortex_zstd::ZstdDataParts::dictionary: core::option::Option<vortex_buffer::ByteBuffer>
+
+pub vortex_zstd::ZstdDataParts::frames: alloc::vec::Vec<vortex_buffer::ByteBuffer>
+
+pub vortex_zstd::ZstdDataParts::metadata: vortex_zstd::ZstdMetadata
+
+pub vortex_zstd::ZstdDataParts::n_rows: usize
+
+pub vortex_zstd::ZstdDataParts::slice_start: usize
+
+pub vortex_zstd::ZstdDataParts::slice_stop: usize
+
+pub vortex_zstd::ZstdDataParts::validity: vortex_array::validity::Validity
 
 pub struct vortex_zstd::ZstdFrameMetadata
 

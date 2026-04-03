@@ -88,24 +88,6 @@ impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_datetime_
 
 pub fn vortex_datetime_parts::DateTimeParts::mask(array: vortex_array::array::view::ArrayView<'_, Self>, mask: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub struct vortex_datetime_parts::DateTimePartsArrayParts
-
-pub vortex_datetime_parts::DateTimePartsArrayParts::days: vortex_array::array::erased::ArrayRef
-
-pub vortex_datetime_parts::DateTimePartsArrayParts::dtype: vortex_array::dtype::DType
-
-pub vortex_datetime_parts::DateTimePartsArrayParts::seconds: vortex_array::array::erased::ArrayRef
-
-pub vortex_datetime_parts::DateTimePartsArrayParts::subseconds: vortex_array::array::erased::ArrayRef
-
-impl core::clone::Clone for vortex_datetime_parts::DateTimePartsArrayParts
-
-pub fn vortex_datetime_parts::DateTimePartsArrayParts::clone(&self) -> vortex_datetime_parts::DateTimePartsArrayParts
-
-impl core::fmt::Debug for vortex_datetime_parts::DateTimePartsArrayParts
-
-pub fn vortex_datetime_parts::DateTimePartsArrayParts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
 pub struct vortex_datetime_parts::DateTimePartsData
 
 impl vortex_datetime_parts::DateTimePartsData
@@ -119,8 +101,6 @@ pub fn vortex_datetime_parts::DateTimePartsData::len(&self) -> usize
 pub fn vortex_datetime_parts::DateTimePartsData::seconds(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_datetime_parts::DateTimePartsData::subseconds(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn vortex_datetime_parts::DateTimePartsData::try_new(dtype: vortex_array::dtype::DType, days: vortex_array::array::erased::ArrayRef, seconds: vortex_array::array::erased::ArrayRef, subseconds: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_datetime_parts::DateTimePartsData::validate(dtype: &vortex_array::dtype::DType, days: &vortex_array::array::erased::ArrayRef, seconds: &vortex_array::array::erased::ArrayRef, subseconds: &vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<()>
 

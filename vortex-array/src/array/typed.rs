@@ -22,6 +22,7 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
+use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -31,7 +32,6 @@ pub struct ArrayParts<V: VTable> {
     pub dtype: DType,
     pub len: usize,
     pub data: V::ArrayData,
-    pub stats: ArrayStats,
 }
 
 impl<V: VTable> ArrayParts<V> {
@@ -41,14 +41,7 @@ impl<V: VTable> ArrayParts<V> {
             dtype,
             len,
             data,
-            stats: ArrayStats::default(),
         }
-    }
-
-    #[must_use]
-    pub fn with_stats(mut self, stats: ArrayStats) -> Self {
-        self.stats = stats;
-        self
     }
 }
 // =============================================================================
@@ -75,7 +68,13 @@ impl<V: VTable> ArrayInner<V> {
     pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
         new.vtable.validate(&new.data, &new.dtype, new.len)?;
         Ok(unsafe {
-            Self::from_data_unchecked(new.vtable, new.dtype, new.len, new.data, new.stats)
+            Self::from_data_unchecked(
+                new.vtable,
+                new.dtype,
+                new.len,
+                new.data,
+                ArrayStats::default(),
+            )
         })
     }
 
@@ -181,9 +180,7 @@ impl<V: VTable> Array<V> {
     /// Caller must ensure the provided parts are logically consistent.
     pub(crate) unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
         let inner = ArrayRef::from_inner(Arc::new(unsafe {
-            ArrayInner::<V>::from_data_unchecked(
-                new.vtable, new.dtype, new.len, new.data, new.stats,
-            )
+            ArrayInner::<V>::from_data_unchecked(new.vtable, new.dtype, new.len, new.data, ArrayStats::default())
         }));
         Self {
             inner,
@@ -253,8 +250,12 @@ impl<V: VTable> Array<V> {
             dtype: inner.dtype.clone(),
             len: inner.len,
             data: inner.data.clone(),
-            stats: inner.stats.clone(),
         }
+    }
+
+    pub fn with_stats_set(self, stats: StatsSet) -> Self {
+        self.statistics().replace(stats);
+        self
     }
 
     /// Returns a clone of the inner encoding-specific data.

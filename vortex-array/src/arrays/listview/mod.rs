@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::ListViewArrayParts;
+pub use array::ListViewDataParts;
 pub use array::ListViewData;
 pub use vtable::ListViewArray;
 

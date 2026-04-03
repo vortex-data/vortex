@@ -57,6 +57,28 @@ impl VTable for Slice {
         Slice::ID
     }
 
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.child().dtype() == dtype,
+            "SliceArray dtype {} does not match outer dtype {}",
+            data.child().dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            data.len() == len,
+            "SliceArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        vortex_ensure!(
+            data.range.end <= data.child().len(),
+            "SliceArray range {:?} exceeds child length {}",
+            data.range,
+            data.child().len()
+        );
+        Ok(())
+    }
+
     fn array_hash<H: Hasher>(array: &SliceData, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
         array.range.start.hash(state);

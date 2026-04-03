@@ -155,7 +155,7 @@ pub struct StructData {
     pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
-pub struct StructArrayParts {
+pub struct StructDataParts {
     pub struct_fields: StructFields,
     pub fields: Arc<[ArrayRef]>,
     pub validity: Validity,
@@ -273,7 +273,7 @@ impl StructData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
     /// `StructArray::new_unchecked`.
-    pub fn try_new(
+    pub(crate) fn try_new(
         names: FieldNames,
         fields: impl Into<Arc<[ArrayRef]>>,
         length: usize,
@@ -392,7 +392,7 @@ impl StructData {
         Ok(())
     }
 
-    pub fn try_new_with_dtype(
+    pub(crate) fn try_new_with_dtype(
         fields: impl Into<Arc<[ArrayRef]>>,
         dtype: StructFields,
         length: usize,
@@ -405,7 +405,7 @@ impl StructData {
         Ok(unsafe { Self::new_unchecked(fields, dtype, length, validity) })
     }
 
-    pub fn into_parts(self) -> StructArrayParts {
+    pub fn into_parts(self) -> StructDataParts {
         let StructData {
             names,
             slots,
@@ -431,7 +431,7 @@ impl StructData {
             .skip(FIELDS_OFFSET)
             .map(|s| s.vortex_expect("StructArray field slot"))
             .collect();
-        StructArrayParts {
+        StructDataParts {
             struct_fields,
             fields,
             validity,
@@ -636,11 +636,6 @@ impl Array<Struct> {
         let dtype = data.dtype().clone();
         let len = data.len();
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
-    }
-
-    /// Decompose this struct array into its encoding-specific constituent parts.
-    pub fn into_encoding_parts(self) -> StructArrayParts {
-        self.into_data().into_parts()
     }
 
     /// Create a `StructArray` from an iterator of (name, array) pairs with validity.

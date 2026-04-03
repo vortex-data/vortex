@@ -122,7 +122,7 @@ impl FixedSizeListData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented
     /// in `FixedSizeListArray::new_unchecked`.
-    pub fn try_new(
+    pub(crate) fn try_new(
         elements: ArrayRef,
         list_size: u32,
         validity: Validity,

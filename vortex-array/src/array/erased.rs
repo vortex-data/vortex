@@ -467,6 +467,11 @@ impl ArrayRef {
         self.0.metadata(self)
     }
 
+    /// Formats a human-readable metadata description.
+    pub fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.metadata_fmt(self, f)
+    }
+
     /// Returns whether all buffers are host-resident.
     pub fn is_host(&self) -> bool {
         for array in self.depth_first_traversal() {

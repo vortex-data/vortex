@@ -81,7 +81,7 @@ pub struct PrimitiveData {
     pub(super) buffer: BufferHandle,
 }
 
-pub struct PrimitiveArrayParts {
+pub struct PrimitiveDataParts {
     pub ptype: PType,
     pub buffer: BufferHandle,
     pub validity: Validity,
@@ -295,10 +295,10 @@ impl Array<Primitive> {
 
 impl PrimitiveData {
     /// Consume the primitive array and returns its component parts.
-    pub fn into_parts(self) -> PrimitiveArrayParts {
+    pub fn into_parts(self) -> PrimitiveDataParts {
         let ptype = self.ptype();
         let validity = self.validity();
-        PrimitiveArrayParts {
+        PrimitiveDataParts {
             ptype,
             buffer: self.buffer,
             validity,

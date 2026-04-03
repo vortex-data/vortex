@@ -105,7 +105,7 @@ pub struct DecimalData {
     pub(super) values_type: DecimalType,
 }
 
-pub struct DecimalArrayParts {
+pub struct DecimalDataParts {
     pub decimal_dtype: DecimalDType,
     pub values: BufferHandle,
     pub values_type: DecimalType,
@@ -315,9 +315,9 @@ impl DecimalData {
         child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
     }
 
-    pub fn into_parts(self) -> DecimalArrayParts {
+    pub fn into_parts(self) -> DecimalDataParts {
         let validity = self.validity();
-        DecimalArrayParts {
+        DecimalDataParts {
             decimal_dtype: self.decimal_dtype,
             values: self.values,
             values_type: self.values_type,

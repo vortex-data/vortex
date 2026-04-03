@@ -222,14 +222,6 @@ pub struct DateTimePartsData {
 }
 
 #[derive(Clone, Debug)]
-pub struct DateTimePartsArrayParts {
-    pub dtype: DType,
-    pub days: ArrayRef,
-    pub seconds: ArrayRef,
-    pub subseconds: ArrayRef,
-}
-
-#[derive(Clone, Debug)]
 pub struct DateTimeParts;
 
 impl DateTimeParts {
@@ -292,7 +284,7 @@ impl DateTimePartsData {
         Ok(())
     }
 
-    pub fn try_new(
+    pub(crate) fn try_new(
         dtype: DType,
         days: ArrayRef,
         seconds: ArrayRef,

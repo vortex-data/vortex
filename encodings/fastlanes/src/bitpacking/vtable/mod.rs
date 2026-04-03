@@ -37,7 +37,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::BitPackedArrayParts;
+use crate::BitPackedDataParts;
 use crate::BitPackedData;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
@@ -331,7 +331,7 @@ impl BitPacked {
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data))
     }
 
-    pub fn into_parts(array: BitPackedArray) -> BitPackedArrayParts {
+    pub fn into_parts(array: BitPackedArray) -> BitPackedDataParts {
         let len = array.len();
         let nullability = array.dtype().nullability();
         array.into_data().into_parts(len, nullability)

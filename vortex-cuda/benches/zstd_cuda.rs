@@ -15,7 +15,7 @@ use futures::executor::block_on;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
-use vortex::encodings::zstd::ZstdArrayParts;
+use vortex::encodings::zstd::ZstdDataParts;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -138,7 +138,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
                     let mut total_time = Duration::ZERO;
 
                     for _ in 0..iters {
-                        let ZstdArrayParts {
+                        let ZstdDataParts {
                             frames, metadata, ..
                         } = zstd_array.clone().into_data().into_parts();
                         let exec = block_on(zstd_kernel_prepare(frames, &metadata, &mut cuda_ctx))

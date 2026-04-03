@@ -26,7 +26,7 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
-use vortex::encodings::zstd::ZstdArrayParts;
+use vortex::encodings::zstd::ZstdDataParts;
 use vortex::encodings::zstd::ZstdMetadata;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -206,17 +206,17 @@ impl CudaExecute for ZstdExecutor {
                     dtype = %_other,
                     "Only Binary/Utf8 ZSTD arrays supported on GPU, falling back to CPU"
                 );
-                zstd.decompress(ctx.execution_ctx())?.to_canonical()
+                Zstd::decompress(&zstd, ctx.execution_ctx())?.to_canonical()
             }
         }
     }
 }
 
 async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-    let ZstdArrayParts {
+    let dtype = array.dtype().clone();
+    let ZstdDataParts {
         frames,
         metadata,
-        dtype,
         validity,
         n_rows,
         dictionary,

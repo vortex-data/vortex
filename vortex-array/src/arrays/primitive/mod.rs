@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::PrimitiveArrayParts;
+pub use array::PrimitiveDataParts;
 pub use array::PrimitiveData;
 pub use array::chunk_range;
 pub use array::patch_chunk;

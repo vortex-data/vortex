@@ -252,7 +252,7 @@ impl VTable for ALPRD {
 
         let dtype = array.dtype().clone();
         let right_bit_width = array.right_bit_width();
-        let ALPRDArrayParts {
+        let ALPRDDataParts {
             left_parts,
             right_parts,
             left_parts_dictionary,
@@ -348,7 +348,7 @@ pub struct ALPRDData {
 }
 
 #[derive(Clone, Debug)]
-pub struct ALPRDArrayParts {
+pub struct ALPRDDataParts {
     pub left_parts: ArrayRef,
     pub left_parts_patches: Option<Patches>,
     pub left_parts_dictionary: Buffer<u16>,
@@ -578,14 +578,14 @@ impl ALPRDData {
     }
 
     /// Return all the owned parts of the array
-    pub fn into_parts(mut self) -> ALPRDArrayParts {
+    pub fn into_parts(mut self) -> ALPRDDataParts {
         let left_parts = self.slots[LEFT_PARTS_SLOT]
             .take()
             .vortex_expect("ALPRDArray left_parts slot");
         let right_parts = self.slots[RIGHT_PARTS_SLOT]
             .take()
             .vortex_expect("ALPRDArray right_parts slot");
-        ALPRDArrayParts {
+        ALPRDDataParts {
             left_parts,
             left_parts_patches: self.left_parts_patches,
             left_parts_dictionary: self.left_parts_dictionary,

@@ -22,8 +22,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
-
 /// Reference-counted DynVTable
 pub type DynVTableRef = Arc<dyn DynVTable>;
 
@@ -86,11 +84,8 @@ impl<V: VTable> DynVTable for V {
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let inner = self.deserialize(dtype, len, metadata, buffers, children, session)?;
-        Ok(Array::<V>::try_from_parts(
-            ArrayParts::new(self.clone(), dtype.clone(), len, inner)
-                .with_stats(ArrayStats::default()),
-        )?
-        .into_array())
+        Ok(Array::<V>::try_from_parts(ArrayParts::new(self.clone(), dtype.clone(), len, inner))?
+            .into_array())
     }
 
     fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
@@ -99,11 +94,15 @@ impl<V: VTable> DynVTable for V {
             .vortex_expect("Failed to downcast array");
         let mut data = typed.data().clone();
         V::with_slots(&mut data, slots)?;
+        let stats = array.statistics().to_owned();
         Ok(unsafe {
-            Array::<V>::from_parts_unchecked(
-                ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
-                    .with_stats(array.statistics().to_array_stats()),
-            )
+            Array::<V>::from_parts_unchecked(ArrayParts::new(
+                self.clone(),
+                array.dtype().clone(),
+                array.len(),
+                data,
+            ))
+            .with_stats_set(stats)
             .into_array()
         })
     }

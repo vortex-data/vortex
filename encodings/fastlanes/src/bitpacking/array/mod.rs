@@ -44,7 +44,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
     "validity",
 ];
 
-pub struct BitPackedArrayParts {
+pub struct BitPackedDataParts {
     pub offset: u16,
     pub bit_width: u8,
     pub len: usize,
@@ -379,10 +379,10 @@ impl BitPackedData {
         (1 << self.bit_width()) - 1
     }
 
-    pub fn into_parts(self, len: usize, nullability: Nullability) -> BitPackedArrayParts {
+    pub fn into_parts(self, len: usize, nullability: Nullability) -> BitPackedDataParts {
         let patches = self.patches(len);
         let validity = self.validity(nullability);
-        BitPackedArrayParts {
+        BitPackedDataParts {
             offset: self.offset,
             bit_width: self.bit_width,
             len,

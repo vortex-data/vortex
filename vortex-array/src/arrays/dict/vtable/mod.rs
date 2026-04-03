@@ -10,7 +10,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use super::DictArrayParts;
+use super::DictDataParts;
 use super::DictData;
 use super::DictMetadata;
 use super::array::NUM_SLOTS;
@@ -188,7 +188,7 @@ impl VTable for Dict {
 
         let array = require_child!(array, array.values(), 1 => AnyCanonical);
 
-        let DictArrayParts { codes, values, .. } = array.into_data().into_parts();
+        let DictDataParts { codes, values, .. } = array.into_data().into_parts();
 
         let codes = codes
             .try_into::<Primitive>()

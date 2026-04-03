@@ -13,8 +13,8 @@ pub use array::Sequence;
 /// Represents the equation A\[i\] = a * i + b.
 /// This can be used for compression, fast comparisons and also for row ids.
 pub use array::SequenceArray;
-pub use array::SequenceArrayParts;
 pub use array::SequenceData;
+pub use array::SequenceDataParts;
 pub use compress::sequence_encode;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;

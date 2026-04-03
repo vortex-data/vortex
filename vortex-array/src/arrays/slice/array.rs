@@ -24,13 +24,13 @@ pub struct SliceData {
     pub(super) range: Range<usize>,
 }
 
-pub struct SliceArrayParts {
+pub struct SliceDataParts {
     pub child: ArrayRef,
     pub range: Range<usize>,
 }
 
 impl SliceData {
-    pub fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
+    fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
         if range.end > child.len() {
             vortex_panic!(
                 "SliceArray range out of bounds: range {:?} exceeds child array length {}",
@@ -74,6 +74,15 @@ impl SliceData {
             .as_ref()
             .vortex_expect("SliceArray child slot")
     }
+
+    pub fn into_parts(mut self) -> SliceDataParts {
+        SliceDataParts {
+            child: self.slots[CHILD_SLOT]
+                .take()
+                .vortex_expect("SliceArray child slot"),
+            range: self.range,
+        }
+    }
 }
 
 impl Array<Slice> {
@@ -92,17 +101,5 @@ impl Array<Slice> {
         let data = SliceData::new(child, range);
         Array::try_from_parts(ArrayParts::new(Slice, dtype, len, data))
             .vortex_expect("SliceData is always valid")
-    }
-}
-
-impl SliceData {
-    /// Consume the slice array and return its components.
-    pub fn into_parts(mut self) -> SliceArrayParts {
-        SliceArrayParts {
-            child: self.slots[CHILD_SLOT]
-                .take()
-                .vortex_expect("SliceArray child slot"),
-            range: self.range,
-        }
     }
 }

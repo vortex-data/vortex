@@ -30,7 +30,6 @@ use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
@@ -59,13 +58,6 @@ pub struct ProstSequenceMetadata {
     multiplier: Option<vortex_proto::scalar::ScalarValue>,
 }
 
-/// Components of [`SequenceArray`].
-pub struct SequenceArrayParts {
-    pub base: PValue,
-    pub multiplier: PValue,
-    pub ptype: PType,
-}
-
 pub(super) const SLOT_NAMES: [&str; 0] = [];
 
 #[derive(Clone, Debug)]
@@ -76,8 +68,14 @@ pub struct SequenceData {
     pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
+pub struct SequenceDataParts {
+    pub base: PValue,
+    pub multiplier: PValue,
+    pub ptype: PType,
+}
+
 impl SequenceData {
-    pub fn try_new_typed<T: NativePType + Into<PValue>>(
+    pub(crate) fn try_new_typed<T: NativePType + Into<PValue>>(
         base: T,
         multiplier: T,
         nullability: Nullability,
@@ -93,7 +91,7 @@ impl SequenceData {
     }
 
     /// Constructs a sequence array using two integer values (with the same ptype).
-    pub fn try_new(
+    pub(crate) fn try_new(
         base: PValue,
         multiplier: PValue,
         ptype: PType,
@@ -167,6 +165,14 @@ impl SequenceData {
         self.multiplier
     }
 
+    pub fn into_parts(self) -> SequenceDataParts {
+        SequenceDataParts {
+            base: self.base,
+            multiplier: self.multiplier,
+            ptype: self.base.ptype(),
+        }
+    }
+
     pub(crate) fn try_last(
         base: PValue,
         multiplier: PValue,
@@ -200,13 +206,6 @@ impl SequenceData {
         })
     }
 
-    pub fn into_parts(self) -> SequenceArrayParts {
-        SequenceArrayParts {
-            base: self.base,
-            multiplier: self.multiplier,
-            ptype: self.base.ptype(),
-        }
-    }
 }
 
 impl VTable for Sequence {
@@ -374,7 +373,7 @@ pub struct Sequence;
 impl Sequence {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
 
-    fn stats(multiplier: PValue) -> ArrayStats {
+    fn stats(multiplier: PValue) -> StatsSet {
         // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
         // and strictly sorted iff multiplier > 0.
         let (is_sorted, is_strict_sorted) = match_each_pvalue!(
@@ -394,7 +393,7 @@ impl Sequence {
                 ),
             ])
         };
-        ArrayStats::from(stats_set)
+        stats_set
     }
 
     /// Construct a new [`SequenceArray`] from pre-validated parts.
@@ -414,7 +413,8 @@ impl Sequence {
             .vortex_expect("SequenceArray parts must be normalized to the target ptype");
         let stats = Self::stats(multiplier);
         let data = unsafe { SequenceData::new_unchecked(base, multiplier) };
-        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data).with_stats(stats))
+        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data))
+            .map(|array| array.with_stats_set(stats))
             .vortex_expect("pre-validated SequenceArray parts must be valid")
     }
 
@@ -429,7 +429,8 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new(base, multiplier, ptype, nullability, length)?;
         let stats = Self::stats(data.multiplier());
-        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data).with_stats(stats))
+        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data))
+            .map(|array| array.with_stats_set(stats))
     }
 
     /// Construct a new typed [`SequenceArray`] from base/multiplier values.
@@ -443,7 +444,8 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new_typed(base, multiplier, nullability, length)?;
         let stats = Self::stats(data.multiplier());
-        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data).with_stats(stats))
+        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data))
+            .map(|array| array.with_stats_set(stats))
     }
 }
 

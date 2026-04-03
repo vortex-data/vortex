@@ -193,13 +193,11 @@ pub struct DecimalBytePartsData {
     // NOTE: the lower_parts is currently unused, we reserve this field so that it is properly
     //  read/written during serde, but provide no constructor to initialize this to anything
     //  other than the empty Vec.
-    // Must update `DecimalBytePartsArrayParts` too.
     _lower_parts: Vec<ArrayRef>,
 }
 
-pub struct DecimalBytePartsArrayParts {
+pub struct DecimalBytePartsDataParts {
     pub msp: ArrayRef,
-    pub dtype: DType,
 }
 
 impl DecimalBytePartsData {
@@ -222,7 +220,7 @@ impl DecimalBytePartsData {
         Ok(())
     }
 
-    pub fn try_new(msp: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
+    pub(crate) fn try_new(msp: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
         Self::validate(&msp, decimal_dtype, &dtype, msp.len())?;
         Ok(Self {
@@ -245,6 +243,14 @@ impl DecimalBytePartsData {
         self.slots[MSP_SLOT]
             .as_ref()
             .vortex_expect("DecimalBytePartsArray msp slot")
+    }
+
+    pub fn into_parts(mut self) -> DecimalBytePartsDataParts {
+        DecimalBytePartsDataParts {
+            msp: self.slots[MSP_SLOT]
+                .take()
+                .vortex_expect("DecimalBytePartsArray msp slot"),
+        }
     }
 }
 

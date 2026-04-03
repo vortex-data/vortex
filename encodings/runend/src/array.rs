@@ -193,9 +193,10 @@ pub struct RunEndData {
     offset: usize,
 }
 
-pub struct RunEndArrayParts {
+pub struct RunEndDataParts {
     pub ends: ArrayRef,
     pub values: ArrayRef,
+    pub offset: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -291,12 +292,8 @@ impl RunEndData {
             return Ok(());
         }
 
-        // Avoid building a non-empty array with zero logical length.
+        // Zero-length logical slices may retain run metadata from the source array.
         if length == 0 {
-            vortex_ensure!(
-                ends.is_empty(),
-                "run ends must be empty when length is zero"
-            );
             return Ok(());
         }
 
@@ -323,8 +320,10 @@ impl RunEndData {
         // Validate the offset and length are valid for the given ends and values
         if offset != 0 && length != 0 {
             let first_run_end = usize::try_from(&ends.scalar_at(0)?)?;
-            if first_run_end <= offset {
-                vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
+            if first_run_end < offset {
+                vortex_bail!(
+                    "First run end {first_run_end} must be >= offset {offset}"
+                );
             }
         }
 
@@ -341,7 +340,7 @@ impl RunEndData {
 impl RunEndData {
     /// Build a new `RunEndArray` from an array of run `ends` and an array of `values`.
     ///
-    /// Panics if any of the validation conditions described in [`RunEndData::try_new`] is
+    /// Panics if any of the validation conditions described in [`RunEnd::try_new`] is
     /// not satisfied.
     ///
     /// # Examples
@@ -373,15 +372,15 @@ impl RunEndData {
     /// # Validation
     ///
     /// The `ends` must be non-nullable unsigned integers.
-    pub fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+    pub(crate) fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         let length = Self::logical_len_from_ends(&ends)?;
         Self::try_new_offset_length(ends, values, 0, length)
     }
 
     /// Construct a new sliced `RunEndArray` with the provided offset and length.
     ///
-    /// This performs all the same validation as [`RunEndData::try_new`].
-    pub fn try_new_offset_length(
+    /// This performs all the same validation as [`RunEnd::try_new_offset_length`].
+    pub(crate) fn try_new_offset_length(
         ends: ArrayRef,
         values: ArrayRef,
         offset: usize,
@@ -399,10 +398,11 @@ impl RunEndData {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that all the validation performed in [`RunEndData::try_new`] is
+    /// The caller must ensure that all the validation performed in
+    /// [`RunEnd::try_new_offset_length`] is
     /// satisfied before calling this function.
     ///
-    /// See [`RunEndData::try_new`] for the preconditions needed to build a new array.
+    /// See [`RunEnd::try_new_offset_length`] for the preconditions needed to build a new array.
     pub unsafe fn new_unchecked(
         ends: ArrayRef,
         values: ArrayRef,
@@ -481,16 +481,15 @@ impl RunEndData {
             .vortex_expect("RunEndArray values slot")
     }
 
-    /// Split an `RunEndArray` into parts.
-    #[inline]
-    pub fn into_parts(mut self) -> RunEndArrayParts {
-        RunEndArrayParts {
+    pub fn into_parts(mut self) -> RunEndDataParts {
+        RunEndDataParts {
             ends: self.slots[ENDS_SLOT]
                 .take()
                 .vortex_expect("RunEndArray ends slot"),
             values: self.slots[VALUES_SLOT]
                 .take()
                 .vortex_expect("RunEndArray values slot"),
+            offset: self.offset,
         }
     }
 }

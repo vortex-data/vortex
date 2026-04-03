@@ -55,6 +55,28 @@ impl VTable for Filter {
         Self::ID
     }
 
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.child().dtype() == dtype,
+            "FilterArray dtype {} does not match outer dtype {}",
+            data.child().dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            data.len() == len,
+            "FilterArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        vortex_ensure!(
+            data.child().len() == data.mask.len(),
+            "FilterArray child length {} does not match mask length {}",
+            data.child().len(),
+            data.mask.len()
+        );
+        Ok(())
+    }
+
     fn array_hash<H: Hasher>(array: &FilterData, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
         array.mask.array_hash(state, precision);

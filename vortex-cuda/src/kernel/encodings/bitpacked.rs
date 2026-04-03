@@ -18,7 +18,7 @@ use vortex::array::match_each_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::BitPackedArray;
-use vortex::encodings::fastlanes::BitPackedArrayParts;
+use vortex::encodings::fastlanes::BitPackedDataParts;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -52,7 +52,7 @@ impl CudaExecute for BitPackedExecutor {
         let array =
             Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected BitPackedArray"))?;
 
-        match_each_integer_ptype!(array.ptype(), |A| {
+        match_each_integer_ptype!(array.ptype(array.dtype()), |A| {
             decode_bitpacked::<A>(array, A::default(), ctx).await
         })
     }
@@ -96,7 +96,7 @@ where
     A: BitPackedUnpack + NativePType + DeviceRepr + Send + Sync + 'static,
     A::Physical: DeviceRepr + Send + Sync + 'static,
 {
-    let BitPackedArrayParts {
+    let BitPackedDataParts {
         offset,
         bit_width,
         len,

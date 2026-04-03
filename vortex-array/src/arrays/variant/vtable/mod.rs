@@ -49,6 +49,26 @@ impl VTable for Variant {
         Self::ID
     }
 
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            matches!(dtype, DType::Variant(_)),
+            "Expected Variant DType, got {dtype}"
+        );
+        vortex_ensure!(
+            data.child().dtype() == dtype,
+            "VariantArray child dtype {} does not match outer dtype {}",
+            data.child().dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            data.len() == len,
+            "VariantArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        Ok(())
+    }
+
     fn array_hash<H: Hasher>(array: &VariantData, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
     }
@@ -130,11 +150,16 @@ impl VTable for Variant {
 mod tests {
     use super::*;
     use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
+    use crate::arrays::ConstantArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::scalar::Scalar;
 
     #[test]
     fn with_slots_rejects_missing_child() {
-        let array = VariantArray::new(PrimitiveArray::from_iter([1u8, 2, 3]).into_array());
+        let child =
+            ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 3).into_array();
+        let array = VariantArray::new(child);
         let mut data = array.into_data();
 
         let err = <Variant as VTable>::with_slots(&mut data, vec![None]).unwrap_err();

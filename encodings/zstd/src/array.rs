@@ -308,21 +308,6 @@ impl Zstd {
         array.data().decompress(array.dtype(), ctx)
     }
 
-    pub fn into_parts(array: ZstdArray) -> ZstdArrayParts {
-        let dtype = array.dtype().clone();
-        let data = array.into_data();
-
-        ZstdArrayParts {
-            dictionary: data.dictionary,
-            frames: data.frames,
-            metadata: data.metadata,
-            dtype,
-            validity: data.unsliced_validity,
-            n_rows: data.unsliced_n_rows,
-            slice_start: data.slice_start,
-            slice_stop: data.slice_stop,
-        }
-    }
 }
 
 /// The validity bitmap indicating which elements are non-null.
@@ -342,27 +327,18 @@ pub struct ZstdData {
     slice_stop: usize,
 }
 
-/// The parts of a [`ZstdArray`] returned by [`ZstdArray::into_parts`].
-#[derive(Debug)]
-pub struct ZstdArrayParts {
-    /// The optional dictionary used for compression.
+pub struct ZstdDataParts {
     pub dictionary: Option<ByteBuffer>,
-    /// The compressed frames.
     pub frames: Vec<ByteBuffer>,
-    /// The compression metadata.
     pub metadata: ZstdMetadata,
-    /// The data type of the uncompressed array.
-    pub dtype: DType,
-    /// The validity of the uncompressed array.
     pub validity: Validity,
-    /// The number of rows in the uncompressed array.
     pub n_rows: usize,
-    /// Slice start offset.
     pub slice_start: usize,
-    /// Slice stop offset.
     pub slice_stop: usize,
 }
 
+/// The parts of a [`ZstdArray`] returned by [`ZstdArray::into_parts`].
+#[derive(Debug)]
 struct Frames {
     dictionary: Option<ByteBuffer>,
     frames: Vec<ByteBuffer>,
@@ -1011,6 +987,18 @@ impl ZstdData {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.slice_stop == self.slice_start
+    }
+
+    pub fn into_parts(self) -> ZstdDataParts {
+        ZstdDataParts {
+            dictionary: self.dictionary,
+            frames: self.frames,
+            metadata: self.metadata,
+            validity: self.unsliced_validity,
+            n_rows: self.unsliced_n_rows,
+            slice_start: self.slice_start,
+            slice_stop: self.slice_stop,
+        }
     }
 
     pub(crate) fn slice_start(&self) -> usize {

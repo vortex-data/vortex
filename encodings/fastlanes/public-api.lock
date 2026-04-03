@@ -124,7 +124,7 @@ pub const vortex_fastlanes::BitPacked::ID: vortex_array::array::ArrayId
 
 pub fn vortex_fastlanes::BitPacked::encode(array: &vortex_array::array::erased::ArrayRef, bit_width: u8) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
-pub fn vortex_fastlanes::BitPacked::into_parts(array: vortex_fastlanes::BitPackedArray) -> vortex_fastlanes::BitPackedArrayParts
+pub fn vortex_fastlanes::BitPacked::into_parts(array: vortex_fastlanes::BitPackedArray) -> vortex_fastlanes::BitPackedDataParts
 
 pub fn vortex_fastlanes::BitPacked::try_new(packed: vortex_array::buffer::BufferHandle, ptype: vortex_array::dtype::ptype::PType, validity: vortex_array::validity::Validity, patches: core::option::Option<vortex_array::patches::Patches>, bit_width: u8, len: usize, offset: u16) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
@@ -200,20 +200,6 @@ impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes
 
 pub fn vortex_fastlanes::BitPacked::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub struct vortex_fastlanes::BitPackedArrayParts
-
-pub vortex_fastlanes::BitPackedArrayParts::bit_width: u8
-
-pub vortex_fastlanes::BitPackedArrayParts::len: usize
-
-pub vortex_fastlanes::BitPackedArrayParts::offset: u16
-
-pub vortex_fastlanes::BitPackedArrayParts::packed: vortex_array::buffer::BufferHandle
-
-pub vortex_fastlanes::BitPackedArrayParts::patches: core::option::Option<vortex_array::patches::Patches>
-
-pub vortex_fastlanes::BitPackedArrayParts::validity: vortex_array::validity::Validity
-
 pub struct vortex_fastlanes::BitPackedData
 
 impl vortex_fastlanes::BitPackedData
@@ -222,7 +208,7 @@ pub fn vortex_fastlanes::BitPackedData::bit_width(&self) -> u8
 
 pub fn vortex_fastlanes::BitPackedData::encode(array: &vortex_array::array::erased::ArrayRef, bit_width: u8) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
-pub fn vortex_fastlanes::BitPackedData::into_parts(self, len: usize, nullability: vortex_array::dtype::nullability::Nullability) -> vortex_fastlanes::BitPackedArrayParts
+pub fn vortex_fastlanes::BitPackedData::into_parts(self, len: usize, nullability: vortex_array::dtype::nullability::Nullability) -> vortex_fastlanes::BitPackedDataParts
 
 pub fn vortex_fastlanes::BitPackedData::max_packed_value(&self) -> usize
 
@@ -253,6 +239,20 @@ pub fn vortex_fastlanes::BitPackedData::clone(&self) -> vortex_fastlanes::BitPac
 impl core::fmt::Debug for vortex_fastlanes::BitPackedData
 
 pub fn vortex_fastlanes::BitPackedData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_fastlanes::BitPackedDataParts
+
+pub vortex_fastlanes::BitPackedDataParts::bit_width: u8
+
+pub vortex_fastlanes::BitPackedDataParts::len: usize
+
+pub vortex_fastlanes::BitPackedDataParts::offset: u16
+
+pub vortex_fastlanes::BitPackedDataParts::packed: vortex_array::buffer::BufferHandle
+
+pub vortex_fastlanes::BitPackedDataParts::patches: core::option::Option<vortex_array::patches::Patches>
+
+pub vortex_fastlanes::BitPackedDataParts::validity: vortex_array::validity::Validity
 
 pub struct vortex_fastlanes::Delta
 

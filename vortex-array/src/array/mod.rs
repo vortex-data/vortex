@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -120,6 +121,9 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the serialized metadata of the array, or `None` if the array does not
     /// support serialization.
     fn metadata(&self, this: &ArrayRef) -> VortexResult<Option<Vec<u8>>>;
+
+    /// Formats a human-readable metadata description.
+    fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result;
 
     /// Hashes the array contents including len, dtype, and encoding id.
     fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision);
@@ -301,6 +305,11 @@ impl<V: VTable> DynArray for ArrayInner<V> {
     fn metadata(&self, this: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::serialize(view)
+    }
+
+    fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        V::fmt_metadata(view, f)
     }
 
     fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision) {

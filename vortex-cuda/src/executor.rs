@@ -21,7 +21,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::struct_::StructArrayParts;
+use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
@@ -360,12 +360,12 @@ impl CudaArrayExt for ArrayRef {
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         if self.encoding_id() == Struct::ID {
             let len = self.len();
-            let StructArrayParts {
+            let StructDataParts {
                 fields,
                 struct_fields,
                 validity,
                 ..
-            } = self.try_into::<Struct>().unwrap().into_parts();
+            } = self.try_into::<Struct>().unwrap().into_data().into_parts();
 
             let mut cuda_fields = Vec::with_capacity(fields.len());
             for field in fields.iter() {

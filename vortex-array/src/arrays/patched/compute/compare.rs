@@ -14,7 +14,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::bool::BoolArrayParts;
+use crate::arrays::bool::BoolDataParts;
 use crate::arrays::primitive::NativeValue;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
@@ -50,12 +50,13 @@ impl CompareKernel for Patched {
             .execute::<Canonical>(ctx)?
             .into_bool();
 
-        let BoolArrayParts {
+        let result = result.into_parts();
+        let BoolDataParts {
             bits,
             offset,
             len,
             validity,
-        } = result.into_encoding_parts();
+        } = result.data.into_parts();
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 

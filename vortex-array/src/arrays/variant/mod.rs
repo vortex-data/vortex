@@ -21,8 +21,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 /// (e.g. a `ParquetVariantArray` or any other variant encoding).
 ///
 /// Nullability is delegated to the child array: `VariantArray`'s dtype is
-/// always the child's dtype. The child's validity determines which rows are
-/// null.
+/// always `DType::Variant(child.dtype().nullability())`. The child's validity
+/// determines which rows are null.
 #[derive(Clone, Debug)]
 pub struct VariantData {
     pub(super) slots: Vec<Option<ArrayRef>>,
@@ -42,8 +42,8 @@ impl VariantData {
     }
 
     /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        self.child().dtype()
+    pub fn dtype(&self) -> DType {
+        DType::Variant(self.child().dtype().nullability())
     }
 
     /// Returns `true` if this array is empty.
@@ -62,12 +62,11 @@ impl VariantData {
 impl Array<Variant> {
     /// Creates a new `VariantArray`.
     pub fn new(child: ArrayRef) -> Self {
-        let dtype = child.dtype().clone();
+        let dtype = DType::Variant(child.dtype().nullability());
         let len = child.len();
-        let stats = child.statistics().to_array_stats();
-        Array::try_from_parts(
-            ArrayParts::new(Variant, dtype, len, VariantData::new(child)).with_stats(stats),
-        )
-        .vortex_expect("VariantData is always valid")
+        let stats = child.statistics().to_owned();
+        Array::try_from_parts(ArrayParts::new(Variant, dtype, len, VariantData::new(child)))
+            .map(|array| array.with_stats_set(stats))
+            .vortex_expect("VariantData is always valid")
     }
 }

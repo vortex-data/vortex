@@ -125,7 +125,7 @@ pub struct ListViewData {
     is_zero_copy_to_list: bool,
 }
 
-pub struct ListViewArrayParts {
+pub struct ListViewDataParts {
     pub elements_dtype: Arc<DType>,
 
     /// See `ListViewArray::elements`
@@ -337,9 +337,9 @@ impl ListViewData {
         .is_ok()
     }
 
-    pub fn into_parts(mut self) -> ListViewArrayParts {
+    pub fn into_parts(mut self) -> ListViewDataParts {
         let validity = self.validity();
-        ListViewArrayParts {
+        ListViewDataParts {
             elements_dtype: Arc::new(self.elements().dtype().clone()),
             elements: self.slots[ELEMENTS_SLOT]
                 .take()

@@ -98,11 +98,11 @@ pub struct ListData {
     pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
-pub struct ListArrayParts {
-    pub dtype: DType,
+pub struct ListDataParts {
     pub elements: ArrayRef,
     pub offsets: ArrayRef,
     pub validity: Validity,
+    pub dtype: DType,
 }
 
 impl ListData {
@@ -124,7 +124,7 @@ impl ListData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
     /// `ListArray::new_unchecked`.
-    pub fn try_new(
+    pub(crate) fn try_new(
         elements: ArrayRef,
         offsets: ArrayRef,
         validity: Validity,
@@ -249,22 +249,6 @@ impl ListData {
 
         Ok(())
     }
-
-    /// Splits an array into its parts
-    pub fn into_parts(mut self) -> ListArrayParts {
-        let validity = self.validity();
-        ListArrayParts {
-            dtype: self.dtype(),
-            elements: self.slots[ELEMENTS_SLOT]
-                .take()
-                .vortex_expect("ListArray elements slot"),
-            offsets: self.slots[OFFSETS_SLOT]
-                .take()
-                .vortex_expect("ListArray offsets slot"),
-            validity,
-        }
-    }
-
     /// Returns the dtype of the array.
     pub fn dtype(&self) -> DType {
         DType::List(Arc::new(self.elements().dtype().clone()), self.nullability)
@@ -348,6 +332,21 @@ impl ListData {
         self.slots[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListArray elements slot")
+    }
+
+    pub fn into_parts(mut self) -> ListDataParts {
+        let dtype = self.dtype();
+        let validity = self.validity();
+        ListDataParts {
+            elements: self.slots[ELEMENTS_SLOT]
+                .take()
+                .vortex_expect("ListArray elements slot"),
+            offsets: self.slots[OFFSETS_SLOT]
+                .take()
+                .vortex_expect("ListArray offsets slot"),
+            validity,
+            dtype,
+        }
     }
 
     // TODO(connor)[ListView]: Create 2 functions `reset_offsets` and `recursive_reset_offsets`,

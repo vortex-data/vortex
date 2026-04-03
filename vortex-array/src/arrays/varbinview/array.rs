@@ -102,7 +102,7 @@ pub struct VarBinViewData {
     pub(super) views: BufferHandle,
 }
 
-pub struct VarBinViewArrayParts {
+pub struct VarBinViewDataParts {
     pub dtype: DType,
     pub buffers: Arc<[BufferHandle]>,
     pub views: BufferHandle,
@@ -406,9 +406,9 @@ impl VarBinViewData {
     }
 
     /// Splits the array into owned parts
-    pub fn into_parts(self) -> VarBinViewArrayParts {
+    pub fn into_parts(self) -> VarBinViewDataParts {
         let validity = self.validity();
-        VarBinViewArrayParts {
+        VarBinViewDataParts {
             dtype: self.dtype(),
             buffers: self.buffers,
             views: self.views,

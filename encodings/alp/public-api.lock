@@ -232,29 +232,11 @@ impl vortex_array::scalar_fn::fns::mask::kernel::MaskReduce for vortex_alp::ALPR
 
 pub fn vortex_alp::ALPRD::mask(array: vortex_array::array::view::ArrayView<'_, Self>, mask: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub struct vortex_alp::ALPRDArrayParts
-
-pub vortex_alp::ALPRDArrayParts::left_parts: vortex_array::array::erased::ArrayRef
-
-pub vortex_alp::ALPRDArrayParts::left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>
-
-pub vortex_alp::ALPRDArrayParts::left_parts_patches: core::option::Option<vortex_array::patches::Patches>
-
-pub vortex_alp::ALPRDArrayParts::right_parts: vortex_array::array::erased::ArrayRef
-
-impl core::clone::Clone for vortex_alp::ALPRDArrayParts
-
-pub fn vortex_alp::ALPRDArrayParts::clone(&self) -> vortex_alp::ALPRDArrayParts
-
-impl core::fmt::Debug for vortex_alp::ALPRDArrayParts
-
-pub fn vortex_alp::ALPRDArrayParts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
 pub struct vortex_alp::ALPRDData
 
 impl vortex_alp::ALPRDData
 
-pub fn vortex_alp::ALPRDData::into_parts(self) -> vortex_alp::ALPRDArrayParts
+pub fn vortex_alp::ALPRDData::into_parts(self) -> vortex_alp::ALPRDDataParts
 
 pub fn vortex_alp::ALPRDData::left_parts(&self) -> &vortex_array::array::erased::ArrayRef
 
@@ -277,6 +259,24 @@ pub fn vortex_alp::ALPRDData::clone(&self) -> vortex_alp::ALPRDData
 impl core::fmt::Debug for vortex_alp::ALPRDData
 
 pub fn vortex_alp::ALPRDData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_alp::ALPRDDataParts
+
+pub vortex_alp::ALPRDDataParts::left_parts: vortex_array::array::erased::ArrayRef
+
+pub vortex_alp::ALPRDDataParts::left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>
+
+pub vortex_alp::ALPRDDataParts::left_parts_patches: core::option::Option<vortex_array::patches::Patches>
+
+pub vortex_alp::ALPRDDataParts::right_parts: vortex_array::array::erased::ArrayRef
+
+impl core::clone::Clone for vortex_alp::ALPRDDataParts
+
+pub fn vortex_alp::ALPRDDataParts::clone(&self) -> vortex_alp::ALPRDDataParts
+
+impl core::fmt::Debug for vortex_alp::ALPRDDataParts
+
+pub fn vortex_alp::ALPRDDataParts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_alp::ALPRDMetadata
 

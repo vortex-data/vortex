@@ -69,7 +69,7 @@ pub struct BoolData {
     pub(super) len: usize,
 }
 
-pub struct BoolArrayParts {
+pub struct BoolDataParts {
     pub bits: BufferHandle,
     pub offset: usize,
     pub len: usize,
@@ -118,9 +118,9 @@ impl BoolData {
 
     /// Splits into owned parts
     #[inline]
-    pub fn into_parts(self) -> BoolArrayParts {
+    pub fn into_parts(self) -> BoolDataParts {
         let validity = self.validity();
-        BoolArrayParts {
+        BoolDataParts {
             bits: self.bits,
             offset: self.offset,
             len: self.len,
@@ -242,11 +242,6 @@ impl Array<Bool> {
         self.into_data().into_bit_buffer()
     }
 
-    /// Splits into the encoding-specific owned parts, consuming self.
-    #[inline]
-    pub fn into_encoding_parts(self) -> BoolArrayParts {
-        self.into_data().into_parts()
-    }
 }
 
 /// Internal constructors on BoolData (used by Array<Bool> constructors and VTable::build).

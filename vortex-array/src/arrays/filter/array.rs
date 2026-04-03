@@ -17,14 +17,6 @@ pub(super) const CHILD_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 
-/// Decomposed parts of the filter array.
-pub struct FilterArrayParts {
-    /// Child array that is filtered by the mask
-    pub child: ArrayRef,
-    /// Mask to apply at filter time. Child elements with set indices are kept, the rest discarded.
-    pub mask: Mask,
-}
-
 // TODO(connor): Write docs on why we have this, and what we had in the old world so that the future
 // does not repeat the mistakes of the past.
 /// A lazy array that represents filtering a child array by a boolean [`Mask`].
@@ -38,12 +30,17 @@ pub struct FilterData {
     pub(super) mask: Mask,
 }
 
+pub struct FilterDataParts {
+    pub child: ArrayRef,
+    pub mask: Mask,
+}
+
 impl FilterData {
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
         Self::try_new(array, mask).vortex_expect("FilterArray construction failed")
     }
 
-    pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
+    fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
         vortex_ensure_eq!(
             array.len(),
             mask.len(),
@@ -84,6 +81,15 @@ impl FilterData {
     pub fn filter_mask(&self) -> &Mask {
         &self.mask
     }
+
+    pub fn into_parts(mut self) -> FilterDataParts {
+        FilterDataParts {
+            child: self.slots[CHILD_SLOT]
+                .take()
+                .vortex_expect("FilterArray child slot"),
+            mask: self.mask,
+        }
+    }
 }
 
 impl Array<Filter> {
@@ -102,17 +108,5 @@ impl Array<Filter> {
         let len = mask.true_count();
         let data = FilterData::try_new(array, mask)?;
         Array::try_from_parts(ArrayParts::new(Filter, dtype, len, data))
-    }
-}
-
-impl FilterData {
-    /// Consume the array and return its individual components.
-    pub fn into_parts(mut self) -> FilterArrayParts {
-        FilterArrayParts {
-            child: self.slots[CHILD_SLOT]
-                .take()
-                .vortex_expect("FilterArray child slot"),
-            mask: self.mask,
-        }
     }
 }

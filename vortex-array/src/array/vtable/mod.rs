@@ -8,6 +8,7 @@ mod operations;
 mod validity;
 
 use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::hash::Hasher;
 
 pub use dyn_::*;
@@ -60,9 +61,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn id(&self) -> ArrayId;
 
     /// Validates that externally supplied logical metadata matches the array data.
-    fn validate(&self, _data: &Self::ArrayData, _dtype: &DType, _len: usize) -> VortexResult<()> {
-        Ok(())
-    }
+    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()>;
 
     /// Hashes the array contents.
     fn array_hash<H: Hasher>(array: &Self::ArrayData, state: &mut H, precision: Precision);
@@ -122,6 +121,14 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Serialize metadata into a byte buffer for IPC or file storage.
     /// Return `None` if the array cannot be serialized.
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>>;
+
+    /// Formats a human-readable metadata description for display tooling.
+    fn fmt_metadata(array: ArrayView<'_, Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match Self::serialize(array) {
+            Ok(Some(metadata)) if metadata.is_empty() => f.write_str("EmptyMetadata"),
+            _ => Debug::fmt(array.data(), f),
+        }
+    }
 
     /// Deserialize an array from serialized components.
     fn deserialize(

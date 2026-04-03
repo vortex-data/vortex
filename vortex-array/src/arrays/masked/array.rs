@@ -28,7 +28,7 @@ pub struct MaskedData {
 }
 
 impl MaskedData {
-    pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
+    pub(crate) fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
         if matches!(validity, Validity::NonNullable) {
             vortex_bail!("MaskedArray must have nullable validity, got {validity:?}")
         }

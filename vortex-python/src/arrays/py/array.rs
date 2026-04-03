@@ -13,6 +13,7 @@ use vortex::array::ArrayParts;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::stats::ArrayStats;
+use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 
 use crate::arrays::py::PyPythonArray;
@@ -65,8 +66,9 @@ impl IntoArray for PythonArray {
         let vtable = self.vtable.clone();
         let dtype = self.dtype.clone();
         let len = self.len;
-        let stats = self.stats.clone();
-        Array::try_from_parts(ArrayParts::new(vtable, dtype, len, self).with_stats(stats))
+        let stats = StatsSet::from(self.stats.clone());
+        Array::try_from_parts(ArrayParts::new(vtable, dtype, len, self))
+            .map(|array| array.with_stats_set(stats))
             .expect("PythonArray metadata extracted from PyPythonArray must be valid")
             .into_array()
     }

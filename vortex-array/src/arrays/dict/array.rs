@@ -51,7 +51,7 @@ pub struct DictData {
     pub(super) all_values_referenced: bool,
 }
 
-pub struct DictArrayParts {
+pub struct DictDataParts {
     pub codes: ArrayRef,
     pub values: ArrayRef,
 }
@@ -111,7 +111,7 @@ impl DictData {
     /// of the `values` array. Otherwise, this constructor returns an error.
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
-    pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+    pub(crate) fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         if !codes.dtype().is_int() {
             vortex_bail!(MismatchedTypes: "int", codes.dtype());
         }
@@ -136,8 +136,8 @@ impl DictData {
         self.len() == 0
     }
 
-    pub fn into_parts(mut self) -> DictArrayParts {
-        DictArrayParts {
+    pub fn into_parts(mut self) -> DictDataParts {
+        DictDataParts {
             codes: self.slots[CODES_SLOT]
                 .take()
                 .vortex_expect("DictArray codes slot"),
