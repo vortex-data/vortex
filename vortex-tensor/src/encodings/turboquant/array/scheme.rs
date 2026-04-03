@@ -28,7 +28,7 @@ use crate::utils::extension_list_size;
 /// use vortex_tensor::encodings::turboquant::TurboQuantScheme;
 ///
 /// let compressor = BtrBlocksCompressorBuilder::default()
-///     .with_scheme(&TurboQuantScheme)
+///     .with_new_scheme(&TurboQuantScheme)
 ///     .build();
 /// ```
 ///

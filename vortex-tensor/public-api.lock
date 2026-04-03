@@ -4,45 +4,13 @@ pub mod vortex_tensor::encodings
 
 pub mod vortex_tensor::encodings::turboquant
 
-pub mod vortex_tensor::encodings::turboquant::scheme
-
-pub struct vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
-impl core::clone::Clone for vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
-pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::clone(&self) -> vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
-impl core::cmp::Eq for vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
-impl core::cmp::PartialEq for vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
-pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::eq(&self, other: &vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme) -> bool
-
-impl core::fmt::Debug for vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
-pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::marker::Copy for vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
-impl core::marker::StructuralPartialEq for vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
-impl vortex_compressor::scheme::Scheme for vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
-pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::expected_compression_ratio(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<f64>
-
-pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
-
-pub fn vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme::scheme_name(&self) -> &'static str
-
-pub static vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME: vortex_tensor::encodings::turboquant::scheme::TurboQuantScheme
-
 pub struct vortex_tensor::encodings::turboquant::TurboQuant
 
 impl vortex_tensor::encodings::turboquant::TurboQuant
 
 pub const vortex_tensor::encodings::turboquant::TurboQuant::ID: vortex_array::array::ArrayId
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuant::validate_dtype(dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<&vortex_array::dtype::extension::erased::ExtDTypeRef>
 
 impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuant
 
@@ -56,7 +24,7 @@ impl vortex_array::array::vtable::VTable for vortex_tensor::encodings::turboquan
 
 pub type vortex_tensor::encodings::turboquant::TurboQuant::ArrayData = vortex_tensor::encodings::turboquant::TurboQuantData
 
-pub type vortex_tensor::encodings::turboquant::TurboQuant::Metadata = vortex_tensor::encodings::turboquant::array::TurboQuantMetadata
+pub type vortex_tensor::encodings::turboquant::TurboQuant::Metadata = vortex_tensor::encodings::turboquant::TurboQuantMetadata
 
 pub type vortex_tensor::encodings::turboquant::TurboQuant::OperationsVTable = vortex_tensor::encodings::turboquant::TurboQuant
 
@@ -176,9 +144,47 @@ impl vortex_array::array::IntoArray for vortex_tensor::encodings::turboquant::Tu
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::into_array(self) -> vortex_array::array::erased::ArrayRef
 
-pub const vortex_tensor::encodings::turboquant::FIXED_SHAPE_TENSOR_EXT_ID: &str
+pub struct vortex_tensor::encodings::turboquant::TurboQuantMetadata
 
-pub const vortex_tensor::encodings::turboquant::VECTOR_EXT_ID: &str
+pub vortex_tensor::encodings::turboquant::TurboQuantMetadata::bit_width: u8
+
+impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuantMetadata
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuantMetadata::clone(&self) -> vortex_tensor::encodings::turboquant::TurboQuantMetadata
+
+impl core::fmt::Debug for vortex_tensor::encodings::turboquant::TurboQuantMetadata
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuantMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_tensor::encodings::turboquant::TurboQuantScheme
+
+impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuantScheme
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::clone(&self) -> vortex_tensor::encodings::turboquant::TurboQuantScheme
+
+impl core::cmp::Eq for vortex_tensor::encodings::turboquant::TurboQuantScheme
+
+impl core::cmp::PartialEq for vortex_tensor::encodings::turboquant::TurboQuantScheme
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::eq(&self, other: &vortex_tensor::encodings::turboquant::TurboQuantScheme) -> bool
+
+impl core::fmt::Debug for vortex_tensor::encodings::turboquant::TurboQuantScheme
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_tensor::encodings::turboquant::TurboQuantScheme
+
+impl core::marker::StructuralPartialEq for vortex_tensor::encodings::turboquant::TurboQuantScheme
+
+impl vortex_compressor::scheme::Scheme for vortex_tensor::encodings::turboquant::TurboQuantScheme
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::expected_compression_ratio(&self, _compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<f64>
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::scheme_name(&self) -> &'static str
 
 pub fn vortex_tensor::encodings::turboquant::initialize(session: &mut vortex_session::VortexSession)
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -22,7 +24,7 @@ use crate::utils::extension_list_size;
 /// extension arrays. It stores quantized coordinate codes and per-vector norms, along with shared
 /// codebook centroids and SRHT rotation signs.
 ///
-/// See the [module docs](super) for algorithmic details.
+/// See the [module docs](crate::encodings::turboquant) for algorithmic details.
 ///
 /// A degenerate TurboQuant array has zero rows and `bit_width == 0`, with all slots empty.
 #[derive(Clone, Debug)]
@@ -128,7 +130,7 @@ impl TurboQuantData {
         let bit_width = if centroids.is_empty() {
             0
         } else {
-            // Guaranteed to be 0-8 by validate().
+            // Guaranteed to be 1-8 by validate().
             #[expect(clippy::cast_possible_truncation)]
             {
                 centroids.len().trailing_zeros() as u8
@@ -162,6 +164,19 @@ impl TurboQuantData {
     ) -> VortexResult<()> {
         let ext = TurboQuant::validate_dtype(dtype)?;
         let dimension = extension_list_size(ext)?;
+        let padded_dim = dimension.next_power_of_two();
+
+        // Codes must be a FixedSizeList<u8> with list_size == padded_dim.
+        let expected_codes_dtype = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)), // FIX THIS!!!
+            padded_dim,
+            dtype.nullability(),
+        );
+        vortex_ensure_eq!(
+            *codes.dtype(),
+            expected_codes_dtype,
+            "codes dtype does not match expected {expected_codes_dtype}",
+        );
 
         let num_rows = codes.len();
         vortex_ensure_eq!(
@@ -206,12 +221,11 @@ impl TurboQuantData {
 
         // Norms dtype must match the element ptype of the Vector.
         let element_ptype = extension_element_ptype(ext)?;
-        let expected_norms_dtype = DType::Primitive(element_ptype, Nullability::NonNullable);
+        let expected_norms_dtype = DType::Primitive(element_ptype, Nullability::NonNullable); // FIX THIS!!!
         vortex_ensure_eq!(
             *norms.dtype(),
             expected_norms_dtype,
-            "norms dtype does not match expected {expected_norms_dtype} \
-             (must match Vector element type)",
+            "norms dtype does not match expected (must match Vector element type)",
         );
 
         // Centroids are always f32 regardless of element type.
@@ -219,14 +233,13 @@ impl TurboQuantData {
         vortex_ensure_eq!(
             *centroids.dtype(),
             centroids_dtype,
-            "centroids dtype  must be non-nullable f32",
+            "centroids dtype must be non-nullable f32",
         );
 
         // Rotation signs count must be 3 * padded_dim.
-        let padded_dim = dimension.next_power_of_two() as usize;
         vortex_ensure_eq!(
             rotation_signs.len(),
-            3 * padded_dim,
+            3 * padded_dim as usize,
             "rotation_signs length does not match expected 3 * {padded_dim}",
         );
 

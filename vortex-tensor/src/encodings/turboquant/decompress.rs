@@ -3,6 +3,8 @@
 
 //! TurboQuant decoding (dequantization) logic.
 
+use num_traits::FromPrimitive;
+use num_traits::Zero;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -10,12 +12,15 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::NativePType;
+use vortex_array::match_each_float_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
+use crate::utils::extension_element_ptype;
 
 /// Decompress a `TurboQuantArray` into a [`Vector`] extension array.
 ///
@@ -31,19 +36,23 @@ pub fn execute_decompress(
     let padded_dim = array.padded_dim() as usize;
     let num_rows = array.norms().len();
     let ext_dtype = array.dtype.as_extension().clone();
+    let element_ptype = extension_element_ptype(&ext_dtype)?;
 
     if num_rows == 0 {
-        let elements = PrimitiveArray::empty::<f32>(ext_dtype.storage_dtype().nullability());
-        let fsl = FixedSizeListArray::try_new(
-            elements.into_array(),
-            array.dimension(),
-            Validity::NonNullable,
-            0,
-        )?;
-        return Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array());
+        let nn = vortex_array::dtype::Nullability::NonNullable;
+        match_each_float_ptype!(element_ptype, |T| {
+            let elements = PrimitiveArray::empty::<T>(nn);
+            let fsl = FixedSizeListArray::try_new(
+                elements.into_array(),
+                array.dimension(),
+                Validity::NonNullable,
+                0,
+            )?;
+            return Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array());
+        })
     }
 
-    // Read stored centroids -- no recomputation.
+    // Read stored centroids (always f32).
     let centroids_prim = array.centroids().clone().execute::<PrimitiveArray>(ctx)?;
     let centroids = centroids_prim.as_slice::<f32>();
 
@@ -61,11 +70,47 @@ pub fn execute_decompress(
     let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
     let indices = codes_prim.as_slice::<u8>();
 
+    // Read norms in their native precision.
     let norms_prim = array.norms().clone().execute::<PrimitiveArray>(ctx)?;
-    let norms = norms_prim.as_slice::<f32>();
 
-    // MSE decode: dequantize -> inverse rotate -> scale by norm.
-    let mut output = BufferMut::<f32>::with_capacity(num_rows * dim);
+    // MSE decode: dequantize (f32) -> inverse rotate (f32) -> scale by norm -> cast to T.
+    // The rotation and centroid lookup always happen in f32. The final output is cast to the
+    // Vector's element type to match the original storage dtype.
+    match_each_float_ptype!(element_ptype, |T| {
+        decompress_typed::<T>(
+            &norms_prim,
+            centroids,
+            &rotation,
+            indices,
+            dim,
+            padded_dim,
+            num_rows,
+        )
+        .and_then(|elements| {
+            let fsl = FixedSizeListArray::try_new(
+                elements.into_array(),
+                array.dimension(),
+                Validity::NonNullable,
+                num_rows,
+            )?;
+            Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+        })
+    })
+}
+
+/// Typed decompress: reads norms as `T`, dequantizes in f32, and produces output as `T`.
+fn decompress_typed<T: NativePType + FromPrimitive + Zero>(
+    norms_prim: &PrimitiveArray,
+    centroids: &[f32],
+    rotation: &RotationMatrix,
+    indices: &[u8],
+    dim: usize,
+    padded_dim: usize,
+    num_rows: usize,
+) -> VortexResult<PrimitiveArray> {
+    let norms = norms_prim.as_slice::<T>();
+
+    let mut output = BufferMut::<T>::with_capacity(num_rows * dim);
     let mut dequantized = vec![0.0f32; padded_dim];
     let mut unrotated = vec![0.0f32; padded_dim];
 
@@ -80,18 +125,14 @@ pub fn execute_decompress(
         rotation.inverse_rotate(&dequantized, &mut unrotated);
 
         for idx in 0..dim {
-            unrotated[idx] *= norm;
+            // Convert f32 dequantized value to T, then scale by the native-precision norm.
+            let val = T::from_f32(unrotated[idx]).unwrap_or_else(T::zero) * norm;
+            output.push(val);
         }
-
-        output.extend_from_slice(&unrotated[..dim]);
     }
 
-    let elements = PrimitiveArray::new::<f32>(output.freeze(), Validity::NonNullable);
-    let fsl = FixedSizeListArray::try_new(
-        elements.into_array(),
-        array.dimension(),
+    Ok(PrimitiveArray::new::<T>(
+        output.freeze(),
         Validity::NonNullable,
-        num_rows,
-    )?;
-    Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+    ))
 }
