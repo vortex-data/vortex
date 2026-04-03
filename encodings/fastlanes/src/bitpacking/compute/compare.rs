@@ -110,25 +110,51 @@ where
     T: NativePType + FastLanesComparable<Bitpacked = U>,
     U: UnsignedPType + BitPacking + BitPackingCompare,
 {
+    match operator {
+        CompareOperator::Eq => {
+            compare_constant_with::<U, T, _>(array, value, nullability, ctx, T::is_eq)
+        }
+        CompareOperator::NotEq => {
+            compare_constant_with::<U, T, _>(array, value, nullability, ctx, is_ne::<T>)
+        }
+        CompareOperator::Gt => {
+            compare_constant_with::<U, T, _>(array, value, nullability, ctx, T::is_gt)
+        }
+        CompareOperator::Gte => {
+            compare_constant_with::<U, T, _>(array, value, nullability, ctx, T::is_ge)
+        }
+        CompareOperator::Lt => {
+            compare_constant_with::<U, T, _>(array, value, nullability, ctx, T::is_lt)
+        }
+        CompareOperator::Lte => {
+            compare_constant_with::<U, T, _>(array, value, nullability, ctx, T::is_le)
+        }
+    }
+}
+
+fn compare_constant_with<U, T, C>(
+    array: ArrayView<'_, BitPacked>,
+    value: T,
+    nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+    compare: C,
+) -> VortexResult<ArrayRef>
+where
+    T: NativePType + FastLanesComparable<Bitpacked = U>,
+    U: UnsignedPType + BitPacking + BitPackingCompare,
+    C: Fn(T, T) -> bool + Copy,
+{
     let mut bits = collect_chunk_masks::<U>(
         array.data(),
         array.len(),
         array.offset(),
         |bit_width, packed_chunk, chunk_matches| unsafe {
-            U::unchecked_unpack_cmp(
-                bit_width,
-                packed_chunk,
-                chunk_matches,
-                |lhs, rhs| compare_values(lhs, rhs, operator),
-                value,
-            );
+            U::unchecked_unpack_cmp(bit_width, packed_chunk, chunk_matches, compare, value);
         },
     );
 
     if let Some(patches) = array.patches() {
-        apply_patch_predicate::<T>(&mut bits, &patches, ctx, |patched| {
-            compare_values(patched, value, operator)
-        })?;
+        apply_patch_predicate::<T>(&mut bits, &patches, ctx, |patched| compare(patched, value))?;
     }
 
     Ok(BoolArray::new(
@@ -425,15 +451,8 @@ where
 }
 
 #[inline]
-fn compare_values<T: NativePType>(lhs: T, rhs: T, operator: CompareOperator) -> bool {
-    match operator {
-        CompareOperator::Eq => lhs.is_eq(rhs),
-        CompareOperator::NotEq => !lhs.is_eq(rhs),
-        CompareOperator::Gt => lhs.is_gt(rhs),
-        CompareOperator::Gte => lhs.is_ge(rhs),
-        CompareOperator::Lt => lhs.is_lt(rhs),
-        CompareOperator::Lte => lhs.is_le(rhs),
-    }
+fn is_ne<T: NativePType>(lhs: T, rhs: T) -> bool {
+    !lhs.is_eq(rhs)
 }
 
 #[inline]
