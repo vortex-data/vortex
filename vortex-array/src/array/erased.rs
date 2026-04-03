@@ -383,6 +383,13 @@ impl ArrayRef {
         self.is::<AnyCanonical>()
     }
 
+    /// Returns a new array with all slots replaced.
+    pub fn with_slots(self, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+        vortex_ensure!(self.slots().len() == slots.len(), "slot count mismatch");
+        let vtable = self.vtable().clone_boxed();
+        vtable.with_slots(self, slots)
+    }
+
     /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
     ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
