@@ -31,9 +31,9 @@ use vortex_error::vortex_err;
 
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
-use crate::utils::extension_element_ptype;
-use crate::utils::extension_list_size;
 use crate::utils::extract_flat_elements;
+use crate::utils::tensor_element_ptype;
+use crate::utils::tensor_list_size;
 
 /// Inner product (dot product) between two columns.
 ///
@@ -125,7 +125,7 @@ impl ScalarFnVTable for InnerProduct {
             "InnerProduct inputs must be an `AnyTensor`, got {lhs}"
         );
 
-        let ptype = extension_element_ptype(lhs_ext)?;
+        let ptype = tensor_element_ptype(lhs_ext)?;
         vortex_ensure!(
             ptype.is_float(),
             "InnerProduct element dtype must be a float primitive, got {ptype}"
@@ -153,7 +153,7 @@ impl ScalarFnVTable for InnerProduct {
         // Get list size from the dtype. Both sides have the same dtype (validated by
         // `return_dtype`).
         let ext = lhs.dtype().as_extension();
-        let list_size = extension_list_size(ext)? as usize;
+        let list_size = tensor_list_size(ext)? as usize;
 
         // Extract the storage array from each extension input. We pass the storage (FSL) rather
         // than the extension array to avoid canonicalizing the extension wrapper.
