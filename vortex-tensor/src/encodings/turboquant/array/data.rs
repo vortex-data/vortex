@@ -9,6 +9,7 @@ use vortex_array::stats::ArrayStats;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 
 use crate::encodings::turboquant::array::slots::Slot;
 use crate::encodings::turboquant::vtable::TurboQuant;
@@ -17,22 +18,22 @@ use crate::utils::extension_list_size;
 
 /// TurboQuant array data.
 ///
-/// TurboQuant is a lossy vector quantization encoding for [`Vector`] extension arrays.
-/// It stores quantized coordinate codes and per-vector norms, along with shared codebook
-/// centroids and SRHT rotation signs. See the [module docs](super) for algorithmic details.
+/// TurboQuant is a lossy vector quantization encoding for [`Vector`](crate::vector::Vector)
+/// extension arrays. It stores quantized coordinate codes and per-vector norms, along with shared
+/// codebook centroids and SRHT rotation signs.
+///
+/// See the [module docs](super) for algorithmic details.
 ///
 /// A degenerate TurboQuant array has zero rows and `bit_width == 0`, with all slots empty.
-///
-/// [`Vector`]: crate::vector::Vector
 #[derive(Clone, Debug)]
 pub struct TurboQuantData {
-    /// The [`Vector`] extension dtype that this array encodes. The storage dtype within the
-    /// extension determines the element type (f16, f32, or f64) and the list size (dimension).
+    /// The [`Vector`](crate::vector::Vector) extension dtype that this array encodes.
     ///
-    /// [`Vector`]: crate::vector::Vector
+    /// The storage dtype within the extension determines the element type (f16, f32, or f64) and
+    /// the list size (dimension).
     pub(crate) dtype: DType,
 
-    /// Child arrays stored as optional slots. See [`Slot`] for positions:
+    /// Child arrays stored as slots. See [`Slot`] for positions:
     ///
     /// - [`Codes`](Slot::Codes): `FixedSizeListArray<u8>` with `list_size == padded_dim`. Each row
     ///   holds one u8 centroid index per padded coordinate. The cascade compressor handles packing
@@ -53,13 +54,13 @@ pub struct TurboQuantData {
     pub(crate) slots: Vec<Option<ArrayRef>>,
 
     /// The vector dimension `d`, cached from the `FixedSizeList` storage dtype's list size.
+    ///
     /// Stored as a convenience field to avoid repeatedly extracting it from `dtype`.
-    /// Non-power-of-2 dimensions are zero-padded to [`padded_dim`](Self::padded_dim) for the
-    /// Walsh-Hadamard transform.
     pub(crate) dimension: u32,
 
     /// The number of bits per coordinate (1-8), derived from `log2(centroids.len())`.
-    /// Zero for degenerate empty arrays.
+    ///
+    /// This is 0 for degenerate empty arrays.
     pub(crate) bit_width: u8,
 
     /// The stats for this array.
@@ -100,8 +101,8 @@ impl TurboQuantData {
     ///   is >= 3.
     /// - `codes` is a `FixedSizeListArray<u8>` with `list_size == padded_dim` and
     ///   `codes.len() == norms.len()`.
-    /// - `norms` is a non-nullable primitive array whose ptype matches the element type of the
-    ///   Vector's storage dtype.
+    /// - `norms` is a primitive array whose ptype matches the element type of the Vector's storage
+    ///   dtype. This must match the validity of the `codes` array.
     /// - `centroids` is a non-nullable `PrimitiveArray<f32>` whose length is a power of 2 in
     ///   `[2, 256]` (i.e., `2^bit_width` for bit_width 1-8), or empty for degenerate arrays.
     /// - `rotation_signs` has `3 * padded_dim` elements, or is empty for degenerate arrays.
@@ -124,13 +125,22 @@ impl TurboQuantData {
             .and_then(|ext| extension_list_size(ext).ok())
             .vortex_expect("dtype must be a Vector extension type with FixedSizeList storage");
 
-        let bit_width = derive_bit_width(&centroids);
+        let bit_width = if centroids.is_empty() {
+            0
+        } else {
+            // Guaranteed to be 0-8 by validate().
+            #[expect(clippy::cast_possible_truncation)]
+            {
+                centroids.len().trailing_zeros() as u8
+            }
+        };
 
         let mut slots = vec![None; Slot::COUNT];
         slots[Slot::Codes as usize] = Some(codes);
         slots[Slot::Norms as usize] = Some(norms);
         slots[Slot::Centroids as usize] = Some(centroids);
         slots[Slot::RotationSigns as usize] = Some(rotation_signs);
+
         Self {
             dtype,
             slots,
@@ -153,15 +163,19 @@ impl TurboQuantData {
         let ext = TurboQuant::validate_dtype(dtype)?;
         let dimension = extension_list_size(ext)?;
 
-        let num_rows = norms.len();
+        let num_rows = codes.len();
+        vortex_ensure_eq!(
+            norms.len(),
+            num_rows,
+            "norms length must match codes length",
+        );
 
-        // Degenerate (empty) case: all children must be empty, bit_width is 0.
+        // TODO(connor): Should we check that the codes and norms have the same validity? We could
+        // also make it so that norms holds the validity and any null vectors encoded as codes is
+        // just 0...
+
+        // Degenerate (empty) case: all children must be empty, and bit_width is 0.
         if num_rows == 0 {
-            vortex_ensure!(
-                codes.is_empty(),
-                "degenerate TurboQuant must have empty codes, got length {}",
-                codes.len()
-            );
             vortex_ensure!(
                 centroids.is_empty(),
                 "degenerate TurboQuant must have empty centroids, got length {}",
@@ -183,7 +197,7 @@ impl TurboQuantData {
         );
 
         // Guaranteed to be 1-8 by the preceding power-of-2 and range checks.
-        #[allow(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let bit_width = num_centroids.trailing_zeros() as u8;
         vortex_ensure!(
             (1..=8).contains(&bit_width),
@@ -193,44 +207,34 @@ impl TurboQuantData {
         // Norms dtype must match the element ptype of the Vector.
         let element_ptype = extension_element_ptype(ext)?;
         let expected_norms_dtype = DType::Primitive(element_ptype, Nullability::NonNullable);
-        vortex_ensure!(
-            *norms.dtype() == expected_norms_dtype,
-            "norms dtype {} does not match expected {expected_norms_dtype} \
+        vortex_ensure_eq!(
+            *norms.dtype(),
+            expected_norms_dtype,
+            "norms dtype does not match expected {expected_norms_dtype} \
              (must match Vector element type)",
-            norms.dtype()
         );
 
         // Centroids are always f32 regardless of element type.
-        let f32_nn = DType::Primitive(PType::F32, Nullability::NonNullable);
-        vortex_ensure!(
-            *centroids.dtype() == f32_nn,
-            "centroids dtype {} must be non-nullable f32",
-            centroids.dtype()
-        );
-
-        // Row count consistency.
-        vortex_ensure!(
-            codes.len() == num_rows,
-            "codes length {} does not match norms length {num_rows}",
-            codes.len()
+        let centroids_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
+        vortex_ensure_eq!(
+            *centroids.dtype(),
+            centroids_dtype,
+            "centroids dtype  must be non-nullable f32",
         );
 
         // Rotation signs count must be 3 * padded_dim.
         let padded_dim = dimension.next_power_of_two() as usize;
-        vortex_ensure!(
-            rotation_signs.len() == 3 * padded_dim,
-            "rotation_signs length {} does not match expected 3 * {padded_dim} = {}",
+        vortex_ensure_eq!(
             rotation_signs.len(),
-            3 * padded_dim
+            3 * padded_dim,
+            "rotation_signs length does not match expected 3 * {padded_dim}",
         );
 
         Ok(())
     }
 
-    /// The vector dimension `d`, as stored in the [`Vector`] extension dtype's
-    /// `FixedSizeList` storage.
-    ///
-    /// [`Vector`]: crate::vector::Vector
+    /// The vector dimension `d`, as stored in the [`Vector`](crate::vector::Vector) extension
+    /// dtype's `FixedSizeList` storage.
     pub fn dimension(&self) -> u32 {
         self.dimension
     }
@@ -246,12 +250,6 @@ impl TurboQuantData {
     /// zero-padded to this value.
     pub fn padded_dim(&self) -> u32 {
         self.dimension.next_power_of_two()
-    }
-
-    fn slot(&self, idx: usize) -> &ArrayRef {
-        self.slots[idx]
-            .as_ref()
-            .vortex_expect("required slot is None")
     }
 
     /// The quantized codes child (`FixedSizeListArray<u8>`, one row per vector).
@@ -278,19 +276,10 @@ impl TurboQuantData {
     pub fn rotation_signs(&self) -> &ArrayRef {
         self.slot(Slot::RotationSigns as usize)
     }
-}
 
-/// Derive `bit_width` from the centroids array length.
-///
-/// Returns 0 for empty centroids (degenerate array), otherwise `log2(centroids.len())`.
-fn derive_bit_width(centroids: &ArrayRef) -> u8 {
-    if centroids.is_empty() {
-        0
-    } else {
-        // Guaranteed to be 0-8 by validate().
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            centroids.len().trailing_zeros() as u8
-        }
+    fn slot(&self, idx: usize) -> &ArrayRef {
+        self.slots[idx]
+            .as_ref()
+            .vortex_expect("required slot is None")
     }
 }

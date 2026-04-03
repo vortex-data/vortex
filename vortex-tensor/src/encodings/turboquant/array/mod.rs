@@ -8,7 +8,7 @@ pub(crate) mod data;
 pub(crate) mod metadata;
 pub(crate) mod slots;
 
-pub(crate) mod scheme;
-
 pub(crate) mod centroids;
 pub(crate) mod rotation;
+
+pub(crate) mod scheme;
