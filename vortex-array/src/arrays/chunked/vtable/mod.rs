@@ -37,7 +37,6 @@ use crate::dtype::PType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 mod canonical;
@@ -105,6 +104,22 @@ impl VTable for Chunked {
         Ok(Some(vec![]))
     }
 
+    fn validate(&self, data: &ChunkedData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.len() == len,
+            "ChunkedArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        vortex_ensure!(
+            data.dtype() == dtype,
+            "ChunkedArray dtype {} does not match outer dtype {}",
+            data.dtype(),
+            dtype
+        );
+        Ok(())
+    }
+
     fn deserialize(
         &self,
         dtype: &DType,
@@ -147,21 +162,13 @@ impl VTable for Chunked {
 
         let chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
 
-        let total_len = chunk_offsets_buf
-            .last()
-            .ok_or_else(|| vortex_err!("chunk_offsets must not be empty"))?;
-        let len = usize::try_from(*total_len)
-            .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
-
         let slots = ChunkedData::make_slots(&chunk_offsets, &chunks);
         // Construct directly using the struct fields to avoid recomputing chunk_offsets
         Ok(ChunkedData {
             dtype: dtype.clone(),
-            len,
             chunk_offsets,
             chunks,
             slots,
-            stats_set: Default::default(),
         })
     }
 
@@ -203,12 +210,6 @@ impl VTable for Chunked {
         array.chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
         array.chunks = chunks;
         array.slots = slots;
-
-        let total_len = chunk_offsets_buf
-            .last()
-            .ok_or_else(|| vortex_err!("chunk_offsets must not be empty"))?;
-        array.len = usize::try_from(*total_len)
-            .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
 
         Ok(())
     }

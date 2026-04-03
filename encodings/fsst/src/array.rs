@@ -11,10 +11,10 @@ use fsst::Decompressor;
 use fsst::Symbol;
 use prost::Message as _;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
@@ -132,11 +132,13 @@ impl VTable for FSST {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(FSSTMetadata {
-            uncompressed_lengths_ptype: array.uncompressed_lengths().dtype().as_ptype().into(),
-            codes_offsets_ptype: array.codes.offsets().dtype().as_ptype().into(),
-        }
-        .encode_to_vec()))
+        Ok(Some(
+            FSSTMetadata {
+                uncompressed_lengths_ptype: array.uncompressed_lengths().dtype().as_ptype().into(),
+                codes_offsets_ptype: array.codes.offsets().dtype().as_ptype().into(),
+            }
+            .encode_to_vec(),
+        ))
     }
 
     fn deserialize(
@@ -176,13 +178,7 @@ impl VTable for FSST {
                 len,
             )?;
 
-            return FSSTData::try_new(
-                symbols,
-                symbol_lengths,
-                codes,
-                uncompressed_lengths,
-                dtype,
-            );
+            return FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, dtype);
         }
 
         // Check for the current deserialization path.
@@ -223,13 +219,7 @@ impl VTable for FSST {
                 codes_validity,
             )?;
 
-            return FSSTData::try_new(
-                symbols,
-                symbol_lengths,
-                codes,
-                uncompressed_lengths,
-                dtype,
-            );
+            return FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, dtype);
         }
 
         vortex_bail!(
@@ -371,14 +361,8 @@ impl FSST {
         uncompressed_lengths: ArrayRef,
     ) -> VortexResult<FSSTArray> {
         let len = codes.len();
-        let data = FSSTData::try_new(
-            symbols,
-            symbol_lengths,
-            codes,
-            uncompressed_lengths,
-            &dtype,
-        )?;
-        Array::try_from_parts(ArrayNew::new(FSST, dtype, len, data))
+        let data = FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, &dtype)?;
+        Array::try_from_parts(ArrayParts::new(FSST, dtype, len, data))
     }
 
     pub(crate) unsafe fn new_unchecked(
@@ -389,8 +373,10 @@ impl FSST {
         uncompressed_lengths: ArrayRef,
     ) -> FSSTArray {
         let len = codes.len();
-        let data = unsafe { FSSTData::new_unchecked(symbols, symbol_lengths, codes, uncompressed_lengths) };
-        Array::try_from_parts(ArrayNew::new(FSST, dtype, len, data))
+        let data = unsafe {
+            FSSTData::new_unchecked(symbols, symbol_lengths, codes, uncompressed_lengths)
+        };
+        Array::try_from_parts(ArrayParts::new(FSST, dtype, len, data))
             .vortex_expect("pre-validated FSST parts must be valid")
     }
 }
@@ -411,10 +397,24 @@ impl FSSTData {
         uncompressed_lengths: ArrayRef,
         dtype: &DType,
     ) -> VortexResult<Self> {
-        Self::validate_parts(&symbols, &symbol_lengths, &codes, &uncompressed_lengths, dtype, codes.len())?;
+        Self::validate_parts(
+            &symbols,
+            &symbol_lengths,
+            &codes,
+            &uncompressed_lengths,
+            dtype,
+            codes.len(),
+        )?;
 
         // SAFETY: all components validated above
-        unsafe { Ok(Self::new_unchecked(symbols, symbol_lengths, codes, uncompressed_lengths)) }
+        unsafe {
+            Ok(Self::new_unchecked(
+                symbols,
+                symbol_lengths,
+                codes,
+                uncompressed_lengths,
+            ))
+        }
     }
 
     pub fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {

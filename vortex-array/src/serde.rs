@@ -281,14 +281,14 @@ impl ArrayChildren for &[ArrayRef] {
     }
 }
 
-/// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized array.
+/// [`SerializedArray`] represents a parsed but not-yet-decoded deserialized array.
 /// It contains all the information from the serialized form, without anything extra. i.e.
 /// it is missing a [`DType`] and `len`, and the `encoding_id` is not yet resolved to a concrete
 /// vtable.
 ///
-/// An [`ArrayParts`] can be fully decoded into an [`ArrayRef`] using the `decode` function.
+/// An [`SerializedArray`] can be fully decoded into an [`ArrayRef`] using the `decode` function.
 #[derive(Clone)]
-pub struct ArrayParts {
+pub struct SerializedArray {
     // Typed as fb::ArrayNode
     flatbuffer: FlatBuffer,
     // The location of the current fb::ArrayNode
@@ -296,9 +296,9 @@ pub struct ArrayParts {
     buffers: Arc<[BufferHandle]>,
 }
 
-impl Debug for ArrayParts {
+impl Debug for SerializedArray {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArrayParts")
+        f.debug_struct("SerializedArray")
             .field("encoding_id", &self.encoding_id())
             .field("children", &(0..self.nchildren()).map(|i| self.child(i)))
             .field(
@@ -310,8 +310,8 @@ impl Debug for ArrayParts {
     }
 }
 
-impl ArrayParts {
-    /// Decode an [`ArrayParts`] into an [`ArrayRef`].
+impl SerializedArray {
+    /// Decode an [`SerializedArray`] into an [`ArrayRef`].
     pub fn decode(
         &self,
         dtype: &DType,
@@ -329,8 +329,8 @@ impl ArrayParts {
             .find(&encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
 
-        let children = ArrayPartsChildren {
-            parts: self,
+        let children = SerializedArrayChildren {
+            ser: self,
             ctx,
             session,
         };
@@ -402,7 +402,7 @@ impl ArrayParts {
     }
 
     /// Returns the nth child of the array.
-    pub fn child(&self, idx: usize) -> ArrayParts {
+    pub fn child(&self, idx: usize) -> SerializedArray {
         let children = self
             .flatbuffer()
             .children()
@@ -505,7 +505,7 @@ impl ArrayParts {
         Ok((fb_buffer, flatbuffer_loc))
     }
 
-    /// Create an [`ArrayParts`] from a pre-existing array tree flatbuffer and pre-resolved buffer
+    /// Create an [`SerializedArray`] from a pre-existing array tree flatbuffer and pre-resolved buffer
     /// handles.
     ///
     /// The caller is responsible for resolving buffers from whatever source (device segments, host
@@ -516,14 +516,14 @@ impl ArrayParts {
         buffers: Vec<BufferHandle>,
     ) -> VortexResult<Self> {
         let (flatbuffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
-        Ok(ArrayParts {
+        Ok(SerializedArray {
             flatbuffer,
             flatbuffer_loc,
             buffers: buffers.into(),
         })
     }
 
-    /// Create an [`ArrayParts`] from a raw array tree flatbuffer (metadata only).
+    /// Create an [`SerializedArray`] from a raw array tree flatbuffer (metadata only).
     ///
     /// This constructor creates an `ArrayParts` with no buffer data, useful for
     /// inspecting the metadata when the actual buffer data is not needed
@@ -533,7 +533,7 @@ impl ArrayParts {
     /// no actual buffer data is available.
     pub fn from_array_tree(array_tree: impl Into<ByteBuffer>) -> VortexResult<Self> {
         let (flatbuffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
-        Ok(ArrayParts {
+        Ok(SerializedArray {
             flatbuffer,
             flatbuffer_loc,
             buffers: Arc::new([]),
@@ -545,7 +545,7 @@ impl ArrayParts {
         unsafe { fba::ArrayNode::follow(self.flatbuffer.as_ref(), self.flatbuffer_loc) }
     }
 
-    /// Returns a new [`ArrayParts`] with the given node as the root
+    /// Returns a new [`SerializedArray`] with the given node as the root
     // TODO(ngates): we may want a wrapper that avoids this clone.
     fn with_root(&self, root: fba::ArrayNode) -> Self {
         let mut this = self.clone();
@@ -553,7 +553,7 @@ impl ArrayParts {
         this
     }
 
-    /// Create an [`ArrayParts`] from a pre-existing flatbuffer (ArrayNode) and a segment containing
+    /// Create an [`SerializedArray`] from a pre-existing flatbuffer (ArrayNode) and a segment containing
     /// only the data buffers (without the flatbuffer suffix).
     ///
     /// This is used when the flatbuffer is stored separately in layout metadata (e.g., when
@@ -566,7 +566,7 @@ impl ArrayParts {
         Self::from_flatbuffer_and_segment_with_overrides(array_tree, segment, &HashMap::new())
     }
 
-    /// Create an [`ArrayParts`] from a pre-existing flatbuffer (ArrayNode) and a segment,
+    /// Create an [`SerializedArray`] from a pre-existing flatbuffer (ArrayNode) and a segment,
     /// substituting host-resident buffer overrides for specific buffer indices.
     ///
     /// Buffers whose index appears in `buffer_overrides` are resolved from the provided
@@ -611,7 +611,7 @@ impl ArrayParts {
             })
             .collect::<VortexResult<Arc<[_]>>>()?;
 
-        Ok(ArrayParts {
+        Ok(SerializedArray {
             flatbuffer: fb_buffer,
             flatbuffer_loc,
             buffers,
@@ -619,25 +619,25 @@ impl ArrayParts {
     }
 }
 
-struct ArrayPartsChildren<'a> {
-    parts: &'a ArrayParts,
+struct SerializedArrayChildren<'a> {
+    ser: &'a SerializedArray,
     ctx: &'a ReadContext,
     session: &'a VortexSession,
 }
 
-impl ArrayChildren for ArrayPartsChildren<'_> {
+impl ArrayChildren for SerializedArrayChildren<'_> {
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-        self.parts
+        self.ser
             .child(index)
             .decode(dtype, len, self.ctx, self.session)
     }
 
     fn len(&self) -> usize {
-        self.parts.nchildren()
+        self.ser.nchildren()
     }
 }
 
-impl TryFrom<ByteBuffer> for ArrayParts {
+impl TryFrom<ByteBuffer> for SerializedArray {
     type Error = VortexError;
 
     fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
@@ -662,7 +662,7 @@ impl TryFrom<ByteBuffer> for ArrayParts {
     }
 }
 
-impl TryFrom<BufferHandle> for ArrayParts {
+impl TryFrom<BufferHandle> for SerializedArray {
     type Error = VortexError;
 
     fn try_from(value: BufferHandle) -> Result<Self, Self::Error> {

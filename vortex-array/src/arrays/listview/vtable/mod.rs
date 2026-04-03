@@ -29,7 +29,6 @@ use crate::dtype::PType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 mod operations;
@@ -96,6 +95,25 @@ impl VTable for ListView {
             size_ptype: PType::try_from(array.sizes().dtype())? as i32,
         })
         .serialize()))
+    }
+
+    fn validate(&self, data: &ListViewData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.len() == len,
+            "ListViewArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+
+        let actual_dtype = data.dtype();
+        vortex_ensure!(
+            &actual_dtype == dtype,
+            "ListViewArray dtype {} does not match outer dtype {}",
+            actual_dtype,
+            dtype
+        );
+
+        Ok(())
     }
 
     fn deserialize(

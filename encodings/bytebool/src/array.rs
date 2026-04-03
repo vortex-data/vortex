@@ -4,10 +4,10 @@
 use std::fmt::Debug;
 
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::EmptyMetadata;
@@ -185,7 +185,7 @@ impl ByteBool {
         let dtype = DType::Bool(validity.nullability());
         let data = ByteBoolData::new(buffer, validity);
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(ByteBool, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(ByteBool, dtype, len, data))
             .vortex_expect("ByteBoolData is always valid")
     }
 
@@ -194,7 +194,7 @@ impl ByteBool {
         let data = ByteBoolData::from_vec(data, validity);
         let dtype = DType::Bool(data.validity.nullability());
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(ByteBool, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(ByteBool, dtype, len, data))
             .vortex_expect("ByteBoolData is always valid")
     }
 }
@@ -207,8 +207,15 @@ impl ByteBoolData {
         len: usize,
     ) -> VortexResult<()> {
         let expected_dtype = DType::Bool(validity.nullability());
-        vortex_ensure!(dtype == &expected_dtype, "expected dtype {expected_dtype}, got {dtype}");
-        vortex_ensure!(buffer.len() == len, "expected len {len}, got {}", buffer.len());
+        vortex_ensure!(
+            dtype == &expected_dtype,
+            "expected dtype {expected_dtype}, got {dtype}"
+        );
+        vortex_ensure!(
+            buffer.len() == len,
+            "expected len {len}, got {}",
+            buffer.len()
+        );
         if let Some(vlen) = validity.maybe_len() {
             vortex_ensure!(vlen == len, "expected validity len {len}, got {vlen}");
         }
@@ -312,8 +319,8 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::ByteBufferMut;
@@ -382,7 +389,7 @@ mod tests {
             concat.extend_from_slice(buf.as_ref());
         }
 
-        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
             .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
             .unwrap();

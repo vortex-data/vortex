@@ -9,9 +9,8 @@ pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::dtype::DType;
-use crate::stats::ArrayStats;
 
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
@@ -27,17 +26,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 #[derive(Clone, Debug)]
 pub struct VariantData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(crate) stats_set: ArrayStats,
 }
 
 impl VariantData {
     /// Creates a new VariantArray. Nullability comes from the child's dtype.
     pub fn new(child: ArrayRef) -> Self {
-        let stats_set = child.statistics().to_array_stats();
-        Self {
-            slots: vec![Some(child)],
-            stats_set,
-        }
+        Self { slots: vec![Some(child)] }
     }
 
     /// Returns the length of this array.
@@ -69,7 +63,9 @@ impl Array<Variant> {
         let dtype = child.dtype().clone();
         let len = child.len();
         let stats = child.statistics().to_array_stats();
-        Array::try_from_parts(ArrayNew::new(Variant, dtype, len, VariantData::new(child)).with_stats(stats))
-            .vortex_expect("VariantData is always valid")
+        Array::try_from_parts(
+            ArrayParts::new(Variant, dtype, len, VariantData::new(child)).with_stats(stats),
+        )
+        .vortex_expect("VariantData is always valid")
     }
 }

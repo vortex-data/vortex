@@ -7,12 +7,12 @@ use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Masked;
 use crate::dtype::DType;
-use crate::stats::ArrayStats;
+use crate::dtype::Nullability;
 use crate::validity::Validity;
 
 /// The underlying child array being masked.
@@ -25,8 +25,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child", "validity"];
 #[derive(Clone, Debug)]
 pub struct MaskedData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) dtype: DType,
-    pub(super) stats: ArrayStats,
 }
 
 impl MaskedData {
@@ -47,20 +45,17 @@ impl MaskedData {
 
         // MaskedArray's nullability is determined solely by its validity, not the child's dtype.
         // The child can have nullable dtype but must not have any actual null values.
-        let dtype = child.dtype().as_nullable();
         let len = child.len();
         let validity_slot = validity_to_child(&validity, len);
 
         Ok(Self {
             slots: vec![Some(child), validity_slot],
-            dtype,
-            stats: ArrayStats::default(),
         })
     }
 
     /// Returns the dtype of the array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
+    pub fn dtype(&self) -> DType {
+        self.child().dtype().as_nullable()
     }
 
     /// Returns the length of the array.
@@ -76,7 +71,7 @@ impl MaskedData {
     /// Returns the validity of the array.
     #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+        child_to_validity(&self.slots[VALIDITY_SLOT], Nullability::Nullable)
     }
 
     /// Returns the validity as a [`Mask`](vortex_mask::Mask).
@@ -97,6 +92,6 @@ impl Array<Masked> {
         let dtype = child.dtype().as_nullable();
         let len = child.len();
         let data = MaskedData::try_new(child, validity)?;
-        Array::try_from_parts(ArrayNew::new(Masked, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Masked, dtype, len, data))
     }
 }

@@ -9,10 +9,9 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::arrays::Slice;
 use crate::dtype::DType;
-use crate::stats::ArrayStats;
 
 /// The underlying child array being sliced.
 pub(super) const CHILD_SLOT: usize = 0;
@@ -23,7 +22,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 pub struct SliceData {
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) range: Range<usize>,
-    pub(super) stats: ArrayStats,
 }
 
 pub struct SliceArrayParts {
@@ -43,7 +41,6 @@ impl SliceData {
         Ok(Self {
             slots: vec![Some(child)],
             range,
-            stats: ArrayStats::default(),
         })
     }
 
@@ -85,7 +82,7 @@ impl Array<Slice> {
         let len = range.len();
         let dtype = child.dtype().clone();
         let data = SliceData::try_new(child, range)?;
-        Array::try_from_parts(ArrayNew::new(Slice, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Slice, dtype, len, data))
     }
 
     /// Constructs a new `SliceArray`.
@@ -93,7 +90,7 @@ impl Array<Slice> {
         let len = range.len();
         let dtype = child.dtype().clone();
         let data = SliceData::new(child, range);
-        Array::try_from_parts(ArrayNew::new(Slice, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Slice, dtype, len, data))
             .vortex_expect("SliceData is always valid")
     }
 }

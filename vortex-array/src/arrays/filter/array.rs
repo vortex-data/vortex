@@ -8,10 +8,9 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::arrays::Filter;
 use crate::dtype::DType;
-use crate::stats::ArrayStats;
 
 /// The source array being filtered.
 pub(super) const CHILD_SLOT: usize = 0;
@@ -37,9 +36,6 @@ pub struct FilterData {
 
     /// The boolean mask selecting which elements to keep.
     pub(super) mask: Mask,
-
-    /// The stats for this array.
-    pub(super) stats: ArrayStats,
 }
 
 impl FilterData {
@@ -59,7 +55,6 @@ impl FilterData {
         Ok(Self {
             slots: vec![Some(array)],
             mask,
-            stats: ArrayStats::default(),
         })
     }
 
@@ -97,7 +92,7 @@ impl Array<Filter> {
         let dtype = array.dtype().clone();
         let len = mask.true_count();
         let data = FilterData::new(array, mask);
-        Array::try_from_parts(ArrayNew::new(Filter, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Filter, dtype, len, data))
             .vortex_expect("FilterData is always valid")
     }
 
@@ -106,7 +101,7 @@ impl Array<Filter> {
         let dtype = array.dtype().clone();
         let len = mask.true_count();
         let data = FilterData::try_new(array, mask)?;
-        Array::try_from_parts(ArrayNew::new(Filter, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Filter, dtype, len, data))
     }
 }
 

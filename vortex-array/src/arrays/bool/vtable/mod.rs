@@ -36,7 +36,6 @@ use crate::array::ArrayId;
 use crate::arrays::bool::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::ArrayStats;
 
 vtable!(Bool, Bool, BoolData);
 
@@ -89,16 +88,38 @@ impl VTable for Bool {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
-        Ok(Some(ProstMetadata(BoolMetadata {
-            offset: u32::try_from(array.offset).vortex_expect("checked"),
-        })
-        .serialize()))
+        Ok(Some(
+            ProstMetadata(BoolMetadata {
+                offset: u32::try_from(array.offset).vortex_expect("checked"),
+            })
+            .serialize(),
+        ))
+    }
+
+    fn validate(&self, data: &BoolData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.len() == len,
+            "BoolArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+
+        let actual_dtype = data.dtype();
+        vortex_ensure!(
+            &actual_dtype == dtype,
+            "BoolArray dtype {} does not match outer dtype {}",
+            actual_dtype,
+            dtype
+        );
+
+        Ok(())
     }
 
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
@@ -181,8 +202,8 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
 
     #[test]
     fn test_nullable_bool_serde_roundtrip() {
@@ -201,7 +222,7 @@ mod tests {
         for buf in serialized {
             concat.extend_from_slice(buf.as_ref());
         }
-        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

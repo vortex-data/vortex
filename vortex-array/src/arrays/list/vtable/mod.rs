@@ -32,7 +32,6 @@ use crate::hash::ArrayHash;
 use crate::metadata::DeserializeMetadata;
 use crate::metadata::SerializeMetadata;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 mod operations;
@@ -95,6 +94,25 @@ impl VTable for List {
             offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
         })
         .serialize()))
+    }
+
+    fn validate(&self, data: &ListData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.len() == len,
+            "ListArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+
+        let actual_dtype = data.dtype();
+        vortex_ensure!(
+            &actual_dtype == dtype,
+            "ListArray dtype {} does not match outer dtype {}",
+            actual_dtype,
+            dtype
+        );
+
+        Ok(())
     }
 
     fn deserialize(

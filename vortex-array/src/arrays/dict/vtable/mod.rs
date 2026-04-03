@@ -41,7 +41,6 @@ use crate::hash::ArrayHash;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::vtable;
 mod kernel;
 mod operations;
@@ -64,6 +63,15 @@ impl VTable for Dict {
 
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn validate(&self, data: &DictData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(data.codes().len() == len, "DictArray codes length mismatch");
+        vortex_ensure!(
+            data.dtype() == *dtype,
+            "DictArray dtype does not match codes/values dtype"
+        );
+        Ok(())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &DictData, state: &mut H, precision: Precision) {
@@ -106,7 +114,8 @@ impl VTable for Dict {
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,

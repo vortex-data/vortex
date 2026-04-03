@@ -27,7 +27,6 @@ use crate::arrays::variant::VariantData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::vtable;
 
 vtable!(Variant, Variant, VariantData);

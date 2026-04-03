@@ -5,49 +5,25 @@ use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::arrays::Constant;
-use crate::dtype::DType;
 use crate::scalar::Scalar;
-use crate::stats::ArrayStats;
 
 pub(super) const NUM_SLOTS: usize = 0;
 
 #[derive(Clone, Debug)]
 pub struct ConstantData {
     pub(super) scalar: Scalar,
-    pub(super) len: usize,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats_set: ArrayStats,
 }
 
 impl ConstantData {
-    pub fn new<S>(scalar: S, len: usize) -> Self
+    pub fn new<S>(scalar: S) -> Self
     where
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        Self {
-            scalar,
-            len,
-            slots: vec![],
-            stats_set: Default::default(),
-        }
-    }
-
-    /// Returns the length of this array.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        self.scalar.dtype()
-    }
-
-    /// Returns `true` if this array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        Self { scalar, slots: vec![] }
     }
 
     /// Returns the [`Scalar`] value of this constant array.
@@ -67,8 +43,8 @@ impl Array<Constant> {
     {
         let scalar = scalar.into();
         let dtype = scalar.dtype().clone();
-        let data = ConstantData::new(scalar, len);
-        Array::try_from_parts(ArrayNew::new(Constant, dtype, len, data))
+        let data = ConstantData::new(scalar);
+        Array::try_from_parts(ArrayParts::new(Constant, dtype, len, data))
             .vortex_expect("ConstantData is always valid")
     }
 }

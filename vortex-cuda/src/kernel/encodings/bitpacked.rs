@@ -103,7 +103,7 @@ where
         packed,
         patches,
         validity,
-    } = array.into_data().into_parts();
+    } = BitPacked::into_parts(array);
 
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;

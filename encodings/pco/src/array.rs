@@ -16,10 +16,10 @@ use pco::wrapped::FileCompressor;
 use pco::wrapped::FileDecompressor;
 use prost::Message;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -281,7 +281,7 @@ impl Pco {
 
     pub(crate) fn try_new(dtype: DType, data: PcoData) -> VortexResult<PcoArray> {
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Pco, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Pco, dtype, len, data))
     }
 
     /// Compress a primitive array using pcodec.
@@ -356,7 +356,13 @@ impl PcoData {
             self.chunk_metas.len()
         );
         vortex_ensure!(
-            self.pages.len() == self.metadata.chunks.iter().map(|chunk| chunk.pages.len()).sum(),
+            self.pages.len()
+                == self
+                    .metadata
+                    .chunks
+                    .iter()
+                    .map(|chunk| chunk.pages.len())
+                    .sum::<usize>(),
             "page count does not match metadata"
         );
         Ok(())

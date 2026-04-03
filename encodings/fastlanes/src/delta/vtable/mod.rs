@@ -6,10 +6,10 @@ use std::hash::Hash;
 use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -119,10 +119,10 @@ impl VTable for Delta {
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             DeltaMetadata {
-            deltas_len: array.deltas().len() as u64,
-            offset: array.offset() as u32,
-        }
-        .encode_to_vec(),
+                deltas_len: array.deltas().len() as u64,
+                offset: array.offset() as u32,
+            }
+            .encode_to_vec(),
         ))
     }
 
@@ -135,8 +135,16 @@ impl VTable for Delta {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<DeltaData> {
-        vortex_ensure!(buffers.is_empty(), "DeltaArray expects 0 buffers, got {}", buffers.len());
-        vortex_ensure!(children.len() == 2, "DeltaArray expects 2 children, got {}", children.len());
+        vortex_ensure!(
+            buffers.is_empty(),
+            "DeltaArray expects 0 buffers, got {}",
+            buffers.len()
+        );
+        vortex_ensure!(
+            children.len() == 2,
+            "DeltaArray expects 2 children, got {}",
+            children.len()
+        );
         let metadata = DeltaMetadata::decode(metadata)?;
         let ptype = PType::try_from(dtype)?;
         let lanes = match_each_unsigned_integer_ptype!(ptype, |T| { <T as FastLanes>::LANES });
@@ -175,7 +183,7 @@ impl Delta {
     ) -> VortexResult<DeltaArray> {
         let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         let data = DeltaData::try_new(bases, deltas, offset, len)?;
-        Array::try_from_parts(ArrayNew::new(Delta, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data))
     }
 
     /// Compress a primitive array using Delta encoding.

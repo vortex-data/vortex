@@ -23,7 +23,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::scalar_fn::array::ScalarFnData;
@@ -60,6 +60,24 @@ impl VTable for ScalarFnVTable {
 
     fn id(&self) -> ArrayId {
         self.scalar_fn.id()
+    }
+
+    fn validate(&self, data: &ScalarFnData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.scalar_fn == self.scalar_fn,
+            "ScalarFnArray data scalar_fn does not match vtable"
+        );
+        vortex_ensure!(
+            data.iter_children().all(|c| c.len() == len),
+            "All child arrays must have the same length as the scalar function array"
+        );
+
+        let child_dtypes = data.iter_children().map(|c| c.dtype().clone()).collect_vec();
+        vortex_ensure!(
+            self.scalar_fn.return_dtype(&child_dtypes)? == *dtype,
+            "ScalarFnArray dtype does not match scalar function return dtype"
+        );
+        Ok(())
     }
 
     fn array_hash<H: Hasher>(array: &ScalarFnData, state: &mut H, precision: Precision) {
@@ -101,7 +119,8 @@ impl VTable for ScalarFnVTable {
     fn deserialize(
         &self,
         _dtype: &DType,
-        _len: usize,        _metadata: &[u8],
+        _len: usize,
+        _metadata: &[u8],
 
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
@@ -170,16 +189,11 @@ pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
         let dtype = scalar_fn.return_dtype(&child_dtypes)?;
 
         let data = ScalarFnData {
-            vtable: ScalarFnVTable { scalar_fn },
-            dtype,
-            len,
+            scalar_fn: scalar_fn.clone(),
             slots: children.into_iter().map(Some).collect(),
-            stats: Default::default(),
         };
-        let vtable = data.vtable.clone();
-        let dtype = data.dtype.clone();
-        let len = data.len;
-        Array::try_from_parts(ArrayNew::new(vtable, dtype, len, data)).map(IntoArray::into_array)
+        let vtable = ScalarFnVTable { scalar_fn };
+        Array::try_from_parts(ArrayParts::new(vtable, dtype, len, data)).map(IntoArray::into_array)
     }
 }
 impl<V: scalar_fn::ScalarFnVTable> ScalarFnArrayExt for V {}

@@ -31,7 +31,6 @@ use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::vtable;
 
 vtable!(Extension, Extension, ExtensionData);
@@ -82,6 +81,25 @@ impl VTable for Extension {
 
     fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
+    }
+
+    fn validate(&self, data: &ExtensionData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.len() == len,
+            "ExtensionArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+
+        let actual_dtype = data.dtype();
+        vortex_ensure!(
+            &actual_dtype == dtype,
+            "ExtensionArray dtype {} does not match outer dtype {}",
+            actual_dtype,
+            dtype
+        );
+
+        Ok(())
     }
 
     fn deserialize(

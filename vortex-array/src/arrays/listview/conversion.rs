@@ -10,7 +10,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::List;
@@ -41,7 +41,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     let data = list.reset_offsets(false).vortex_expect("This can't fail");
     let dtype = data.dtype().clone();
     let len = data.len();
-    let list: ListArray = Array::try_from_parts(ArrayNew::new(List, dtype, len, data))?;
+    let list: ListArray = Array::try_from_parts(ArrayParts::new(List, dtype, len, data))?;
 
     let list_offsets = list.offsets().clone();
 

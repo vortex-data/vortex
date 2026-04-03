@@ -4,10 +4,10 @@
 use std::fmt::Debug;
 
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::DeserializeMetadata;
@@ -118,12 +118,14 @@ impl VTable for DateTimeParts {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(ProstMetadata(DateTimePartsMetadata {
-            days_ptype: PType::try_from(array.days().dtype())? as i32,
-            seconds_ptype: PType::try_from(array.seconds().dtype())? as i32,
-            subseconds_ptype: PType::try_from(array.subseconds().dtype())? as i32,
-        })
-        .serialize()))
+        Ok(Some(
+            ProstMetadata(DateTimePartsMetadata {
+                days_ptype: PType::try_from(array.days().dtype())? as i32,
+                seconds_ptype: PType::try_from(array.seconds().dtype())? as i32,
+                subseconds_ptype: PType::try_from(array.subseconds().dtype())? as i32,
+            })
+            .serialize(),
+        ))
     }
 
     fn deserialize(
@@ -242,7 +244,7 @@ impl DateTimeParts {
     ) -> VortexResult<DateTimePartsArray> {
         let data = DateTimePartsData::try_new(dtype.clone(), days, seconds, subseconds)?;
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(DateTimeParts, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(DateTimeParts, dtype, len, data))
     }
 
     /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`].
@@ -250,7 +252,7 @@ impl DateTimeParts {
         let dtype = temporal.dtype().clone();
         let data = DateTimePartsData::try_from(temporal)?;
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(DateTimeParts, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(DateTimeParts, dtype, len, data))
     }
 }
 

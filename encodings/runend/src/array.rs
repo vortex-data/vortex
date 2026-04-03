@@ -5,10 +5,10 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::DeserializeMetadata;
@@ -104,13 +104,15 @@ impl VTable for RunEnd {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(ProstMetadata(RunEndMetadata {
-            ends_ptype: PType::try_from(array.ends().dtype()).vortex_expect("Must be a valid PType")
-                as i32,
-            num_runs: array.ends().len() as u64,
-            offset: array.offset() as u64,
-        })
-        .serialize()))
+        Ok(Some(
+            ProstMetadata(RunEndMetadata {
+                ends_ptype: PType::try_from(array.ends().dtype())
+                    .vortex_expect("Must be a valid PType") as i32,
+                num_runs: array.ends().len() as u64,
+                offset: array.offset() as u64,
+            })
+            .serialize(),
+        ))
     }
 
     fn deserialize(
@@ -214,7 +216,7 @@ impl RunEnd {
     ) -> RunEndArray {
         let data = unsafe { RunEndData::new_unchecked(ends, values, offset, length) };
         let dtype = data.dtype().clone();
-        Array::try_from_parts(ArrayNew::new(RunEnd, dtype, length, data))
+        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data))
             .vortex_expect("RunEndData is always valid")
     }
 
@@ -223,7 +225,7 @@ impl RunEnd {
         let len = RunEndData::logical_len_from_ends(&ends)?;
         let data = RunEndData::try_new_offset_length(ends, values, 0, len)?;
         let dtype = data.dtype().clone();
-        Array::try_from_parts(ArrayNew::new(RunEnd, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data))
     }
 
     /// Build a new [`RunEndArray`] from ends, values, offset, and length.
@@ -235,7 +237,7 @@ impl RunEnd {
     ) -> VortexResult<RunEndArray> {
         let data = RunEndData::try_new_offset_length(ends, values, offset, length)?;
         let dtype = data.dtype().clone();
-        Array::try_from_parts(ArrayNew::new(RunEnd, dtype, length, data))
+        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data))
     }
 
     /// Build a new [`RunEndArray`] from ends and values (panics on invalid input).
@@ -248,7 +250,7 @@ impl RunEnd {
         let len = array.len();
         let data = RunEndData::encode(array)?;
         let dtype = data.dtype().clone();
-        Array::try_from_parts(ArrayNew::new(RunEnd, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data))
     }
 }
 

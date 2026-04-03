@@ -134,12 +134,14 @@ impl VTable for Patched {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(ProstMetadata(PatchedMetadata {
-            n_patches: u32::try_from(array.patch_indices().len())?,
-            n_lanes: u32::try_from(array.n_lanes)?,
-            offset: u32::try_from(array.offset)?,
-        })
-        .serialize()))
+        Ok(Some(
+            ProstMetadata(PatchedMetadata {
+                n_patches: u32::try_from(array.patch_indices().len())?,
+                n_lanes: u32::try_from(array.n_lanes)?,
+                offset: u32::try_from(array.offset)?,
+            })
+            .serialize(),
+        ))
     }
 
     fn deserialize(
@@ -376,8 +378,8 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
     use crate::patches::Patches;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[test]
@@ -603,7 +605,7 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

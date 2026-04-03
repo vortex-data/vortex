@@ -13,7 +13,7 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Struct;
@@ -21,7 +21,6 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 // StructArray has a variable number of slots: [validity?, field_0, ..., field_N]
@@ -153,7 +152,6 @@ pub struct StructData {
     pub(super) len: usize,
     pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats_set: ArrayStats,
 }
 
 pub struct StructArrayParts {
@@ -333,7 +331,6 @@ impl StructData {
             len: length,
             dtype: DType::Struct(dtype, validity.nullability()),
             slots,
-            stats_set: Default::default(),
         }
     }
 
@@ -533,7 +530,7 @@ impl Array<Struct> {
         let data = StructData::new(names, fields, length, validity);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
             .vortex_expect("StructData is always valid")
     }
 
@@ -547,7 +544,7 @@ impl Array<Struct> {
         let data = StructData::try_new(names, fields, length, validity)?;
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
 
     /// Creates a new `StructArray` without validation.
@@ -564,7 +561,7 @@ impl Array<Struct> {
         let data = unsafe { StructData::new_unchecked(fields, dtype, length, validity) };
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
             .vortex_expect("StructData is always valid")
     }
 
@@ -578,7 +575,7 @@ impl Array<Struct> {
         let data = StructData::try_new_with_dtype(fields, dtype, length, validity)?;
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
 
     /// Construct a `StructArray` from named fields.
@@ -586,7 +583,7 @@ impl Array<Struct> {
         let data = StructData::from_fields(items)?;
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
 
     /// Decompose this struct array into its constituent parts.
@@ -606,7 +603,7 @@ impl Array<Struct> {
         let data = StructData::try_from_iter_with_validity(iter, validity)?;
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
 
     /// Create a `StructArray` from an iterator of (name, array) pairs.
@@ -616,7 +613,7 @@ impl Array<Struct> {
         let data = StructData::try_from_iter(iter)?;
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
 
     /// Create a fieldless `StructArray` with the given length.
@@ -624,7 +621,7 @@ impl Array<Struct> {
         let data = StructData::new_fieldless_with_len(len);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
             .vortex_expect("StructData is always valid")
     }
 }

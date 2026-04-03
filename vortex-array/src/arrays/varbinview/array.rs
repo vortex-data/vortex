@@ -17,7 +17,7 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::VarBinView;
@@ -27,7 +27,6 @@ use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// The validity bitmap indicating which elements are non-null.
@@ -100,7 +99,6 @@ pub struct VarBinViewData {
     pub(super) dtype: DType,
     pub(super) buffers: Arc<[BufferHandle]>,
     pub(super) views: BufferHandle,
-    pub(super) stats_set: ArrayStats,
 }
 
 pub struct VarBinViewArrayParts {
@@ -269,7 +267,6 @@ impl VarBinViewData {
             views,
             buffers,
             dtype,
-            stats_set: Default::default(),
         }
     }
 
@@ -565,7 +562,7 @@ impl Array<VarBinView> {
         let data = VarBinViewData::from_iter(iter, dtype);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
             .vortex_expect("VarBinViewData is always valid")
     }
 
@@ -573,7 +570,7 @@ impl Array<VarBinView> {
         let data = VarBinViewData::from_iter_str(iter);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
             .vortex_expect("VarBinViewData is always valid")
     }
 
@@ -583,7 +580,7 @@ impl Array<VarBinView> {
         let data = VarBinViewData::from_iter_nullable_str(iter);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
             .vortex_expect("VarBinViewData is always valid")
     }
 
@@ -591,7 +588,7 @@ impl Array<VarBinView> {
         let data = VarBinViewData::from_iter_bin(iter);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
             .vortex_expect("VarBinViewData is always valid")
     }
 
@@ -601,7 +598,7 @@ impl Array<VarBinView> {
         let data = VarBinViewData::from_iter_nullable_bin(iter);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
             .vortex_expect("VarBinViewData is always valid")
     }
 
@@ -615,7 +612,7 @@ impl Array<VarBinView> {
         let data = VarBinViewData::try_new(views, buffers, dtype, validity)?;
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
     }
 
     /// Creates a new `VarBinViewArray` without validation.
@@ -632,8 +629,8 @@ impl Array<VarBinView> {
         let data = unsafe { VarBinViewData::new_unchecked(views, buffers, dtype, validity) };
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
-        .vortex_expect("VarBinViewData is always valid")
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
+            .vortex_expect("VarBinViewData is always valid")
     }
 
     /// Creates a new `VarBinViewArray` with device or host memory.
@@ -646,7 +643,7 @@ impl Array<VarBinView> {
         let data = VarBinViewData::new_handle(views, buffers, dtype, validity);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
             .vortex_expect("VarBinViewData is always valid")
     }
 
@@ -661,13 +658,11 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        let data = unsafe {
-            VarBinViewData::new_handle_unchecked(views, buffers, dtype, validity)
-        };
+        let data = unsafe { VarBinViewData::new_handle_unchecked(views, buffers, dtype, validity) };
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
-        .vortex_expect("VarBinViewData is always valid")
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
+            .vortex_expect("VarBinViewData is always valid")
     }
 }
 
@@ -702,7 +697,7 @@ impl<'a> FromIterator<Option<&'a [u8]>> for Array<VarBinView> {
         let data = <VarBinViewData as FromIterator<_>>::from_iter(iter);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
             .vortex_expect("<VarBinViewData as FromIterator<_> is always valid")
     }
 }
@@ -712,7 +707,7 @@ impl FromIterator<Option<Vec<u8>>> for Array<VarBinView> {
         let data = <VarBinViewData as FromIterator<_>>::from_iter(iter);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
             .vortex_expect("<VarBinViewData as FromIterator<_> is always valid")
     }
 }
@@ -722,7 +717,7 @@ impl FromIterator<Option<String>> for Array<VarBinView> {
         let data = <VarBinViewData as FromIterator<_>>::from_iter(iter);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
             .vortex_expect("<VarBinViewData as FromIterator<_> is always valid")
     }
 }
@@ -732,7 +727,7 @@ impl<'a> FromIterator<Option<&'a str>> for Array<VarBinView> {
         let data = <VarBinViewData as FromIterator<_>>::from_iter(iter);
         let dtype = data.dtype().clone();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(VarBinView, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(VarBinView, dtype, len, data))
             .vortex_expect("<VarBinViewData as FromIterator<_> is always valid")
     }
 }

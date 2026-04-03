@@ -198,11 +198,7 @@ impl VTable for ParquetVariant {
         child_idx += 1;
 
         let value = if proto.has_value {
-            let v = children.get(
-                child_idx,
-                &DType::Binary(proto.value_nullable.into()),
-                len,
-            )?;
+            let v = children.get(child_idx, &DType::Binary(proto.value_nullable.into()), len)?;
             child_idx += 1;
             Some(v)
         } else {
@@ -267,8 +263,8 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -297,7 +293,7 @@ mod tests {
         session.arrays().register(ParquetVariant);
         session.arrays().register(Variant);
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         parts
             .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
             .unwrap()

@@ -39,7 +39,6 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::vtable;
 pub(crate) mod canonical;
 mod operations;
@@ -62,6 +61,14 @@ impl VTable for Constant {
 
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn validate(&self, data: &ConstantData, dtype: &DType, _len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.scalar.dtype() == dtype,
+            "ConstantArray scalar dtype does not match outer dtype"
+        );
+        Ok(())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -123,7 +130,8 @@ impl VTable for Constant {
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        _metadata: &[u8],
+        _len: usize,
+        _metadata: &[u8],
 
         buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
@@ -141,7 +149,7 @@ impl VTable for Constant {
         let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
         let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        Ok(ConstantData::new(scalar, len))
+        Ok(ConstantData::new(scalar))
     }
 
     fn reduce_parent(

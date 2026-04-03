@@ -41,7 +41,6 @@ use crate::Precision;
 use crate::arrays::varbin::compute::rules::PARENT_RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::ArrayStats;
 
 vtable!(VarBin, VarBin, VarBinData);
 

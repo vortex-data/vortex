@@ -5,8 +5,8 @@ use std::hash::Hash;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::DeserializeMetadata;
@@ -133,7 +133,10 @@ impl SequenceData {
 
     fn normalize(base: PValue, multiplier: PValue, ptype: PType) -> VortexResult<(PValue, PValue)> {
         match_each_integer_ptype!(ptype, |P| {
-            Ok((PValue::from(base.cast::<P>()?), PValue::from(multiplier.cast::<P>()?)))
+            Ok((
+                PValue::from(base.cast::<P>()?),
+                PValue::from(multiplier.cast::<P>()?),
+            ))
         })
     }
 
@@ -263,8 +266,16 @@ impl VTable for Sequence {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<Self::ArrayData> {
-        vortex_ensure!(buffers.is_empty(), "SequenceArray expects 0 buffers, got {}", buffers.len());
-        vortex_ensure!(children.is_empty(), "SequenceArray expects 0 children, got {}", children.len());
+        vortex_ensure!(
+            buffers.is_empty(),
+            "SequenceArray expects 0 buffers, got {}",
+            buffers.len()
+        );
+        vortex_ensure!(
+            children.is_empty(),
+            "SequenceArray expects 0 children, got {}",
+            children.len()
+        );
         let prost =
             <ProstMetadata<ProstSequenceMetadata> as DeserializeMetadata>::deserialize(metadata)?;
 
@@ -295,13 +306,7 @@ impl VTable for Sequence {
         .pvalue()
         .vortex_expect("sequence array multiplier should be a non-nullable primitive");
 
-        SequenceData::try_new(
-            base,
-            multiplier,
-            ptype,
-            dtype.nullability(),
-            len,
-        )
+        SequenceData::try_new(base, multiplier, ptype, dtype.nullability(), len)
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -409,7 +414,7 @@ impl Sequence {
             .vortex_expect("SequenceArray parts must be normalized to the target ptype");
         let stats = Self::stats(multiplier);
         let data = unsafe { SequenceData::new_unchecked(base, multiplier) };
-        Array::try_from_parts(ArrayNew::new(Sequence, dtype, length, data).with_stats(stats))
+        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data).with_stats(stats))
             .vortex_expect("pre-validated SequenceArray parts must be valid")
     }
 
@@ -424,7 +429,7 @@ impl Sequence {
         let dtype = DType::Primitive(ptype, nullability);
         let data = SequenceData::try_new(base, multiplier, ptype, nullability, length)?;
         let stats = Self::stats(data.multiplier());
-        Array::try_from_parts(ArrayNew::new(Sequence, dtype, length, data).with_stats(stats))
+        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data).with_stats(stats))
     }
 
     /// Construct a new typed [`SequenceArray`] from base/multiplier values.
@@ -436,14 +441,9 @@ impl Sequence {
     ) -> VortexResult<SequenceArray> {
         let ptype = T::PTYPE;
         let dtype = DType::Primitive(ptype, nullability);
-        let data = SequenceData::try_new_typed(
-            base,
-            multiplier,
-            nullability,
-            length,
-        )?;
+        let data = SequenceData::try_new_typed(base, multiplier, nullability, length)?;
         let stats = Self::stats(data.multiplier());
-        Array::try_from_parts(ArrayNew::new(Sequence, dtype, length, data).with_stats(stats))
+        Array::try_from_parts(ArrayParts::new(Sequence, dtype, length, data).with_stats(stats))
     }
 }
 

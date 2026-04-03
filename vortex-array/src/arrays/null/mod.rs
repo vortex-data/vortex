@@ -14,7 +14,7 @@ use crate::ExecutionResult;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
@@ -24,7 +24,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 
@@ -42,6 +41,11 @@ impl VTable for Null {
 
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn validate(&self, _data: &NullData, dtype: &DType, _len: usize) -> VortexResult<()> {
+        vortex_ensure!(*dtype == DType::Null, "NullArray dtype must be DType::Null");
+        Ok(())
     }
 
     fn array_hash<H: std::hash::Hasher>(_array: &NullData, _state: &mut H, _precision: Precision) {
@@ -90,14 +94,15 @@ impl VTable for Null {
     fn deserialize(
         &self,
         _dtype: &DType,
-        len: usize,        metadata: &[u8],
+        _len: usize,
+        metadata: &[u8],
 
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<NullData> {
         <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
-        Ok(NullData::new(len))
+        Ok(NullData::new())
     }
 
     fn reduce_parent(
@@ -142,9 +147,7 @@ impl VTable for Null {
 /// ```
 #[derive(Clone, Debug)]
 pub struct NullData {
-    len: usize,
     slots: Vec<Option<ArrayRef>>,
-    stats_set: ArrayStats,
 }
 
 #[derive(Clone, Debug)]
@@ -156,33 +159,14 @@ impl Null {
 
 impl Array<Null> {
     pub fn new(len: usize) -> Self {
-        Array::try_from_parts(ArrayNew::new(Null, DType::Null, len, NullData::new(len)))
+        Array::try_from_parts(ArrayParts::new(Null, DType::Null, len, NullData::new()))
             .vortex_expect("NullData is always valid")
     }
 }
 
 impl NullData {
-    pub fn new(len: usize) -> Self {
-        Self {
-            len,
-            slots: vec![],
-            stats_set: Default::default(),
-        }
-    }
-
-    /// Returns the dtype of the array (always [`DType::Null`]).
-    pub fn dtype(&self) -> &DType {
-        &DType::Null
-    }
-
-    /// Returns the length of the array.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Returns `true` if the array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    pub fn new() -> Self {
+        Self { slots: vec![] }
     }
 }
 impl OperationsVTable<Null> for Null {

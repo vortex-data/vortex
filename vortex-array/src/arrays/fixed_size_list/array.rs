@@ -9,12 +9,12 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::FixedSizeList;
 use crate::dtype::DType;
-use crate::stats::ArrayStats;
+use crate::dtype::Nullability;
 use crate::validity::Validity;
 
 /// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
@@ -81,10 +81,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "validity"];
 /// ```
 #[derive(Clone, Debug)]
 pub struct FixedSizeListData {
-    /// The [`DType`] of the fixed-size list.
-    ///
-    /// This type **must** be the variant [`DType::FixedSizeList`].
-    pub(super) dtype: DType,
+    /// The nullability of the fixed-size list array.
+    pub(super) nullability: Nullability,
 
     /// Slots holding [elements].
     pub(super) slots: Vec<Option<ArrayRef>>,
@@ -101,10 +99,8 @@ pub struct FixedSizeListData {
     /// The main reason we need to store this (rather than calculate it on the fly via `list_size`
     /// and `elements.len()`) is because in the degenerate case where `list_size == 0`, we cannot
     /// use `0 / 0` to determine the length.
-    pub(super) len: usize,
+    pub(super) degenerate_len: usize,
 
-    /// The stats for this array.
-    pub(super) stats_set: ArrayStats,
 }
 
 impl FixedSizeListData {
@@ -169,11 +165,10 @@ impl FixedSizeListData {
         let validity_slot = validity_to_child(&validity, len);
 
         Self {
-            dtype: DType::FixedSizeList(Arc::new(elements.dtype().clone()), list_size, nullability),
+            nullability,
             slots: vec![Some(elements), validity_slot],
             list_size,
-            len,
-            stats_set: Default::default(),
+            degenerate_len: if list_size == 0 { len } else { 0 },
         }
     }
 
@@ -184,7 +179,7 @@ impl FixedSizeListData {
                 .take()
                 .vortex_expect("FixedSizeListArray elements slot"),
             validity,
-            self.dtype,
+            self.dtype(),
         )
     }
 
@@ -225,13 +220,21 @@ impl FixedSizeListData {
     }
 
     /// Returns the dtype of the array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
+    pub fn dtype(&self) -> DType {
+        DType::FixedSizeList(
+            Arc::new(self.elements().dtype().clone()),
+            self.list_size,
+            self.nullability,
+        )
     }
 
     /// Returns the length of the array.
     pub fn len(&self) -> usize {
-        self.len
+        if self.list_size == 0 {
+            self.degenerate_len
+        } else {
+            self.elements().len() / self.list_size as usize
+        }
     }
 
     /// Returns `true` if the array is empty.
@@ -242,7 +245,7 @@ impl FixedSizeListData {
     /// Returns the validity of the array.
     #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
     }
 
     /// Returns the validity as a [`Mask`](vortex_mask::Mask).
@@ -266,10 +269,13 @@ impl FixedSizeListData {
 impl Array<FixedSizeList> {
     /// Creates a new `FixedSizeListArray`.
     pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
+        let dtype = DType::FixedSizeList(
+            Arc::new(elements.dtype().clone()),
+            list_size,
+            validity.nullability(),
+        );
         let data = FixedSizeListData::new(elements, list_size, validity, len);
-        let dtype = data.dtype().clone();
-        let len = data.len();
-        Array::try_from_parts(ArrayNew::new(FixedSizeList, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(FixedSizeList, dtype, len, data))
             .vortex_expect("FixedSizeListData is always valid")
     }
 
@@ -280,10 +286,13 @@ impl Array<FixedSizeList> {
         validity: Validity,
         len: usize,
     ) -> VortexResult<Self> {
+        let dtype = DType::FixedSizeList(
+            Arc::new(elements.dtype().clone()),
+            list_size,
+            validity.nullability(),
+        );
         let data = FixedSizeListData::try_new(elements, list_size, validity, len)?;
-        let dtype = data.dtype().clone();
-        let len = data.len();
-        Array::try_from_parts(ArrayNew::new(FixedSizeList, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(FixedSizeList, dtype, len, data))
     }
 
     /// Creates a new `FixedSizeListArray` without validation.
@@ -297,21 +306,24 @@ impl Array<FixedSizeList> {
         validity: Validity,
         len: usize,
     ) -> Self {
+        let dtype = DType::FixedSizeList(
+            Arc::new(elements.dtype().clone()),
+            list_size,
+            validity.nullability(),
+        );
         let data = unsafe { FixedSizeListData::new_unchecked(elements, list_size, validity, len) };
-        let dtype = data.dtype().clone();
-        let len = data.len();
-        Array::try_from_parts(ArrayNew::new(FixedSizeList, dtype, len, data))
-        .vortex_expect("FixedSizeListData is always valid")
+        Array::try_from_parts(ArrayParts::new(FixedSizeList, dtype, len, data))
+            .vortex_expect("FixedSizeListData is always valid")
     }
 }
 
 impl FixedSizeListData {
     pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
-            index < self.len,
+            index < self.len(),
             "index {} out of bounds: the len is {}",
             index,
-            self.len,
+            self.len(),
         );
         debug_assert!(self.validity().is_valid(index).unwrap_or(false));
 

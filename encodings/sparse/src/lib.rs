@@ -7,10 +7,10 @@ use std::hash::Hash;
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -111,9 +111,7 @@ impl VTable for Sparse {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         let patches = array.patches().to_metadata(array.len(), array.dtype())?;
-        let prost_patches = ProstPatchesMetadata {
-            patches,
-        };
+        let prost_patches = ProstPatchesMetadata { patches };
 
         // Note that we DO NOT serialize the fill value since that is stored in the buffers.
         Ok(Some(prost_patches.encode_to_vec()))
@@ -255,21 +253,21 @@ impl Sparse {
     ) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
         let data = SparseData::try_new(indices, values, len, fill_value)?;
-        Array::try_from_parts(ArrayNew::new(Sparse, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Sparse, dtype, len, data))
     }
 
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
         let len = patches.array_len();
         let data = SparseData::try_new_from_patches(patches, fill_value)?;
-        Array::try_from_parts(ArrayNew::new(Sparse, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Sparse, dtype, len, data))
     }
 
     pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> SparseArray {
         let dtype = fill_value.dtype().clone();
         let len = patches.array_len();
         let data = unsafe { SparseData::new_unchecked(patches, fill_value) };
-        Array::try_from_parts(ArrayNew::new(Sparse, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Sparse, dtype, len, data))
             .vortex_expect("pre-validated SparseArray parts must be valid")
     }
 

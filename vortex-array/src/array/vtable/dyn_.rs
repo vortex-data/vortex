@@ -15,8 +15,8 @@ use crate::ExecutionResult;
 use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::array::Array;
-use crate::array::ArrayNew;
 use crate::array::ArrayId;
+use crate::array::ArrayParts;
 use crate::array::VTable;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -87,7 +87,7 @@ impl<V: VTable> DynVTable for V {
     ) -> VortexResult<ArrayRef> {
         let inner = self.deserialize(dtype, len, metadata, buffers, children, session)?;
         Ok(Array::<V>::try_from_parts(
-            ArrayNew::new(self.clone(), dtype.clone(), len, inner)
+            ArrayParts::new(self.clone(), dtype.clone(), len, inner)
                 .with_stats(ArrayStats::default()),
         )?
         .into_array())
@@ -101,8 +101,8 @@ impl<V: VTable> DynVTable for V {
         V::with_slots(&mut data, slots)?;
         Ok(unsafe {
             Array::<V>::from_parts_unchecked(
-            ArrayNew::new(self.clone(), array.dtype().clone(), array.len(), data)
-                .with_stats(array.statistics().to_array_stats()),
+                ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                    .with_stats(array.statistics().to_array_stats()),
             )
             .into_array()
         })

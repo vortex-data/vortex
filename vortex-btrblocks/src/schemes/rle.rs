@@ -281,7 +281,6 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
                 compressed_values,
                 compressed_indices,
                 compressed_offsets,
-                rle_array.dtype().clone(),
                 rle_array.offset(),
                 rle_array.len(),
             )

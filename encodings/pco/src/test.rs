@@ -17,8 +17,8 @@ use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::serde::ArrayParts;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
@@ -179,7 +179,7 @@ fn test_serde() -> VortexResult<()> {
         .collect::<BufferMut<u8>>()
         .freeze();
 
-    let parts = ArrayParts::try_from(bytes)?;
+    let parts = SerializedArray::try_from(bytes)?;
     let decoded = parts.decode(
         &DType::Primitive(PType::I32, Nullability::NonNullable),
         1_000_000,

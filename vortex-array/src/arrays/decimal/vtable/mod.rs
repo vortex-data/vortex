@@ -40,7 +40,6 @@ use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::ArrayStats;
 vtable!(Decimal, Decimal, DecimalData);
 
 // The type of the values can be determined by looking at the type info...right?
@@ -91,16 +90,38 @@ impl VTable for Decimal {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(ProstMetadata(DecimalMetadata {
-            values_type: array.values_type() as i32,
-        })
-        .serialize()))
+        Ok(Some(
+            ProstMetadata(DecimalMetadata {
+                values_type: array.values_type() as i32,
+            })
+            .serialize(),
+        ))
+    }
+
+    fn validate(&self, data: &DecimalData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.len() == len,
+            "DecimalArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+
+        let actual_dtype = data.dtype();
+        vortex_ensure!(
+            &actual_dtype == dtype,
+            "DecimalArray dtype {} does not match outer dtype {}",
+            actual_dtype,
+            dtype
+        );
+
+        Ok(())
     }
 
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
@@ -197,8 +218,8 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::assert_arrays_eq;
     use crate::dtype::DecimalDType;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[test]
@@ -223,7 +244,7 @@ mod tests {
 
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
             .decode(&dtype, 5, &ReadContext::new(ctx.to_ids()), &LEGACY_SESSION)
             .unwrap();
@@ -251,7 +272,7 @@ mod tests {
             concat.extend_from_slice(buf.as_ref());
         }
 
-        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

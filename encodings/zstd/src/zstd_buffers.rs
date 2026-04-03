@@ -7,10 +7,10 @@ use std::sync::Arc;
 
 use prost::Message as _;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -43,8 +43,12 @@ pub struct ZstdBuffers;
 impl ZstdBuffers {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd_buffers");
 
-    pub fn try_new(dtype: DType, len: usize, data: ZstdBuffersData) -> VortexResult<ZstdBuffersArray> {
-        Array::try_from_parts(ArrayNew::new(ZstdBuffers, dtype, len, data))
+    pub fn try_new(
+        dtype: DType,
+        len: usize,
+        data: ZstdBuffersData,
+    ) -> VortexResult<ZstdBuffersArray> {
+        Array::try_from_parts(ArrayParts::new(ZstdBuffers, dtype, len, data))
     }
 
     pub fn compress(array: &ArrayRef, level: i32) -> VortexResult<ZstdBuffersArray> {
@@ -87,7 +91,9 @@ impl ZstdBuffers {
         buffer_handles: &[BufferHandle],
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        array.data().build_inner(array.dtype(), array.len(), buffer_handles, session)
+        array
+            .data()
+            .build_inner(array.dtype(), array.len(), buffer_handles, session)
     }
 
     fn decompress_and_build_inner(
@@ -414,13 +420,15 @@ impl VTable for ZstdBuffers {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(ZstdBuffersMetadata {
-            inner_encoding_id: array.inner_encoding_id.to_string(),
-            inner_metadata: array.inner_metadata.clone(),
-            uncompressed_sizes: array.uncompressed_sizes.clone(),
-            buffer_alignments: array.buffer_alignments.clone(),
-        }
-        .encode_to_vec()))
+        Ok(Some(
+            ZstdBuffersMetadata {
+                inner_encoding_id: array.inner_encoding_id.to_string(),
+                inner_metadata: array.inner_metadata.clone(),
+                uncompressed_sizes: array.uncompressed_sizes.clone(),
+                buffer_alignments: array.buffer_alignments.clone(),
+            }
+            .encode_to_vec(),
+        ))
     }
 
     fn deserialize(

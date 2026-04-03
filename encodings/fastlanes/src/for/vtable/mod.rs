@@ -5,10 +5,10 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -116,7 +116,11 @@ impl VTable for FoR {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<FoRData> {
-        vortex_ensure!(buffers.is_empty(), "FoRArray expects 0 buffers, got {}", buffers.len());
+        vortex_ensure!(
+            buffers.is_empty(),
+            "FoRArray expects 0 buffers, got {}",
+            buffers.len()
+        );
         if children.len() != 1 {
             vortex_bail!(
                 "Expected 1 child for FoR encoding, found {}",
@@ -168,7 +172,7 @@ impl FoR {
         let reference = reference.cast(&dtype)?;
         let len = encoded.len();
         let data = FoRData::try_new(encoded, reference)?;
-        Array::try_from_parts(ArrayNew::new(FoR, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data))
     }
 
     /// Encode a primitive array using Frame of Reference encoding.

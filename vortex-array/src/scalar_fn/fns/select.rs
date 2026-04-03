@@ -19,7 +19,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::dtype::DType;
@@ -165,7 +165,7 @@ impl ScalarFnVTable for Select {
 
         let dtype = result.dtype().clone();
         let len = result.len();
-        Array::try_from_parts(ArrayNew::new(Struct, dtype, len, result))?
+        Array::try_from_parts(ArrayParts::new(Struct, dtype, len, result))?
             .into_array()
             .execute(ctx)
     }

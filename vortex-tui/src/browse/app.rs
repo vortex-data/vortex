@@ -352,7 +352,7 @@ impl AppState {
     #[cfg(feature = "native")]
     pub(crate) async fn load_flat_data(&mut self) {
         use vortex::array::MaskFuture;
-        use vortex::array::serde::ArrayParts;
+        use vortex::array::serde::SerializedArray;
         use vortex::expr::root;
 
         let layout = &self.cursor.layout().clone();
@@ -384,7 +384,7 @@ impl AppState {
             .await
             .vortex_expect("Failed to read segment");
         self.cached_flatbuffer_size = Some(
-            ArrayParts::try_from(segment)
+            SerializedArray::try_from(segment)
                 .vortex_expect("Failed to parse segment")
                 .metadata()
                 .len(),

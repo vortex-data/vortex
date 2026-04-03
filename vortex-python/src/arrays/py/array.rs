@@ -8,6 +8,10 @@ use pyo3::FromPyObject;
 use pyo3::Py;
 use pyo3::PyAny;
 use pyo3::prelude::*;
+use vortex::array::Array;
+use vortex::array::ArrayParts;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::array::stats::ArrayStats;
 use vortex::dtype::DType;
 
@@ -53,5 +57,17 @@ impl<'py> IntoPyObject<'py> for PythonArray {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         Ok(self.object.bind(py).to_owned())
+    }
+}
+
+impl IntoArray for PythonArray {
+    fn into_array(self) -> ArrayRef {
+        let vtable = self.vtable.clone();
+        let dtype = self.dtype.clone();
+        let len = self.len;
+        let stats = self.stats.clone();
+        Array::try_from_parts(ArrayParts::new(vtable, dtype, len, self).with_stats(stats))
+            .expect("PythonArray metadata extracted from PyPythonArray must be valid")
+            .into_array()
     }
 }

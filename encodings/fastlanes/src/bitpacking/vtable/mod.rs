@@ -6,10 +6,10 @@ use std::hash::Hash;
 use prost::Message;
 use vortex_array::AnyCanonical;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -37,6 +37,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::BitPackedArrayParts;
 use crate::BitPackedData;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
@@ -114,7 +115,11 @@ impl VTable for BitPacked {
                 &other.slots[PATCH_CHUNK_OFFSETS_SLOT],
                 precision,
             )
-            && option_array_eq(&array.slots[VALIDITY_SLOT], &other.slots[VALIDITY_SLOT], precision)
+            && option_array_eq(
+                &array.slots[VALIDITY_SLOT],
+                &other.slots[VALIDITY_SLOT],
+                precision,
+            )
             && array.patch_offset == other.patch_offset
             && array.patch_offset_within_chunk == other.patch_offset_within_chunk
     }
@@ -174,14 +179,14 @@ impl VTable for BitPacked {
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             BitPackedMetadata {
-            bit_width: array.bit_width() as u32,
-            offset: array.offset() as u32,
-            patches: array
-                .patches(array.len())
-                .map(|p| p.to_metadata(array.len(), array.dtype()))
-                .transpose()?,
-        }
-        .encode_to_vec(),
+                bit_width: array.bit_width() as u32,
+                offset: array.offset() as u32,
+                patches: array
+                    .patches(array.len())
+                    .map(|p| p.to_metadata(array.len(), array.dtype()))
+                    .transpose()?,
+            }
+            .encode_to_vec(),
         ))
     }
 
@@ -321,8 +326,15 @@ impl BitPacked {
         offset: u16,
     ) -> VortexResult<BitPackedArray> {
         let dtype = DType::Primitive(ptype, validity.nullability());
-        let data = BitPackedData::try_new(packed, ptype, validity, patches, bit_width, len, offset)?;
-        Array::try_from_parts(ArrayNew::new(BitPacked, dtype, len, data))
+        let data =
+            BitPackedData::try_new(packed, ptype, validity, patches, bit_width, len, offset)?;
+        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data))
+    }
+
+    pub fn into_parts(array: BitPackedArray) -> BitPackedArrayParts {
+        let len = array.len();
+        let nullability = array.dtype().nullability();
+        array.into_data().into_parts(len, nullability)
     }
 
     /// Encode an array into a bitpacked representation with the given bit width.

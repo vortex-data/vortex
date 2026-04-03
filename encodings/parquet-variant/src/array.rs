@@ -8,7 +8,7 @@ use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::Field;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -80,7 +80,7 @@ impl ParquetVariant {
         let len = metadata.len();
         let dtype = DType::Variant(validity.nullability());
         let data = ParquetVariantData::try_new(validity, metadata, value, typed_value)?;
-        Array::try_from_parts(ArrayNew::new(ParquetVariant, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(ParquetVariant, dtype, len, data))
     }
 }
 
@@ -147,14 +147,14 @@ impl ParquetVariantData {
             &DType::Binary(vortex_array::dtype::Nullability::NonNullable),
             "metadata dtype must be non-nullable binary"
         );
-        vortex_ensure_eq!(metadata.len(), len, "metadata length must match array length");
+        vortex_ensure_eq!(
+            metadata.len(),
+            len,
+            "metadata length must match array length"
+        );
 
         if let Some(validity_len) = validity.maybe_len() {
-            vortex_ensure_eq!(
-                validity_len,
-                len,
-                "validity length must match array length"
-            );
+            vortex_ensure_eq!(validity_len, len, "validity length must match array length");
         }
         if let Some(v) = value {
             vortex_ensure!(
@@ -165,11 +165,7 @@ impl ParquetVariantData {
             vortex_ensure_eq!(v.len(), len, "value length must match array length");
         }
         if let Some(tv) = typed_value {
-            vortex_ensure_eq!(
-                tv.len(),
-                len,
-                "typed_value length must match array length"
-            );
+            vortex_ensure_eq!(tv.len(), len, "typed_value length must match array length");
         }
         Ok(())
     }

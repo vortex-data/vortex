@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::Array;
-use vortex_array::ArrayNew;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayView;
 pub(crate) mod compute;
 mod rules;
@@ -101,11 +101,13 @@ impl VTable for DecimalByteParts {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(ProstMetadata(DecimalBytesPartsMetadata {
-            zeroth_child_ptype: PType::try_from(array.msp().dtype())? as i32,
-            lower_part_count: 0,
-        })
-        .serialize()))
+        Ok(Some(
+            ProstMetadata(DecimalBytesPartsMetadata {
+                zeroth_child_ptype: PType::try_from(array.msp().dtype())? as i32,
+                lower_part_count: 0,
+            })
+            .serialize(),
+        ))
     }
 
     fn deserialize(
@@ -212,7 +214,10 @@ impl DecimalBytePartsData {
         }
 
         let expected_dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
-        vortex_ensure!(dtype == &expected_dtype, "expected dtype {expected_dtype}, got {dtype}");
+        vortex_ensure!(
+            dtype == &expected_dtype,
+            "expected dtype {expected_dtype}, got {dtype}"
+        );
         vortex_ensure!(msp.len() == len, "expected len {len}, got {}", msp.len());
         Ok(())
     }
@@ -257,7 +262,7 @@ impl DecimalByteParts {
         let data = DecimalBytePartsData::try_new(msp, decimal_dtype)?;
         let dtype = DType::Decimal(decimal_dtype, data.msp().dtype().nullability());
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(DecimalByteParts, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(DecimalByteParts, dtype, len, data))
     }
 }
 

@@ -16,7 +16,7 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::ConstantArray;
@@ -24,11 +24,11 @@ use crate::arrays::List;
 use crate::arrays::Primitive;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::Nullability;
 use crate::dtype::NativePType;
 use crate::match_each_integer_ptype;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// The elements data array containing all list elements concatenated together.
@@ -94,9 +94,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "validi
 /// ```
 #[derive(Clone, Debug)]
 pub struct ListData {
-    pub(super) dtype: DType,
+    pub(super) nullability: Nullability,
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats_set: ArrayStats,
 }
 
 pub struct ListArrayParts {
@@ -161,9 +160,8 @@ impl ListData {
         let validity_slot = validity_to_child(&validity, len);
 
         Self {
-            dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
+            nullability: validity.nullability(),
             slots: vec![Some(elements), Some(offsets), validity_slot],
-            stats_set: Default::default(),
         }
     }
 
@@ -256,7 +254,7 @@ impl ListData {
     pub fn into_parts(mut self) -> ListArrayParts {
         let validity = self.validity();
         ListArrayParts {
-            dtype: self.dtype,
+            dtype: self.dtype(),
             elements: self.slots[ELEMENTS_SLOT]
                 .take()
                 .vortex_expect("ListArray elements slot"),
@@ -268,8 +266,8 @@ impl ListData {
     }
 
     /// Returns the dtype of the array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
+    pub fn dtype(&self) -> DType {
+        DType::List(Arc::new(self.elements().dtype().clone()), self.nullability)
     }
 
     /// Returns the length of the array.
@@ -285,7 +283,7 @@ impl ListData {
     /// Returns the validity of the array.
     #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
     }
 
     /// Returns the validity as a [`Mask`](vortex_mask::Mask).
@@ -341,11 +339,8 @@ impl ListData {
     }
 
     /// Returns the element dtype of the list array.
-    pub fn element_dtype(&self) -> &Arc<DType> {
-        match &self.dtype {
-            DType::List(element_dtype, _) => element_dtype,
-            _ => vortex_panic!("ListArray has invalid dtype {}", self.dtype),
-        }
+    pub fn element_dtype(&self) -> &DType {
+        self.elements().dtype()
     }
 
     /// Returns the elements array.
@@ -364,10 +359,10 @@ impl ListData {
 impl Array<List> {
     /// Creates a new `ListArray`.
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len().saturating_sub(1);
         let data = ListData::new(elements, offsets, validity);
-        let dtype = data.dtype().clone();
-        let len = data.len();
-        Array::try_from_parts(ArrayNew::new(List, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(List, dtype, len, data))
             .vortex_expect("ListData is always valid")
     }
 
@@ -377,10 +372,10 @@ impl Array<List> {
         offsets: ArrayRef,
         validity: Validity,
     ) -> VortexResult<Self> {
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len().saturating_sub(1);
         let data = ListData::try_new(elements, offsets, validity)?;
-        let dtype = data.dtype().clone();
-        let len = data.len();
-        Array::try_from_parts(ArrayNew::new(List, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(List, dtype, len, data))
     }
 
     /// Creates a new `ListArray` without validation.
@@ -389,10 +384,10 @@ impl Array<List> {
     ///
     /// See [`ListData::new_unchecked`].
     pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len().saturating_sub(1);
         let data = unsafe { ListData::new_unchecked(elements, offsets, validity) };
-        let dtype = data.dtype().clone();
-        let len = data.len();
-        Array::try_from_parts(ArrayNew::new(List, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(List, dtype, len, data))
             .vortex_expect("ListData is always valid")
     }
 }
@@ -404,9 +399,9 @@ impl ListData {
             elements = elements.to_canonical()?.compact()?.into_array();
         } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
             let data = child_list_array.reset_offsets(recurse)?;
-            let dtype = data.dtype().clone();
+            let dtype = data.dtype();
             let len = data.len();
-            elements = Array::try_from_parts(ArrayNew::new(List, dtype, len, data))?.into_array();
+            elements = Array::try_from_parts(ArrayParts::new(List, dtype, len, data))?.into_array();
         }
 
         let offsets = self.offsets();

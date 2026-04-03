@@ -30,7 +30,9 @@ where
             .reinterpret_cast(R::Native::PTYPE.to_unsigned());
         let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
 
-        let ends_array = ends.into_array();
+        let ends_array =
+            PrimitiveArray::from_buffer_handle(ends.buffer_handle().clone(), ends.ptype(), ends.validity())
+                .into_array();
         let (ends_slice, values_slice) = if offset == 0 && len == array.run_ends().max_value() {
             (ends_array, values)
         } else {

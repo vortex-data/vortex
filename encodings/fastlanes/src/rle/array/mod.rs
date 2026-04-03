@@ -83,7 +83,10 @@ impl RLEData {
         );
 
         vortex_ensure!(
-            matches!(values.dtype(), DType::Primitive(_, Nullability::NonNullable)),
+            matches!(
+                values.dtype(),
+                DType::Primitive(_, Nullability::NonNullable)
+            ),
             "RLE values must be a non-nullable primitive type, got {}",
             values.dtype()
         );
@@ -234,8 +237,8 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerializedArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
@@ -466,7 +469,7 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
             .decode(
                 &DType::Primitive(PType::U32, Nullability::NonNullable),
@@ -512,7 +515,7 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
             .decode(
                 sliced.dtype(),

@@ -11,12 +11,11 @@ use vortex_mask::AllOr;
 use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
-use crate::array::ArrayNew;
+use crate::array::ArrayParts;
 use crate::arrays::Dict;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
-use crate::stats::ArrayStats;
 
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
@@ -44,8 +43,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["codes", "values"];
 #[derive(Debug, Clone)]
 pub struct DictData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats_set: ArrayStats,
-    pub(super) dtype: DType,
     /// Indicates whether all dictionary values are definitely referenced by at least one code.
     /// `true` = all values are referenced (computed during encoding).
     /// `false` = unknown/might have unreferenced values.
@@ -57,7 +54,6 @@ pub struct DictData {
 pub struct DictArrayParts {
     pub codes: ArrayRef,
     pub values: ArrayRef,
-    pub dtype: DType,
 }
 
 impl DictData {
@@ -68,13 +64,8 @@ impl DictData {
     /// by the safe `DictArray::try_new` constructor are valid, for example when
     /// you are filtering or slicing an existing valid `DictArray`.
     pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
-        let dtype = values
-            .dtype()
-            .union_nullability(codes.dtype().nullability());
         Self {
             slots: vec![Some(codes), Some(values)],
-            stats_set: Default::default(),
-            dtype,
             all_values_referenced: false,
         }
     }
@@ -134,8 +125,10 @@ impl DictData {
     }
 
     /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
+    pub fn dtype(&self) -> DType {
+        self.values()
+            .dtype()
+            .union_nullability(self.codes().dtype().nullability())
     }
 
     /// Returns `true` if this array is empty.
@@ -151,7 +144,6 @@ impl DictData {
             values: self.slots[VALUES_SLOT]
                 .take()
                 .vortex_expect("DictArray values slot"),
-            dtype: self.dtype,
         }
     }
 
@@ -206,18 +198,18 @@ impl Array<Dict> {
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
         let data = DictData::new(codes, values);
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Dict, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Dict, dtype, len, data))
             .vortex_expect("DictData is always valid")
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
         let data = DictData::try_new(codes, values)?;
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Dict, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Dict, dtype, len, data))
     }
 
     /// Build a new `DictArray` without validating the codes or values.
@@ -227,9 +219,9 @@ impl Array<Dict> {
     /// See [`DictData::new_unchecked`].
     pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
         let data = unsafe { DictData::new_unchecked(codes, values) };
-        let dtype = data.dtype().clone();
+        let dtype = data.dtype();
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Dict, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Dict, dtype, len, data))
             .vortex_expect("DictData is always valid")
     }
 
@@ -245,8 +237,8 @@ impl Array<Dict> {
             self.into_data()
                 .set_all_values_referenced(all_values_referenced)
         };
-        Array::try_from_parts(ArrayNew::new(Dict, dtype, len, data))
-        .vortex_expect("data is always valid")
+        Array::try_from_parts(ArrayParts::new(Dict, dtype, len, data))
+            .vortex_expect("data is always valid")
     }
 }
 

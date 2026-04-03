@@ -3,7 +3,6 @@
 
 //! Integer compression schemes.
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -336,12 +335,28 @@ impl Scheme for BitPackingScheme {
             return Ok(stats.source().clone().into_array());
         }
         let packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
+        let ptype = packed.dtype().as_ptype();
+        let len = packed.len();
+        let nullability = packed.dtype().nullability();
         let mut packed_data = packed.into_data();
 
-        let patches = packed_data.patches().map(compress_patches).transpose()?;
+        let patches = packed_data
+            .patches(len)
+            .map(compress_patches)
+            .transpose()?;
         packed_data.replace_patches(patches);
+        let parts = packed_data.into_parts(len, nullability);
 
-        Ok(Array::<vortex_fastlanes::BitPacked>::try_from_data(packed_data)?.into_array())
+        Ok(vortex_fastlanes::BitPacked::try_new(
+            parts.packed,
+            ptype,
+            parts.validity,
+            parts.patches,
+            parts.bit_width,
+            parts.len,
+            parts.offset,
+        )?
+        .into_array())
     }
 }
 

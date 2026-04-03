@@ -11,7 +11,7 @@ use pyo3::intern;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use vortex::array::serde::ArrayParts;
+use vortex::array::serde::SerializedArray;
 use vortex::buffer::ByteBuffer;
 
 use crate::SESSION;
@@ -24,18 +24,18 @@ use crate::serde::context::PyReadContext;
 ///
 /// It can be decoded into a full array using the `decode` method.
 #[pyclass(name = "ArrayParts", module = "vortex", frozen)]
-pub(crate) struct PyArrayParts(ArrayParts);
+pub(crate) struct PyArrayParts(SerializedArray);
 
 impl Deref for PyArrayParts {
-    type Target = ArrayParts;
+    type Target = SerializedArray;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<ArrayParts> for PyArrayParts {
-    fn from(parts: ArrayParts) -> Self {
+impl From<SerializedArray> for PyArrayParts {
+    fn from(parts: SerializedArray) -> Self {
         Self(parts)
     }
 }
@@ -47,7 +47,7 @@ impl PyArrayParts {
     fn parse(data: &[u8]) -> PyVortexResult<PyArrayParts> {
         // TODO(ngates): create a buffer from a slice of bytes?
         let buffer = ByteBuffer::copy_from(data);
-        Ok(PyArrayParts(ArrayParts::try_from(buffer)?))
+        Ok(PyArrayParts(SerializedArray::try_from(buffer)?))
     }
 
     /// Decode the array parts into a full array.

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -480,7 +480,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
     let dtype = filled_array.dtype().clone();
     let len = filled_array.len();
     let data = filled_array.into_data().patch(patches, ctx)?;
-    Ok(Array::try_from_parts(ArrayNew::new(Decimal, dtype, len, data))?.into_array())
+    Ok(Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data))?.into_array())
 }
 
 fn execute_varbin(

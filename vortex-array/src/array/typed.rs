@@ -26,7 +26,7 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
 /// Construction parameters for [`ArrayInner`] / [`Array`].
-pub struct ArrayNew<V: VTable> {
+pub struct ArrayParts<V: VTable> {
     pub vtable: V,
     pub dtype: DType,
     pub len: usize,
@@ -34,7 +34,7 @@ pub struct ArrayNew<V: VTable> {
     pub stats: ArrayStats,
 }
 
-impl<V: VTable> ArrayNew<V> {
+impl<V: VTable> ArrayParts<V> {
     pub fn new(vtable: V, dtype: DType, len: usize, data: V::ArrayData) -> Self {
         Self {
             vtable,
@@ -72,9 +72,11 @@ pub(crate) struct ArrayInner<V: VTable> {
 impl<V: VTable> ArrayInner<V> {
     /// Create a new inner array from explicit construction parameters.
     #[doc(hidden)]
-    pub fn try_new(new: ArrayNew<V>) -> VortexResult<Self> {
+    pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
         new.vtable.validate(&new.data, &new.dtype, new.len)?;
-        Ok(unsafe { Self::from_data_unchecked(new.vtable, new.dtype, new.len, new.data, new.stats) })
+        Ok(unsafe {
+            Self::from_data_unchecked(new.vtable, new.dtype, new.len, new.data, new.stats)
+        })
     }
 
     /// Create without validation.
@@ -165,7 +167,7 @@ pub struct Array<V: VTable> {
 #[allow(clippy::same_name_method)]
 impl<V: VTable> Array<V> {
     /// Create a typed array from explicit construction parameters.
-    pub fn try_from_parts(new: ArrayNew<V>) -> VortexResult<Self> {
+    pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
         let inner = ArrayRef::from_inner(Arc::new(ArrayInner::<V>::try_new(new)?));
         Ok(Self {
             inner,
@@ -177,14 +179,10 @@ impl<V: VTable> Array<V> {
     ///
     /// # Safety
     /// Caller must ensure the provided parts are logically consistent.
-    pub(crate) unsafe fn from_parts_unchecked(new: ArrayNew<V>) -> Self {
+    pub(crate) unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
         let inner = ArrayRef::from_inner(Arc::new(unsafe {
             ArrayInner::<V>::from_data_unchecked(
-                new.vtable,
-                new.dtype,
-                new.len,
-                new.data,
-                new.stats,
+                new.vtable, new.dtype, new.len, new.data, new.stats,
             )
         }));
         Self {

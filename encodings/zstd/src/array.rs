@@ -8,10 +8,10 @@ use std::sync::Arc;
 use itertools::Itertools as _;
 use prost::Message as _;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
@@ -265,7 +265,7 @@ impl Zstd {
 
     pub fn try_new(dtype: DType, data: ZstdData) -> VortexResult<ZstdArray> {
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(Zstd, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(Zstd, dtype, len, data))
     }
 
     /// Compress a [`VarBinViewArray`] using Zstd without a dictionary.
@@ -482,7 +482,10 @@ impl ZstdData {
 
     pub fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
         vortex_ensure!(
-            matches!(dtype, DType::Primitive(..) | DType::Binary(_) | DType::Utf8(_)),
+            matches!(
+                dtype,
+                DType::Primitive(..) | DType::Binary(_) | DType::Utf8(_)
+            ),
             "Unsupported dtype for Zstd array: {dtype}"
         );
         vortex_ensure!(
@@ -1036,7 +1039,10 @@ impl OperationsVTable<Zstd> for Zstd {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let sliced = Zstd::try_new(array.dtype().clone(), array.data().with_slice(index, index + 1))?;
+        let sliced = Zstd::try_new(
+            array.dtype().clone(),
+            array.data().with_slice(index, index + 1),
+        )?;
         Zstd::decompress(&sliced, &mut ctx)?.scalar_at(0)
     }
 }

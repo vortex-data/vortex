@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
-use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use vortex_error::VortexResult;
@@ -36,7 +34,6 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 
@@ -95,11 +92,12 @@ impl VTable for Filter {
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,        _metadata: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
 
         _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<FilterData> {
         vortex_bail!("Filter array is not serializable")
@@ -157,19 +155,5 @@ impl OperationsVTable<Filter> for Filter {
 impl ValidityVTable<Filter> for Filter {
     fn validity(array: ArrayView<'_, Filter>) -> VortexResult<Validity> {
         array.child().validity()?.filter(&array.mask)
-    }
-}
-
-pub struct FilterMetadata(pub(super) Mask);
-
-impl Debug for FilterMetadata {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} / {} => {}",
-            self.0.true_count(),
-            self.0.len(),
-            self.0.density()
-        )
     }
 }

@@ -33,7 +33,6 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 vtable!(Masked, Masked, MaskedData);
@@ -53,6 +52,15 @@ impl VTable for Masked {
 
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn validate(&self, data: &MaskedData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(data.child().len() == len, "MaskedArray child length mismatch");
+        vortex_ensure!(
+            data.dtype() == *dtype,
+            "MaskedArray dtype does not match child and validity"
+        );
+        Ok(())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &MaskedData, state: &mut H, precision: Precision) {
@@ -84,7 +92,8 @@ impl VTable for Masked {
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
@@ -180,8 +189,8 @@ mod tests {
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[rstest]
@@ -221,7 +230,7 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

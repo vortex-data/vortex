@@ -8,7 +8,6 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
@@ -25,7 +24,6 @@ use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 
@@ -47,6 +45,12 @@ impl VTable for Shared {
 
     fn id(&self) -> ArrayId {
         Self::ID
+    }
+
+    fn validate(&self, data: &SharedData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_error::vortex_ensure!(data.source().dtype() == dtype, "SharedArray dtype mismatch");
+        vortex_error::vortex_ensure!(data.source().len() == len, "SharedArray len mismatch");
+        Ok(())
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &SharedData, state: &mut H, precision: Precision) {
@@ -100,11 +104,12 @@ impl VTable for Shared {
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,        _metadata: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
 
         _buffers: &[BufferHandle],
-        children: &dyn crate::serde::ArrayChildren,
+        _children: &dyn crate::serde::ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<SharedData> {
         vortex_error::vortex_bail!("Shared array is not serializable")

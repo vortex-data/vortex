@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::EmptyMetadata;
@@ -51,8 +51,15 @@ impl VTable for ZigZag {
 
     fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
         let expected_dtype = ZigZagData::dtype_from_encoded_dtype(data.encoded().dtype())?;
-        vortex_ensure!(dtype == &expected_dtype, "expected dtype {expected_dtype}, got {dtype}");
-        vortex_ensure!(data.encoded().len() == len, "expected len {len}, got {}", data.encoded().len());
+        vortex_ensure!(
+            dtype == &expected_dtype,
+            "expected dtype {expected_dtype}, got {dtype}"
+        );
+        vortex_ensure!(
+            data.encoded().len() == len,
+            "expected len {len}, got {}",
+            data.encoded().len()
+        );
         Ok(())
     }
 
@@ -165,7 +172,7 @@ impl ZigZag {
         let data = ZigZagData::try_new(encoded)?;
         let dtype = ZigZagData::dtype_from_encoded_dtype(data.encoded().dtype())?;
         let len = data.len();
-        Array::try_from_parts(ArrayNew::new(ZigZag, dtype, len, data))
+        Array::try_from_parts(ArrayParts::new(ZigZag, dtype, len, data))
     }
 }
 
@@ -187,7 +194,9 @@ impl ZigZagData {
 
         Self::dtype_from_encoded_dtype(&encoded_dtype)?;
 
-        Ok(Self { slots: vec![Some(encoded)] })
+        Ok(Self {
+            slots: vec![Some(encoded)],
+        })
     }
 
     /// Returns the length of the array.

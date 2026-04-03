@@ -36,7 +36,6 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 
@@ -95,11 +94,12 @@ impl VTable for Slice {
 
     fn deserialize(
         &self,
-        dtype: &DType,
-        len: usize,        _metadata: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
 
         _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<Self::ArrayData> {
         vortex_bail!("Slice array is not serializable")

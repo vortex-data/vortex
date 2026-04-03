@@ -5,10 +5,10 @@ use std::hash::Hash;
 
 use prost::Message;
 use vortex_array::Array;
-use vortex_array::ArrayNew;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -128,14 +128,15 @@ impl VTable for RLE {
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             RLEMetadata {
-            values_len: array.values().len() as u64,
-            indices_len: array.indices().len() as u64,
-            indices_ptype: PType::try_from(array.indices().dtype())? as i32,
-            values_idx_offsets_len: array.values_idx_offsets().len() as u64,
-            values_idx_offsets_ptype: PType::try_from(array.values_idx_offsets().dtype())? as i32,
-            offset: array.offset() as u64,
-        }
-        .encode_to_vec(),
+                values_len: array.values().len() as u64,
+                indices_len: array.indices().len() as u64,
+                indices_ptype: PType::try_from(array.indices().dtype())? as i32,
+                values_idx_offsets_len: array.values_idx_offsets().len() as u64,
+                values_idx_offsets_ptype: PType::try_from(array.values_idx_offsets().dtype())?
+                    as i32,
+                offset: array.offset() as u64,
+            }
+            .encode_to_vec(),
         ))
     }
 
@@ -148,7 +149,11 @@ impl VTable for RLE {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<RLEData> {
-        vortex_ensure!(buffers.is_empty(), "RLEArray expects 0 buffers, got {}", buffers.len());
+        vortex_ensure!(
+            buffers.is_empty(),
+            "RLEArray expects 0 buffers, got {}",
+            buffers.len()
+        );
         let metadata = RLEMetadata::decode(metadata)?;
         let values = children.get(
             0,
@@ -211,7 +216,7 @@ impl RLE {
     ) -> VortexResult<RLEArray> {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
         let data = RLEData::try_new(values, indices, values_idx_offsets, offset, length)?;
-        Array::try_from_parts(ArrayNew::new(RLE, dtype, length, data))
+        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data))
     }
 
     /// Create a new RLE array without validation.
@@ -227,7 +232,7 @@ impl RLE {
     ) -> RLEArray {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
         let data = unsafe { RLEData::new_unchecked(values, indices, values_idx_offsets, offset) };
-        Array::try_from_parts(ArrayNew::new(RLE, dtype, length, data))
+        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data))
             .vortex_expect("pre-validated RLE parts must be valid")
     }
 

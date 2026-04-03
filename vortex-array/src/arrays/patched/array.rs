@@ -15,9 +15,9 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
-use crate::array::ArrayNew;
-use crate::arrays::PrimitiveArray;
+use crate::array::ArrayParts;
 use crate::arrays::Patched;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::TransposedPatches;
 use crate::arrays::patched::patch_lanes;
 use crate::buffer::BufferHandle;
@@ -138,9 +138,11 @@ impl IntoArray for PatchedArray {
         let dtype = self.base_array().dtype().clone();
         let len = self.len;
         let stats = self.stats_set.clone();
-        Array::<Patched>::try_from_parts(ArrayNew::new(Patched, dtype, len, self).with_stats(stats))
-            .vortex_expect("PatchedArray is always valid")
-            .into_array()
+        Array::<Patched>::try_from_parts(
+            ArrayParts::new(Patched, dtype, len, self).with_stats(stats),
+        )
+        .vortex_expect("PatchedArray is always valid")
+        .into_array()
     }
 }
 

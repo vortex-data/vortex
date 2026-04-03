@@ -37,7 +37,6 @@ use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::ArrayStats;
 
 vtable!(Primitive, Primitive, PrimitiveData);
 
@@ -83,10 +82,30 @@ impl VTable for Primitive {
         Ok(Some(vec![]))
     }
 
+    fn validate(&self, data: &PrimitiveData, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            data.len() == len,
+            "PrimitiveArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+
+        let actual_dtype = data.dtype();
+        vortex_ensure!(
+            &actual_dtype == dtype,
+            "PrimitiveArray dtype {} does not match outer dtype {}",
+            actual_dtype,
+            dtype
+        );
+
+        Ok(())
+    }
+
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
@@ -199,8 +218,8 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[test]
@@ -223,7 +242,7 @@ mod tests {
         for buf in serialized {
             concat.extend_from_slice(buf.as_ref());
         }
-        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

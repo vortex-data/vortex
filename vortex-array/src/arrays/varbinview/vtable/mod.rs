@@ -32,7 +32,6 @@ use crate::dtype::DType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 mod kernel;
@@ -113,7 +112,8 @@ impl VTable for VarBinView {
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
@@ -215,8 +215,8 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::assert_arrays_eq;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
 
     #[test]
     fn test_nullable_varbinview_serde_roundtrip() {
@@ -241,7 +241,7 @@ mod tests {
         for buf in serialized {
             concat.extend_from_slice(buf.as_ref());
         }
-        let parts = ArrayParts::try_from(concat.freeze()).unwrap();
+        let parts = SerializedArray::try_from(concat.freeze()).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

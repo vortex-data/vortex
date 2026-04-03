@@ -33,7 +33,6 @@ use crate::Precision;
 use crate::array::ArrayId;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::stats::ArrayStats;
 
 vtable!(Struct, Struct, StructData);
 
