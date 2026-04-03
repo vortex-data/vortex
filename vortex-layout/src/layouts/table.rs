@@ -86,13 +86,14 @@ impl TableStrategy {
     /// ```ignore
     /// # use std::sync::Arc;
     /// # use vortex_array::dtype::{field_path, Field, FieldPath};
+    /// # use vortex_btrblocks::BtrBlocksCompressor;
     /// # use vortex_layout::layouts::compressed::CompressingStrategy;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     /// # use vortex_layout::layouts::table::TableStrategy;
     ///
-    /// # use vortex_btrblocks::BtrBlocksCompressor;
     /// // A strategy for compressing data using the balanced BtrBlocks compressor.
-    /// let compress = CompressingStrategy::new(FlatLayoutStrategy::default(), BtrBlocksCompressor::default());
+    /// let compress =
+    ///     CompressingStrategy::new(FlatLayoutStrategy::default(), BtrBlocksCompressor::default());
     ///
     /// // Our combined strategy uses no compression for validity buffers, BtrBlocks compression
     /// // for most columns, and stores a nested binary column uncompressed (flat) because it
