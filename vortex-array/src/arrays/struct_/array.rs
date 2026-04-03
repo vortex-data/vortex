@@ -472,41 +472,6 @@ impl StructData {
         Self::try_from_iter_with_validity(iter, Validity::NonNullable)
     }
 
-    // TODO(aduffy): Add equivalent function to support field masks for nested column access.
-    /// Return a new StructArray with the given projection applied.
-    ///
-    /// Projection does not copy data arrays. Projection is defined by an ordinal array slice
-    /// which specifies the new ordering of columns in the struct. The projection can be used to
-    /// perform column re-ordering, deletion, or duplication at a logical level, without any data
-    /// copying.
-    pub fn project(&self, projection: &[FieldName]) -> VortexResult<Self> {
-        let mut children = Vec::with_capacity(projection.len());
-        let mut names = Vec::with_capacity(projection.len());
-
-        for f_name in projection.iter() {
-            let idx = self
-                .names()
-                .iter()
-                .position(|name| name == f_name)
-                .ok_or_else(|| vortex_err!("Unknown field {f_name}"))?;
-
-            names.push(self.names()[idx].clone());
-            children.push(
-                self.slots[FIELDS_OFFSET + idx]
-                    .as_ref()
-                    .vortex_expect("StructArray field slot")
-                    .clone(),
-            );
-        }
-
-        StructData::try_new(
-            FieldNames::from(names.as_slice()),
-            children,
-            self.len(),
-            self.validity(),
-        )
-    }
-
     /// Removes and returns a column from the struct array by name.
     /// If the column does not exist, returns `None`.
     pub fn remove_column(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
@@ -636,6 +601,36 @@ impl Array<Struct> {
         let dtype = data.dtype();
         let len = data.len();
         Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data)) })
+    }
+
+    // TODO(aduffy): Add equivalent function to support field masks for nested column access.
+    /// Return a new StructArray with the given projection applied.
+    ///
+    /// Projection does not copy data arrays. Projection is defined by an ordinal array slice
+    /// which specifies the new ordering of columns in the struct. The projection can be used to
+    /// perform column re-ordering, deletion, or duplication at a logical level, without any data
+    /// copying.
+    pub fn project(&self, projection: &[FieldName]) -> VortexResult<Self> {
+        let mut children = Vec::with_capacity(projection.len());
+        let mut names = Vec::with_capacity(projection.len());
+
+        for f_name in projection {
+            let idx = self
+                .names()
+                .iter()
+                .position(|name| name == f_name)
+                .ok_or_else(|| vortex_err!("Unknown field {f_name}"))?;
+
+            names.push(self.names()[idx].clone());
+            children.push(self.unmasked_field(idx).clone());
+        }
+
+        Self::try_new(
+            FieldNames::from(names.as_slice()),
+            children,
+            self.len(),
+            self.validity(),
+        )
     }
 
     /// Create a fieldless `StructArray` with the given length.

@@ -384,8 +384,6 @@ impl VortexFileHandle {
         array_path: Vec<String>,
         buffer_index: usize,
     ) -> Result<js_sys::Uint8Array, JsValue> {
-        use vortex::array::ArrayVisitor;
-
         let ctx = self
             .array_read_ctx
             .as_ref()
@@ -453,8 +451,6 @@ impl VortexFileHandle {
         array_path: Vec<String>,
         row_limit: u32,
     ) -> Result<js_sys::Uint8Array, JsValue> {
-        use vortex::array::ArrayVisitor;
-
         let ctx = self
             .array_read_ctx
             .as_ref()
@@ -641,8 +637,6 @@ fn build_array_encoding_tree(parts: &SerializedArray, ctx: &ReadContext) -> Arra
 /// Recursively build the array encoding tree from a fully decoded array,
 /// extracting dtype, child names, and buffer names from the encoding vtables.
 fn build_array_encoding_tree_from_array(array: &ArrayRef) -> ArrayEncodingNodeJson {
-    use vortex::array::ArrayVisitor;
-
     let encoding = array.encoding_id().to_string();
     let dtype = array.dtype().to_string();
     let buffer_names = array.buffer_names();
