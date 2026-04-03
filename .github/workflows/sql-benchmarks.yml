@@ -223,7 +223,6 @@ jobs:
             ${{ matrix.scale_factor && format('--scale-factor {0}', matrix.scale_factor) || '' }}
 
       - name: Install uv
-        if: inputs.mode == 'pr'
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
           sync: false
@@ -260,6 +259,56 @@ jobs:
           # unique benchmark configuration must have a unique comment-tag.
           comment-tag: bench-pr-comment-${{ matrix.id }}
 
+      - name: Compare file sizes
+        if: inputs.mode == 'pr' && matrix.remote_storage == null
+        shell: bash
+        run: |
+          set -Eeu -o pipefail -x
+
+          # Capture HEAD file sizes (vortex formats only)
+          uv run --no-project scripts/capture-file-sizes.py \
+            vortex-bench/data \
+            --benchmark ${{ matrix.subcommand }} \
+            --commit ${{ github.event.pull_request.head.sha }} \
+            -o head-sizes.json
+
+          # Get base commit SHA (same as benchmark comparison)
+          base_commit_sha=$(\
+            curl -L \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              https://api.github.com/repos/vortex-data/vortex/actions/workflows/bench.yml/runs\?branch\=develop\&status\=success\&per_page\=1 \
+            | jq -r '.workflow_runs[].head_sha' \
+          )
+
+          # Download file sizes baseline (per-benchmark file)
+          python3 scripts/s3-download.py s3://vortex-ci-benchmark-results/file-sizes-${{ matrix.id }}.json.gz file-sizes.json.gz --no-sign-request || true
+
+          # Generate comparison report
+          echo '# File Sizes: ${{ matrix.name }}' > sizes-comment.md
+          echo '' >> sizes-comment.md
+
+          if [ -f file-sizes.json.gz ]; then
+            gzip -d -c file-sizes.json.gz | grep $base_commit_sha > base-sizes.json || true
+            if [ -s base-sizes.json ]; then
+              uv run --no-project scripts/compare-file-sizes.py base-sizes.json head-sizes.json \
+                >> sizes-comment.md
+            else
+              echo '_No baseline file sizes found for base commit._' >> sizes-comment.md
+            fi
+          else
+            echo '_No baseline file sizes available yet._' >> sizes-comment.md
+          fi
+
+          cat sizes-comment.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment PR with file sizes
+        if: inputs.mode == 'pr' && matrix.remote_storage == null && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          file-path: sizes-comment.md
+          comment-tag: file-sizes-${{ matrix.id }}
+
       - name: Comment PR on failure
         if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
         uses: thollander/actions-comment-pull-request@v3
@@ -275,6 +324,17 @@ jobs:
         shell: bash
         run: |
           bash scripts/cat-s3.sh vortex-ci-benchmark-results data.json.gz results.json
+
+      - name: Upload File Sizes
+        if: inputs.mode == 'develop' && matrix.remote_storage == null
+        shell: bash
+        run: |
+          uv run --no-project scripts/capture-file-sizes.py \
+            vortex-bench/data \
+            --benchmark ${{ matrix.subcommand }} \
+            --commit ${{ github.sha }} \
+            -o sizes.json
+          bash scripts/cat-s3.sh vortex-ci-benchmark-results file-sizes-${{ matrix.id }}.json.gz sizes.json
 
       - name: Alert incident.io
         if: failure() && inputs.mode == 'develop'

@@ -52,7 +52,7 @@ impl StatPopGenBenchmark {
             )
         })?;
 
-        let data_path = "statspopgen".to_data_path().join(format!("{n_rows}/"));
+        let data_path = "statpopgen".to_data_path().join(format!("{n_rows}/"));
 
         let data_url =
             Url::from_directory_path(data_path).map_err(|_| anyhow::anyhow!("bad data path?"))?;
