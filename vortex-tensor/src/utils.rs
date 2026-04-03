@@ -6,7 +6,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::Extension;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
@@ -52,15 +51,6 @@ pub fn extension_element_ptype(ext: &ExtDTypeRef) -> VortexResult<PType> {
     );
 
     Ok(element_dtype.as_ptype())
-}
-
-/// Extracts the storage array from an extension array without canonicalizing.
-pub fn extension_storage(array: &ArrayRef) -> VortexResult<ArrayRef> {
-    let ext = array
-        .as_opt::<Extension>()
-        .ok_or_else(|| vortex_err!("scalar_fn input must be an extension array"))?;
-
-    Ok(ext.storage_array().clone())
 }
 
 /// The flat primitive elements of a tensor storage array, with typed row access.
@@ -124,7 +114,6 @@ pub fn extract_flat_elements(
 #[cfg(test)]
 pub mod test_helpers {
     use vortex_array::ArrayRef;
-    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ExtensionArray;
@@ -138,11 +127,7 @@ pub mod test_helpers {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
 
-    use super::extension_list_size;
-    use super::extension_storage;
-    use super::extract_flat_elements;
     use crate::fixed_shape::FixedShapeTensor;
     use crate::fixed_shape::FixedShapeTensorMetadata;
     use crate::vector::Vector;
@@ -220,26 +205,6 @@ pub mod test_helpers {
             ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
 
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
-    }
-
-    #[expect(dead_code, reason = "TODO(connor): Use this!")]
-    /// Extracts the f64 rows from a [`Vector`] extension array.
-    ///
-    /// Returns a `Vec<Vec<f64>>` where each inner vec is one vector's elements.
-    pub fn extract_vector_rows(
-        array: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Vec<Vec<f64>>> {
-        let ext = array
-            .dtype()
-            .as_extension_opt()
-            .ok_or_else(|| vortex_err!("expected Vector extension dtype, got {}", array.dtype()))?;
-        let list_size = extension_list_size(ext)? as usize;
-        let storage = extension_storage(array)?;
-        let flat = extract_flat_elements(&storage, list_size, ctx)?;
-        Ok((0..array.len())
-            .map(|i| flat.row::<f64>(i).to_vec())
-            .collect())
     }
 
     /// Asserts that each element in `actual` is within `1e-10` of the corresponding `expected`

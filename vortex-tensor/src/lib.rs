@@ -11,6 +11,7 @@ use vortex_session::VortexSession;
 
 use crate::fixed_shape::FixedShapeTensor;
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
+use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::vector::Vector;
 
@@ -29,5 +30,6 @@ pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Vector);
     session.dtypes().register(FixedShapeTensor);
     session.scalar_fns().register(CosineSimilarity);
+    session.scalar_fns().register(InnerProduct);
     session.scalar_fns().register(L2Norm);
 }

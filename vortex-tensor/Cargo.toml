@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-session = { workspace = true }
 
