@@ -244,7 +244,7 @@ impl RLE {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ProstMetadata;
+    use prost::Message;
     use vortex_array::test_harness::check_metadata;
 
     use super::RLEMetadata;
@@ -254,14 +254,15 @@ mod tests {
     fn test_rle_metadata() {
         check_metadata(
             "rle.metadata",
-            ProstMetadata(RLEMetadata {
+            &RLEMetadata {
                 values_len: u64::MAX,
                 indices_len: u64::MAX,
                 indices_ptype: i32::MAX,
                 values_idx_offsets_len: u64::MAX,
                 values_idx_offsets_ptype: i32::MAX,
                 offset: u64::MAX,
-            }),
+            }
+            .encode_to_vec(),
         );
     }
 }

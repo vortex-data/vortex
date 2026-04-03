@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -10,11 +11,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
@@ -89,10 +87,10 @@ impl VTable for Bool {
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
         Ok(Some(
-            ProstMetadata(BoolMetadata {
+            BoolMetadata {
                 offset: u32::try_from(array.offset).vortex_expect("checked"),
-            })
-            .serialize(),
+            }
+            .encode_to_vec(),
         ))
     }
 
@@ -125,7 +123,7 @@ impl VTable for Bool {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<BoolData> {
-        let metadata = ProstMetadata::<BoolMetadata>::deserialize(metadata)?;
+        let metadata = BoolMetadata::decode(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }

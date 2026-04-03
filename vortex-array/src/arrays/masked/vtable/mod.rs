@@ -12,7 +12,6 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
@@ -102,7 +101,9 @@ impl VTable for Masked {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<MaskedData> {
-        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
+        if !metadata.is_empty() {
+            vortex_bail!("MaskedArray expects empty metadata, got {} bytes", metadata.len());
+        }
         if !buffers.is_empty() {
             vortex_bail!("Expected 0 buffer, got {}", buffers.len());
         }

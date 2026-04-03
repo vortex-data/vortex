@@ -10,7 +10,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
@@ -67,7 +66,26 @@ impl VTable for Struct {
     }
 
     fn validate(&self, data: &StructData, dtype: &DType, len: usize) -> VortexResult<()> {
-        data.validate_against_outer(dtype, len)
+        match dtype {
+            DType::Struct(_, _) => {}
+            _ => vortex_bail!("Expected struct dtype, found {:?}", dtype),
+        }
+        if data.len() != len {
+            vortex_bail!(
+                InvalidArgument: "StructArray length {} does not match outer length {}",
+                data.len(),
+                len
+            );
+        }
+        let data_dtype = data.dtype();
+        if &data_dtype != dtype {
+            vortex_bail!(
+                InvalidArgument: "StructArray dtype {} does not match outer dtype {}",
+                data_dtype,
+                dtype
+            );
+        }
+        Ok(())
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
@@ -92,7 +110,9 @@ impl VTable for Struct {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<StructData> {
-        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
+        if !metadata.is_empty() {
+            vortex_bail!("StructArray expects empty metadata, got {} bytes", metadata.len());
+        }
         let DType::Struct(struct_dtype, nullability) = dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", dtype)
         };

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -12,7 +13,6 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
-use crate::ProstMetadata;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -29,8 +29,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-use crate::metadata::DeserializeMetadata;
-use crate::metadata::SerializeMetadata;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -90,11 +88,11 @@ impl VTable for List {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
-            ProstMetadata(ListMetadata {
+            ListMetadata {
                 elements_len: array.elements().len() as u64,
                 offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
-            })
-            .serialize(),
+            }
+            .encode_to_vec(),
         ))
     }
 
@@ -127,7 +125,7 @@ impl VTable for List {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ListData> {
-        let metadata = ProstMetadata::<ListMetadata>::deserialize(metadata)?;
+        let metadata = ListMetadata::decode(metadata)?;
         let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
         } else if children.len() == 3 {

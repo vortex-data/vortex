@@ -8,7 +8,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
@@ -111,7 +110,12 @@ impl VTable for Primitive {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<PrimitiveData> {
-        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "PrimitiveArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }

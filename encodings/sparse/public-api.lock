@@ -1,25 +1,5 @@
 pub mod vortex_sparse
 
-#[repr(C)] pub struct vortex_sparse::ProstPatchesMetadata
-
-impl core::clone::Clone for vortex_sparse::ProstPatchesMetadata
-
-pub fn vortex_sparse::ProstPatchesMetadata::clone(&self) -> vortex_sparse::ProstPatchesMetadata
-
-impl core::default::Default for vortex_sparse::ProstPatchesMetadata
-
-pub fn vortex_sparse::ProstPatchesMetadata::default() -> Self
-
-impl core::fmt::Debug for vortex_sparse::ProstPatchesMetadata
-
-pub fn vortex_sparse::ProstPatchesMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl prost::message::Message for vortex_sparse::ProstPatchesMetadata
-
-pub fn vortex_sparse::ProstPatchesMetadata::clear(&mut self)
-
-pub fn vortex_sparse::ProstPatchesMetadata::encoded_len(&self) -> usize
-
 pub struct vortex_sparse::Sparse
 
 impl vortex_sparse::Sparse
@@ -137,5 +117,25 @@ pub fn vortex_sparse::SparseData::clone(&self) -> vortex_sparse::SparseData
 impl core::fmt::Debug for vortex_sparse::SparseData
 
 pub fn vortex_sparse::SparseData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+#[repr(C)] pub struct vortex_sparse::SparseMetadata
+
+impl core::clone::Clone for vortex_sparse::SparseMetadata
+
+pub fn vortex_sparse::SparseMetadata::clone(&self) -> vortex_sparse::SparseMetadata
+
+impl core::default::Default for vortex_sparse::SparseMetadata
+
+pub fn vortex_sparse::SparseMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_sparse::SparseMetadata
+
+pub fn vortex_sparse::SparseMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_sparse::SparseMetadata
+
+pub fn vortex_sparse::SparseMetadata::clear(&mut self)
+
+pub fn vortex_sparse::SparseMetadata::encoded_len(&self) -> usize
 
 pub type vortex_sparse::SparseArray = vortex_array::array::typed::Array<vortex_sparse::Sparse>

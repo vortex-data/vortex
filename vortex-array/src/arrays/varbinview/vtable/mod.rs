@@ -14,7 +14,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
@@ -84,7 +83,19 @@ impl VTable for VarBinView {
     }
 
     fn validate(&self, data: &VarBinViewData, dtype: &DType, len: usize) -> VortexResult<()> {
-        data.validate_against_outer(dtype, len)
+        vortex_ensure!(
+            data.len() == len,
+            "VarBinViewArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        vortex_ensure!(
+            data.dtype() == *dtype,
+            "VarBinViewArray dtype {} does not match outer dtype {}",
+            data.dtype(),
+            dtype
+        );
+        Ok(())
     }
 
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
@@ -123,7 +134,12 @@ impl VTable for VarBinView {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<VarBinViewData> {
-        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "VarBinViewArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
         let Some((views_handle, data_handles)) = buffers.split_last() else {
             vortex_bail!("Expected at least 1 buffer, got 0");
         };

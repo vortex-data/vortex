@@ -547,28 +547,6 @@ impl StructData {
         None
     }
 
-    pub fn validate_against_outer(&self, dtype: &DType, len: usize) -> VortexResult<()> {
-        match dtype {
-            DType::Struct(_, _) => {}
-            _ => vortex_bail!("Expected struct dtype, found {:?}", dtype),
-        }
-        if self.len() != len {
-            vortex_bail!(
-                InvalidArgument: "StructArray length {} does not match outer length {}",
-                self.len(),
-                len
-            );
-        }
-        let data_dtype = self.dtype();
-        if &data_dtype != dtype {
-            vortex_bail!(
-                InvalidArgument: "StructArray dtype {} does not match outer dtype {}",
-                data_dtype,
-                dtype
-            );
-        }
-        Ok(())
-    }
 }
 
 impl Array<Struct> {

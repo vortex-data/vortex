@@ -252,31 +252,6 @@ impl PatchedArray {
         self.base_array().len()
     }
 
-    pub fn validate_against_outer(
-        &self,
-        dtype: &crate::dtype::DType,
-        len: usize,
-    ) -> VortexResult<()> {
-        vortex_ensure!(
-            self.base_array().dtype() == dtype,
-            "PatchedArray base dtype {} does not match outer dtype {}",
-            self.base_array().dtype(),
-            dtype
-        );
-        vortex_ensure!(
-            self.len() == len,
-            "PatchedArray base len {} does not match outer len {}",
-            self.len(),
-            len
-        );
-        vortex_ensure!(
-            self.patch_indices().len() == self.patch_values().len(),
-            "PatchedArray patch indices len {} does not match patch values len {}",
-            self.patch_indices().len(),
-            self.patch_values().len()
-        );
-        Ok(())
-    }
 }
 
 impl PatchedArray {

@@ -3022,8 +3022,6 @@ pub fn vortex_array::arrays::patched::PatchedArray::patch_indices(&self) -> &vor
 
 pub fn vortex_array::arrays::patched::PatchedArray::patch_values(&self) -> &vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::patched::PatchedArray::validate_against_outer(&self, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
-
 impl vortex_array::arrays::patched::PatchedArray
 
 pub fn vortex_array::arrays::patched::PatchedArray::from_array_and_patches(inner: vortex_array::ArrayRef, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
@@ -3950,8 +3948,6 @@ pub fn vortex_array::arrays::struct_::StructData::unmasked_fields(&self) -> allo
 
 pub fn vortex_array::arrays::struct_::StructData::validate(fields: &[vortex_array::ArrayRef], dtype: &vortex_array::dtype::StructFields, length: usize, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::struct_::StructData::validate_against_outer(&self, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
-
 pub fn vortex_array::arrays::struct_::StructData::validity(&self) -> vortex_array::validity::Validity
 
 impl vortex_array::arrays::struct_::StructData
@@ -4153,8 +4149,6 @@ pub fn vortex_array::arrays::varbin::VarBinData::bytes_at(&self, index: usize) -
 pub fn vortex_array::arrays::varbin::VarBinData::into_parts(self) -> (vortex_array::dtype::DType, vortex_array::buffer::BufferHandle, vortex_array::ArrayRef, vortex_array::validity::Validity)
 
 pub fn vortex_array::arrays::varbin::VarBinData::offset_at(&self, index: usize) -> usize
-
-pub fn vortex_array::arrays::varbin::VarBinData::validate_against_outer(&self, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_array::arrays::varbin::VarBinData
 
@@ -4533,8 +4527,6 @@ pub fn vortex_array::arrays::varbinview::VarBinViewData::try_new(views: vortex_b
 pub fn vortex_array::arrays::varbinview::VarBinViewData::try_new_handle(views: vortex_array::buffer::BufferHandle, buffers: alloc::sync::Arc<[vortex_array::buffer::BufferHandle]>, dtype: vortex_array::dtype::DType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::varbinview::VarBinViewData::validate(views: &vortex_buffer::buffer::Buffer<vortex_array::arrays::varbinview::BinaryView>, buffers: &alloc::sync::Arc<[vortex_buffer::ByteBuffer]>, dtype: &vortex_array::dtype::DType, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::varbinview::VarBinViewData::validate_against_outer(&self, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::arrays::varbinview::VarBinViewData::validity(&self) -> vortex_array::validity::Validity
 
@@ -5907,8 +5899,6 @@ pub fn vortex_array::arrays::patched::PatchedArray::len(&self) -> usize
 pub fn vortex_array::arrays::patched::PatchedArray::patch_indices(&self) -> &vortex_array::ArrayRef
 
 pub fn vortex_array::arrays::patched::PatchedArray::patch_values(&self) -> &vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::patched::PatchedArray::validate_against_outer(&self, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
 
 impl vortex_array::arrays::patched::PatchedArray
 

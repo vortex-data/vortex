@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
 mod kernels;
 mod operations;
 mod slice;
@@ -19,13 +20,10 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -115,7 +113,25 @@ impl VTable for Patched {
     }
 
     fn validate(&self, data: &PatchedArray, dtype: &DType, len: usize) -> VortexResult<()> {
-        data.validate_against_outer(dtype, len)
+        vortex_ensure!(
+            data.base_array().dtype() == dtype,
+            "PatchedArray base dtype {} does not match outer dtype {}",
+            data.base_array().dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            data.len() == len,
+            "PatchedArray base len {} does not match outer len {}",
+            data.len(),
+            len
+        );
+        vortex_ensure!(
+            data.patch_indices().len() == data.patch_values().len(),
+            "PatchedArray patch indices len {} does not match patch values len {}",
+            data.patch_indices().len(),
+            data.patch_values().len()
+        );
+        Ok(())
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
@@ -138,12 +154,12 @@ impl VTable for Patched {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
-            ProstMetadata(PatchedMetadata {
+            PatchedMetadata {
                 n_patches: u32::try_from(array.patch_indices().len())?,
                 n_lanes: u32::try_from(array.n_lanes)?,
                 offset: u32::try_from(array.offset)?,
-            })
-            .serialize(),
+            }
+            .encode_to_vec(),
         ))
     }
 
@@ -156,7 +172,7 @@ impl VTable for Patched {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<PatchedArray> {
-        let metadata = ProstMetadata::<PatchedMetadata>::deserialize(metadata)?;
+        let metadata = PatchedMetadata::decode(metadata)?;
         let n_patches = metadata.n_patches as usize;
         let n_lanes = metadata.n_lanes as usize;
         let offset = metadata.offset as usize;

@@ -10,7 +10,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
@@ -134,7 +133,12 @@ impl VTable for FixedSizeList {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<FixedSizeListData> {
-        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "FixedSizeListArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
         vortex_ensure!(
             buffers.is_empty(),
             "`FixedSizeList::build` expects no buffers"

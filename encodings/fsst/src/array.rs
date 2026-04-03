@@ -568,9 +568,10 @@ impl ValidityChild<FSST> for FSST {
 mod test {
     use fsst::Compressor;
     use fsst::Symbol;
+    use prost::Message;
+    use vortex_array::DynVTable;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
-    use vortex_array::ProstMetadata;
     use vortex_array::VortexSessionExecute;
     use vortex_array::accessor::ArrayAccessor;
     use vortex_array::arrays::VarBinViewArray;
@@ -579,7 +580,6 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
-    use vortex_array::vtable::VTable;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
 
@@ -592,10 +592,11 @@ mod test {
     fn test_fsst_metadata() {
         check_metadata(
             "fsst.metadata",
-            ProstMetadata(FSSTMetadata {
+            &FSSTMetadata {
                 uncompressed_lengths_ptype: PType::U64 as i32,
                 codes_offsets_ptype: PType::I32 as i32,
-            }),
+            }
+            .encode_to_vec(),
         );
     }
 
@@ -640,10 +641,12 @@ mod test {
             fsst_array.uncompressed_lengths().clone(),
         ];
 
-        let fsst = FSST::build(
+        let fsst = DynVTable::build(
+            &FSST,
+            FSST::ID,
             &DType::Utf8(Nullability::NonNullable),
             2,
-            &ProstMetadata(FSSTMetadata {
+            &FSSTMetadata {
                 uncompressed_lengths_ptype: fsst_array
                     .uncompressed_lengths()
                     .dtype()
@@ -651,9 +654,11 @@ mod test {
                     .into(),
                 // Legacy array did not store this field, use Protobuf default of 0.
                 codes_offsets_ptype: 0,
-            }),
+            }
+            .encode_to_vec(),
             &buffers,
             &children.as_slice(),
+            &LEGACY_SESSION,
         )
         .unwrap();
 

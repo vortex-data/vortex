@@ -199,7 +199,7 @@ impl Delta {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ProstMetadata;
+    use prost::Message;
     use vortex_array::test_harness::check_metadata;
 
     use super::DeltaMetadata;
@@ -209,10 +209,11 @@ mod tests {
     fn test_delta_metadata() {
         check_metadata(
             "delta.metadata",
-            ProstMetadata(DeltaMetadata {
+            &DeltaMetadata {
                 offset: u32::MAX,
                 deltas_len: u64::MAX,
-            }),
+            }
+            .encode_to_vec(),
         );
     }
 }

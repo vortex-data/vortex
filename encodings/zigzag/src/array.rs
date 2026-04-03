@@ -8,7 +8,6 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -96,7 +95,9 @@ impl VTable for ZigZag {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ZigZagData> {
-        <EmptyMetadata as vortex_array::DeserializeMetadata>::deserialize(metadata)?;
+        if !metadata.is_empty() {
+            vortex_bail!("ZigZagArray expects empty metadata, got {} bytes", metadata.len());
+        }
         if children.len() != 1 {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }

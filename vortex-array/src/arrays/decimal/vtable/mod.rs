@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
@@ -10,11 +11,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
@@ -91,10 +89,10 @@ impl VTable for Decimal {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
-            ProstMetadata(DecimalMetadata {
+            DecimalMetadata {
                 values_type: array.values_type() as i32,
-            })
-            .serialize(),
+            }
+            .encode_to_vec(),
         ))
     }
 
@@ -127,7 +125,7 @@ impl VTable for Decimal {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<DecimalData> {
-        let metadata = ProstMetadata::<DecimalMetadata>::deserialize(metadata)?;
+        let metadata = DecimalMetadata::decode(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -19,10 +20,7 @@ use super::take_canonical;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DeserializeMetadata;
 use crate::Precision;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -98,7 +96,7 @@ impl VTable for Dict {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
-            ProstMetadata(DictMetadata {
+            DictMetadata {
                 codes_ptype: PType::try_from(array.codes().dtype())? as i32,
                 values_len: u32::try_from(array.values().len()).map_err(|_| {
                     vortex_err!(
@@ -108,8 +106,8 @@ impl VTable for Dict {
                 })?,
                 is_nullable_codes: Some(array.codes().dtype().is_nullable()),
                 all_values_referenced: Some(array.all_values_referenced),
-            })
-            .serialize(),
+            }
+            .encode_to_vec(),
         ))
     }
 
@@ -123,7 +121,7 @@ impl VTable for Dict {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<DictData> {
-        let metadata = ProstMetadata::<DictMetadata>::deserialize(metadata)?;
+        let metadata = DictMetadata::decode(metadata)?;
         if children.len() != 2 {
             vortex_bail!(
                 "Expected 2 children for dict encoding, found {}",

@@ -13,7 +13,6 @@ use vortex_error::vortex_panic;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
@@ -103,7 +102,11 @@ impl VTable for Variant {
         children: &dyn ArrayChildren,
         _session: &vortex_session::VortexSession,
     ) -> VortexResult<Self::ArrayData> {
-        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
+        vortex_ensure!(
+            metadata.is_empty(),
+            "VariantArray expects empty metadata, got {} bytes",
+            metadata.len()
+        );
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         vortex_ensure!(
             children.len() == 1,

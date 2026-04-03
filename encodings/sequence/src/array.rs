@@ -4,17 +4,15 @@
 use std::hash::Hash;
 
 use num_traits::cast::FromPrimitive;
+use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -51,7 +49,7 @@ use crate::rules::RULES;
 vtable!(Sequence, Sequence, SequenceData);
 
 #[derive(Clone, prost::Message)]
-pub struct ProstSequenceMetadata {
+pub struct SequenceMetadata {
     #[prost(message, tag = "1")]
     base: Option<vortex_proto::scalar::ScalarValue>,
     #[prost(message, tag = "2")]
@@ -248,12 +246,12 @@ impl VTable for Sequence {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        let prost = ProstMetadata(ProstSequenceMetadata {
+        let metadata = SequenceMetadata {
             base: Some((&array.base()).into()),
             multiplier: Some((&array.multiplier()).into()),
-        });
+        };
 
-        Ok(Some(prost.serialize()))
+        Ok(Some(metadata.encode_to_vec()))
     }
 
     fn deserialize(
@@ -275,14 +273,13 @@ impl VTable for Sequence {
             "SequenceArray expects 0 children, got {}",
             children.len()
         );
-        let prost =
-            <ProstMetadata<ProstSequenceMetadata> as DeserializeMetadata>::deserialize(metadata)?;
+        let metadata = SequenceMetadata::decode(metadata)?;
 
         let ptype = dtype.as_ptype();
 
         // We go via Scalar to validate that the value is valid for the ptype.
         let base = Scalar::from_proto_value(
-            prost
+            metadata
                 .base
                 .as_ref()
                 .ok_or_else(|| vortex_err!("base required"))?,
@@ -294,7 +291,7 @@ impl VTable for Sequence {
         .vortex_expect("sequence array base should be a non-nullable primitive");
 
         let multiplier = Scalar::from_proto_value(
-            prost
+            metadata
                 .multiplier
                 .as_ref()
                 .ok_or_else(|| vortex_err!("multiplier required"))?,

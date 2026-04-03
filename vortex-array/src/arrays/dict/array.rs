@@ -448,18 +448,19 @@ mod test {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_dict_metadata() {
+        use prost::Message;
         use super::DictMetadata;
-        use crate::ProstMetadata;
         use crate::test_harness::check_metadata;
 
         check_metadata(
             "dict.metadata",
-            ProstMetadata(DictMetadata {
+            &DictMetadata {
                 codes_ptype: PType::U64 as i32,
                 values_len: u32::MAX,
                 is_nullable_codes: None,
                 all_values_referenced: None,
-            }),
+            }
+            .encode_to_vec(),
         );
     }
 }

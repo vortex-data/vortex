@@ -11,7 +11,6 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
@@ -135,7 +134,9 @@ impl VTable for Chunked {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ChunkedData> {
-        <EmptyMetadata as crate::DeserializeMetadata>::deserialize(metadata)?;
+        if !metadata.is_empty() {
+            vortex_bail!("ChunkedArray expects empty metadata, got {} bytes", metadata.len());
+        }
         if children.is_empty() {
             vortex_bail!("Chunked array needs at least one child");
         }

@@ -17,8 +17,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -102,11 +100,11 @@ impl VTable for DecimalByteParts {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
-            ProstMetadata(DecimalBytesPartsMetadata {
+            DecimalBytesPartsMetadata {
                 zeroth_child_ptype: PType::try_from(array.msp().dtype())? as i32,
                 lower_part_count: 0,
-            })
-            .serialize(),
+            }
+            .encode_to_vec(),
         ))
     }
 

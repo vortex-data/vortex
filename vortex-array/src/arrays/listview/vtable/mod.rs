@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -8,12 +9,9 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
@@ -90,12 +88,12 @@ impl VTable for ListView {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
-            ProstMetadata(ListViewMetadata {
+            ListViewMetadata {
                 elements_len: array.elements().len() as u64,
                 offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
                 size_ptype: PType::try_from(array.sizes().dtype())? as i32,
-            })
-            .serialize(),
+            }
+            .encode_to_vec(),
         ))
     }
 
@@ -128,7 +126,7 @@ impl VTable for ListView {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ListViewData> {
-        let metadata = ProstMetadata::<ListViewMetadata>::deserialize(metadata)?;
+        let metadata = ListViewMetadata::decode(metadata)?;
         vortex_ensure!(
             buffers.is_empty(),
             "`ListViewArray::build` expects no buffers"

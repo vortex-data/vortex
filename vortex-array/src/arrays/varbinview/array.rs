@@ -416,22 +416,6 @@ impl VarBinViewData {
         }
     }
 
-    pub fn validate_against_outer(&self, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            self.len() == len,
-            "VarBinViewArray length {} does not match outer length {}",
-            self.len(),
-            len
-        );
-        vortex_ensure!(
-            self.dtype() == *dtype,
-            "VarBinViewArray dtype {} does not match outer dtype {}",
-            self.dtype(),
-            dtype
-        );
-        Ok(())
-    }
-
     /// Access to the primitive views buffer.
     ///
     /// Variable-sized binary view buffer contain a "view" child array, with 16-byte entries that

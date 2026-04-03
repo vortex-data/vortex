@@ -651,8 +651,8 @@ impl ValidityChild<ALPRD> for ALPRD {
 
 #[cfg(test)]
 mod test {
+    use prost::Message;
     use rstest::rstest;
-    use vortex_array::ProstMetadata;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -696,7 +696,7 @@ mod test {
     fn test_alprd_metadata() {
         check_metadata(
             "alprd.metadata",
-            ProstMetadata(ALPRDMetadata {
+            &ALPRDMetadata {
                 right_bit_width: u32::MAX,
                 patches: Some(PatchesMetadata::new(
                     usize::MAX,
@@ -709,7 +709,8 @@ mod test {
                 dict: Vec::new(),
                 left_parts_ptype: PType::U64 as i32,
                 dict_len: 8,
-            }),
+            }
+            .encode_to_vec(),
         );
     }
 }

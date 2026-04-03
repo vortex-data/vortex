@@ -496,21 +496,6 @@ impl VarBinData {
         (self.dtype(), self.bytes, offsets, validity)
     }
 
-    pub fn validate_against_outer(&self, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(
-            self.len() == len,
-            "VarBinArray length {} does not match outer length {}",
-            self.len(),
-            len
-        );
-        vortex_ensure!(
-            self.dtype() == *dtype,
-            "VarBinArray dtype {} does not match outer dtype {}",
-            self.dtype(),
-            dtype
-        );
-        Ok(())
-    }
 }
 
 impl Array<VarBin> {

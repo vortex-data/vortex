@@ -59,7 +59,7 @@ vtable!(Sparse, Sparse, SparseData);
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]
-pub struct ProstPatchesMetadata {
+pub struct SparseMetadata {
     #[prost(message, required, tag = "1")]
     patches: PatchesMetadata,
 }
@@ -111,10 +111,10 @@ impl VTable for Sparse {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         let patches = array.patches().to_metadata(array.len(), array.dtype())?;
-        let prost_patches = ProstPatchesMetadata { patches };
+        let metadata = SparseMetadata { patches };
 
         // Note that we DO NOT serialize the fill value since that is stored in the buffers.
-        Ok(Some(prost_patches.encode_to_vec()))
+        Ok(Some(metadata.encode_to_vec()))
     }
 
     fn deserialize(
@@ -126,7 +126,7 @@ impl VTable for Sparse {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<Self::ArrayData> {
-        let prost_patches = ProstPatchesMetadata::decode(metadata)?;
+        let metadata = SparseMetadata::decode(metadata)?;
 
         // Once we have the patches metadata, we need to get the fill value from the buffers.
 
@@ -147,15 +147,15 @@ impl VTable for Sparse {
 
         let patch_indices = children.get(
             0,
-            &prost_patches.patches.indices_dtype()?,
-            prost_patches.patches.len()?,
+            &metadata.patches.indices_dtype()?,
+            metadata.patches.len()?,
         )?;
-        let patch_values = children.get(1, dtype, prost_patches.patches.len()?)?;
+        let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
 
         SparseData::try_new_from_patches(
             Patches::new(
                 len,
-                prost_patches.patches.offset()?,
+                metadata.patches.offset()?,
                 patch_indices,
                 patch_values,
                 None,

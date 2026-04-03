@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 
+use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -10,13 +11,10 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -119,12 +117,12 @@ impl VTable for DateTimeParts {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
-            ProstMetadata(DateTimePartsMetadata {
+            DateTimePartsMetadata {
                 days_ptype: PType::try_from(array.days().dtype())? as i32,
                 seconds_ptype: PType::try_from(array.seconds().dtype())? as i32,
                 subseconds_ptype: PType::try_from(array.subseconds().dtype())? as i32,
-            })
-            .serialize(),
+            }
+            .encode_to_vec(),
         ))
     }
 
@@ -137,7 +135,7 @@ impl VTable for DateTimeParts {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<DateTimePartsData> {
-        let metadata = ProstMetadata::<DateTimePartsMetadata>::deserialize(metadata)?;
+        let metadata = DateTimePartsMetadata::decode(metadata)?;
         if children.len() != 3 {
             vortex_bail!(
                 "Expected 3 children for datetime-parts encoding, found {}",

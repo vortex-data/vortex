@@ -10,7 +10,6 @@ use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -96,7 +95,9 @@ impl VTable for ByteBool {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ByteBoolData> {
-        <EmptyMetadata as vortex_array::DeserializeMetadata>::deserialize(metadata)?;
+        if !metadata.is_empty() {
+            vortex_bail!("ByteBoolArray expects empty metadata, got {} bytes", metadata.len());
+        }
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
