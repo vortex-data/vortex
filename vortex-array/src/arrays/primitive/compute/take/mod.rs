@@ -99,7 +99,9 @@ impl TakeExecute for Primitive {
                 .execute::<PrimitiveArray>(ctx)?
         };
 
-        let validity = array.validity()?.take(&unsigned_indices.clone().into_array())?;
+        let validity = array
+            .validity()?
+            .take(&unsigned_indices.clone().into_array())?;
         // Delegate to the best kernel based on the target CPU
         {
             let unsigned_indices = unsigned_indices.as_view();

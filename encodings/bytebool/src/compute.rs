@@ -25,7 +25,9 @@ impl CastReduce for ByteBool {
 
         // If just changing nullability, we can optimize
         if array.dtype().eq_ignore_nullability(dtype) {
-            let new_validity = array.validity()?.cast_nullability(dtype.nullability(), array.len())?;
+            let new_validity = array
+                .validity()?
+                .cast_nullability(dtype.nullability(), array.len())?;
 
             return Ok(Some(
                 ByteBool::new(array.buffer().clone(), new_validity).into_array(),

@@ -577,9 +577,27 @@ mod tests {
         assert!(list2.is_null()); // This should be null.
 
         // Check validity.
-        assert!(array.validity().vortex_expect("list validity should be derivable").is_valid(0).unwrap());
-        assert!(array.validity().vortex_expect("list validity should be derivable").is_valid(1).unwrap());
-        assert!(!array.validity().vortex_expect("list validity should be derivable").is_valid(2).unwrap());
+        assert!(
+            array
+                .validity()
+                .vortex_expect("list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            array
+                .validity()
+                .vortex_expect("list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            !array
+                .validity()
+                .vortex_expect("list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
 
         // Test wrong dtype error.
         let mut builder = ListBuilder::<u64>::with_capacity(dtype, NonNullable, 20, 10);

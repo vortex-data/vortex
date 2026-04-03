@@ -9,7 +9,7 @@ use crate::array::VTable;
 use crate::validity::Validity;
 
 pub trait ValidityVTable<V: VTable> {
-/// Returns the [`Validity`] of the array.
+    /// Returns the [`Validity`] of the array.
     ///
     /// ## Pre-conditions
     ///

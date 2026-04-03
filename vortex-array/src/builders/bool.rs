@@ -194,8 +194,7 @@ mod tests {
 
         assert!(
             canon_into
-                .validity()
-                ?
+                .validity()?
                 .mask_eq(&into_canon.validity()?, &mut ctx)?
         );
         assert_eq!(canon_into.to_bit_buffer(), into_canon.to_bit_buffer());

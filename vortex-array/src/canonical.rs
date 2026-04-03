@@ -806,7 +806,10 @@ impl<T: NativePType> Executable for Buffer<T> {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let array = PrimitiveArray::execute(array, ctx)?;
         vortex_ensure!(
-            matches!(array.validity()?, Validity::NonNullable | Validity::AllValid),
+            matches!(
+                array.validity()?,
+                Validity::NonNullable | Validity::AllValid
+            ),
             "Cannot execute to native buffer: array is not all-valid."
         );
         Ok(array.into_buffer())

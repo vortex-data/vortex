@@ -26,7 +26,7 @@ pub type vortex_bytebool::ByteBool::ArrayData = vortex_bytebool::ByteBoolData
 
 pub type vortex_bytebool::ByteBool::OperationsVTable = vortex_bytebool::ByteBool
 
-pub type vortex_bytebool::ByteBool::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromValidityHelper
+pub type vortex_bytebool::ByteBool::ValidityVTable = vortex_bytebool::ByteBool
 
 pub fn vortex_bytebool::ByteBool::array_eq(array: &vortex_bytebool::ByteBoolData, other: &vortex_bytebool::ByteBoolData, precision: vortex_array::hash::Precision) -> bool
 
@@ -62,6 +62,10 @@ impl vortex_array::array::vtable::operations::OperationsVTable<vortex_bytebool::
 
 pub fn vortex_bytebool::ByteBool::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_bytebool::ByteBool>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
+impl vortex_array::array::vtable::validity::ValidityVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool
+
+pub fn vortex_bytebool::ByteBool::validity(array: vortex_array::array::view::ArrayView<'_, vortex_bytebool::ByteBool>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_bytebool::ByteBool
 
 pub fn vortex_bytebool::ByteBool::take(array: vortex_array::array::view::ArrayView<'_, Self>, indices: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
@@ -96,6 +100,8 @@ pub fn vortex_bytebool::ByteBoolData::new(buffer: vortex_array::buffer::BufferHa
 
 pub fn vortex_bytebool::ByteBoolData::validate(buffer: &vortex_array::buffer::BufferHandle, validity: &vortex_array::validity::Validity, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
 
+pub fn vortex_bytebool::ByteBoolData::validity(&self) -> vortex_array::validity::Validity
+
 pub fn vortex_bytebool::ByteBoolData::validity_mask(&self) -> vortex_mask::Mask
 
 impl core::clone::Clone for vortex_bytebool::ByteBoolData
@@ -113,9 +119,5 @@ pub fn vortex_bytebool::ByteBoolData::from(value: alloc::vec::Vec<core::option::
 impl core::fmt::Debug for vortex_bytebool::ByteBoolData
 
 pub fn vortex_bytebool::ByteBoolData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_array::array::vtable::validity::ValidityHelper for vortex_bytebool::ByteBoolData
-
-pub fn vortex_bytebool::ByteBoolData::validity(&self) -> &vortex_array::validity::Validity
 
 pub type vortex_bytebool::ByteBoolArray = vortex_array::array::typed::Array<vortex_bytebool::ByteBool>

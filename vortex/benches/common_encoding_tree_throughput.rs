@@ -18,7 +18,6 @@ use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::error::VortexExpect;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
@@ -35,6 +34,7 @@ use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::runend::RunEnd;
+use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
 
 #[global_allocator]
