@@ -51,7 +51,6 @@ impl CastReduce for BitPacked {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;

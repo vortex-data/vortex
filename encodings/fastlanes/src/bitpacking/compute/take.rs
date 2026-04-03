@@ -21,7 +21,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
-use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
 use super::chunked_indices;

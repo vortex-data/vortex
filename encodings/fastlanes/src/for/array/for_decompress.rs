@@ -81,7 +81,7 @@ pub(crate) fn fused_decompress<
 >(
     for_: &FoRArray,
     bp: ArrayView<'_, BitPacked>,
-    ctx: &mut ExecutionCtx,
+    _ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let ref_ = for_
         .reference_scalar()

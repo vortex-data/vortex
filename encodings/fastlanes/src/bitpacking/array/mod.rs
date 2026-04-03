@@ -25,7 +25,6 @@ use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 
 pub mod bitpack_compress;
 pub mod bitpack_decompress;

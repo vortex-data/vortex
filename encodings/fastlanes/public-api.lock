@@ -78,7 +78,7 @@ pub fn vortex_fastlanes::bitpack_decompress::count_exceptions(bit_width: u8, bit
 
 pub fn vortex_fastlanes::bitpack_decompress::unpack_array(array: &vortex_fastlanes::BitPackedData, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
 
-pub fn vortex_fastlanes::bitpack_decompress::unpack_primitive_array<T: vortex_fastlanes::unpack_iter::BitPacked>(array: &vortex_fastlanes::BitPackedData, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
+pub fn vortex_fastlanes::bitpack_decompress::unpack_primitive_array<T: vortex_fastlanes::unpack_iter::BitPacked>(array: &vortex_fastlanes::BitPackedData, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
 
 pub fn vortex_fastlanes::bitpack_decompress::unpack_single(array: &vortex_fastlanes::BitPackedData, index: usize) -> vortex_array::scalar::Scalar
 

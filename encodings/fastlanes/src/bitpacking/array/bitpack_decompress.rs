@@ -3,11 +3,6 @@
 
 use fastlanes::BitPacking;
 use itertools::Itertools;
-<<<<<<< HEAD
-use num_traits::AsPrimitive;
-use vortex_array::ArrayView;
-=======
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
@@ -24,23 +19,19 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
-use crate::BitPacked;
-use crate::BitPackedArrayExt;
-use crate::unpack_iter::BitPacked as BitPackedUnpack;
+use crate::BitPackedData;
+use crate::unpack_iter::BitPacked;
 
 /// Unpacks a bit-packed array into a primitive array.
-pub fn unpack_array(
-    array: ArrayView<'_, BitPacked>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
-    match_each_integer_ptype!(array.dtype().as_ptype(), |P| {
+pub fn unpack_array(array: &BitPackedData, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    match_each_integer_ptype!(array.ptype(), |P| {
         unpack_primitive_array::<P>(array, ctx)
     })
 }
 
-pub fn unpack_primitive_array<T: BitPackedUnpack>(
-    array: ArrayView<'_, BitPacked>,
-    ctx: &mut ExecutionCtx,
+pub fn unpack_primitive_array<T: BitPacked>(
+    array: &BitPackedData,
+    _ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let mut builder = PrimitiveBuilder::with_capacity(array.dtype.nullability(), array.len);
     unpack_into_primitive_builder::<T>(array, &mut builder)?;
@@ -48,8 +39,8 @@ pub fn unpack_primitive_array<T: BitPackedUnpack>(
     Ok(builder.finish_into_primitive())
 }
 
-pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
-    array: ArrayView<'_, BitPacked>,
+pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
+    array: &BitPackedData,
     // TODO(ngates): do we want to use fastlanes alignment for this buffer?
     builder: &mut PrimitiveBuilder<T>,
 ) -> VortexResult<()> {
@@ -69,7 +60,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
     // SAFETY: `decode_into` will initialize all values in this range.
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, array.len) };
 
-    let mut bit_packed_iter = array.unpacked_chunks()?;
+    let mut bit_packed_iter = array.unpacked_chunks();
     bit_packed_iter.decode_into(uninit_slice);
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
@@ -114,9 +105,6 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
     Ok(())
 }
 
-<<<<<<< HEAD
-pub fn unpack_single(array: ArrayView<'_, BitPacked>, index: usize) -> Scalar {
-=======
 fn insert_values_and_validity_at_indices_to_uninit_range<
     T: NativePType,
     IndexT: IntegerPType,
@@ -139,9 +127,8 @@ fn insert_values_and_validity_at_indices_to_uninit_range<
 }
 
 pub fn unpack_single(array: &BitPackedData, index: usize) -> Scalar {
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
     let bit_width = array.bit_width() as usize;
-    let ptype = array.dtype().as_ptype();
+    let ptype = array.ptype();
     // let packed = array.packed().into_primitive()?;
     let index_in_encoded = index + array.offset() as usize;
     let scalar: Scalar = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |P| {
@@ -214,10 +201,6 @@ mod tests {
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-    fn unpack(bitpacked: &BitPackedArray) -> VortexResult<PrimitiveArray> {
-        unpack_array(bitpacked.as_view(), &mut SESSION.create_execution_ctx())
-    }
-
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedEncoder::new(&values)
@@ -232,9 +215,7 @@ mod tests {
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
-                let scalar: u16 = (&unpack_single(compressed.as_view(), i))
-                    .try_into()
-                    .unwrap();
+                let scalar: u16 = (&unpack_single(&compressed, i)).try_into().unwrap();
                 assert_eq!(scalar, *v);
             });
     }
@@ -256,7 +237,7 @@ mod tests {
     fn test_all_zeros() -> VortexResult<()> {
         let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive();
         let bitpacked = encode(&zeros, 0);
-        let actual = unpack(&bitpacked)?;
+        let actual = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 0, 0, 0]));
         Ok(())
     }
@@ -265,22 +246,16 @@ mod tests {
     fn test_simple_patches() -> VortexResult<()> {
         let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive();
         let bitpacked = encode(&zeros, 0);
-        let actual = unpack(&bitpacked)?;
+        let actual = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 1, 0, 1]));
         Ok(())
     }
 
     #[test]
     fn test_one_full_chunk() -> VortexResult<()> {
-<<<<<<< HEAD
-        let zeros = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
-        let bitpacked = encode(&zeros, 10);
-        let actual = unpack(&bitpacked)?;
-=======
         let values = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
         let bitpacked = encode(&values, 10);
         let actual = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1024));
         Ok(())
     }
@@ -290,17 +265,11 @@ mod tests {
         let values = BufferMut::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
             .into_array()
             .to_primitive();
-<<<<<<< HEAD
-        let bitpacked = encode(&zeros, 10);
-        assert!(bitpacked.patches().is_some());
-        let actual = unpack(&bitpacked)?;
-=======
         let packed = BitPackedEncoder::new(&values).with_bit_width(10).pack()?;
         assert!(packed.has_patches());
         let actual = packed
             .into_array()?
             .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_arrays_eq!(
             actual,
             PrimitiveArray::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
@@ -310,19 +279,12 @@ mod tests {
 
     #[test]
     fn test_one_full_chunk_and_one_short_chunk_no_patch() -> VortexResult<()> {
-<<<<<<< HEAD
-        let zeros = BufferMut::from_iter(0u16..1025).into_array().to_primitive();
-        let bitpacked = encode(&zeros, 11);
-        assert!(bitpacked.patches().is_none());
-        let actual = unpack(&bitpacked)?;
-=======
         let values = BufferMut::from_iter(0u16..1025).into_array().to_primitive();
         let packed = BitPackedEncoder::new(&values).with_bit_width(11).pack()?;
         assert!(!packed.has_patches());
         let actual = packed
             .into_array()?
             .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1025));
         Ok(())
     }
@@ -333,12 +295,7 @@ mod tests {
         let packed = BitPackedEncoder::new(&values).with_bit_width(10).pack()?;
         let bitpacked = packed.into_array()?;
         assert_eq!(bitpacked.len(), 1025);
-<<<<<<< HEAD
-        assert!(bitpacked.patches().is_some());
-        let actual = unpack(&bitpacked)?;
-=======
         let actual = bitpacked.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(512u16..1537));
         Ok(())
     }
@@ -388,15 +345,7 @@ mod tests {
         let bitpacked = encode(&empty, 0);
 
         let mut builder = PrimitiveBuilder::<u32>::new(Nullability::NonNullable);
-<<<<<<< HEAD
-        unpack_into_primitive_builder(
-            bitpacked.as_view(),
-            &mut builder,
-            &mut SESSION.create_execution_ctx(),
-        )?;
-=======
         unpack_into_primitive_builder(&bitpacked, &mut builder)?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
 
         let result = builder.finish_into_primitive();
         assert_eq!(
@@ -420,15 +369,7 @@ mod tests {
 
         // Unpack into a new builder.
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::Nullable, 5);
-<<<<<<< HEAD
-        unpack_into_primitive_builder(
-            bitpacked.as_view(),
-            &mut builder,
-            &mut SESSION.create_execution_ctx(),
-        )?;
-=======
         unpack_into_primitive_builder(&bitpacked, &mut builder)?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
 
         let result = builder.finish_into_primitive();
 
@@ -466,15 +407,6 @@ mod tests {
             u32_empty_bp.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
         assert_eq!(u32_empty_result.len(), 0);
 
-<<<<<<< HEAD
-        // Unpack into a new builder.
-        let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, 100);
-        unpack_into_primitive_builder(
-            bitpacked.as_view(),
-            &mut builder,
-            &mut SESSION.create_execution_ctx(),
-        )?;
-=======
         // Test with u16 values - exactly one chunk (1024 elements).
         let u16_values = PrimitiveArray::from_iter(0u16..1024);
         let u16_bitpacked = BitPackedEncoder::new(&u16_values)
@@ -484,7 +416,6 @@ mod tests {
         let u16_result =
             u16_bitpacked.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
         assert_eq!(u16_result.len(), 1024);
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
 
         // Test with i32 values - partial chunk (1025 elements).
         let i32_values = PrimitiveArray::from_iter((0i32..1025).map(|x| x % 512));
@@ -539,13 +470,9 @@ mod tests {
             .pack()?;
         assert!(large_packed.has_patches());
 
-<<<<<<< HEAD
-        let large_result = unpack(&large_bitpacked)?;
-=======
         let large_result = large_packed
             .into_array()?
             .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_eq!(large_result.len(), 3072);
         assert_arrays_eq!(large_result, PrimitiveArray::from_iter(large_values));
         Ok(())
@@ -559,16 +486,11 @@ mod tests {
         let validity = Validity::from_iter([true, false, true, false, true, false, true]);
         let array = PrimitiveArray::new(values, validity);
 
-<<<<<<< HEAD
-        let bitpacked = encode(&array, 9);
-        let result = unpack(&bitpacked).vortex_expect("unpack");
-=======
         let bitpacked = BitPackedEncoder::new(&array)
             .with_bit_width(9)
             .pack()?
             .into_array()?;
         let result = bitpacked.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
 
         // Verify length.
         assert_eq!(result.len(), 7);
@@ -587,13 +509,9 @@ mod tests {
             .pack()?;
         assert!(patch_packed.has_patches());
 
-<<<<<<< HEAD
-        let patch_result = unpack(&patch_bitpacked).vortex_expect("unpack");
-=======
         let patch_result = patch_packed
             .into_array()?
             .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_eq!(patch_result.len(), 7);
 
         // Test all nulls edge case.
@@ -601,17 +519,12 @@ mod tests {
             Buffer::from_iter([0u32, 0, 0, 0]),
             Validity::from_iter([false, false, false, false]),
         );
-<<<<<<< HEAD
-        let all_nulls_bp = encode(&all_nulls, 0);
-        let all_nulls_result = unpack(&all_nulls_bp).vortex_expect("unpack");
-=======
         let all_nulls_bp = BitPackedEncoder::new(&all_nulls)
             .with_bit_width(0)
             .pack()?
             .into_array()?;
         let all_nulls_result =
             all_nulls_bp.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_eq!(all_nulls_result.len(), 4);
         Ok(())
     }
@@ -620,15 +533,9 @@ mod tests {
     #[test]
     fn test_execute_method_consistency() -> VortexResult<()> {
         let test_consistency = |array: &PrimitiveArray, bit_width: u8| -> VortexResult<()> {
-<<<<<<< HEAD
-            let bitpacked = encode(array, bit_width);
-
-            let unpacked_array = unpack(&bitpacked)?;
-=======
             let packed = BitPackedEncoder::new(array)
                 .with_bit_width(bit_width)
                 .pack()?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
 
             // Using the execute() method.
             let executed = {
@@ -678,35 +585,16 @@ mod tests {
     fn test_execute_edge_cases() -> VortexResult<()> {
         // Empty array.
         let empty: PrimitiveArray = PrimitiveArray::from_iter(Vec::<u64>::new());
-<<<<<<< HEAD
-        let empty_bp = encode(&empty, 0);
-        let empty_result = unpack(&empty_bp)?;
-=======
         let empty_bp = BitPackedEncoder::new(&empty)
             .with_bit_width(0)
             .pack()?
             .into_array()?;
         let empty_result =
             empty_bp.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_eq!(empty_result.len(), 0);
 
         // All zeros (bit_width = 0).
         let zeros = PrimitiveArray::from_iter([0u32; 100]);
-<<<<<<< HEAD
-        let zeros_bp = encode(&zeros, 0);
-        let zeros_result = unpack(&zeros_bp)?;
-        assert_eq!(zeros_result.len(), 100);
-        // Verify consistency with unpack_array.
-        let zeros_array = unpack(&zeros_bp)?;
-        assert_eq!(zeros_result.len(), zeros_array.len());
-        assert_arrays_eq!(zeros_result, zeros_array);
-
-        // Maximum bit width for u16 (15 bits, since bitpacking requires bit_width < type bit width).
-        let max_values = PrimitiveArray::from_iter([32767u16; 50]); // 2^15 - 1
-        let max_bp = encode(&max_values, 15);
-        let max_result = unpack(&max_bp)?;
-=======
         let zeros_bp = BitPackedEncoder::new(&zeros)
             .with_bit_width(0)
             .pack()?
@@ -723,7 +611,6 @@ mod tests {
             .pack()?
             .into_array()?;
         let max_result = max_bp.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_eq!(max_result.len(), 50);
 
         // Exactly 3072 elements with patches across chunks.
@@ -742,19 +629,6 @@ mod tests {
             .pack()?;
         assert!(boundary_packed.has_patches());
 
-<<<<<<< HEAD
-        let boundary_result = unpack(&boundary_bp)?;
-        assert_eq!(boundary_result.len(), 3072);
-        // Verify consistency.
-        let boundary_unpacked = unpack(&boundary_bp)?;
-        assert_eq!(boundary_result.len(), boundary_unpacked.len());
-        assert_arrays_eq!(boundary_result, boundary_unpacked);
-
-        // Single element.
-        let single = PrimitiveArray::from_iter([42u8]);
-        let single_bp = encode(&single, 6);
-        let single_result = unpack(&single_bp)?;
-=======
         let boundary_result = boundary_packed
             .into_array()?
             .execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
@@ -769,7 +643,6 @@ mod tests {
             .into_array()?;
         let single_result =
             single_bp.execute::<PrimitiveArray>(&mut SESSION.create_execution_ctx())?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         assert_eq!(single_result.len(), 1);
         Ok(())
     }
