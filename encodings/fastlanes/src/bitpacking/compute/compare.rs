@@ -299,11 +299,12 @@ where
     let elems_per_chunk = 128 * bit_width / size_of::<U>();
     let num_chunks = (array.offset() as usize + array.len()).div_ceil(1024);
     let mut output = BufferMut::<u64>::with_capacity(num_chunks * 16);
+    let mut unpacked = [U::default(); 1024];
+    let mut chunk_matches = [0u64; 16];
 
     for chunk_idx in 0..num_chunks {
         let packed_chunk = &packed[chunk_idx * elems_per_chunk..][..elems_per_chunk];
-        let mut unpacked = [U::default(); 1024];
-        let mut chunk_matches = [0u64; 16];
+        chunk_matches.fill(0);
 
         unsafe {
             U::unchecked_unpack(bit_width, packed_chunk, &mut unpacked);
