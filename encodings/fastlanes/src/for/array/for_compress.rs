@@ -25,7 +25,7 @@ impl FoRData {
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             compress_primitive::<T>(array, T::try_from(&min)?)?.into_array()
         });
-        Ok(FoR::try_new(encoded, min)?)
+        FoR::try_new(encoded, min)
     }
 }
 
