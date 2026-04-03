@@ -1,25 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
+mod device;
+mod recording;
+
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
+pub use device::*;
 use futures::future::BoxFuture;
 use vortex_buffer::ALIGNMENT_TO_HOST_COPY;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_utils::dyn_traits::DynEq;
-use vortex_utils::dyn_traits::DynHash;
+use vortex_error::vortex_bail;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::Precision;
+use crate::buffer::recording::RecordingBuffer;
 
 /// A handle to a buffer allocation.
 ///
@@ -36,90 +39,12 @@ pub struct BufferHandle(Inner);
 
 #[derive(Debug, Clone)]
 enum Inner {
+    Recording(RecordingBuffer),
     /// On the host/cpu.
     Host(ByteBuffer),
     /// On the device/gpu.
     Device(Arc<dyn DeviceBuffer>),
 }
-
-/// A buffer that is stored on the GPU.
-pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
-    /// Returns a reference as `Any` to enable downcasting.
-    fn as_any(&self) -> &dyn Any;
-
-    /// Returns the length of the buffer in bytes.
-    fn len(&self) -> usize;
-
-    /// Returns the alignment of the buffer.
-    fn alignment(&self) -> Alignment;
-
-    /// Returns true if the buffer is empty.
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Attempts to copy the device buffer to a host ByteBuffer.
-    ///
-    /// # Errors
-    ///
-    /// This operation may fail, depending on the device implementation and the underlying hardware.
-    fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer>;
-
-    /// Copies the device buffer to a host buffer asynchronously.
-    ///
-    /// Schedules an async copy and returns a future that completes when the copy is finished.
-    ///
-    /// # Arguments
-    ///
-    /// * `alignment` - The memory alignment to use for the host buffer.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the async copy operation fails.
-    fn copy_to_host(
-        &self,
-        alignment: Alignment,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>>;
-
-    /// Create a new buffer that references a subrange of this buffer at the given
-    /// slice indices.
-    ///
-    /// Note that slice indices are in byte units.
-    fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
-
-    /// Return a buffer with the given alignment. Where possible, this will be zero-copy.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the buffer cannot be aligned (e.g., allocation or copy failure).
-    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>>;
-}
-
-pub trait DeviceBufferExt: DeviceBuffer {
-    /// Slice a range of elements `T` out of the device buffer.
-    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
-}
-
-impl<B: DeviceBuffer> DeviceBufferExt for B {
-    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
-        let start_bytes = range.start * size_of::<T>();
-        let end_bytes = range.end * size_of::<T>();
-        self.slice(start_bytes..end_bytes)
-    }
-}
-
-impl Hash for dyn DeviceBuffer {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.dyn_hash(state);
-    }
-}
-
-impl PartialEq for dyn DeviceBuffer {
-    fn eq(&self, other: &Self) -> bool {
-        self.dyn_eq(other)
-    }
-}
-impl Eq for dyn DeviceBuffer {}
 
 impl BufferHandle {
     /// Create a new handle to a host [`ByteBuffer`].
@@ -133,6 +58,11 @@ impl BufferHandle {
     /// into new memory when we read them.
     pub fn new_device(device: Arc<dyn DeviceBuffer>) -> Self {
         BufferHandle(Inner::Device(device))
+    }
+
+    /// Create a new handle to a buffer that records all operations and applies them in a purely logical fashion.
+    pub fn new_recording(buffer: RecordingBuffer) -> Self {
+        BufferHandle(Inner::Recording(buffer))
     }
 }
 
@@ -152,6 +82,7 @@ impl BufferHandle {
         match &self.0 {
             Inner::Host(bytes) => bytes.len(),
             Inner::Device(device) => device.len(),
+            Inner::Recording(buffer) => buffer.len(),
         }
     }
 
@@ -160,6 +91,7 @@ impl BufferHandle {
         match &self.0 {
             Inner::Host(bytes) => bytes.alignment(),
             Inner::Device(device) => device.alignment(),
+            Inner::Recording(buffer) => buffer.alignment(),
         }
     }
 
@@ -175,6 +107,10 @@ impl BufferHandle {
         match self.0 {
             Inner::Host(buffer) => Ok(BufferHandle::new_host(buffer.aligned(alignment))),
             Inner::Device(device) => Ok(BufferHandle::new_device(device.aligned(alignment)?)),
+            Inner::Recording(buffer) => {
+                // No-op, we don't care about alignment for the buffer since it is purely logical.
+                Ok(BufferHandle::new_recording(buffer))
+            }
         }
     }
 
@@ -199,6 +135,7 @@ impl BufferHandle {
         match &self.0 {
             Inner::Host(host) => BufferHandle::new_host(host.slice(range)),
             Inner::Device(device) => BufferHandle::new_device(device.slice(range)),
+            Inner::Recording(recording) => BufferHandle::new_recording(recording.slice(range)),
         }
     }
 
@@ -232,6 +169,7 @@ impl BufferHandle {
         match self.0 {
             Inner::Host(b) => b,
             Inner::Device(_) => panic!("unwrap_host called for Device allocation"),
+            Inner::Recording(_) => panic!("unwrap_host called for Recording variant"),
         }
     }
 
@@ -245,6 +183,7 @@ impl BufferHandle {
         match self.0 {
             Inner::Device(b) => b,
             Inner::Host(_) => panic!("unwrap_device called for Host allocation"),
+            Inner::Recording(_) => panic!("unwrap_device called for Recording variant"),
         }
     }
 
@@ -252,15 +191,15 @@ impl BufferHandle {
     pub fn as_host_opt(&self) -> Option<&ByteBuffer> {
         match &self.0 {
             Inner::Host(buffer) => Some(buffer),
-            Inner::Device(_) => None,
+            _ => None,
         }
     }
 
     /// Downcast this handle as a handle to a device buffer, or `None`.
     pub fn as_device_opt(&self) -> Option<&Arc<dyn DeviceBuffer>> {
         match &self.0 {
-            Inner::Host(_) => None,
             Inner::Device(device) => Some(device),
+            _ => None,
         }
     }
 
@@ -320,6 +259,9 @@ impl BufferHandle {
         match &self.0 {
             Inner::Host(b) => Ok(b.clone()),
             Inner::Device(device) => device.copy_to_host_sync(ALIGNMENT_TO_HOST_COPY),
+            Inner::Recording(_) => {
+                vortex_bail!("Cannot try_to_host_sync on RecordingBuffer")
+            }
         }
     }
 
@@ -330,6 +272,9 @@ impl BufferHandle {
         match self.0 {
             Inner::Host(b) => Ok(b),
             Inner::Device(device) => device.copy_to_host_sync(ALIGNMENT_TO_HOST_COPY),
+            Inner::Recording(_) => {
+                vortex_bail!("Cannot try_into_host_sync on RecordingBuffer")
+            }
         }
     }
 
@@ -351,6 +296,9 @@ impl BufferHandle {
                 Ok(Box::pin(async move { Ok(buffer) }))
             }
             Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
+            Inner::Recording(_) => {
+                vortex_bail!("Cannot try_to_host_sync on RecordingBuffer")
+            }
         }
     }
 
@@ -369,6 +317,9 @@ impl BufferHandle {
         match self.0 {
             Inner::Host(b) => Ok(Box::pin(async move { Ok(b) })),
             Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
+            Inner::Recording(_) => {
+                vortex_bail!("Cannot try_into_host on RecordingBuffer")
+            }
         }
     }
 
@@ -418,6 +369,23 @@ impl ArrayHash for BufferHandle {
                     dev.hash(state);
                 }
             },
+            Inner::Recording(buf) => {
+                // hmm...there's no notion of identity here. I guess we use address
+                // identity?
+                match precision {
+                    Precision::Ptr => {
+                        let addr = std::ptr::addr_of!(*buf).addr();
+                        addr.hash(state);
+                    }
+                    Precision::Value => {
+                        // TODO(aduffy): there isn't really a notion of Value equality here, since we don't save an input pointer
+                        //  or anything like that. I guess we just check len + ops? Seems silly.
+                        buf.original_len.hash(state);
+                        buf.len.hash(state);
+                        buf.operations.hash(state);
+                    }
+                }
+            }
         }
     }
 }
