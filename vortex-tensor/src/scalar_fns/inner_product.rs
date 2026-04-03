@@ -143,10 +143,23 @@ impl ScalarFnVTable for InnerProduct {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let lhs: ExtensionArray = args.get(0)?.execute(ctx)?;
-        let rhs: ExtensionArray = args.get(1)?.execute(ctx)?;
+        let lhs_ref = args.get(0)?;
+        let rhs_ref = args.get(1)?;
 
         let row_count = args.row_count();
+
+        // TurboQuant approximate path: check encoding before executing.
+        if options.is_approx()
+            && let (Some(lhs_tq), Some(rhs_tq)) = (
+                lhs_ref.as_opt::<TurboQuant>(),
+                rhs_ref.as_opt::<TurboQuant>(),
+            )
+        {
+            return cosine_similarity::dot_product_quantized_column(lhs_tq, rhs_tq, ctx);
+        }
+
+        let lhs: ExtensionArray = lhs_ref.execute(ctx)?;
+        let rhs: ExtensionArray = rhs_ref.execute(ctx)?;
 
         // Compute combined validity.
         let rhs_validity = rhs.as_ref().validity()?;
@@ -161,16 +174,6 @@ impl ScalarFnVTable for InnerProduct {
         // than the extension array to avoid canonicalizing the extension wrapper.
         let lhs_storage = lhs.data().storage_array();
         let rhs_storage = rhs.data().storage_array();
-
-        // TurboQuant approximate path: norm_a * norm_b * quantized unit-norm dot.
-        if *options == ApproxOptions::Approximate
-            && let (Some(lhs_tq), Some(rhs_tq)) = (
-                lhs_storage.as_opt::<TurboQuant>(),
-                rhs_storage.as_opt::<TurboQuant>(),
-            )
-        {
-            return cosine_similarity::dot_product_quantized_column(lhs_tq, rhs_tq, ctx);
-        }
 
         let lhs_flat = extract_flat_elements(lhs_storage, list_size, ctx)?;
         let rhs_flat = extract_flat_elements(rhs_storage, list_size, ctx)?;

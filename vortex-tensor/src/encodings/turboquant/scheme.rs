@@ -5,8 +5,6 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ExtensionArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -80,13 +78,9 @@ impl Scheme for TurboQuantScheme {
     ) -> VortexResult<ArrayRef> {
         let array = data.array().clone();
         let ext_array = array.to_canonical()?.into_extension();
-        let storage = ext_array.storage_array();
-        let fsl = storage.to_canonical()?.into_fixed_size_list();
 
         let config = TurboQuantConfig::default();
-        let encoded = turboquant_encode(&fsl, &config)?;
-
-        Ok(ExtensionArray::new(ext_array.ext_dtype().clone(), encoded).into_array())
+        turboquant_encode(&ext_array, &config)
     }
 }
 

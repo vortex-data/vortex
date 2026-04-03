@@ -148,7 +148,6 @@ impl BtrBlocksCompressorBuilder {
     /// Panics if the TurboQuant scheme is already present.
     ///
     /// [`Vector`]: vortex_tensor::vector::Vector
-    /// [`FixedShapeTensor`]: vortex_tensor::fixed_shape::FixedShapeTensor
     #[cfg(feature = "unstable_encodings")]
     pub fn with_turboquant(self) -> Self {
         use vortex_tensor::encodings::turboquant::scheme::TURBOQUANT_SCHEME;

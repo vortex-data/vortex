@@ -4,10 +4,11 @@
 //! TurboQuant vector quantization encoding for Vortex.
 //!
 //! Implements the TurboQuant algorithm ([arXiv:2504.19874]) for lossy compression of
-//! high-dimensional vector data. The encoding operates on `FixedSizeList` arrays of floats
-//! (the storage format of `Vector` and `FixedShapeTensor` extension types).
+//! high-dimensional vector data. The encoding operates on [`Vector`] extension arrays,
+//! compressing their `FixedSizeList` storage into quantized codes with an SRHT rotation.
 //!
 //! [arXiv:2504.19874]: https://arxiv.org/abs/2504.19874
+//! [`Vector`]: crate::vector::Vector
 //!
 //! # Overview
 //!
@@ -51,27 +52,34 @@
 //!
 //! ```
 //! use vortex_array::IntoArray;
+//! use vortex_array::arrays::ExtensionArray;
 //! use vortex_array::arrays::FixedSizeListArray;
 //! use vortex_array::arrays::PrimitiveArray;
+//! use vortex_array::dtype::extension::ExtDType;
+//! use vortex_array::extension::EmptyMetadata;
 //! use vortex_array::validity::Validity;
 //! use vortex_buffer::BufferMut;
 //! use vortex_tensor::encodings::turboquant::{TurboQuantConfig, turboquant_encode};
+//! use vortex_tensor::vector::Vector;
 //!
-//! // Create a FixedSizeListArray of 100 random 128-d vectors.
+//! // Create a Vector extension array of 100 random 128-d vectors.
 //! let num_rows = 100;
-//! let dim = 128;
-//! let mut buf = BufferMut::<f32>::with_capacity(num_rows * dim);
-//! for i in 0..(num_rows * dim) {
+//! let dim = 128u32;
+//! let mut buf = BufferMut::<f32>::with_capacity(num_rows * dim as usize);
+//! for i in 0..(num_rows * dim as usize) {
 //!     buf.push((i as f32 * 0.001).sin());
 //! }
 //! let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
 //! let fsl = FixedSizeListArray::try_new(
-//!     elements.into_array(), dim as u32, Validity::NonNullable, num_rows,
+//!     elements.into_array(), dim, Validity::NonNullable, num_rows,
 //! ).unwrap();
+//! let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())
+//!     .unwrap().erased();
+//! let ext = ExtensionArray::new(ext_dtype, fsl.into_array());
 //!
 //! // Quantize at 2 bits per coordinate.
 //! let config = TurboQuantConfig { bit_width: 2, seed: Some(42) };
-//! let encoded = turboquant_encode(&fsl, &config).unwrap();
+//! let encoded = turboquant_encode(&ext, &config).unwrap();
 //!
 //! // Verify compression: 100 vectors x 128 dims x 4 bytes = 51200 bytes input.
 //! assert!(encoded.nbytes() < 51200);
@@ -118,8 +126,11 @@ mod tests {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::ExtensionArray;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::extension::EmptyMetadata;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::BufferMut;
@@ -130,6 +141,7 @@ mod tests {
     use crate::encodings::turboquant::TurboQuantConfig;
     use crate::encodings::turboquant::rotation::RotationMatrix;
     use crate::encodings::turboquant::turboquant_encode;
+    use crate::vector::Vector;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -152,6 +164,14 @@ mod tests {
             num_rows,
         )
         .unwrap()
+    }
+
+    /// Wrap a `FixedSizeListArray` in a `Vector` extension array.
+    fn make_vector_ext(fsl: &FixedSizeListArray) -> ExtensionArray {
+        let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())
+            .unwrap()
+            .erased();
+        ExtensionArray::new(ext_dtype, fsl.clone().into_array())
     }
 
     fn theoretical_mse_bound(bit_width: u8) -> f32 {
@@ -192,12 +212,22 @@ mod tests {
             let prim = fsl.elements().to_canonical().unwrap().into_primitive();
             prim.as_slice::<f32>().to_vec()
         };
+        let ext = make_vector_ext(fsl);
         let config = config.clone();
-        let encoded = turboquant_encode(fsl, &config)?;
+        let encoded = turboquant_encode(&ext, &config)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let decoded = encoded.execute::<FixedSizeListArray>(&mut ctx)?;
+        let decoded_ext = encoded.execute::<ExtensionArray>(&mut ctx)?;
+        let decoded_fsl = decoded_ext
+            .storage_array()
+            .to_canonical()
+            .unwrap()
+            .into_fixed_size_list();
         let decoded_elements: Vec<f32> = {
-            let prim = decoded.elements().to_canonical().unwrap().into_primitive();
+            let prim = decoded_fsl
+                .elements()
+                .to_canonical()
+                .unwrap()
+                .into_primitive();
             prim.as_slice::<f32>().to_vec()
         };
         Ok((original, decoded_elements))
@@ -322,13 +352,14 @@ mod tests {
     #[case(1)]
     fn roundtrip_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
         let fsl = make_fsl(num_rows, 128, 42);
+        let ext = make_vector_ext(&fsl);
         let config = TurboQuantConfig {
             bit_width: 2,
             seed: Some(123),
         };
-        let encoded = turboquant_encode(&fsl, &config)?;
+        let encoded = turboquant_encode(&ext, &config)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let decoded = encoded.execute::<FixedSizeListArray>(&mut ctx)?;
+        let decoded = encoded.execute::<ExtensionArray>(&mut ctx)?;
         assert_eq!(decoded.len(), num_rows);
         Ok(())
     }
@@ -338,11 +369,12 @@ mod tests {
     #[case(2)]
     fn rejects_dimension_below_3(#[case] dim: usize) {
         let fsl = make_fsl_small(dim);
+        let ext = make_vector_ext(&fsl);
         let config = TurboQuantConfig {
             bit_width: 2,
             seed: Some(0),
         };
-        assert!(turboquant_encode(&fsl, &config).is_err());
+        assert!(turboquant_encode(&ext, &config).is_err());
     }
 
     fn make_fsl_small(dim: usize) -> FixedSizeListArray {
@@ -402,12 +434,13 @@ mod tests {
             num_rows,
         )?;
 
+        let ext = make_vector_ext(&fsl);
         let config = TurboQuantConfig {
             bit_width: 3,
             seed: Some(42),
         };
         // Verify encoding succeeds with f64 input (f64->f32 conversion).
-        let encoded = turboquant_encode(&fsl, &config)?;
+        let encoded = turboquant_encode(&ext, &config)?;
         let encoded = encoded.as_opt::<TurboQuant>().unwrap();
         assert_eq!(encoded.norms().len(), num_rows);
         assert_eq!(encoded.dimension(), dim as u32);
@@ -422,11 +455,12 @@ mod tests {
     #[test]
     fn stored_centroids_match_computed() -> VortexResult<()> {
         let fsl = make_fsl(10, 128, 42);
+        let ext = make_vector_ext(&fsl);
         let config = TurboQuantConfig {
             bit_width: 3,
             seed: Some(123),
         };
-        let encoded = turboquant_encode(&fsl, &config)?;
+        let encoded = turboquant_encode(&ext, &config)?;
         let encoded = encoded.as_opt::<TurboQuant>().unwrap();
 
         let mut ctx = SESSION.create_execution_ctx();
@@ -450,19 +484,24 @@ mod tests {
     #[test]
     fn stored_rotation_signs_produce_correct_decode() -> VortexResult<()> {
         let fsl = make_fsl(20, 128, 42);
+        let ext = make_vector_ext(&fsl);
         let config = TurboQuantConfig {
             bit_width: 3,
             seed: Some(123),
         };
-        let encoded = turboquant_encode(&fsl, &config)?;
+        let encoded = turboquant_encode(&ext, &config)?;
         let encoded = encoded.as_opt::<TurboQuant>().unwrap();
 
         // Decode via the stored-signs path (normal decode).
         let mut ctx = SESSION.create_execution_ctx();
-        let decoded_fsl = encoded
+        let decoded_ext = encoded
             .array()
             .clone()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
+            .execute::<ExtensionArray>(&mut ctx)?;
+        let decoded_fsl = decoded_ext
+            .storage_array()
+            .to_canonical()?
+            .into_fixed_size_list();
         let decoded = decoded_fsl.elements().to_canonical()?.into_primitive();
         let decoded_slice = decoded.as_slice::<f32>();
 
@@ -494,11 +533,12 @@ mod tests {
         use vortex_array::vtable::VTable;
 
         let fsl = make_fsl(10, 128, 42);
+        let ext = make_vector_ext(&fsl);
         let config = TurboQuantConfig {
             bit_width: 3,
             seed: Some(123),
         };
-        let encoded = turboquant_encode(&fsl, &config)?;
+        let encoded = turboquant_encode(&ext, &config)?;
         let encoded = encoded.as_opt::<TurboQuant>().unwrap();
 
         // Serialize metadata.
@@ -531,8 +571,12 @@ mod tests {
         let decoded_original = encoded
             .array()
             .clone()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
-        let original_elements = decoded_original.elements().to_canonical()?.into_primitive();
+            .execute::<ExtensionArray>(&mut ctx)?;
+        let original_fsl = decoded_original
+            .storage_array()
+            .to_canonical()?
+            .into_fixed_size_list();
+        let original_elements = original_fsl.elements().to_canonical()?.into_primitive();
 
         // Rebuild from children (simulating deserialization).
         let rebuilt = crate::encodings::turboquant::array::TurboQuantData::try_new(
@@ -544,10 +588,12 @@ mod tests {
             deserialized.dimension,
             deserialized.bit_width as u8,
         )?;
-        let decoded_rebuilt = rebuilt
-            .into_array()
-            .execute::<FixedSizeListArray>(&mut ctx)?;
-        let rebuilt_elements = decoded_rebuilt.elements().to_canonical()?.into_primitive();
+        let decoded_rebuilt = rebuilt.into_array().execute::<ExtensionArray>(&mut ctx)?;
+        let rebuilt_fsl = decoded_rebuilt
+            .storage_array()
+            .to_canonical()?
+            .into_fixed_size_list();
+        let rebuilt_elements = rebuilt_fsl.elements().to_canonical()?.into_primitive();
 
         assert_eq!(
             original_elements.as_slice::<f32>(),
@@ -563,23 +609,32 @@ mod tests {
     #[test]
     fn slice_preserves_data() -> VortexResult<()> {
         let fsl = make_fsl(20, 128, 42);
+        let ext = make_vector_ext(&fsl);
         let config = TurboQuantConfig {
             bit_width: 3,
             seed: Some(123),
         };
-        let encoded = turboquant_encode(&fsl, &config)?;
+        let encoded = turboquant_encode(&ext, &config)?;
 
         // Full decompress then slice.
         let mut ctx = SESSION.create_execution_ctx();
-        let full_decoded = encoded.clone().execute::<FixedSizeListArray>(&mut ctx)?;
-        let expected = full_decoded.slice(5..10)?;
+        let full_decoded = encoded.clone().execute::<ExtensionArray>(&mut ctx)?;
+        let full_fsl = full_decoded
+            .storage_array()
+            .to_canonical()?
+            .into_fixed_size_list();
+        let expected = full_fsl.slice(5..10)?;
         let expected_prim = expected.to_canonical()?.into_fixed_size_list();
         let expected_elements = expected_prim.elements().to_canonical()?.into_primitive();
 
         // Slice then decompress.
         let sliced = encoded.slice(5..10)?;
-        let sliced_decoded = sliced.execute::<FixedSizeListArray>(&mut ctx)?;
-        let actual_elements = sliced_decoded.elements().to_canonical()?.into_primitive();
+        let sliced_decoded = sliced.execute::<ExtensionArray>(&mut ctx)?;
+        let sliced_fsl = sliced_decoded
+            .storage_array()
+            .to_canonical()?
+            .into_fixed_size_list();
+        let actual_elements = sliced_fsl.elements().to_canonical()?.into_primitive();
 
         assert_eq!(
             expected_elements.as_slice::<f32>(),
@@ -591,14 +646,15 @@ mod tests {
     #[test]
     fn scalar_at_matches_decompress() -> VortexResult<()> {
         let fsl = make_fsl(10, 64, 42);
+        let ext = make_vector_ext(&fsl);
         let config = TurboQuantConfig {
             bit_width: 3,
             seed: Some(123),
         };
-        let encoded = turboquant_encode(&fsl, &config)?;
+        let encoded = turboquant_encode(&ext, &config)?;
 
         let mut ctx = SESSION.create_execution_ctx();
-        let full_decoded = encoded.clone().execute::<FixedSizeListArray>(&mut ctx)?;
+        let full_decoded = encoded.clone().execute::<ExtensionArray>(&mut ctx)?;
 
         for i in [0, 1, 5, 9] {
             let expected = full_decoded.scalar_at(i)?;
@@ -611,11 +667,12 @@ mod tests {
     #[test]
     fn l2_norm_readthrough() -> VortexResult<()> {
         let fsl = make_fsl(10, 128, 42);
+        let ext = make_vector_ext(&fsl);
         let config = TurboQuantConfig {
             bit_width: 3,
             seed: Some(123),
         };
-        let encoded = turboquant_encode(&fsl, &config)?;
+        let encoded = turboquant_encode(&ext, &config)?;
         let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
         // Stored norms should match the actual L2 norms of the input.
@@ -640,11 +697,12 @@ mod tests {
     #[test]
     fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
         let fsl = make_fsl(20, 128, 42);
+        let ext = make_vector_ext(&fsl);
         let config = TurboQuantConfig {
             bit_width: 4,
             seed: Some(123),
         };
-        let encoded = turboquant_encode(&fsl, &config)?;
+        let encoded = turboquant_encode(&ext, &config)?;
         let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
         // Compute exact cosine similarity from original data.
@@ -692,6 +750,30 @@ mod tests {
                  exact={exact_cos:.4}, approx={approx_cos:.4}, error={error:.4}"
             );
         }
+        Ok(())
+    }
+
+    /// Verify that the encoded array's dtype is a Vector extension type.
+    #[test]
+    fn encoded_dtype_is_vector_extension() -> VortexResult<()> {
+        let fsl = make_fsl(10, 128, 42);
+        let ext = make_vector_ext(&fsl);
+        let config = TurboQuantConfig {
+            bit_width: 3,
+            seed: Some(123),
+        };
+        let encoded = turboquant_encode(&ext, &config)?;
+
+        // The encoded TurboQuant array should claim a Vector extension dtype.
+        assert!(
+            encoded.dtype().is_extension(),
+            "TurboQuant dtype should be an extension type, got {}",
+            encoded.dtype()
+        );
+        assert!(
+            encoded.dtype().as_extension().is::<Vector>(),
+            "TurboQuant dtype should be a Vector extension type"
+        );
         Ok(())
     }
 }

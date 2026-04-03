@@ -144,25 +144,26 @@ impl ScalarFnVTable for CosineSimilarity {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let lhs = args.get(0)?.execute::<ExtensionArray>(ctx)?;
-        let rhs = args.get(1)?.execute::<ExtensionArray>(ctx)?;
+        let lhs_ref = args.get(0)?;
+        let rhs_ref = args.get(1)?;
 
         let len = args.row_count();
 
+        // TurboQuant approximate path: check encoding before executing.
+        if options.is_approx()
+            && let (Some(lhs_tq), Some(rhs_tq)) = (
+                lhs_ref.as_opt::<TurboQuant>(),
+                rhs_ref.as_opt::<TurboQuant>(),
+            )
+        {
+            return cosine_similarity::cosine_similarity_quantized_column(lhs_tq, rhs_tq, ctx);
+        }
+
+        let lhs = lhs_ref.execute::<ExtensionArray>(ctx)?;
+        let rhs = rhs_ref.execute::<ExtensionArray>(ctx)?;
+
         // Compute combined validity.
         let validity = lhs.as_ref().validity()?.and(rhs.as_ref().validity()?)?;
-
-        // TurboQuant approximate path: compute cosine similarity in quantized domain.
-        if *options == ApproxOptions::Approximate {
-            let lhs_storage = lhs.data().storage_array();
-            let rhs_storage = rhs.data().storage_array();
-            if let (Some(lhs_tq), Some(rhs_tq)) = (
-                lhs_storage.as_opt::<TurboQuant>(),
-                rhs_storage.as_opt::<TurboQuant>(),
-            ) {
-                return cosine_similarity::cosine_similarity_quantized_column(lhs_tq, rhs_tq, ctx);
-            }
-        }
 
         let lhs = lhs.into_array();
         let rhs = rhs.into_array();

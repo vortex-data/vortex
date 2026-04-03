@@ -13,6 +13,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
+use crate::vector::Vector;
+
 /// Encoding marker type for TurboQuant.
 #[derive(Clone, Debug)]
 pub struct TurboQuant;
@@ -84,7 +86,17 @@ pub struct TurboQuantData {
 }
 
 impl TurboQuantData {
-    /// Build a TurboQuant array.
+    /// Build a TurboQuant array with validation.
+    ///
+    /// The `dtype` must be a [`Vector`] extension type. TurboQuant encodes the extension
+    /// type directly, not its `FixedSizeList` storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provided components do not satisfy the invariants documented
+    /// in [`new_unchecked`](Self::new_unchecked).
+    ///
+    /// [`Vector`]: crate::vector::Vector
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         dtype: DType,
@@ -95,22 +107,139 @@ impl TurboQuantData {
         dimension: u32,
         bit_width: u8,
     ) -> VortexResult<Self> {
-        vortex_ensure!(
-            (1..=8).contains(&bit_width),
-            "bit_width must be 1-8, got {bit_width}"
-        );
+        Self::validate(
+            &dtype,
+            &codes,
+            &norms,
+            &centroids,
+            &rotation_signs,
+            dimension,
+            bit_width,
+        )?;
+
+        // SAFETY: we validate that the inputs are valid above.
+        Ok(unsafe {
+            Self::new_unchecked(
+                dtype,
+                codes,
+                norms,
+                centroids,
+                rotation_signs,
+                dimension,
+                bit_width,
+            )
+        })
+    }
+
+    /// Build a TurboQuant array without validation.
+    ///
+    /// * `dtype` must be a [`Vector`] extension type.
+    /// * `codes` must be a `FixedSizeListArray<u8>` with `list_size == padded_dim`.
+    /// * `norms` must be a `PrimitiveArray<f32>` with one element per row.
+    /// * `centroids` must be a `PrimitiveArray<f32>` with `2^bit_width` elements.
+    /// * `rotation_signs` must contain `3 * padded_dim` sign values.
+    /// * `bit_width` must be 1-8.
+    /// * `codes.len() == norms.len()`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the inputs satisfy the invariants listed above. Violating them
+    /// may produce incorrect results during decompression.
+    ///
+    /// [`Vector`]: crate::vector::Vector
+    #[allow(clippy::too_many_arguments)]
+    pub unsafe fn new_unchecked(
+        dtype: DType,
+        codes: ArrayRef,
+        norms: ArrayRef,
+        centroids: ArrayRef,
+        rotation_signs: ArrayRef,
+        dimension: u32,
+        bit_width: u8,
+    ) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(
+            &dtype,
+            &codes,
+            &norms,
+            &centroids,
+            &rotation_signs,
+            dimension,
+            bit_width,
+        )
+        .vortex_expect("[Debug Assertion]: Invalid TurboQuantData parameters");
+
         let mut slots = vec![None; Slot::COUNT];
         slots[Slot::Codes as usize] = Some(codes);
         slots[Slot::Norms as usize] = Some(norms);
         slots[Slot::Centroids as usize] = Some(centroids);
         slots[Slot::RotationSigns as usize] = Some(rotation_signs);
-        Ok(Self {
+        Self {
             dtype,
             slots,
             dimension,
             bit_width,
             stats_set: Default::default(),
-        })
+        }
+    }
+
+    /// Validates the components that would be used to create a `TurboQuantData`.
+    ///
+    /// This function checks all the invariants required by [`new_unchecked`](Self::new_unchecked).
+    #[allow(clippy::too_many_arguments)]
+    pub fn validate(
+        dtype: &DType,
+        codes: &ArrayRef,
+        norms: &ArrayRef,
+        centroids: &ArrayRef,
+        rotation_signs: &ArrayRef,
+        dimension: u32,
+        bit_width: u8,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            (1..=8).contains(&bit_width),
+            "bit_width must be 1-8, got {bit_width}"
+        );
+        vortex_ensure!(
+            dtype
+                .as_extension_opt()
+                .is_some_and(|ext| ext.is::<Vector>()),
+            "TurboQuant dtype must be a Vector extension type, got {dtype}"
+        );
+        vortex_ensure!(
+            dimension >= 3,
+            "TurboQuant requires dimension >= 3, got {dimension}"
+        );
+
+        let num_rows = norms.len();
+        vortex_ensure!(
+            codes.len() == num_rows,
+            "codes length {} does not match norms length {num_rows}",
+            codes.len()
+        );
+
+        let expected_centroids = 1usize << bit_width;
+        // Allow empty centroids for zero-row arrays.
+        if num_rows > 0 {
+            vortex_ensure!(
+                centroids.len() == expected_centroids,
+                "centroids length {} does not match expected 2^{bit_width} = {expected_centroids}",
+                centroids.len()
+            );
+        }
+
+        let padded_dim = dimension.next_power_of_two() as usize;
+        // Allow empty rotation signs for zero-row arrays.
+        if num_rows > 0 {
+            vortex_ensure!(
+                rotation_signs.len() == 3 * padded_dim,
+                "rotation_signs length {} does not match expected 3 * {padded_dim} = {}",
+                rotation_signs.len(),
+                3 * padded_dim
+            );
+        }
+
+        Ok(())
     }
 
     /// The vector dimension d.

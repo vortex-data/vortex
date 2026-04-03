@@ -3,7 +3,7 @@
 
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
@@ -22,7 +22,7 @@ impl OperationsVTable<TurboQuant> for TurboQuant {
         let Some(sliced) = <TurboQuant as SliceReduce>::slice(array, index..index + 1)? else {
             vortex_bail!("slice returned None for index {index}")
         };
-        let decoded = sliced.execute::<FixedSizeListArray>(ctx)?;
+        let decoded = sliced.execute::<ExtensionArray>(ctx)?;
         decoded.scalar_at(0)
     }
 }

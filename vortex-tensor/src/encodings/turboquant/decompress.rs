@@ -7,6 +7,7 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
@@ -16,10 +17,12 @@ use vortex_error::VortexResult;
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::rotation::RotationMatrix;
 
-/// Decompress a `TurboQuantArray` into a `FixedSizeListArray` of floats.
+/// Decompress a `TurboQuantArray` into a [`Vector`] extension array.
 ///
-/// Reads stored centroids and rotation signs from the array's children,
-/// avoiding any recomputation.
+/// The returned array is an [`ExtensionArray`] with the original Vector dtype wrapping a
+/// `FixedSizeListArray` of f32 elements.
+///
+/// [`Vector`]: crate::vector::Vector
 pub fn execute_decompress(
     array: Array<TurboQuant>,
     ctx: &mut ExecutionCtx,
@@ -27,16 +30,17 @@ pub fn execute_decompress(
     let dim = array.dimension() as usize;
     let padded_dim = array.padded_dim() as usize;
     let num_rows = array.norms().len();
+    let ext_dtype = array.dtype.as_extension().clone();
 
     if num_rows == 0 {
-        let elements = PrimitiveArray::empty::<f32>(array.dtype.nullability());
-        return Ok(FixedSizeListArray::try_new(
+        let elements = PrimitiveArray::empty::<f32>(ext_dtype.storage_dtype().nullability());
+        let fsl = FixedSizeListArray::try_new(
             elements.into_array(),
             array.dimension(),
             Validity::NonNullable,
             0,
-        )?
-        .into_array());
+        )?;
+        return Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array());
     }
 
     // Read stored centroids -- no recomputation.
@@ -83,11 +87,11 @@ pub fn execute_decompress(
     }
 
     let elements = PrimitiveArray::new::<f32>(output.freeze(), Validity::NonNullable);
-    Ok(FixedSizeListArray::try_new(
+    let fsl = FixedSizeListArray::try_new(
         elements.into_array(),
         array.dimension(),
         Validity::NonNullable,
         num_rows,
-    )?
-    .into_array())
+    )?;
+    Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
 }

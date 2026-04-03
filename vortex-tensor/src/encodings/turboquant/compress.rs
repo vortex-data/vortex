@@ -5,8 +5,10 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
@@ -137,6 +139,7 @@ fn build_turboquant(
     fsl: &FixedSizeListArray,
     core: QuantizationResult,
     bit_width: u8,
+    ext_dtype: DType,
 ) -> VortexResult<TurboQuantData> {
     let dimension = fsl.list_size();
 
@@ -164,7 +167,7 @@ fn build_turboquant(
     let rotation_signs = bitpack_rotation_signs(&core.rotation)?;
 
     TurboQuantData::try_new(
-        fsl.dtype().clone(),
+        ext_dtype,
         codes,
         norms_array,
         centroids_array,
@@ -174,14 +177,20 @@ fn build_turboquant(
     )
 }
 
-/// Encode a FixedSizeListArray into a `TurboQuantArray`.
+/// Encode a [`Vector`] extension array into a `TurboQuantArray`.
 ///
-/// The input must be non-nullable. TurboQuant is a lossy encoding that does not
-/// preserve null positions; callers must handle validity externally.
+/// The input must be a non-nullable [`Vector`] extension array. TurboQuant is a lossy encoding
+/// that does not preserve null positions; callers must handle validity externally.
+///
+/// [`Vector`]: crate::vector::Vector
 pub fn turboquant_encode(
-    fsl: &FixedSizeListArray,
+    ext: &ExtensionArray,
     config: &TurboQuantConfig,
 ) -> VortexResult<ArrayRef> {
+    let ext_dtype = ext.dtype().clone();
+    let storage = ext.storage_array();
+    let fsl = storage.to_canonical()?.into_fixed_size_list();
+
     vortex_ensure!(
         fsl.dtype().nullability() == Nullability::NonNullable,
         "TurboQuant requires non-nullable input, got nullable FixedSizeListArray"
@@ -198,13 +207,32 @@ pub fn turboquant_encode(
     );
 
     if fsl.is_empty() {
-        return Ok(fsl.clone().into_array());
+        let padded_dim = dimension.next_power_of_two();
+        let empty_codes = FixedSizeListArray::try_new(
+            PrimitiveArray::empty::<u8>(Nullability::NonNullable).into_array(),
+            padded_dim,
+            Validity::NonNullable,
+            0,
+        )?;
+        let empty_norms = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
+        let empty_centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
+        let empty_signs = PrimitiveArray::empty::<u8>(Nullability::NonNullable);
+        return Ok(TurboQuantData::try_new(
+            ext_dtype,
+            empty_codes.into_array(),
+            empty_norms.into_array(),
+            empty_centroids.into_array(),
+            empty_signs.into_array(),
+            dimension,
+            config.bit_width,
+        )?
+        .into_array());
     }
 
     let seed = config.seed.unwrap_or(42);
-    let core = turboquant_quantize_core(fsl, seed, config.bit_width)?;
+    let core = turboquant_quantize_core(&fsl, seed, config.bit_width)?;
 
-    Ok(build_turboquant(fsl, core, config.bit_width)?.into_array())
+    Ok(build_turboquant(&fsl, core, config.bit_width, ext_dtype)?.into_array())
 }
 
 /// Export rotation signs as a 1-bit `BitPackedArray` for efficient storage.

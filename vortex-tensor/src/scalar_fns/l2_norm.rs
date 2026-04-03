@@ -125,27 +125,28 @@ impl ScalarFnVTable for L2Norm {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let input: ExtensionArray = args.get(0)?.execute(ctx)?;
-
+        let input_ref = args.get(0)?;
         let row_count = args.row_count();
+
+        // TurboQuant stores exact precomputed norms -- no decompression needed.
+        // Norms are currently stored as f32; cast to the target dtype if needed
+        // (e.g., if the input extension has f64 elements).
+        if let Some(tq) = input_ref.as_opt::<TurboQuant>() {
+            let ext = input_ref.dtype().as_extension();
+            let target_ptype = extension_element_ptype(ext)?;
+            let norms: PrimitiveArray = tq.norms().clone().execute(ctx)?;
+            let target_dtype = DType::Primitive(target_ptype, input_ref.dtype().nullability());
+            return norms.into_array().cast(target_dtype);
+        }
+
+        let input: ExtensionArray = input_ref.execute(ctx)?;
         let validity = input.as_ref().validity()?;
 
         // Get element ptype and list size from the dtype (validated by `return_dtype`).
         let ext = input.dtype().as_extension();
         let list_size = extension_list_size(ext)? as usize;
-        let target_ptype = extension_element_ptype(ext)?;
 
         let storage = input.data().storage_array();
-
-        // TurboQuant stores exact precomputed norms -- no decompression needed.
-        // Norms are currently stored as f32; cast to the target dtype if needed
-        // (e.g., if the input extension has f64 elements).
-        if let Some(tq) = storage.as_opt::<TurboQuant>() {
-            let norms: PrimitiveArray = tq.norms().clone().execute(ctx)?;
-            let target_dtype = DType::Primitive(target_ptype, input.dtype().nullability());
-            return norms.into_array().cast(target_dtype);
-        }
-
         let flat = extract_flat_elements(storage, list_size, ctx)?;
 
         match_each_float_ptype!(flat.ptype(), |T| {
