@@ -26,12 +26,41 @@ use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
 use crate::encodings::turboquant::turboquant_encode;
+use crate::scalar_fns::ApproxOptions;
+use crate::scalar_fns::l2_norm::L2Norm;
 use crate::vector::Vector;
 
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-/// Create a FixedSizeListArray of random f32 vectors (i.i.d. standard normal).
+/// Create a FixedSizeListArray of random f32 vectors (i.i.d. standard normal) with the given
+/// validity.
+fn make_fsl_with_validity(
+    num_rows: usize,
+    dim: usize,
+    seed: u64,
+    validity: Validity,
+) -> FixedSizeListArray {
+    let mut rng = StdRng::seed_from_u64(seed);
+    let normal = Normal::new(0.0f32, 1.0).unwrap();
+
+    let mut buf = BufferMut::<f32>::with_capacity(num_rows * dim);
+    for _ in 0..(num_rows * dim) {
+        buf.push(normal.sample(&mut rng));
+    }
+
+    let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
+    FixedSizeListArray::try_new(
+        elements.into_array(),
+        dim.try_into()
+            .expect("somehow got dimension greater than u32::MAX"),
+        validity,
+        num_rows,
+    )
+    .unwrap()
+}
+
+/// Create a non-nullable FixedSizeListArray of random f32 vectors (i.i.d. standard normal).
 fn make_fsl(num_rows: usize, dim: usize, seed: u64) -> FixedSizeListArray {
     let mut rng = StdRng::seed_from_u64(seed);
     let normal = Normal::new(0.0f32, 1.0).unwrap();
@@ -674,5 +703,175 @@ fn encoded_dtype_is_vector_extension() -> VortexResult<()> {
         encoded.dtype().as_extension().is::<Vector>(),
         "TurboQuant dtype should be a Vector extension type"
     );
+    Ok(())
+}
+
+// -----------------------------------------------------------------------
+// Nullable vector tests
+// -----------------------------------------------------------------------
+
+/// Encode a nullable Vector array and verify roundtrip preserves validity and non-null values.
+#[test]
+fn nullable_vectors_roundtrip() -> VortexResult<()> {
+    // Rows 2, 5, 7 are null.
+    let validity = Validity::from_iter([
+        true, true, false, true, true, false, true, false, true, true,
+    ]);
+    let fsl = make_fsl_with_validity(10, 128, 42, validity);
+    let ext = make_vector_ext(&fsl);
+
+    let config = TurboQuantConfig {
+        bit_width: 3,
+        seed: Some(123),
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+
+    assert_eq!(encoded.len(), 10);
+    assert!(encoded.dtype().is_nullable());
+
+    // Check validity of the encoded array.
+    let encoded_validity = encoded.validity()?;
+    for i in 0..10 {
+        let expected = ![2, 5, 7].contains(&i);
+        assert_eq!(
+            encoded_validity.is_valid(i)?,
+            expected,
+            "validity mismatch at row {i}"
+        );
+    }
+
+    // Decode and verify non-null rows have correct data.
+    let decoded_ext = encoded.execute::<ExtensionArray>(&mut ctx)?;
+    assert_eq!(decoded_ext.len(), 10);
+
+    let decoded_fsl = decoded_ext
+        .storage_array()
+        .to_canonical()?
+        .into_fixed_size_list();
+    let decoded_prim = decoded_fsl.elements().to_canonical()?.into_primitive();
+    let decoded_f32 = decoded_prim.as_slice::<f32>();
+
+    // Original f32 elements for non-null row comparison.
+    let orig_prim = fsl.elements().to_canonical()?.into_primitive();
+    let orig_f32 = orig_prim.as_slice::<f32>();
+
+    // Non-null rows should have reasonable reconstruction (within MSE bounds).
+    for row in [0, 1, 3, 4, 6, 8, 9] {
+        let orig_vec = &orig_f32[row * 128..(row + 1) * 128];
+        let dec_vec = &decoded_f32[row * 128..(row + 1) * 128];
+        let norm_sq: f32 = orig_vec.iter().map(|&v| v * v).sum();
+        let err_sq: f32 = orig_vec
+            .iter()
+            .zip(dec_vec.iter())
+            .map(|(&a, &b)| (a - b) * (a - b))
+            .sum();
+        // 3-bit normalized MSE should be well under the theoretical bound.
+        assert!(
+            err_sq / norm_sq < 0.1,
+            "non-null row {row} has excessive reconstruction error"
+        );
+    }
+    Ok(())
+}
+
+/// Verify that norms carry the validity: null vectors have null norms.
+#[test]
+fn nullable_norms_match_validity() -> VortexResult<()> {
+    let validity = Validity::from_iter([true, false, true, false, true]);
+    let fsl = make_fsl_with_validity(5, 64, 42, validity);
+    let ext = make_vector_ext(&fsl);
+
+    let config = TurboQuantConfig {
+        bit_width: 2,
+        seed: Some(123),
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let tq = encoded.as_opt::<TurboQuant>().unwrap();
+
+    let norms_validity = tq.norms().validity()?;
+    for i in 0..5 {
+        let expected = i % 2 == 0; // rows 0, 2, 4 are valid
+        assert_eq!(
+            norms_validity.is_valid(i)?,
+            expected,
+            "norms validity mismatch at row {i}"
+        );
+    }
+    Ok(())
+}
+
+/// Verify that L2Norm readthrough works correctly on nullable TurboQuant arrays.
+#[test]
+fn nullable_l2_norm_readthrough() -> VortexResult<()> {
+    let validity = Validity::from_iter([true, false, true, false, true]);
+    let fsl = make_fsl_with_validity(5, 64, 42, validity);
+    let ext = make_vector_ext(&fsl);
+
+    let config = TurboQuantConfig {
+        bit_width: 3,
+        seed: Some(123),
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+
+    // Compute L2Norm on the encoded array.
+    let norm_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, encoded, 5)?;
+    let norms: PrimitiveArray = norm_sfn.into_array().execute(&mut ctx)?;
+
+    // Null rows should have null norms, valid rows should have correct norms.
+    let orig_prim = fsl.elements().to_canonical()?.into_primitive();
+    let orig_f32 = orig_prim.as_slice::<f32>();
+    for row in 0..5 {
+        if row % 2 == 0 {
+            assert!(norms.is_valid(row)?, "row {row} should be valid");
+            let expected: f32 = orig_f32[row * 64..(row + 1) * 64]
+                .iter()
+                .map(|&v| v * v)
+                .sum::<f32>()
+                .sqrt();
+            let actual = norms.as_slice::<f32>()[row];
+            assert!(
+                (actual - expected).abs() < 1e-5,
+                "norm mismatch at valid row {row}: actual={actual}, expected={expected}"
+            );
+        } else {
+            assert!(!norms.is_valid(row)?, "row {row} should be null");
+        }
+    }
+    Ok(())
+}
+
+/// Verify that slicing a nullable TurboQuant array preserves validity.
+#[test]
+fn nullable_slice_preserves_validity() -> VortexResult<()> {
+    // Rows 2, 5, 7 are null.
+    let validity = Validity::from_iter([
+        true, true, false, true, true, false, true, false, true, true,
+    ]);
+    let fsl = make_fsl_with_validity(10, 64, 42, validity);
+    let ext = make_vector_ext(&fsl);
+
+    let config = TurboQuantConfig {
+        bit_width: 3,
+        seed: Some(123),
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+
+    // Slice rows 1..6 -> [true, false, true, true, false].
+    let sliced = encoded.slice(1..6)?;
+    assert_eq!(sliced.len(), 5);
+
+    let sliced_validity = sliced.validity()?;
+    let expected = [true, false, true, true, false];
+    for (i, &exp) in expected.iter().enumerate() {
+        assert_eq!(
+            sliced_validity.is_valid(i)?,
+            exp,
+            "sliced validity mismatch at index {i}"
+        );
+    }
     Ok(())
 }

@@ -212,21 +212,23 @@ impl VTable for TurboQuant {
         let ext = TurboQuant::validate_dtype(dtype)?;
         let dimension = extension_list_size(ext)?;
         let element_ptype = extension_element_ptype(ext)?;
-        let element_dtype = DType::Primitive(element_ptype, Nullability::NonNullable);
 
         let padded_dim = dimension.next_power_of_two() as usize;
 
-        // Get the codes array (indices into the codebook).
+        // Get the codes array (indices into the codebook). Codes are always non-nullable;
+        // null vectors are represented by all-zero codes with a null norm.
         let codes_ptype = DType::Primitive(PType::U8, Nullability::NonNullable);
         let codes_dtype = DType::FixedSizeList(
             Arc::new(codes_ptype),
             padded_dim as u32,
-            dtype.nullability(),
+            Nullability::NonNullable,
         );
         let codes_array = children.get(0, &codes_dtype, len)?;
 
-        // Get the L2 norms array.
-        let norms_array = children.get(1, &element_dtype, len)?;
+        // Get the L2 norms array. Norms carry the validity of the entire TurboQuant array:
+        // null vectors have null norms.
+        let norms_dtype = DType::Primitive(element_ptype, dtype.nullability());
+        let norms_array = children.get(1, &norms_dtype, len)?;
 
         // Get the centroids array (codebook).
         let num_centroids = if bit_width == 0 {
@@ -280,6 +282,6 @@ impl VTable for TurboQuant {
 
 impl ValidityChild<TurboQuant> for TurboQuant {
     fn validity_child(array: &TurboQuantData) -> &ArrayRef {
-        array.codes()
+        array.norms()
     }
 }

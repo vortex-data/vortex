@@ -13,6 +13,7 @@ use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::Nullability;
 use vortex_array::match_each_float_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
@@ -39,15 +40,17 @@ pub fn execute_decompress(
     let element_ptype = extension_element_ptype(&ext_dtype)?;
 
     if num_rows == 0 {
-        let nn = vortex_array::dtype::Nullability::NonNullable;
+        let fsl_validity = Validity::from(ext_dtype.storage_dtype().nullability());
+
         match_each_float_ptype!(element_ptype, |T| {
-            let elements = PrimitiveArray::empty::<T>(nn);
+            let elements = PrimitiveArray::empty::<T>(Nullability::NonNullable);
             let fsl = FixedSizeListArray::try_new(
                 elements.into_array(),
                 array.dimension(),
-                Validity::NonNullable,
+                fsl_validity,
                 0,
             )?;
+
             return Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array());
         })
     }
@@ -70,8 +73,9 @@ pub fn execute_decompress(
     let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
     let indices = codes_prim.as_slice::<u8>();
 
-    // Read norms in their native precision.
+    // Read norms in their native precision. Norms carry the validity of the array.
     let norms_prim = array.norms().clone().execute::<PrimitiveArray>(ctx)?;
+    let output_validity = array.norms().validity()?;
 
     // MSE decode: dequantize (f32) -> inverse rotate (f32) -> scale by norm -> cast to T.
     // The rotation and centroid lookup always happen in f32. The final output is cast to the
@@ -90,7 +94,7 @@ pub fn execute_decompress(
             let fsl = FixedSizeListArray::try_new(
                 elements.into_array(),
                 array.dimension(),
-                Validity::NonNullable,
+                output_validity,
                 num_rows,
             )?;
             Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())

@@ -76,7 +76,8 @@ struct QuantizationResult {
     rotation: RotationMatrix,
     centroids: Vec<f32>,
     all_indices: BufferMut<u8>,
-    /// Native-precision norms (matching the Vector element type).
+    /// Native-precision norms (matching the Vector element type). Carries validity: null vectors
+    /// have null norms.
     norms_array: ArrayRef,
     padded_dim: usize,
 }
@@ -85,19 +86,22 @@ struct QuantizationResult {
 /// normalize/rotate/quantize all rows.
 ///
 /// Norms are computed in the native element precision via the [`L2Norm`] scalar function.
-/// The rotation and centroid lookup happen in f32.
+/// The rotation and centroid lookup happen in f32. Null rows (per the input validity) produce
+/// all-zero codes.
 #[allow(clippy::cast_possible_truncation)]
 fn turboquant_quantize_core(
     ext: &ExtensionArray,
     fsl: &FixedSizeListArray,
     seed: u64,
     bit_width: u8,
+    validity: &Validity,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<QuantizationResult> {
     let dimension = fsl.list_size() as usize;
     let num_rows = fsl.len();
 
-    // Compute native-precision norms via the L2Norm scalar fn.
+    // Compute native-precision norms via the L2Norm scalar fn. L2Norm propagates validity from
+    // the input, so null vectors get null norms automatically.
     let norms_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, ext.as_ref().clone(), num_rows)?;
     let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
     let norms_prim: PrimitiveArray = norms_array.to_canonical()?.into_primitive();
@@ -125,6 +129,12 @@ fn turboquant_quantize_core(
 
     let f32_slice = f32_elements.as_slice::<f32>();
     for row in 0..num_rows {
+        // Null vectors get all-zero codes.
+        if !validity.is_valid(row)? {
+            all_indices.extend(std::iter::repeat_n(0u8, padded_dim));
+            continue;
+        }
+
         let x = &f32_slice[row * dimension..(row + 1) * dimension];
         let norm = f32_norms[row];
 
@@ -189,12 +199,10 @@ fn build_turboquant(
     )
 }
 
-/// Encode a [`Vector`] extension array into a `TurboQuantArray`.
+/// Encode a [`Vector`](crate::vector::Vector) extension array into a `TurboQuantArray`.
 ///
-/// The input must be a non-nullable [`Vector`] extension array. TurboQuant is a lossy encoding
-/// that does not preserve null positions; callers must handle validity externally.
-///
-/// [`Vector`]: crate::vector::Vector
+/// Nullable inputs are supported: null vectors get all-zero codes and null norms. The validity
+/// of the resulting TurboQuant array is carried by the norms child.
 pub fn turboquant_encode(
     ext: &ExtensionArray,
     config: &TurboQuantConfig,
@@ -204,10 +212,6 @@ pub fn turboquant_encode(
     let storage = ext.storage_array();
     let fsl = storage.to_canonical()?.into_fixed_size_list();
 
-    vortex_ensure!(
-        fsl.dtype().nullability() == Nullability::NonNullable,
-        "TurboQuant requires non-nullable input, got nullable FixedSizeListArray"
-    );
     vortex_ensure!(
         config.bit_width >= 1 && config.bit_width <= 8,
         "bit_width must be 1-8, got {}",
@@ -228,10 +232,11 @@ pub fn turboquant_encode(
             0,
         )?;
 
-        // Norms dtype matches the element type.
+        // Norms dtype matches the element type and carries the parent's nullability.
         let element_ptype = fsl.elements().dtype().as_ptype();
+        let norms_nullability = ext_dtype.nullability();
         let empty_norms: ArrayRef = match_each_float_ptype!(element_ptype, |T| {
-            PrimitiveArray::empty::<T>(Nullability::NonNullable).into_array()
+            PrimitiveArray::empty::<T>(norms_nullability).into_array()
         });
 
         let empty_centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
@@ -246,8 +251,9 @@ pub fn turboquant_encode(
         .into_array());
     }
 
+    let validity = ext.as_ref().validity()?;
     let seed = config.seed.unwrap_or(42);
-    let core = turboquant_quantize_core(ext, &fsl, seed, config.bit_width, ctx)?;
+    let core = turboquant_quantize_core(ext, &fsl, seed, config.bit_width, &validity, ctx)?;
 
     Ok(build_turboquant(&fsl, core, ext_dtype)?.into_array())
 }

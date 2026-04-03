@@ -37,13 +37,15 @@ pub struct TurboQuantData {
 
     /// Child arrays stored as slots. See [`Slot`] for positions:
     ///
-    /// - [`Codes`](Slot::Codes): `FixedSizeListArray<u8>` with `list_size == padded_dim`. Each row
-    ///   holds one u8 centroid index per padded coordinate. The cascade compressor handles packing
-    ///   to the actual `bit_width` on disk. The validity of the entire array is stored with this.
+    /// - [`Codes`](Slot::Codes): Non-nullable `FixedSizeListArray<u8>` with
+    ///   `list_size == padded_dim`. Each row holds one u8 centroid index per padded coordinate.
+    ///   Null vectors are represented by all-zero codes. The cascade compressor handles packing
+    ///   to the actual `bit_width` on disk.
     ///
     /// - [`Norms`](Slot::Norms): Per-vector L2 norms, one per row. The dtype matches the element
-    ///   type of the Vector (e.g., f64 norms for f64 vectors). Exact norms are stored during
-    ///   compression, enabling O(1) L2 norm readthrough without decompression.
+    ///   type of the Vector (e.g., f64 norms for f64 vectors) and carries the nullability of the
+    ///   parent dtype. Null vectors have null norms. This child determines the validity of the
+    ///   entire TurboQuant array, enabling O(1) L2 norm readthrough without decompression.
     ///
     /// - [`Centroids`](Slot::Centroids): `PrimitiveArray<f32>` codebook with `2^bit_width` entries
     ///   that is shared across all rows. We always store these as f32 regardless of the input
@@ -101,10 +103,11 @@ impl TurboQuantData {
     ///
     /// - `dtype` is a [`Vector`](crate::vector::Vector) extension type whose storage list size
     ///   is >= 3.
-    /// - `codes` is a `FixedSizeListArray<u8>` with `list_size == padded_dim` and
-    ///   `codes.len() == norms.len()`.
+    /// - `codes` is a non-nullable `FixedSizeListArray<u8>` with `list_size == padded_dim` and
+    ///   `codes.len() == norms.len()`. Null vectors are represented by all-zero codes.
     /// - `norms` is a primitive array whose ptype matches the element type of the Vector's storage
-    ///   dtype. This must match the validity of the `codes` array.
+    ///   dtype. The nullability must match `dtype.nullability()`. Norms carry the validity of the
+    ///   entire array, since null vectors have null norms.
     /// - `centroids` is a non-nullable `PrimitiveArray<f32>` whose length is a power of 2 in
     ///   `[2, 256]` (i.e., `2^bit_width` for bit_width 1-8), or empty for degenerate arrays.
     /// - `rotation_signs` has `3 * padded_dim` elements, or is empty for degenerate arrays.
@@ -166,11 +169,12 @@ impl TurboQuantData {
         let dimension = extension_list_size(ext)?;
         let padded_dim = dimension.next_power_of_two();
 
-        // Codes must be a FixedSizeList<u8> with list_size == padded_dim.
+        // Codes must be a non-nullable FixedSizeList<u8> with list_size == padded_dim.
+        // Null vectors are represented by all-zero codes since validity lives in the norms array.
         let expected_codes_dtype = DType::FixedSizeList(
-            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)), // FIX THIS!!!
+            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
             padded_dim,
-            dtype.nullability(),
+            Nullability::NonNullable,
         );
         vortex_ensure_eq!(
             *codes.dtype(),
@@ -184,10 +188,6 @@ impl TurboQuantData {
             num_rows,
             "norms length must match codes length",
         );
-
-        // TODO(connor): Should we check that the codes and norms have the same validity? We could
-        // also make it so that norms holds the validity and any null vectors encoded as codes is
-        // just 0...
 
         // Degenerate (empty) case: all children must be empty, and bit_width is 0.
         if num_rows == 0 {
@@ -219,13 +219,14 @@ impl TurboQuantData {
             "derived bit_width must be 1-8, got {bit_width}"
         );
 
-        // Norms dtype must match the element ptype of the Vector.
+        // Norms dtype must match the element ptype of the Vector, with the parent's nullability.
+        // Norms carry the validity of the entire TurboQuant array.
         let element_ptype = extension_element_ptype(ext)?;
-        let expected_norms_dtype = DType::Primitive(element_ptype, Nullability::NonNullable); // FIX THIS!!!
+        let expected_norms_dtype = DType::Primitive(element_ptype, dtype.nullability());
         vortex_ensure_eq!(
             *norms.dtype(),
             expected_norms_dtype,
-            "norms dtype does not match expected (must match Vector element type)",
+            "norms dtype does not match expected {expected_norms_dtype}",
         );
 
         // Centroids are always f32 regardless of element type.
