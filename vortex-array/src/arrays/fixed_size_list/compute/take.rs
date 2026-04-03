@@ -61,7 +61,7 @@ fn take_with_indices<I: IntegerPType, E: IntegerPType>(
         );
 
         // Since there are no elements to take, we just need to take on the validity map.
-        let new_validity = array.validity().take(indices)?;
+        let new_validity = array.validity()?.take(indices)?;
         let new_len = indices_array.len();
 
         Ok(

@@ -189,7 +189,7 @@ impl CascadingCompressor {
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
-                    struct_array.validity(),
+                    struct_array.validity()?,
                 )?
                 .into_array())
             }
@@ -207,7 +207,7 @@ impl CascadingCompressor {
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
-                    fsl_array.validity(),
+                    fsl_array.validity()?,
                     fsl_array.len(),
                 )?
                 .into_array())
@@ -450,7 +450,7 @@ impl CascadingCompressor {
             compressed_elems,
             compressed_offsets,
             compressed_sizes,
-            list_view.validity(),
+            list_view.validity()?,
         )?
         .into_array())
     }

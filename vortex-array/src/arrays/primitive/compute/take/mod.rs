@@ -100,7 +100,7 @@ impl TakeExecute for Primitive {
         };
 
         let validity = array
-            .validity()
+            .validity()?
             .take(&unsigned_indices.clone().into_array())?;
         // Delegate to the best kernel based on the target CPU
         {

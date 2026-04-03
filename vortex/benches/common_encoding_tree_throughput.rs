@@ -34,6 +34,7 @@ use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::encodings::runend::RunEnd;
+use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
 
 #[global_allocator]
@@ -262,7 +263,9 @@ mod setup {
             offsets_bp.into_array(),
             codes.bytes().clone(),
             codes.dtype().clone(),
-            codes.validity(),
+            codes
+                .validity()
+                .vortex_expect("FSST code validity should be derivable"),
         )
         .unwrap();
 

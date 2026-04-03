@@ -292,7 +292,7 @@ fn to_canonical_decimal(
                     .dtype()
                     .as_decimal_opt()
                     .vortex_expect("must be a decimal dtype"),
-                prim.validity(),
+                prim.validity()?,
             )
         }
         .into_array()

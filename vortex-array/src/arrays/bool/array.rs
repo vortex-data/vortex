@@ -393,7 +393,7 @@ mod tests {
     fn test_all_some_iter() {
         let arr = BoolArray::from_iter([Some(true), Some(false)]);
 
-        assert!(matches!(arr.validity(), Validity::AllValid));
+        assert!(matches!(arr.validity(), Ok(Validity::AllValid)));
 
         let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);

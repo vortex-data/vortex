@@ -3,6 +3,7 @@
 
 use rstest::rstest;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::IntoArray;
@@ -199,6 +200,7 @@ fn test_validity_preservation(#[case] validity: Validity) {
             .temporal_values()
             .to_primitive()
             .validity()
+            .vortex_expect("temporal validity should be derivable")
             .array_eq(&validity, Precision::Ptr)
     );
 }

@@ -131,6 +131,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     assert!(
         primitive
             .validity()
+            .unwrap()
             .mask_eq(
                 &Validity::Array(BoolArray::from_iter(vec![true, false, true]).into_array()),
                 &mut ctx,

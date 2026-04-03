@@ -571,6 +571,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
+    use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -775,7 +776,11 @@ mod tests {
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity().is_valid(idx).unwrap();
+            let result_valid = result_primitive
+                .validity()
+                .vortex_expect("result validity should be derivable")
+                .is_valid(idx)
+                .unwrap();
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),

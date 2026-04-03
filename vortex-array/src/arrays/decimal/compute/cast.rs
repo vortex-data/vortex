@@ -61,7 +61,7 @@ impl CastKernel for Decimal {
 
         // Cast the validity to the new nullability
         let new_validity = array
-            .validity()
+            .validity()?
             .cast_nullability(*to_nullability, array.len())?;
 
         // If the target needs a wider physical type, upcast the values
@@ -119,7 +119,7 @@ pub fn upcast_decimal_values(
     }
 
     let decimal_dtype = array.decimal_dtype();
-    let validity = array.validity();
+    let validity = array.validity()?;
 
     // Use match_each_decimal_value_type to dispatch based on source and target types
     match_each_decimal_value_type!(from_values_type, |F| {
@@ -174,7 +174,7 @@ mod tests {
             .to_decimal();
 
         assert_eq!(casted.dtype(), &nullable_dtype);
-        assert!(matches!(casted.validity(), Validity::AllValid));
+        assert!(matches!(casted.validity(), Ok(Validity::AllValid)));
         assert_eq!(casted.len(), 3);
     }
 
@@ -194,7 +194,7 @@ mod tests {
             .to_decimal();
 
         assert_eq!(casted.dtype(), &non_nullable_dtype);
-        assert!(matches!(casted.validity(), Validity::NonNullable));
+        assert!(matches!(casted.validity(), Ok(Validity::NonNullable)));
     }
 
     #[test]

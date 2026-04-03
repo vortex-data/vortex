@@ -14,7 +14,7 @@ use crate::arrays::filter::FilterReduce;
 impl FilterReduce for Masked {
     fn filter(array: ArrayView<'_, Masked>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         // Filter the validity to get the new validity
-        let filtered_validity = array.validity().filter(mask)?;
+        let filtered_validity = array.validity()?.filter(mask)?;
 
         // Filter the child array
         // The child is guaranteed to have no nulls, so filtering it is straightforward

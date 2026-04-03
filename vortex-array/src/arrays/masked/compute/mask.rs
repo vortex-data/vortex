@@ -16,7 +16,7 @@ impl MaskReduce for Masked {
     fn mask(array: ArrayView<'_, Masked>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // AND the existing validity mask with the new mask and push into child.
         let combined_mask = array
-            .validity()
+            .validity()?
             .and(Validity::Array(mask.clone()))?
             .to_array(array.len());
         let masked_child = MaskExpr.try_new_array(

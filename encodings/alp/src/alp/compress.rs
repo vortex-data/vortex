@@ -66,7 +66,7 @@ where
     let (exponents, encoded, exceptional_positions, exceptional_values, mut chunk_offsets) =
         T::encode(values_slice, exponents);
 
-    let encoded_array = PrimitiveArray::new(encoded, values.validity()).into_array();
+    let encoded_array = PrimitiveArray::new(encoded, values.validity()?).into_array();
 
     let validity = values.validity_mask()?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage

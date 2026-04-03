@@ -20,7 +20,7 @@ impl SliceReduce for ListView {
                     array.elements().clone(),
                     array.offsets().slice(range.clone())?,
                     array.sizes().slice(range.clone())?,
-                    array.validity().slice(range)?,
+                    array.validity()?.slice(range)?,
                 )
                 .with_zero_copy_to_list(array.is_zero_copy_to_list())
             }

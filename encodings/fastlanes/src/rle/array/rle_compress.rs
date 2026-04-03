@@ -12,6 +12,7 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
@@ -37,7 +38,7 @@ where
 {
     // Fill-forward null values so the RLE encoder doesn't see garbage at null positions,
     // which would create spurious run boundaries and inflate the dictionary.
-    let values = fill_forward_nulls(array.to_buffer::<T>(), &array.validity());
+    let values = fill_forward_nulls(array.to_buffer::<T>(), &array.validity()?);
     let len = values.len();
     let padded_len = len.next_multiple_of(FL_CHUNK_SIZE);
 
@@ -110,7 +111,10 @@ where
 
 /// Returns validity padded to the next 1024 chunk for a given array.
 fn padded_validity(array: &PrimitiveArray) -> Validity {
-    match array.validity() {
+    match array
+        .validity()
+        .vortex_expect("RLE validity should be derivable")
+    {
         Validity::NonNullable => Validity::NonNullable,
         Validity::AllValid => Validity::AllValid,
         Validity::AllInvalid => Validity::AllInvalid,
@@ -142,6 +146,7 @@ mod tests {
     use vortex_array::dtype::half::f16;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
 
     use super::*;
 
@@ -255,7 +260,12 @@ mod tests {
         let primitive = values.clone().into_array().to_primitive();
         let result = RLEData::encode(&primitive).unwrap();
         let decoded = result.as_array().to_primitive();
-        let expected = PrimitiveArray::new(values, primitive.validity());
+        let expected = PrimitiveArray::new(
+            values,
+            primitive
+                .validity()
+                .vortex_expect("primitive validity should be derivable"),
+        );
         assert_arrays_eq!(decoded, expected);
     }
 

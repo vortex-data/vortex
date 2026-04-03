@@ -12,7 +12,12 @@ use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
 
 pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray {
-    let filtered_validity = filter_validity(array.validity(), mask);
+    let filtered_validity = filter_validity(
+        array
+            .validity()
+            .vortex_expect("struct validity should be derivable"),
+        mask,
+    );
 
     let mask_for_filter = values_to_mask(mask);
     let fields: Vec<ArrayRef> = array

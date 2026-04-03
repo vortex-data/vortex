@@ -229,7 +229,7 @@ mod tests {
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
-        assert!(matches!(actual_array.validity(), Validity::NonNullable));
+        assert!(matches!(actual_array.validity(), Ok(Validity::NonNullable)));
 
         assert_arrays_eq!(
             primitive_field(&actual_array.clone().into_array(), &["one"]).unwrap(),
@@ -300,7 +300,7 @@ mod tests {
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
-        assert!(matches!(actual_array.validity(), Validity::AllValid));
+        assert!(matches!(actual_array.validity(), Ok(Validity::AllValid)));
     }
 
     #[test]

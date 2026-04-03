@@ -31,7 +31,7 @@ impl SliceKernel for ParquetVariant {
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity.slice(range.clone())?;
+        let validity = array.validity()?.slice(range.clone())?;
         let metadata = array.metadata_array().slice(range.clone())?;
         let value = array
             .value_array()
@@ -53,7 +53,7 @@ impl FilterKernel for ParquetVariant {
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity.filter(mask)?;
+        let validity = array.validity()?.filter(mask)?;
         let metadata = array.metadata_array().filter(mask.clone())?;
         let value = array
             .value_array()
@@ -75,7 +75,7 @@ impl TakeExecute for ParquetVariant {
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity.take(indices)?;
+        let validity = array.validity()?.take(indices)?;
         let metadata = array.metadata_array().take(indices.clone())?;
         let value = array
             .value_array()

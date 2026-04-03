@@ -316,7 +316,7 @@ mod tests {
         Ok(PrimitiveArray::from_byte_buffer(
             prim.buffer_handle().try_to_host_sync()?,
             prim.ptype(),
-            prim.validity(),
+            prim.validity()?,
         ))
     }
 
@@ -647,7 +647,7 @@ mod tests {
             BufferHandle::new_host(decimal.buffer_handle().try_to_host_sync()?),
             decimal.values_type(),
             decimal.decimal_dtype(),
-            decimal.validity(),
+            decimal.validity()?,
         ))
     }
 

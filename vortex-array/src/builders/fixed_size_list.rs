@@ -272,6 +272,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
 
     use super::FixedSizeListBuilder;
     use crate::IntoArray as _;
@@ -444,9 +445,27 @@ mod tests {
         assert_eq!(fsl.len(), 3);
 
         let fsl_array = fsl.to_fixed_size_list();
-        assert!(fsl_array.validity().is_valid(0).unwrap());
-        assert!(!fsl_array.validity().is_valid(1).unwrap());
-        assert!(fsl_array.validity().is_valid(2).unwrap());
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -529,7 +548,13 @@ mod tests {
 
         // Check that all lists are null.
         for i in 0..3 {
-            assert!(!fsl_array.validity().is_valid(i).unwrap());
+            assert!(
+                !fsl_array
+                    .validity()
+                    .vortex_expect("fixed-size-list validity should be derivable")
+                    .is_valid(i)
+                    .unwrap()
+            );
         }
     }
 
@@ -552,7 +577,13 @@ mod tests {
         assert_eq!(fsl_array.list_size(), 2);
 
         // Check that all lists are null.
-        assert!(!fsl_array.validity().is_valid(0).unwrap());
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -621,12 +652,48 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 12);
 
         // Check validity pattern is repeated.
-        assert!(fsl_array.validity().is_valid(0).unwrap());
-        assert!(!fsl_array.validity().is_valid(1).unwrap());
-        assert!(fsl_array.validity().is_valid(2).unwrap());
-        assert!(fsl_array.validity().is_valid(3).unwrap());
-        assert!(!fsl_array.validity().is_valid(4).unwrap());
-        assert!(fsl_array.validity().is_valid(5).unwrap());
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(3)
+                .unwrap()
+        );
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(4)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(5)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -661,11 +728,41 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 0);
 
         // Check validity pattern.
-        assert!(fsl_array.validity().is_valid(0).unwrap());
-        assert!(!fsl_array.validity().is_valid(1).unwrap());
-        assert!(fsl_array.validity().is_valid(2).unwrap());
-        assert!(!fsl_array.validity().is_valid(3).unwrap());
-        assert!(fsl_array.validity().is_valid(4).unwrap());
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(3)
+                .unwrap()
+        );
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(4)
+                .unwrap()
+        );
     }
 
     #[test]
@@ -741,12 +838,48 @@ mod tests {
         assert_eq!(fsl_array.elements().len(), 12);
 
         // Check validity.
-        assert!(fsl_array.validity().is_valid(0).unwrap()); // append_value
-        assert!(!fsl_array.validity().is_valid(1).unwrap()); // append_null
-        assert!(fsl_array.validity().is_valid(2).unwrap()); // append_zeros
-        assert!(fsl_array.validity().is_valid(3).unwrap()); // append_zeros
-        assert!(!fsl_array.validity().is_valid(4).unwrap()); // append_nulls
-        assert!(fsl_array.validity().is_valid(5).unwrap()); // extend_from_array
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        ); // append_value
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        ); // append_null
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        ); // append_zeros
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(3)
+                .unwrap()
+        ); // append_zeros
+        assert!(
+            !fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(4)
+                .unwrap()
+        ); // append_nulls
+        assert!(
+            fsl_array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(5)
+                .unwrap()
+        ); // extend_from_array
     }
 
     #[test]
@@ -789,9 +922,27 @@ mod tests {
         }
 
         // Check validity - first two should be valid, third should be null.
-        assert!(array.validity().is_valid(0).unwrap());
-        assert!(array.validity().is_valid(1).unwrap());
-        assert!(!array.validity().is_valid(2).unwrap());
+        assert!(
+            array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            !array
+                .validity()
+                .vortex_expect("fixed-size-list validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
 
         // Test wrong dtype error.
         let mut builder = FixedSizeListBuilder::with_capacity(dtype, 2, NonNullable, 10);

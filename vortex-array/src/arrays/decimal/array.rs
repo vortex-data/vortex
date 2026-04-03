@@ -408,7 +408,7 @@ impl DecimalData {
         let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
         let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
 
-        let patch_validity = patch_values.validity();
+        let patch_validity = patch_values.validity()?;
         let patched_validity = self.validity().patch(
             self.len(),
             offset,

@@ -17,14 +17,15 @@ use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityHelper;
-use vortex_array::vtable::ValidityVTableFromValidityHelper;
+use vortex_array::vtable::ValidityVTable;
+use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
@@ -43,24 +44,25 @@ impl VTable for ByteBool {
     type ArrayData = ByteBoolData;
 
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
     fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
-        ByteBoolData::validate(data.buffer(), data.validity(), dtype, len)
+        let validity = data.validity();
+        ByteBoolData::validate(data.buffer(), &validity, dtype, len)
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &ByteBoolData, state: &mut H, precision: Precision) {
         array.buffer.array_hash(state, precision);
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
     }
 
     fn array_eq(array: &ByteBoolData, other: &ByteBoolData, precision: Precision) -> bool {
         array.buffer.array_eq(&other.buffer, precision)
-            && array.validity.array_eq(&other.validity, precision)
+            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -132,10 +134,6 @@ impl VTable for ByteBool {
             NUM_SLOTS,
             slots.len()
         );
-        array.validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.validity.nullability()),
-        };
         array.slots = slots;
         Ok(())
     }
@@ -150,7 +148,7 @@ impl VTable for ByteBool {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
-        let validity = array.validity().clone();
+        let validity = array.validity()?;
         Ok(ExecutionResult::done(
             BoolArray::new(boolean_buffer, validity).into_array(),
         ))
@@ -174,7 +172,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct ByteBoolData {
     buffer: BufferHandle,
-    validity: Validity,
+    nullability: Nullability,
     pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
@@ -194,7 +192,7 @@ impl ByteBool {
     /// Construct a [`ByteBoolArray`] from a `Vec<bool>` and validity.
     pub fn from_vec<V: Into<Validity>>(data: Vec<bool>, validity: V) -> ByteBoolArray {
         let data = ByteBoolData::from_vec(data, validity);
-        let dtype = DType::Bool(data.validity.nullability());
+        let dtype = DType::Bool(data.nullability);
         let len = data.len();
         unsafe { Array::from_parts_unchecked(ArrayParts::new(ByteBool, dtype, len, data)) }
     }
@@ -202,7 +200,7 @@ impl ByteBool {
     /// Construct a [`ByteBoolArray`] from optional bools.
     pub fn from_option_vec(data: Vec<Option<bool>>) -> ByteBoolArray {
         let data = ByteBoolData::from(data);
-        let dtype = DType::Bool(data.validity.nullability());
+        let dtype = DType::Bool(data.nullability);
         let len = data.len();
         unsafe { Array::from_parts_unchecked(ArrayParts::new(ByteBool, dtype, len, data)) }
     }
@@ -235,6 +233,10 @@ impl ByteBoolData {
         vec![validity_to_child(validity, len)]
     }
 
+    pub fn validity(&self) -> Validity {
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
+    }
+
     pub fn new(buffer: BufferHandle, validity: Validity) -> Self {
         let length = buffer.len();
         if let Some(vlen) = validity.maybe_len()
@@ -249,7 +251,7 @@ impl ByteBoolData {
         let slots = Self::make_slots(&validity, length);
         Self {
             buffer,
-            validity,
+            nullability: validity.nullability(),
             slots,
         }
     }
@@ -266,7 +268,7 @@ impl ByteBoolData {
 
     /// Returns the validity mask for this array.
     pub fn validity_mask(&self) -> Mask {
-        self.validity.to_mask(self.len())
+        self.validity().to_mask(self.len())
     }
 
     // TODO(ngates): deprecate construction from vec
@@ -287,9 +289,9 @@ impl ByteBoolData {
     }
 }
 
-impl ValidityHelper for ByteBoolData {
-    fn validity(&self) -> &Validity {
-        &self.validity
+impl ValidityVTable<ByteBool> for ByteBool {
+    fn validity(array: ArrayView<'_, ByteBool>) -> VortexResult<Validity> {
+        Ok(array.data().validity())
     }
 }
 

@@ -23,7 +23,6 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -34,7 +33,6 @@ use vortex_session::VortexSession;
 use crate::array::NUM_SLOTS;
 use crate::array::ParquetVariantData;
 use crate::array::SLOT_NAMES;
-use crate::array::VALIDITY_SLOT;
 use crate::kernel::PARENT_KERNELS;
 
 /// VTable for [`ParquetVariantArray`].
@@ -63,7 +61,7 @@ vtable!(ParquetVariant, ParquetVariant, ParquetVariantData);
 impl VTable for ParquetVariant {
     type ArrayData = ParquetVariantData;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
+    type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
         Self::ID
@@ -74,7 +72,7 @@ impl VTable for ParquetVariant {
     }
 
     fn array_hash<H: Hasher>(array: &ParquetVariantData, state: &mut H, precision: Precision) {
-        array.validity.array_hash(state, precision);
+        array.validity().array_hash(state, precision);
         array.metadata_array().array_hash(state, precision);
         // Hash discriminators so that (value=Some, typed_value=None) and
         // (value=None, typed_value=Some) produce different hashes.
@@ -93,7 +91,7 @@ impl VTable for ParquetVariant {
         other: &ParquetVariantData,
         precision: Precision,
     ) -> bool {
-        if !array.validity.array_eq(&other.validity, precision)
+        if !array.validity().array_eq(&other.validity(), precision)
             || !array
                 .metadata_array()
                 .array_eq(other.metadata_array(), precision)
@@ -225,10 +223,6 @@ impl VTable for ParquetVariant {
             NUM_SLOTS,
             slots.len()
         );
-        // Update validity from the validity slot.
-        if let Some(validity_child) = &slots[VALIDITY_SLOT] {
-            array.validity = Validity::Array(validity_child.clone());
-        }
         array.slots = slots;
         Ok(())
     }

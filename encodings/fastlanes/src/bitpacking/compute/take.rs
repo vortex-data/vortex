@@ -48,7 +48,7 @@ impl TakeExecute for BitPacked {
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
         //  be non-negative (pre-condition of creating the BitPackedArray).
         let ptype: PType = PType::try_from(array.dtype())?;
-        let validity = array.validity();
+        let validity = array.validity()?;
         let taken_validity = validity.take(indices)?;
 
         let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
@@ -61,7 +61,7 @@ impl TakeExecute for BitPacked {
             PrimitiveArray::from_buffer_handle(
                 taken.buffer_handle().clone(),
                 ptype,
-                taken.validity(),
+                taken.validity()?,
             )
         } else {
             taken
@@ -142,7 +142,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         PrimitiveArray::from_buffer_handle(
             primitive.buffer_handle().clone(),
             array.dtype().as_ptype(),
-            primitive.validity(),
+            primitive.validity()?,
         )
     } else {
         PrimitiveArray::new(output, taken_validity)

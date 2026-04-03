@@ -24,7 +24,7 @@ impl PrimitiveArray {
             return Ok(None);
         }
 
-        if matches!(self.validity(), Validity::AllInvalid) {
+        if matches!(self.validity()?, Validity::AllInvalid) {
             return Ok(None);
         }
 

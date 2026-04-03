@@ -159,6 +159,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
+        let groups_validity = groups.validity()?;
         let session = ctx.session().clone();
         let kernels = &session.aggregate_fns().grouped_kernels;
 
@@ -178,7 +179,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                             elements.clone(),
                             groups.offsets().clone(),
                             groups.sizes().clone(),
-                            groups.validity(),
+                            groups_validity.clone(),
                         )
                     };
                     kernel
@@ -198,7 +199,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         let elements = elements.execute::<Columnar>(ctx)?.into_array();
         let offsets = groups.offsets();
         let sizes = groups.sizes().cast(offsets.dtype().clone())?;
-        let validity = groups.validity().execute_mask(offsets.len(), ctx)?;
+        let validity = groups_validity.execute_mask(offsets.len(), ctx)?;
 
         match_each_integer_ptype!(offsets.dtype().as_ptype(), |O| {
             let offsets = offsets.clone().execute::<Buffer<O>>(ctx)?;
@@ -250,6 +251,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let mut elements = groups.elements().clone();
+        let groups_validity = groups.validity()?;
         let session = ctx.session().clone();
         let kernels = &session.aggregate_fns().grouped_kernels;
 
@@ -268,7 +270,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                         FixedSizeListArray::new_unchecked(
                             elements.clone(),
                             groups.list_size(),
-                            groups.validity(),
+                            groups_validity.clone(),
                             groups.len(),
                         )
                     };
@@ -288,7 +290,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
 
         // Otherwise, we iterate the offsets and sizes and accumulate each group one by one.
         let elements = elements.execute::<Columnar>(ctx)?.into_array();
-        let validity = groups.validity().execute_mask(groups.len(), ctx)?;
+        let validity = groups_validity.execute_mask(groups.len(), ctx)?;
 
         let mut accumulator = Accumulator::try_new(
             self.vtable.clone(),

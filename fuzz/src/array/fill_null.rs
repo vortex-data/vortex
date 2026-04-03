@@ -57,7 +57,10 @@ fn fill_bool_array(
         .value()
         .vortex_expect("cannot have null fill value");
 
-    match array.validity() {
+    match array
+        .validity()
+        .vortex_expect("bool validity should be derivable in fuzz baseline")
+    {
         Validity::NonNullable | Validity::AllValid => {
             BoolArray::new(array.into_bit_buffer(), result_nullability.into()).into_array()
         }
@@ -97,7 +100,10 @@ fn fill_primitive_array(
         let fill_val = T::try_from(fill_value)
             .vortex_expect("fill value conversion should succeed in fuzz test");
 
-        match array.validity() {
+        match array
+            .validity()
+            .vortex_expect("primitive validity should be derivable in fuzz baseline")
+        {
             Validity::NonNullable | Validity::AllValid => {
                 PrimitiveArray::new(array.to_buffer::<T>(), result_nullability.into()).into_array()
             }
@@ -137,7 +143,10 @@ fn fill_decimal_array(
         let fill_val = D::try_from(decimal_scalar)
             .vortex_expect("decimal fill value conversion should succeed in fuzz test");
 
-        match array.validity() {
+        match array
+            .validity()
+            .vortex_expect("decimal validity should be derivable in fuzz baseline")
+        {
             Validity::NonNullable | Validity::AllValid => DecimalArray::new(
                 array.buffer::<D>(),
                 decimal_dtype,
@@ -175,7 +184,10 @@ fn fill_varbinview_array(
     result_nullability: Nullability,
 ) -> ArrayRef {
     let array_ref = array.clone().into_array();
-    match array.validity() {
+    match array
+        .validity()
+        .vortex_expect("varbinview validity should be derivable in fuzz baseline")
+    {
         Validity::NonNullable | Validity::AllValid => array.into_array(),
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {

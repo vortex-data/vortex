@@ -47,7 +47,7 @@ impl TakeReduce for ListView {
         let sizes = array.sizes();
 
         // Compute the new validity by combining the array's validity with the indices' validity.
-        let new_validity = array.validity().take(indices)?;
+        let new_validity = array.validity()?.take(indices)?;
 
         // Take the offsets and sizes arrays at the requested indices.
         // Take can reorder offsets, create gaps, and may introduce overlaps if the `indices`

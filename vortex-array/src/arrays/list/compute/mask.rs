@@ -16,7 +16,7 @@ impl MaskReduce for List {
         ListArray::try_new(
             array.elements().clone(),
             array.offsets().clone(),
-            array.validity().and(Validity::Array(mask.clone()))?,
+            array.validity()?.and(Validity::Array(mask.clone()))?,
         )
         .map(|a| Some(a.into_array()))
     }

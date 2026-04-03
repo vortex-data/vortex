@@ -19,8 +19,8 @@ impl BoolArray {
         let values = patches.values().clone().execute::<BoolArray>(ctx)?;
 
         let patched_validity =
-            self.validity()
-                .patch(len, offset, patches.indices(), &values.validity(), ctx)?;
+            self.validity()?
+                .patch(len, offset, patches.indices(), &values.validity()?, ctx)?;
 
         let bit_buffer = self.into_bit_buffer();
         let mut own_values = bit_buffer

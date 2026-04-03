@@ -485,7 +485,12 @@ impl FSSTData {
             as Box<dyn Fn() -> Compressor + Send>));
         let codes_array = codes.clone().into_array();
         let codes_offsets_slot = Some(codes.offsets().clone());
-        let codes_validity_slot = validity_to_child(&codes.validity(), codes.len());
+        let codes_validity_slot = validity_to_child(
+            &codes
+                .validity()
+                .vortex_expect("FSST codes validity should be derivable"),
+            codes.len(),
+        );
 
         Self {
             symbols,

@@ -22,7 +22,7 @@ impl MaskReduce for FixedSizeList {
                 FixedSizeListArray::new_unchecked(
                     array.elements().clone(),
                     array.list_size(),
-                    array.validity().and(Validity::Array(mask.clone()))?,
+                    array.validity()?.and(Validity::Array(mask.clone()))?,
                     array.len(),
                 )
             }
