@@ -58,7 +58,8 @@ impl<T: PhysicalPType<Physical: BitPacking>> UnpackStrategy<T> for BitPackingStr
 /// use vortex_fastlanes::unpack_iter::BitUnpackedChunks;
 ///
 /// let array = BitPackedData::encode(&buffer![2, 3, 4, 5].into_array(), 2).unwrap();
-/// let mut unpacked_chunks: BitUnpackedChunks<i32> = array.unpacked_chunks();
+/// let mut unpacked_chunks: BitUnpackedChunks<i32> =
+///     array.unpacked_chunks(array.dtype(), array.len());
 ///
 /// if let Some(header) = unpacked_chunks.initial() {
 ///    // handle partial initial chunk

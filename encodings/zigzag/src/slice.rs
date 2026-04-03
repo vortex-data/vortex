@@ -13,6 +13,8 @@ use crate::ZigZag;
 
 impl SliceReduce for ZigZag {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(ZigZag::try_new(array.encoded().slice(range)?)?.into_array()))
+        Ok(Some(
+            ZigZag::try_new(array.encoded().slice(range)?)?.into_array(),
+        ))
     }
 }

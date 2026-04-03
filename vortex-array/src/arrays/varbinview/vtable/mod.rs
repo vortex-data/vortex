@@ -83,6 +83,10 @@ impl VTable for VarBinView {
         array.data_buffers().len() + 1
     }
 
+    fn validate(&self, data: &VarBinViewData, dtype: &DType, len: usize) -> VortexResult<()> {
+        data.validate_against_outer(dtype, len)
+    }
+
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         let ndata = array.data_buffers().len();
         if idx < ndata {

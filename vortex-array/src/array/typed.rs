@@ -25,7 +25,7 @@ use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
-/// Construction parameters for [`ArrayInner`] / [`Array`].
+/// Construction parameters for typed arrays.
 pub struct ArrayParts<V: VTable> {
     pub vtable: V,
     pub dtype: DType,
@@ -245,6 +245,18 @@ impl<V: VTable> Array<V> {
         &self.downcast_inner().data
     }
 
+    /// Returns the full typed array construction parts.
+    pub fn into_parts(self) -> ArrayParts<V> {
+        let inner = self.downcast_inner();
+        ArrayParts {
+            vtable: inner.vtable.clone(),
+            dtype: inner.dtype.clone(),
+            len: inner.len,
+            data: inner.data.clone(),
+            stats: inner.stats.clone(),
+        }
+    }
+
     /// Returns a clone of the inner encoding-specific data.
     pub fn into_data(self) -> V::ArrayData {
         self.downcast_inner().data.clone()
@@ -422,5 +434,27 @@ impl<V: VTable> IntoArray for Arc<Array<V>> {
 impl<V: VTable> From<Array<V>> for ArrayRef {
     fn from(value: Array<V>) -> ArrayRef {
         value.inner
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+
+    use super::Array;
+    use crate::assert_arrays_eq;
+    use crate::arrays::Primitive;
+    use crate::arrays::PrimitiveArray;
+    use crate::validity::Validity;
+
+    #[test]
+    fn typed_array_into_parts_roundtrips() {
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
+        let expected = array.clone();
+
+        let parts = array.into_parts();
+        let rebuilt = Array::<Primitive>::try_from_parts(parts).unwrap();
+
+        assert_arrays_eq!(rebuilt, expected);
     }
 }

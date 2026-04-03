@@ -27,7 +27,9 @@ impl TakeReduce for Masked {
         let taken_validity = array.validity().take(indices)?;
 
         // Construct new MaskedArray
-        Ok(Some(MaskedArray::try_new(taken_child, taken_validity)?.into_array()))
+        Ok(Some(
+            MaskedArray::try_new(taken_child, taken_validity)?.into_array(),
+        ))
     }
 }
 

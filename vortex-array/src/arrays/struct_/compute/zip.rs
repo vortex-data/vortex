@@ -54,7 +54,7 @@ impl ZipKernel for Struct {
                 let combined = (v1m.bitand(&mask_mask)).bitor(&v2m.bitand(&mask_mask.not()));
                 Validity::from_mask(
                     combined,
-                    if_true.dtype.nullability() | if_false.dtype.nullability(),
+                    if_true.dtype().nullability() | if_false.dtype().nullability(),
                 )
             }
         };

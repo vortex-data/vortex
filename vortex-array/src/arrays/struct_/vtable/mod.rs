@@ -66,6 +66,10 @@ impl VTable for Struct {
         0
     }
 
+    fn validate(&self, data: &StructData, dtype: &DType, len: usize) -> VortexResult<()> {
+        data.validate_against_outer(dtype, len)
+    }
+
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("StructArray buffer index {idx} out of bounds")
     }
@@ -81,7 +85,8 @@ impl VTable for Struct {
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,

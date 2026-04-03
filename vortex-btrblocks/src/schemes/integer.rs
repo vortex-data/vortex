@@ -340,10 +340,7 @@ impl Scheme for BitPackingScheme {
         let nullability = packed.dtype().nullability();
         let mut packed_data = packed.into_data();
 
-        let patches = packed_data
-            .patches(len)
-            .map(compress_patches)
-            .transpose()?;
+        let patches = packed_data.patches(len).map(compress_patches).transpose()?;
         packed_data.replace_patches(patches);
         let parts = packed_data.into_parts(len, nullability);
 

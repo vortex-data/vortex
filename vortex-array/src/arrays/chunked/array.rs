@@ -34,7 +34,7 @@ pub(super) const CHUNKS_OFFSET: usize = 1;
 
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
-    pub(super) dtype: DType,
+    pub(super) empty_dtype: Option<DType>,
     pub(super) chunk_offsets: PrimitiveData,
     pub(super) chunks: Vec<ArrayRef>,
     pub(super) slots: Vec<Option<ArrayRef>>,
@@ -105,7 +105,7 @@ impl ChunkedData {
 
         let slots = Self::make_slots(&chunk_offsets, &chunks);
         Self {
-            dtype,
+            empty_dtype: chunks.is_empty().then_some(dtype),
             chunk_offsets,
             chunks,
             slots,
@@ -136,7 +136,11 @@ impl ChunkedData {
 
     /// Returns the [`DType`] of this array.
     pub fn dtype(&self) -> &DType {
-        &self.dtype
+        self.chunks
+            .first()
+            .map(|chunk| chunk.dtype())
+            .or(self.empty_dtype.as_ref())
+            .vortex_expect("ChunkedArray dtype must come from chunks or the empty dtype")
     }
 
     /// Returns `true` if this array is empty.
@@ -272,6 +276,16 @@ impl Array<Chunked> {
         let dtype = data.dtype().clone();
         let len = data.len();
         Array::try_from_parts(ArrayParts::new(Chunked, dtype, len, data))
+    }
+
+    pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
+        let data = self.data().rechunk(target_bytesize, target_rowsize)?;
+        Array::try_from_parts(ArrayParts::new(
+            Chunked,
+            self.dtype().clone(),
+            data.len(),
+            data,
+        ))
     }
 
     /// Creates a new `ChunkedArray` without validation.

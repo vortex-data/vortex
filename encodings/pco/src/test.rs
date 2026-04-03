@@ -39,8 +39,6 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 use crate::Pco;
-use crate::PcoArray;
-
 #[test]
 fn test_compress_decompress() {
     let data: Vec<i32> = (0..200).collect();
@@ -101,7 +99,8 @@ fn test_validity_and_multiple_chunks_and_pages() {
     let compression_level = 3;
     let values_per_chunk = 33;
     let values_per_page = 10;
-    let compressed = PcoArray::try_from_data(
+    let compressed = Pco::try_new(
+        array.dtype().clone(),
         PcoData::from_primitive_with_values_per_chunk(
             &array,
             compression_level,

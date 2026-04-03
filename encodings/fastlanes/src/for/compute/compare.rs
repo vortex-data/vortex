@@ -80,7 +80,10 @@ where
     let rhs = Scalar::primitive(rhs, nullability);
 
     lhs.encoded()
-        .binary(ConstantArray::new(rhs, lhs.len()).into_array(), Operator::from(operator))
+        .binary(
+            ConstantArray::new(rhs, lhs.len()).into_array(),
+            Operator::from(operator),
+        )
         .map(Some)
 }
 
@@ -117,8 +120,8 @@ mod tests {
             Nullability::NonNullable,
             CompareOperator::Eq,
         )
-            .unwrap()
-            .unwrap();
+        .unwrap()
+        .unwrap();
         assert_arrays_eq!(result, BoolArray::from_iter([false, true, false].map(Some)));
 
         let result = compare_constant(
@@ -161,9 +164,9 @@ mod tests {
                 Nullability::Nullable,
                 CompareOperator::Eq,
             )
-                .unwrap()
-                .unwrap()
-                .dtype(),
+            .unwrap()
+            .unwrap()
+            .dtype(),
             &DType::Bool(Nullability::Nullable)
         );
         assert_eq!(
@@ -173,9 +176,9 @@ mod tests {
                 Nullability::NonNullable,
                 CompareOperator::Eq,
             )
-                .unwrap()
-                .unwrap()
-                .dtype(),
+            .unwrap()
+            .unwrap()
+            .dtype(),
             &DType::Bool(Nullability::NonNullable)
         );
     }
@@ -195,8 +198,8 @@ mod tests {
             Nullability::NonNullable,
             CompareOperator::Eq,
         )
-            .unwrap()
-            .unwrap();
+        .unwrap()
+        .unwrap();
         assert_arrays_eq!(
             result,
             BoolArray::from_iter([false, false, false].map(Some))

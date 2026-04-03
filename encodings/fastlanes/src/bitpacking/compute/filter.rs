@@ -63,20 +63,21 @@ impl FilterKernel for BitPacked {
         }
 
         // Filter and patch using the correct unsigned type for FastLanes, then cast to signed if needed.
-        let primitive = match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |U| {
-            let (buffer, validity) = filter_primitive_without_patches::<U>(&array, values)?;
-            // reinterpret_cast for signed types.
-            let primitive = PrimitiveArray::new(buffer, validity);
-            if array.dtype().as_ptype().is_signed_int() {
-                PrimitiveArray::from_buffer_handle(
-                    primitive.buffer_handle().clone(),
-                    array.dtype().as_ptype(),
-                    primitive.validity(),
-                )
-            } else {
-                primitive
-            }
-        });
+        let primitive =
+            match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |U| {
+                let (buffer, validity) = filter_primitive_without_patches::<U>(&array, values)?;
+                // reinterpret_cast for signed types.
+                let primitive = PrimitiveArray::new(buffer, validity);
+                if array.dtype().as_ptype().is_signed_int() {
+                    PrimitiveArray::from_buffer_handle(
+                        primitive.buffer_handle().clone(),
+                        array.dtype().as_ptype(),
+                        primitive.validity(),
+                    )
+                } else {
+                    primitive
+                }
+            });
 
         let patches = array
             .patches(array.len())
@@ -275,7 +276,7 @@ mod test {
         let unpacked = PrimitiveArray::from_iter(values.clone());
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
         assert!(
-            bitpacked.patches().is_some(),
+            bitpacked.patches(bitpacked.len()).is_some(),
             "Expected patches for values exceeding bit width"
         );
 
@@ -307,7 +308,7 @@ mod test {
         let unpacked = PrimitiveArray::from_iter(values.clone());
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
         assert!(
-            bitpacked.patches().is_some(),
+            bitpacked.patches(bitpacked.len()).is_some(),
             "Expected patches for values exceeding bit width"
         );
 

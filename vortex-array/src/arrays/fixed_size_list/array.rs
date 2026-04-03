@@ -100,7 +100,6 @@ pub struct FixedSizeListData {
     /// and `elements.len()`) is because in the degenerate case where `list_size == 0`, we cannot
     /// use `0 / 0` to determine the length.
     pub(super) degenerate_len: usize,
-
 }
 
 impl FixedSizeListData {
@@ -173,13 +172,14 @@ impl FixedSizeListData {
     }
 
     pub fn into_parts(mut self) -> (ArrayRef, Validity, DType) {
+        let dtype = self.dtype();
         let validity = self.validity();
         (
             self.slots[ELEMENTS_SLOT]
                 .take()
                 .vortex_expect("FixedSizeListArray elements slot"),
             validity,
-            self.dtype(),
+            dtype,
         )
     }
 

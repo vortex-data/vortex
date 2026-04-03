@@ -96,7 +96,8 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct VarBinViewData {
     pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) dtype: DType,
+    pub(super) is_utf8: bool,
+    pub(super) nullability: Nullability,
     pub(super) buffers: Arc<[BufferHandle]>,
     pub(super) views: BufferHandle,
 }
@@ -109,6 +110,22 @@ pub struct VarBinViewArrayParts {
 }
 
 impl VarBinViewData {
+    fn dtype_parts(dtype: &DType) -> VortexResult<(bool, Nullability)> {
+        match dtype {
+            DType::Utf8(nullability) => Ok((true, *nullability)),
+            DType::Binary(nullability) => Ok((false, *nullability)),
+            _ => vortex_bail!(InvalidArgument: "invalid DType {dtype} for `VarBinViewArray`"),
+        }
+    }
+
+    fn make_dtype(is_utf8: bool, nullability: Nullability) -> DType {
+        if is_utf8 {
+            DType::Utf8(nullability)
+        } else {
+            DType::Binary(nullability)
+        }
+    }
+
     /// Build the slots vector for this array.
     pub(super) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
         vec![validity_to_child(validity, len)]
@@ -262,11 +279,14 @@ impl VarBinViewData {
     ) -> Self {
         let len = views.len() / size_of::<BinaryView>();
         let slots = Self::make_slots(&validity, len);
+        let (is_utf8, nullability) =
+            Self::dtype_parts(&dtype).vortex_expect("VarBinViewArray dtype must be utf8 or binary");
         Self {
             slots,
             views,
             buffers,
-            dtype,
+            is_utf8,
+            nullability,
         }
     }
 
@@ -365,8 +385,8 @@ impl VarBinViewData {
     }
 
     /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
+    pub fn dtype(&self) -> DType {
+        Self::make_dtype(self.is_utf8, self.nullability)
     }
 
     /// Returns `true` if this array is empty.
@@ -377,7 +397,7 @@ impl VarBinViewData {
     /// Returns the [`Validity`] of this array.
     #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
     }
 
     /// Returns the validity as a [`Mask`].
@@ -389,11 +409,27 @@ impl VarBinViewData {
     pub fn into_parts(self) -> VarBinViewArrayParts {
         let validity = self.validity();
         VarBinViewArrayParts {
-            dtype: self.dtype,
+            dtype: self.dtype(),
             buffers: self.buffers,
             views: self.views,
             validity,
         }
+    }
+
+    pub fn validate_against_outer(&self, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            self.len() == len,
+            "VarBinViewArray length {} does not match outer length {}",
+            self.len(),
+            len
+        );
+        vortex_ensure!(
+            self.dtype() == *dtype,
+            "VarBinViewArray dtype {} does not match outer dtype {}",
+            self.dtype(),
+            dtype
+        );
+        Ok(())
     }
 
     /// Access to the primitive views buffer.

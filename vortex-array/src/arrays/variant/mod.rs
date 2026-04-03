@@ -31,7 +31,9 @@ pub struct VariantData {
 impl VariantData {
     /// Creates a new VariantArray. Nullability comes from the child's dtype.
     pub fn new(child: ArrayRef) -> Self {
-        Self { slots: vec![Some(child)] }
+        Self {
+            slots: vec![Some(child)],
+        }
     }
 
     /// Returns the length of this array.

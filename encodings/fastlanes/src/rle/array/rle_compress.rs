@@ -265,7 +265,7 @@ mod tests {
     #[case(vec![f16::ZERO, f16::NEG_ZERO])]
     #[case(vec![0f32, -0f32])]
     #[case(vec![0f64, -0f64])]
-    fn test_float_zeros<T: NativePType + RLE>(#[case] values: Vec<T>) {
+    fn test_float_zeros<T: NativePType + fastlanes::RLE>(#[case] values: Vec<T>) {
         let primitive = PrimitiveArray::from_iter(values);
         let rle = RLEData::encode(&primitive).unwrap();
         let decoded = rle.as_array().to_primitive();

@@ -149,8 +149,9 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 /// ```
 #[derive(Clone, Debug)]
 pub struct StructData {
-    pub(super) len: usize,
-    pub(super) dtype: DType,
+    pub(super) names: FieldNames,
+    pub(super) nullability: crate::dtype::Nullability,
+    pub(super) fieldless_len: Option<usize>,
     pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
@@ -163,12 +164,15 @@ pub struct StructArrayParts {
 impl StructData {
     /// Returns the length of this array.
     pub fn len(&self) -> usize {
-        self.len
+        self.slots[FIELDS_OFFSET..]
+            .first()
+            .and_then(|slot| slot.as_ref())
+            .map_or_else(|| self.fieldless_len.unwrap_or(0), |field| field.len())
     }
 
     /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
+    pub fn dtype(&self) -> DType {
+        DType::Struct(self.struct_fields(), self.nullability)
     }
 
     /// Returns `true` if this array is empty.
@@ -178,7 +182,7 @@ impl StructData {
 
     /// Reconstructs the validity from the slots.
     pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
     }
 
     /// Return an iterator over the struct fields without the validity of the struct applied.
@@ -214,7 +218,7 @@ impl StructData {
     /// Return the struct field without the validity of the struct applied
     pub fn unmasked_field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
         let name = name.as_ref();
-        self.struct_fields().find(name).map(|idx| {
+        self.names.find(name).map(|idx| {
             self.slots[FIELDS_OFFSET + idx]
                 .as_ref()
                 .vortex_expect("StructArray field slot")
@@ -222,16 +226,16 @@ impl StructData {
     }
 
     pub fn names(&self) -> &FieldNames {
-        self.struct_fields().names()
+        &self.names
     }
 
-    pub fn struct_fields(&self) -> &StructFields {
-        let Some(struct_dtype) = &self.dtype.as_struct_fields_opt() else {
-            unreachable!(
-                "struct arrays must have be a DType::Struct, this is likely an internal bug."
-            )
-        };
-        struct_dtype
+    pub fn struct_fields(&self) -> StructFields {
+        StructFields::new(
+            self.names.clone(),
+            self.iter_unmasked_fields()
+                .map(|field| field.dtype().clone())
+                .collect(),
+        )
     }
 
     /// Create a new `StructArray` with the given length, but without any fields.
@@ -328,8 +332,9 @@ impl StructData {
             .collect();
 
         Self {
-            len: length,
-            dtype: DType::Struct(dtype, validity.nullability()),
+            names: dtype.names().clone(),
+            nullability: validity.nullability(),
+            fieldless_len: fields.is_empty().then_some(length),
             slots,
         }
     }
@@ -401,10 +406,27 @@ impl StructData {
     }
 
     pub fn into_parts(self) -> StructArrayParts {
-        let validity = self.validity();
-        let struct_fields = self.dtype.into_struct_fields();
-        let fields: Arc<[ArrayRef]> = self
-            .slots
+        let StructData {
+            names,
+            slots,
+            nullability,
+            ..
+        } = self;
+        let validity = child_to_validity(&slots[VALIDITY_SLOT], nullability);
+        let struct_fields = StructFields::new(
+            names,
+            slots
+                .iter()
+                .skip(FIELDS_OFFSET)
+                .map(|slot| {
+                    slot.as_ref()
+                        .vortex_expect("StructArray field slot")
+                        .dtype()
+                        .clone()
+                })
+                .collect(),
+        );
+        let fields: Arc<[ArrayRef]> = slots
             .into_iter()
             .skip(FIELDS_OFFSET)
             .map(|s| s.vortex_expect("StructArray field slot"))
@@ -491,6 +513,7 @@ impl StructData {
         let name = name.into();
 
         let struct_dtype = self.struct_fields().clone();
+        let len = self.len();
 
         let position = struct_dtype
             .names()
@@ -512,10 +535,39 @@ impl StructData {
 
         if let Ok(new_dtype) = struct_dtype.without_field(position) {
             self.slots = new_slots;
-            self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
+            self.names = new_dtype.names().clone();
+            self.fieldless_len = self
+                .slots
+                .get(FIELDS_OFFSET)
+                .and_then(|slot| slot.as_ref())
+                .map(|_| None)
+                .unwrap_or(Some(len));
             return Some(field);
         }
         None
+    }
+
+    pub fn validate_against_outer(&self, dtype: &DType, len: usize) -> VortexResult<()> {
+        match dtype {
+            DType::Struct(_, _) => {}
+            _ => vortex_bail!("Expected struct dtype, found {:?}", dtype),
+        }
+        if self.len() != len {
+            vortex_bail!(
+                InvalidArgument: "StructArray length {} does not match outer length {}",
+                self.len(),
+                len
+            );
+        }
+        let data_dtype = self.dtype();
+        if &data_dtype != dtype {
+            vortex_bail!(
+                InvalidArgument: "StructArray dtype {} does not match outer dtype {}",
+                data_dtype,
+                dtype
+            );
+        }
+        Ok(())
     }
 }
 
@@ -586,8 +638,8 @@ impl Array<Struct> {
         Array::try_from_parts(ArrayParts::new(Struct, dtype, len, data))
     }
 
-    /// Decompose this struct array into its constituent parts.
-    pub fn into_parts(self) -> StructArrayParts {
+    /// Decompose this struct array into its encoding-specific constituent parts.
+    pub fn into_encoding_parts(self) -> StructArrayParts {
         self.into_data().into_parts()
     }
 
@@ -641,6 +693,6 @@ impl StructData {
             .chain(once(array))
             .collect();
 
-        Self::try_new_with_dtype(children, new_fields, self.len, self.validity())
+        Self::try_new_with_dtype(children, new_fields, self.len(), self.validity())
     }
 }

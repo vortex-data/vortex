@@ -39,10 +39,7 @@ impl CastReduce for Pco {
             )
             ._slice(array.slice_start(), array.slice_stop());
 
-            return Ok(Some(
-                Pco::try_new(dtype.clone(), data)?
-                .into_array(),
-            ));
+            return Ok(Some(Pco::try_new(dtype.clone(), data)?.into_array()));
         }
 
         // For other casts (e.g., numeric type changes), decode to canonical and let PrimitiveArray handle it

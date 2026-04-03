@@ -76,6 +76,10 @@ impl VTable for VarBin {
         1
     }
 
+    fn validate(&self, data: &VarBinData, dtype: &DType, len: usize) -> VortexResult<()> {
+        data.validate_against_outer(dtype, len)
+    }
+
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
             0 => array.bytes_handle().clone(),
@@ -91,17 +95,20 @@ impl VTable for VarBin {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(ProstMetadata(VarBinMetadata {
-            offsets_ptype: PType::try_from(array.offsets().dtype())
-                .vortex_expect("Must be a valid PType") as i32,
-        })
-        .serialize()))
+        Ok(Some(
+            ProstMetadata(VarBinMetadata {
+                offsets_ptype: PType::try_from(array.offsets().dtype())
+                    .vortex_expect("Must be a valid PType") as i32,
+            })
+            .serialize(),
+        ))
     }
 
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,

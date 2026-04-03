@@ -47,7 +47,6 @@ use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::vtable;
 
 vtable!(Patched);
@@ -115,6 +114,10 @@ impl VTable for Patched {
         0
     }
 
+    fn validate(&self, data: &PatchedArray, dtype: &DType, len: usize) -> VortexResult<()> {
+        data.validate_against_outer(dtype, len)
+    }
+
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("invalid buffer index for PatchedArray: {idx}");
     }
@@ -171,8 +174,6 @@ impl VTable for Patched {
             slots: vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
             n_lanes,
             offset,
-            len,
-            stats_set: ArrayStats::default(),
         })
     }
 
@@ -288,7 +289,7 @@ impl VTable for Patched {
 
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
             let offset = array.offset;
-            let len = array.len;
+            let len = array.len();
 
             let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
 

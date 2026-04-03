@@ -24,16 +24,22 @@ impl TakeExecute for FoR {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            FoR::try_new(array.encoded().take(indices.clone())?, array.reference_scalar().clone())?
-                .into_array(),
+            FoR::try_new(
+                array.encoded().take(indices.clone())?,
+                array.reference_scalar().clone(),
+            )?
+            .into_array(),
         ))
     }
 }
 
 impl FilterReduce for FoR {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        FoR::try_new(array.encoded().filter(mask.clone())?, array.reference_scalar().clone())
-            .map(|a| Some(a.into_array()))
+        FoR::try_new(
+            array.encoded().filter(mask.clone())?,
+            array.reference_scalar().clone(),
+        )
+        .map(|a| Some(a.into_array()))
     }
 }
 
@@ -48,8 +54,8 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
-    use crate::FoRArray;
     use crate::FoR;
+    use crate::FoRArray;
 
     fn fa(encoded: ArrayRef, reference: Scalar) -> FoRArray {
         FoR::try_new(encoded, reference).vortex_expect("FoR array construction should succeed")
@@ -102,8 +108,8 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
-    use crate::FoRArray;
     use crate::FoR;
+    use crate::FoRArray;
 
     fn fa(encoded: ArrayRef, reference: Scalar) -> FoRArray {
         FoR::try_new(encoded, reference).vortex_expect("FoR array construction should succeed")

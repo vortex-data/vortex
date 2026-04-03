@@ -105,7 +105,6 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::Delta;
-    use crate::DeltaArray;
     use crate::bitpack_compress::bitpack_encode;
     use crate::delta::array::delta_decompress::delta_decompress;
     use crate::delta_compress;
@@ -137,9 +136,13 @@ mod tests {
         );
         let (bases, deltas) = delta_compress(&array, &mut SESSION.create_execution_ctx()).unwrap();
         let bitpacked_deltas = bitpack_encode(&deltas, 1, None).unwrap();
-        let packed_delta =
-            Delta::try_new(bases.into_array(), bitpacked_deltas.into_array(), 0, array.len())
-                .vortex_expect("Delta array construction should succeed");
+        let packed_delta = Delta::try_new(
+            bases.into_array(),
+            bitpacked_deltas.into_array(),
+            0,
+            array.len(),
+        )
+        .vortex_expect("Delta array construction should succeed");
         assert_arrays_eq!(packed_delta.as_array().to_primitive(), array);
     }
 }

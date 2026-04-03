@@ -5,6 +5,7 @@ use num_traits::AsPrimitive;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
@@ -33,12 +34,29 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets", "validity"];
 
 #[derive(Clone, Debug)]
 pub struct VarBinData {
-    pub(super) dtype: DType,
+    pub(super) is_utf8: bool,
+    pub(super) nullability: Nullability,
     pub(super) bytes: BufferHandle,
     pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
 impl VarBinData {
+    fn dtype_parts(dtype: &DType) -> VortexResult<(bool, Nullability)> {
+        match dtype {
+            DType::Utf8(nullability) => Ok((true, *nullability)),
+            DType::Binary(nullability) => Ok((false, *nullability)),
+            _ => vortex_bail!(MismatchedTypes: "utf8 or binary", dtype),
+        }
+    }
+
+    fn make_dtype(is_utf8: bool, nullability: Nullability) -> DType {
+        if is_utf8 {
+            DType::Utf8(nullability)
+        } else {
+            DType::Binary(nullability)
+        }
+    }
+
     /// Creates a new `VarBinArray`.
     ///
     /// # Panics
@@ -165,9 +183,12 @@ impl VarBinData {
 
         let len = offsets.len().saturating_sub(1);
         let validity_slot = validity_to_child(&validity, len);
+        let (is_utf8, nullability) =
+            Self::dtype_parts(&dtype).vortex_expect("VarBinArray dtype must be utf8 or binary");
 
         Self {
-            dtype,
+            is_utf8,
+            nullability,
             bytes,
             slots: vec![Some(offsets), validity_slot],
         }
@@ -273,8 +294,8 @@ impl VarBinData {
     }
 
     /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
+    pub fn dtype(&self) -> DType {
+        Self::make_dtype(self.is_utf8, self.nullability)
     }
 
     /// Returns `true` if this array is empty.
@@ -285,7 +306,7 @@ impl VarBinData {
     /// Returns the [`Validity`] of this array.
     #[allow(clippy::same_name_method)]
     pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
+        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
     }
 
     /// Returns the validity as a [`Mask`].
@@ -472,7 +493,23 @@ impl VarBinData {
         let offsets = self.slots[OFFSETS_SLOT]
             .take()
             .vortex_expect("VarBinArray offsets slot");
-        (self.dtype, self.bytes, offsets, validity)
+        (self.dtype(), self.bytes, offsets, validity)
+    }
+
+    pub fn validate_against_outer(&self, dtype: &DType, len: usize) -> VortexResult<()> {
+        vortex_ensure!(
+            self.len() == len,
+            "VarBinArray length {} does not match outer length {}",
+            self.len(),
+            len
+        );
+        vortex_ensure!(
+            self.dtype() == *dtype,
+            "VarBinArray dtype {} does not match outer dtype {}",
+            self.dtype(),
+            dtype
+        );
+        Ok(())
     }
 }
 

@@ -487,7 +487,7 @@ impl SerializedArray {
     /// without needing to access the actual buffer data.
     pub fn buffer_lengths(&self) -> Vec<usize> {
         let fb_array = root::<fba::Array>(self.flatbuffer.as_ref())
-            .vortex_expect("ArrayParts flatbuffer must be a valid Array");
+            .vortex_expect("SerializedArray flatbuffer must be a valid Array");
         fb_array
             .buffers()
             .map(|buffers| buffers.iter().map(|b| b.length() as usize).collect())
@@ -525,11 +525,11 @@ impl SerializedArray {
 
     /// Create an [`SerializedArray`] from a raw array tree flatbuffer (metadata only).
     ///
-    /// This constructor creates an `ArrayParts` with no buffer data, useful for
+    /// This constructor creates a `SerializedArray` with no buffer data, useful for
     /// inspecting the metadata when the actual buffer data is not needed
     /// (e.g., displaying buffer sizes from inlined array tree metadata).
     ///
-    /// Note: Calling `buffer()` on the returned `ArrayParts` will fail since
+    /// Note: Calling `buffer()` on the returned `SerializedArray` will fail since
     /// no actual buffer data is available.
     pub fn from_array_tree(array_tree: impl Into<ByteBuffer>) -> VortexResult<Self> {
         let (flatbuffer, flatbuffer_loc) = Self::validate_array_tree(array_tree)?;
@@ -643,7 +643,7 @@ impl TryFrom<ByteBuffer> for SerializedArray {
     fn try_from(value: ByteBuffer) -> Result<Self, Self::Error> {
         // The final 4 bytes contain the length of the flatbuffer.
         if value.len() < 4 {
-            vortex_bail!("ArrayParts buffer is too short");
+            vortex_bail!("SerializedArray buffer is too short");
         }
 
         // We align each buffer individually, so we remove alignment requirements on the buffer.
@@ -651,7 +651,7 @@ impl TryFrom<ByteBuffer> for SerializedArray {
 
         let fb_length = u32::try_from_le_bytes(&value.as_slice()[value.len() - 4..])? as usize;
         if value.len() < 4 + fb_length {
-            vortex_bail!("ArrayParts buffer is too short for flatbuffer");
+            vortex_bail!("SerializedArray buffer is too short for flatbuffer");
         }
 
         let fb_offset = value.len() - 4 - fb_length;

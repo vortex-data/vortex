@@ -27,8 +27,8 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::Primitive;
 use crate::arrays::ConstantArray;
+use crate::arrays::Primitive;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -97,18 +97,20 @@ impl VTable for Dict {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(ProstMetadata(DictMetadata {
-            codes_ptype: PType::try_from(array.codes().dtype())? as i32,
-            values_len: u32::try_from(array.values().len()).map_err(|_| {
-                vortex_err!(
-                    "Dictionary values size {} overflowed u32",
-                    array.values().len()
-                )
-            })?,
-            is_nullable_codes: Some(array.codes().dtype().is_nullable()),
-            all_values_referenced: Some(array.all_values_referenced),
-        })
-        .serialize()))
+        Ok(Some(
+            ProstMetadata(DictMetadata {
+                codes_ptype: PType::try_from(array.codes().dtype())? as i32,
+                values_len: u32::try_from(array.values().len()).map_err(|_| {
+                    vortex_err!(
+                        "Dictionary values size {} overflowed u32",
+                        array.values().len()
+                    )
+                })?,
+                is_nullable_codes: Some(array.codes().dtype().is_nullable()),
+                all_values_referenced: Some(array.all_values_referenced),
+            })
+            .serialize(),
+        ))
     }
 
     fn deserialize(

@@ -55,7 +55,7 @@ pub(super) fn to_arrow_struct(
                 fields,
                 struct_fields,
                 ..
-            } = array.into_parts();
+            } = array.into_encoding_parts();
             let validity = to_arrow_null_buffer(validity, len, ctx)?;
             return create_from_fields(
                 target_fields.ok_or_else(|| struct_fields.names().clone()),
@@ -103,7 +103,7 @@ pub(super) fn to_arrow_struct(
         fields,
         struct_fields,
         ..
-    } = struct_array.into_parts();
+    } = struct_array.into_encoding_parts();
 
     let validity = to_arrow_null_buffer(validity, len, ctx)?;
     create_from_fields(

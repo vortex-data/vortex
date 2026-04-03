@@ -23,7 +23,10 @@ impl ConstantData {
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        Self { scalar, slots: vec![] }
+        Self {
+            scalar,
+            slots: vec![],
+        }
     }
 
     /// Returns the [`Scalar`] value of this constant array.

@@ -3,9 +3,6 @@
 
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -69,16 +66,6 @@ pub struct DeltaData {
 }
 
 impl DeltaData {
-    pub(crate) fn try_from_primitive_array(
-        array: &PrimitiveArray,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Self> {
-        let logical_len = array.len();
-        let (bases, deltas) = delta_compress::delta_compress(array, ctx)?;
-
-        Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
-    }
-
     /// Create a DeltaArray from the given `bases` and `deltas` arrays
     /// with given `offset` into first chunk and `logical_len` length.
     pub fn try_new(

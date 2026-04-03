@@ -123,7 +123,6 @@ pub struct ListViewData {
     /// `offsets[i] + sizes[i]` are in order), conversions can bypass the very expensive rebuild
     /// process which must rebuild the array from scratch.
     is_zero_copy_to_list: bool,
-
 }
 
 pub struct ListViewArrayParts {

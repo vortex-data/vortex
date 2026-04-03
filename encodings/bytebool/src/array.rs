@@ -197,6 +197,15 @@ impl ByteBool {
         Array::try_from_parts(ArrayParts::new(ByteBool, dtype, len, data))
             .vortex_expect("ByteBoolData is always valid")
     }
+
+    /// Construct a [`ByteBoolArray`] from optional bools.
+    pub fn from_option_vec(data: Vec<Option<bool>>) -> ByteBoolArray {
+        let data = ByteBoolData::from(data);
+        let dtype = DType::Bool(data.validity.nullability());
+        let len = data.len();
+        Array::try_from_parts(ArrayParts::new(ByteBool, dtype, len, data))
+            .vortex_expect("ByteBoolData is always valid")
+    }
 }
 
 impl ByteBoolData {
@@ -334,8 +343,7 @@ mod tests {
         let v = vec![true, false];
         let v_len = v.len();
 
-        let arr = ByteBoolArray::try_from_data(ByteBoolData::from(v))
-            .vortex_expect("ByteBoolData is always valid");
+        let arr = ByteBool::from_vec(v, Validity::AllValid);
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
@@ -343,8 +351,7 @@ mod tests {
         }
 
         let v = vec![Some(true), None, Some(false)];
-        let arr = ByteBoolArray::try_from_data(ByteBoolData::from(v))
-            .vortex_expect("ByteBoolData is always valid");
+        let arr = ByteBool::from_option_vec(v);
         assert!(arr.is_valid(0).unwrap());
         assert!(!arr.is_valid(1).unwrap());
         assert!(arr.is_valid(2).unwrap());
@@ -353,8 +360,7 @@ mod tests {
         let v: Vec<Option<bool>> = vec![None, None];
         let v_len = v.len();
 
-        let arr = ByteBoolArray::try_from_data(ByteBoolData::from(v))
-            .vortex_expect("ByteBoolData is always valid");
+        let arr = ByteBool::from_option_vec(v);
         assert_eq!(v_len, arr.len());
 
         for idx in 0..arr.len() {
@@ -365,13 +371,7 @@ mod tests {
 
     #[test]
     fn test_nullable_bytebool_serde_roundtrip() {
-        let array = ByteBoolArray::try_from_data(ByteBoolData::from(vec![
-            Some(true),
-            None,
-            Some(false),
-            None,
-        ]))
-        .unwrap();
+        let array = ByteBool::from_option_vec(vec![Some(true), None, Some(false), None]);
         let dtype = array.dtype().clone();
         let len = array.len();
         let session = VortexSession::empty().with::<ArraySession>();

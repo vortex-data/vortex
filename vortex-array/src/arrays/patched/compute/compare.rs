@@ -55,7 +55,7 @@ impl CompareKernel for Patched {
             offset,
             len,
             validity,
-        } = result.into_parts();
+        } = result.into_encoding_parts();
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 
@@ -164,7 +164,6 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::Patched;
@@ -191,10 +190,11 @@ mod tests {
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let lhs = Array::<Patched>::try_from_data(
-            PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx).unwrap(),
-        )
-        .unwrap();
+        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)
+            .unwrap()
+            .into_array()
+            .try_into::<Patched>()
+            .unwrap();
 
         let rhs = ConstantArray::new(u32::MAX, 512).into_array();
 
@@ -259,9 +259,10 @@ mod tests {
         )?;
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-        let lhs = Array::<Patched>::try_from_data(PatchedArray::from_array_and_patches(
-            lhs, &patches, &mut ctx,
-        )?)?;
+        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)?
+            .into_array()
+            .try_into::<Patched>()
+            .unwrap();
 
         let rhs = ConstantArray::new(subnormal, 512).into_array();
 
@@ -292,9 +293,10 @@ mod tests {
         )?;
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-        let lhs = Array::<Patched>::try_from_data(PatchedArray::from_array_and_patches(
-            lhs, &patches, &mut ctx,
-        )?)?;
+        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)?
+            .into_array()
+            .try_into::<Patched>()
+            .unwrap();
 
         let rhs = ConstantArray::new(0.0f32, 10).into_array();
 

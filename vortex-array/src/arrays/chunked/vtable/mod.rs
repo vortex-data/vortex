@@ -62,26 +62,31 @@ impl VTable for Chunked {
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &ChunkedData, state: &mut H, precision: Precision) {
-        PrimitiveArray::new(array.chunk_offsets.to_buffer::<u64>(), Validity::NonNullable)
-            .into_array()
-            .array_hash(state, precision);
+        PrimitiveArray::new(
+            array.chunk_offsets.to_buffer::<u64>(),
+            Validity::NonNullable,
+        )
+        .into_array()
+        .array_hash(state, precision);
         for chunk in &array.chunks {
             chunk.array_hash(state, precision);
         }
     }
 
     fn array_eq(array: &ChunkedData, other: &ChunkedData, precision: Precision) -> bool {
-        PrimitiveArray::new(array.chunk_offsets.to_buffer::<u64>(), Validity::NonNullable)
-            .into_array()
-            .array_eq(
-                &PrimitiveArray::new(
-                    other.chunk_offsets.to_buffer::<u64>(),
-                    Validity::NonNullable,
-                )
-                .into_array(),
-                precision,
+        PrimitiveArray::new(
+            array.chunk_offsets.to_buffer::<u64>(),
+            Validity::NonNullable,
+        )
+        .into_array()
+        .array_eq(
+            &PrimitiveArray::new(
+                other.chunk_offsets.to_buffer::<u64>(),
+                Validity::NonNullable,
             )
-            && array.chunks.len() == other.chunks.len()
+            .into_array(),
+            precision,
+        ) && array.chunks.len() == other.chunks.len()
             && array
                 .iter_chunks()
                 .zip(other.iter_chunks())
@@ -123,7 +128,8 @@ impl VTable for Chunked {
     fn deserialize(
         &self,
         dtype: &DType,
-        _len: usize,        metadata: &[u8],
+        _len: usize,
+        metadata: &[u8],
 
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
@@ -165,7 +171,7 @@ impl VTable for Chunked {
         let slots = ChunkedData::make_slots(&chunk_offsets, &chunks);
         // Construct directly using the struct fields to avoid recomputing chunk_offsets
         Ok(ChunkedData {
-            dtype: dtype.clone(),
+            empty_dtype: chunks.is_empty().then_some(dtype.clone()),
             chunk_offsets,
             chunks,
             slots,
@@ -208,6 +214,7 @@ impl VTable for Chunked {
             })
             .try_collect()?;
         array.chunk_offsets = PrimitiveData::new(chunk_offsets_buf.clone(), Validity::NonNullable);
+        array.empty_dtype = chunks.is_empty().then_some(array.dtype().clone());
         array.chunks = chunks;
         array.slots = slots;
 

@@ -21,7 +21,9 @@ impl FilterReduce for Masked {
         let filtered_child = array.child().filter(mask.clone())?;
 
         // Construct new MaskedArray
-        Ok(Some(MaskedArray::try_new(filtered_child, filtered_validity)?.into_array()))
+        Ok(Some(
+            MaskedArray::try_new(filtered_child, filtered_validity)?.into_array(),
+        ))
     }
 }
 

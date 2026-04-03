@@ -57,7 +57,11 @@ impl TakeExecute for BitPacked {
             })
         });
         let taken = if ptype.is_signed_int() {
-            PrimitiveArray::from_buffer_handle(taken.buffer_handle().clone(), ptype, taken.validity())
+            PrimitiveArray::from_buffer_handle(
+                taken.buffer_handle().clone(),
+                ptype,
+                taken.validity(),
+            )
         } else {
             taken
         };
@@ -219,7 +223,7 @@ mod test {
         let values = (0..u16::MAX as u32 + num_patches as u32).collect::<Buffer<_>>();
         let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let packed = BitPackedData::encode(&uncompressed.into_array(), 16).unwrap();
-        assert!(packed.patches().is_some());
+        assert!(packed.patches(packed.len()).is_some());
 
         let rng = rng();
         let range = Uniform::new(0, values.len()).unwrap();
@@ -251,7 +255,7 @@ mod test {
             BitPackedData::encode(&buffer![1i32, 2i32, 3i32, 4i32].into_array(), 1).unwrap();
 
         let taken_primitive = take_primitive::<u32, u64>(
-            &start,
+            &start.as_view(),
             &PrimitiveArray::from_iter([0u64, 1, 2, 3]),
             Validity::NonNullable,
             &mut LEGACY_SESSION.create_execution_ctx(),

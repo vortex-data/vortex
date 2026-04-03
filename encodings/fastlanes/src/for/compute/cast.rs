@@ -21,7 +21,9 @@ impl CastReduce for FoR {
         let casted_child = array.encoded().cast(dtype.clone())?;
         let casted_reference = array.reference_scalar().cast(dtype)?;
 
-        Ok(Some(FoR::try_new(casted_child, casted_reference)?.into_array()))
+        Ok(Some(
+            FoR::try_new(casted_child, casted_reference)?.into_array(),
+        ))
     }
 }
 

@@ -31,15 +31,15 @@ impl ValidityVTable<Dict> for Dict {
                 (Validity::AllValid | Validity::NonNullable, Validity::Array(values_validity)) => {
                     // We know codes are all valid, so the cast is free.
                     let codes = array.codes().cast(array.codes().dtype().as_nonnullable())?;
-                    Validity::Array(unsafe { DictArray::new_unchecked(codes, values_validity) }
-                        .into_array())
+                    Validity::Array(
+                        unsafe { DictArray::new_unchecked(codes, values_validity) }.into_array(),
+                    )
                 }
                 (Validity::Array(_codes_validity), Validity::Array(values_validity)) => {
                     // Create a mask representing "is the value at codes[i] valid?"
-                    let values_valid_mask = unsafe {
-                        DictArray::new_unchecked(array.codes().clone(), values_validity)
-                    }
-                    .into_array();
+                    let values_valid_mask =
+                        unsafe { DictArray::new_unchecked(array.codes().clone(), values_validity) }
+                            .into_array();
                     let values_valid_mask = values_valid_mask
                         .fill_null(Scalar::bool(false, Nullability::NonNullable))?;
 

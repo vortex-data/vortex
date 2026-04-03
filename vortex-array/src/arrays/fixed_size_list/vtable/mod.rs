@@ -127,7 +127,8 @@ impl VTable for FixedSizeList {
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,

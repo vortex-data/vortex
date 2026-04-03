@@ -78,7 +78,9 @@ fn test_zstd_with_validity_and_multi_frame() {
     assert_nth_scalar!(compressed, 177, 177);
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let decompressed = Zstd::decompress(&compressed, &mut ctx).unwrap().to_primitive();
+    let decompressed = Zstd::decompress(&compressed, &mut ctx)
+        .unwrap()
+        .to_primitive();
     let decompressed_values = decompressed.as_slice::<i32>();
     assert_eq!(decompressed_values[3], 3);
     assert_eq!(decompressed_values[177], 177);
@@ -121,7 +123,9 @@ fn test_zstd_with_dict() {
     assert_nth_scalar!(compressed, 199, 199);
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let decompressed = Zstd::decompress(&compressed, &mut ctx).unwrap().to_primitive();
+    let decompressed = Zstd::decompress(&compressed, &mut ctx)
+        .unwrap()
+        .to_primitive();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
     // check slicing works
@@ -193,7 +197,9 @@ fn test_zstd_decompress_var_bin_view() {
     assert_nth_scalar!(compressed, 4, "baz");
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let decompressed = Zstd::decompress(&compressed, &mut ctx).unwrap().to_varbinview();
+    let decompressed = Zstd::decompress(&compressed, &mut ctx)
+        .unwrap()
+        .to_varbinview();
     assert_nth_scalar!(decompressed, 0, "foo");
     assert_nth_scalar!(decompressed, 1, "bar");
     assert_nth_scalar!(decompressed, 2, None::<String>);

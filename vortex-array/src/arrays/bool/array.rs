@@ -242,9 +242,9 @@ impl Array<Bool> {
         self.into_data().into_bit_buffer()
     }
 
-    /// Splits into owned parts, consuming self.
+    /// Splits into the encoding-specific owned parts, consuming self.
     #[inline]
-    pub fn into_parts(self) -> BoolArrayParts {
+    pub fn into_encoding_parts(self) -> BoolArrayParts {
         self.into_data().into_parts()
     }
 }

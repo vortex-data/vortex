@@ -63,7 +63,7 @@ impl TakeExecute for Patched {
                     output.as_mut(),
                     indices.as_slice::<I>(),
                     array.offset,
-                    array.len,
+                    array.len(),
                     array.n_lanes,
                     lane_offsets.as_slice::<u32>(),
                     patch_indices.as_slice::<u16>(),

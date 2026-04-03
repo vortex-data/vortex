@@ -11,15 +11,12 @@ use crate::array::ArrayView;
 use crate::arrays::Patched;
 use crate::arrays::PatchedArray;
 use crate::arrays::slice::SliceReduce;
-use crate::stats::ArrayStats;
 
 impl SliceReduce for Patched {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // We **always** slice the patches at 1024-element chunk boundaries. We keep the offset + len
         // around so that when we execute we know how much to chop off.
         let new_offset = (range.start + array.offset) % 1024;
-        let new_len = range.end - range.start;
-
         let chunk_start = (range.start + array.offset) / 1024;
         let chunk_stop = (range.end + array.offset).div_ceil(1024);
         let sliced_lane_offsets = array
@@ -41,8 +38,6 @@ impl SliceReduce for Patched {
                 ],
                 n_lanes: array.n_lanes,
                 offset: new_offset,
-                len: new_len,
-                stats_set: ArrayStats::default(),
             }
             .into_array(),
         ))

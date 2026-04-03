@@ -89,12 +89,14 @@ impl VTable for ListView {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(ProstMetadata(ListViewMetadata {
-            elements_len: array.elements().len() as u64,
-            offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
-            size_ptype: PType::try_from(array.sizes().dtype())? as i32,
-        })
-        .serialize()))
+        Ok(Some(
+            ProstMetadata(ListViewMetadata {
+                elements_len: array.elements().len() as u64,
+                offset_ptype: PType::try_from(array.offsets().dtype())? as i32,
+                size_ptype: PType::try_from(array.sizes().dtype())? as i32,
+            })
+            .serialize(),
+        ))
     }
 
     fn validate(&self, data: &ListViewData, dtype: &DType, len: usize) -> VortexResult<()> {
@@ -119,7 +121,8 @@ impl VTable for ListView {
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,

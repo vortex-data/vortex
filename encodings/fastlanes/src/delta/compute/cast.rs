@@ -37,8 +37,7 @@ impl CastReduce for Delta {
 
         // Create a new DeltaArray with the casted components, preserving offset and logical length
         Ok(Some(
-            Delta::try_new(casted_bases, casted_deltas, array.offset(), array.len())?
-                .into_array(),
+            Delta::try_new(casted_bases, casted_deltas, array.offset(), array.len())?.into_array(),
         ))
     }
 }
@@ -68,8 +67,9 @@ mod tests {
     #[test]
     fn test_cast_delta_u8_to_u32() {
         let primitive = PrimitiveArray::from_iter([10u8, 20, 30, 40, 50]);
-        let array = Delta::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
-            .unwrap();
+        let array =
+            Delta::try_from_primitive_array(&primitive, &mut SESSION.create_execution_ctx())
+                .unwrap();
 
         let casted = array
             .into_array()
@@ -92,8 +92,8 @@ mod tests {
             buffer![100u16, 0, 200, 300, 0],
             vortex_array::validity::Validity::NonNullable,
         );
-        let array = Delta::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx())
-            .unwrap();
+        let array =
+            Delta::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx()).unwrap();
 
         let casted = array
             .into_array()

@@ -205,13 +205,14 @@ mod test {
     use vortex_buffer::buffer;
 
     use super::*;
-    use crate::DateTimePartsData;
+    use crate::DateTimeParts;
+    use crate::DateTimePartsArray;
 
     fn dtp_array_from_timestamp<T: IntegerPType>(
         value: T,
         validity: Validity,
-    ) -> DateTimePartsData {
-        DateTimePartsData::try_from(TemporalArray::new_timestamp(
+    ) -> DateTimePartsArray {
+        DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![value], validity).into_array(),
             TimeUnit::Seconds,
             Some("UTC".into()),
@@ -312,7 +313,7 @@ mod test {
             Some("UTC".into()),
         );
 
-        let lhs = DateTimePartsData::try_new(
+        let lhs = DateTimeParts::try_new(
             DType::Extension(temporal_array.ext_dtype()),
             PrimitiveArray::new(buffer![0i32], lhs_validity).into_array(),
             PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),

@@ -34,8 +34,7 @@ impl SliceReduce for Delta {
         )?;
 
         Ok(Some(
-            Delta::try_new(new_bases, new_deltas, physical_start % 1024, range.len())?
-                .into_array(),
+            Delta::try_new(new_bases, new_deltas, physical_start % 1024, range.len())?.into_array(),
         ))
     }
 }

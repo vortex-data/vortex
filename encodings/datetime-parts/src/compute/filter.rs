@@ -32,7 +32,7 @@ mod test {
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_buffer::buffer;
 
-    use crate::DateTimePartsData;
+    use crate::DateTimeParts;
 
     #[test]
     fn test_filter_datetime_parts() {
@@ -49,7 +49,7 @@ mod test {
         let temporal =
             TemporalArray::new_timestamp(timestamps, TimeUnit::Milliseconds, Some("UTC".into()));
 
-        let array = DateTimePartsData::try_from(temporal).unwrap();
+        let array = DateTimeParts::try_from_temporal(temporal).unwrap();
         test_filter_conformance(&array.into_array());
 
         // Test with nullable values
@@ -65,7 +65,7 @@ mod test {
         let temporal =
             TemporalArray::new_timestamp(timestamps, TimeUnit::Milliseconds, Some("UTC".into()));
 
-        let array = DateTimePartsData::try_from(temporal).unwrap();
+        let array = DateTimeParts::try_from_temporal(temporal).unwrap();
         test_filter_conformance(&array.into_array());
     }
 }

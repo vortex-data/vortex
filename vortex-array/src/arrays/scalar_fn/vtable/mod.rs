@@ -72,7 +72,10 @@ impl VTable for ScalarFnVTable {
             "All child arrays must have the same length as the scalar function array"
         );
 
-        let child_dtypes = data.iter_children().map(|c| c.dtype().clone()).collect_vec();
+        let child_dtypes = data
+            .iter_children()
+            .map(|c| c.dtype().clone())
+            .collect_vec();
         vortex_ensure!(
             self.scalar_fn.return_dtype(&child_dtypes)? == *dtype,
             "ScalarFnArray dtype does not match scalar function return dtype"

@@ -71,7 +71,6 @@ mod test {
 
     use super::*;
     use crate::BitPackedData;
-    use crate::FoRArray;
     use crate::r#for::array::for_decompress::decompress;
     use crate::r#for::array::for_decompress::fused_decompress;
 
@@ -174,7 +173,7 @@ mod test {
             .reinterpret_cast(PType::U8);
         let unsigned: Vec<u8> = (0..=u8::MAX).collect_vec();
         let expected_unsigned = PrimitiveArray::from_iter(unsigned);
-        assert_arrays_eq!(encoded, expected_unsigned);
+        assert_eq!(encoded.as_slice::<u8>(), expected_unsigned.as_slice::<u8>());
 
         let decompressed = decompress(&compressed, &mut SESSION.create_execution_ctx())?;
         array

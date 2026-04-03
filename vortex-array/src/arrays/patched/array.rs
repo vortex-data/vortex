@@ -27,7 +27,6 @@ use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 /// An array that partially "patches" another array with new values.
@@ -127,22 +126,15 @@ pub struct PatchedArray {
     /// should be subtracted out of the remaining offsets to get their final position in the
     /// executed array.
     pub(super) offset: usize,
-    /// Length of the array
-    pub(super) len: usize,
-
-    pub(super) stats_set: ArrayStats,
 }
 
 impl IntoArray for PatchedArray {
     fn into_array(self) -> ArrayRef {
         let dtype = self.base_array().dtype().clone();
-        let len = self.len;
-        let stats = self.stats_set.clone();
-        Array::<Patched>::try_from_parts(
-            ArrayParts::new(Patched, dtype, len, self).with_stats(stats),
-        )
-        .vortex_expect("PatchedArray is always valid")
-        .into_array()
+        let len = self.len();
+        Array::<Patched>::try_from_parts(ArrayParts::new(Patched, dtype, len, self))
+            .vortex_expect("PatchedArray is always valid")
+            .into_array()
     }
 }
 
@@ -214,14 +206,10 @@ impl PatchedArray {
         )
         .into_array();
 
-        let len = inner.len();
-
         Ok(Self {
             slots: vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
             n_lanes,
             offset: 0,
-            len,
-            stats_set: ArrayStats::default(),
         })
     }
 }
@@ -258,6 +246,37 @@ impl PatchedArray {
             .as_ref()
             .vortex_expect("PatchedArray values slot")
     }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.base_array().len()
+    }
+
+    pub fn validate_against_outer(
+        &self,
+        dtype: &crate::dtype::DType,
+        len: usize,
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            self.base_array().dtype() == dtype,
+            "PatchedArray base dtype {} does not match outer dtype {}",
+            self.base_array().dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            self.len() == len,
+            "PatchedArray base len {} does not match outer len {}",
+            self.len(),
+            len
+        );
+        vortex_ensure!(
+            self.patch_indices().len() == self.patch_values().len(),
+            "PatchedArray patch indices len {} does not match patch values len {}",
+            self.patch_indices().len(),
+            self.patch_values().len()
+        );
+        Ok(())
+    }
 }
 
 impl PatchedArray {
@@ -268,7 +287,7 @@ impl PatchedArray {
     ///
     /// Note that this function will panic if the caller requests out of bounds chunk/lane ordinals.
     pub(crate) fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
-        assert!(chunk * 1024 <= self.len + self.offset);
+        assert!(chunk * 1024 <= self.len() + self.offset);
         assert!(lane < self.n_lanes);
 
         let start = self.lane_offsets().scalar_at(chunk * self.n_lanes + lane)?;
@@ -306,13 +325,11 @@ impl PatchedArray {
         let begin = (chunks.start * 1024).saturating_sub(self.offset);
         let end = (chunks.end * 1024)
             .saturating_sub(self.offset)
-            .min(self.len);
+            .min(self.len());
 
         let offset = if chunks.start == 0 { self.offset } else { 0 };
 
         let inner = self.base_array().slice(begin..end)?;
-
-        let len = end - begin;
 
         Ok(PatchedArray {
             slots: vec![
@@ -323,8 +340,6 @@ impl PatchedArray {
             ],
             n_lanes: self.n_lanes,
             offset,
-            len,
-            stats_set: ArrayStats::default(),
         })
     }
 }

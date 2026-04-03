@@ -37,13 +37,6 @@ impl FoRData {
         })
     }
 
-    pub(crate) unsafe fn new_unchecked(encoded: ArrayRef, reference: Scalar) -> Self {
-        Self {
-            slots: vec![Some(encoded)],
-            reference,
-        }
-    }
-
     pub(crate) fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
         Self::validate_parts(self.encoded(), &self.reference, dtype, len)
     }
@@ -54,10 +47,7 @@ impl FoRData {
         dtype: &DType,
         len: usize,
     ) -> VortexResult<()> {
-        vortex_ensure!(
-            !reference.is_null(),
-            "Reference value cannot be null"
-        );
+        vortex_ensure!(!reference.is_null(), "Reference value cannot be null");
         vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
         vortex_ensure!(
             reference.dtype() == dtype,

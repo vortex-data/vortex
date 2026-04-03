@@ -247,7 +247,7 @@ mod tests {
     use vortex_session::registry::ReadContext;
 
     use crate::FL_CHUNK_SIZE;
-    use crate::RLEArray;
+    use crate::RLE;
     use crate::RLEData;
     use crate::test::SESSION;
 
@@ -260,10 +260,8 @@ mod tests {
             PrimitiveArray::from_iter([0u16, 0, 1, 1, 2].iter().cycle().take(1024).copied())
                 .into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices, values_idx_offsets, 0, 5).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices, values_idx_offsets, 0, 5)
+            .vortex_expect("RLEData is always valid");
 
         assert_eq!(rle_array.len(), 5);
         assert_eq!(rle_array.values().len(), 3);
@@ -290,10 +288,8 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 3).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 3)
+            .vortex_expect("RLEData is always valid");
 
         assert_eq!(rle_array.len(), 3);
         assert_eq!(rle_array.values().len(), 2);
@@ -322,10 +318,8 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 5).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 5)
+            .vortex_expect("RLEData is always valid");
 
         let valid_slice = rle_array.slice(0..3).unwrap().to_primitive();
         // TODO(joe): replace with compute null count
@@ -355,10 +349,8 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 5).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 5)
+            .vortex_expect("RLEData is always valid");
 
         // TODO(joe): replace with compute null count
         let invalid_slice = rle_array
@@ -393,10 +385,8 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 4).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 4)
+            .vortex_expect("RLEData is always valid");
 
         let sliced_array = rle_array.slice(1..4).unwrap();
         let validity_mask = sliced_array.validity_mask().unwrap();
@@ -416,15 +406,12 @@ mod tests {
         let values = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         let indices = PrimitiveArray::from_iter(Vec::<u16>::new()).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(
-                values,
-                indices.clone(),
-                values_idx_offsets,
-                0,
-                indices.len(),
-            )
-            .unwrap(),
+        let rle_array = RLE::try_new(
+            values,
+            indices.clone(),
+            values_idx_offsets,
+            0,
+            indices.len(),
         )
         .vortex_expect("RLEData is always valid");
 
@@ -437,10 +424,8 @@ mod tests {
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
         let indices = PrimitiveArray::from_iter([0u16, 1].repeat(1024)).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64, 2]).into_array();
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices, values_idx_offsets, 0, 2048).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices, values_idx_offsets, 0, 2048)
+            .vortex_expect("RLEData is always valid");
 
         assert_eq!(rle_array.len(), 2048);
         assert_eq!(rle_array.values().len(), 4);
@@ -489,15 +474,12 @@ mod tests {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
         let rle_array = RLEData::encode(&primitive).unwrap();
 
-        let sliced = RLEArray::try_from_data(
-            RLEData::try_new(
-                rle_array.values().clone(),
-                rle_array.indices().clone(),
-                rle_array.values_idx_offsets().clone(),
-                100,
-                100,
-            )
-            .unwrap(),
+        let sliced = RLE::try_new(
+            rle_array.values().clone(),
+            rle_array.indices().clone(),
+            rle_array.values_idx_offsets().clone(),
+            100,
+            100,
         )
         .vortex_expect("RLEData is always valid");
         assert_eq!(sliced.len(), 100);
@@ -558,16 +540,15 @@ mod tests {
 
         // Reconstruct the outer RLE with re-encoded indices.
         // SAFETY: we only replace the indices child; all other invariants hold.
-        let reconstructed = RLEArray::try_from_data(unsafe {
-            RLEData::new_unchecked(
+        let reconstructed = unsafe {
+            RLE::new_unchecked(
                 rle.values().clone(),
                 re_encoded.into_array(),
                 rle.values_idx_offsets().clone(),
-                rle.dtype().clone(),
                 rle.offset(),
                 rle.len(),
             )
-        })?;
+        };
 
         // Decompress — panicked before the fill_forward_nulls chunk-boundary fix.
         let decoded = reconstructed.as_array().to_primitive();

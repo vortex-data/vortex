@@ -27,7 +27,9 @@ impl SliceReduce for BitPacked {
             BitPacked::try_new(
                 array.packed().slice(encoded_start..encoded_stop),
                 array.dtype().as_ptype(),
-                array.validity(array.dtype().nullability()).slice(range.clone())?,
+                array
+                    .validity(array.dtype().nullability())
+                    .slice(range.clone())?,
                 array
                     .patches(array.len())
                     .map(|p| p.slice(range.clone()))

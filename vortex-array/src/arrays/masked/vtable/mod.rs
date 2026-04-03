@@ -55,7 +55,10 @@ impl VTable for Masked {
     }
 
     fn validate(&self, data: &MaskedData, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_ensure!(data.child().len() == len, "MaskedArray child length mismatch");
+        vortex_ensure!(
+            data.child().len() == len,
+            "MaskedArray child length mismatch"
+        );
         vortex_ensure!(
             data.dtype() == *dtype,
             "MaskedArray dtype does not match child and validity"

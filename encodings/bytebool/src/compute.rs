@@ -30,7 +30,9 @@ impl CastReduce for ByteBool {
                 .clone()
                 .cast_nullability(dtype.nullability(), array.len())?;
 
-            return Ok(Some(ByteBool::new(array.buffer().clone(), new_validity).into_array()));
+            return Ok(Some(
+                ByteBool::new(array.buffer().clone(), new_validity).into_array(),
+            ));
         }
 
         // For other casts, decode to canonical and let BoolArray handle it
@@ -82,6 +84,8 @@ impl TakeExecute for ByteBool {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::ByteBoolArray;
     use rstest::rstest;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -93,19 +97,13 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar_fn::fns::operators::Operator;
-    use vortex_error::VortexExpect;
-
-    use super::*;
-    use crate::ByteBoolArray;
 
     fn bb(v: Vec<bool>) -> ByteBoolArray {
-        ByteBoolArray::try_from_data(ByteBoolData::from(v))
-            .vortex_expect("ByteBoolData is always valid")
+        ByteBool::from_vec(v, Validity::AllValid)
     }
 
     fn bb_opt(v: Vec<Option<bool>>) -> ByteBoolArray {
-        ByteBoolArray::try_from_data(ByteBoolData::from(v))
-            .vortex_expect("ByteBoolData is always valid")
+        ByteBool::from_option_vec(v)
     }
 
     #[test]

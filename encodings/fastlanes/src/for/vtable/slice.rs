@@ -14,8 +14,11 @@ use crate::FoR;
 impl SliceReduce for FoR {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            FoR::try_new(array.encoded().slice(range)?, array.reference_scalar().clone())?
-                .into_array(),
+            FoR::try_new(
+                array.encoded().slice(range)?,
+                array.reference_scalar().clone(),
+            )?
+            .into_array(),
         ))
     }
 }

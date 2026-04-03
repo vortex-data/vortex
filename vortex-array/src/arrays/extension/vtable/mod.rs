@@ -105,7 +105,8 @@ impl VTable for Extension {
     fn deserialize(
         &self,
         dtype: &DType,
-        len: usize,        metadata: &[u8],
+        len: usize,
+        metadata: &[u8],
 
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,

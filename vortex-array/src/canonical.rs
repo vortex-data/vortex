@@ -549,7 +549,7 @@ impl Executable for CanonicalValidity {
                     offset,
                     len,
                     validity,
-                } = b.into_parts();
+                } = b.into_encoding_parts();
                 Ok(CanonicalValidity(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))
@@ -624,7 +624,7 @@ impl Executable for CanonicalValidity {
                     struct_fields,
                     fields,
                     validity,
-                } = st.into_parts();
+                } = st.into_encoding_parts();
                 Ok(CanonicalValidity(Canonical::Struct(unsafe {
                     StructArray::new_unchecked(fields, struct_fields, len, validity.execute(ctx)?)
                 })))
@@ -669,7 +669,7 @@ impl Executable for RecursiveCanonical {
                     offset,
                     len,
                     validity,
-                } = b.into_parts();
+                } = b.into_encoding_parts();
                 Ok(RecursiveCanonical(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))
@@ -754,7 +754,7 @@ impl Executable for RecursiveCanonical {
                     struct_fields,
                     fields,
                     validity,
-                } = st.into_parts();
+                } = st.into_encoding_parts();
                 let executed_fields = fields
                     .iter()
                     .map(|f| Ok(f.clone().execute::<RecursiveCanonical>(ctx)?.0.into_array()))
