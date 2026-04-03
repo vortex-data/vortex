@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
+
 use crate::expr::Expression;
 use crate::expr::and_collect;
 use crate::expr::forms::conjuncts;
-use crate::expr::lit;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
@@ -45,7 +46,8 @@ pub fn find_between(expr: Expression) -> Expression {
         }
     }
 
-    and_collect(rest).unwrap_or_else(|| lit(true))
+    debug_assert!(!rest.is_empty());
+    and_collect(rest).vortex_expect("find_between must produce at least one conjunct")
 }
 
 fn maybe_match(lhs: &Expression, rhs: &Expression) -> Option<Expression> {

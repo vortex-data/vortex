@@ -61,6 +61,7 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::session::ArraySession;
+    use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
@@ -92,10 +93,7 @@ mod tests {
     fn test_cast_delta_nullable() {
         // DeltaArray doesn't support nullable arrays - the validity is handled at the DeltaArray level
         // Create a non-nullable array and then add validity to the DeltaArray
-        let values = PrimitiveArray::new(
-            buffer![100u16, 0, 200, 300, 0],
-            vortex_array::validity::Validity::NonNullable,
-        );
+        let values = PrimitiveArray::new(buffer![100u16, 0, 200, 300, 0], Validity::NonNullable);
         let array =
             Delta::try_from_primitive_array(&values, &mut SESSION.create_execution_ctx()).unwrap();
 
@@ -113,25 +111,25 @@ mod tests {
     #[case::u8(
         PrimitiveArray::new(
             buffer![0u8, 10, 20, 30, 40, 50],
-            vortex_array::validity::Validity::NonNullable,
+            Validity::NonNullable,
         )
     )]
     #[case::u16(
         PrimitiveArray::new(
             buffer![0u16, 100, 200, 300, 400, 500],
-            vortex_array::validity::Validity::NonNullable,
+            Validity::NonNullable,
         )
     )]
     #[case::u32(
         PrimitiveArray::new(
             buffer![0u32, 1000, 2000, 3000, 4000],
-            vortex_array::validity::Validity::NonNullable,
+            Validity::NonNullable,
         )
     )]
     #[case::u64(
         PrimitiveArray::new(
             buffer![0u64, 10000, 20000, 30000],
-            vortex_array::validity::Validity::NonNullable,
+           Validity::NonNullable,
         )
     )]
     fn test_cast_delta_conformance(#[case] primitive: PrimitiveArray) {

@@ -281,9 +281,9 @@ where
 
     for chunk_idx in 0..num_chunks {
         let packed_chunk = &packed[chunk_idx * elems_per_chunk..][..elems_per_chunk];
-        let mut chunk_matches = [0u64; 16];
-        fill_chunk(bit_width, packed_chunk, &mut chunk_matches);
-        output.extend_from_slice(&chunk_matches);
+        append_chunk_matches(&mut output, |chunk_matches| {
+            fill_chunk(bit_width, packed_chunk, chunk_matches);
+        });
     }
 
     let total_len = num_chunks * 1024;
@@ -320,18 +320,17 @@ where
     let num_chunks = (offset as usize + len).div_ceil(1024);
     let mut output = BufferMut::<u64>::with_capacity(num_chunks * 16);
     let mut unpacked = [U::default(); 1024];
-    let mut chunk_matches = [0u64; 16];
 
     for chunk_idx in 0..num_chunks {
         let packed_chunk = &packed[chunk_idx * elems_per_chunk..][..elems_per_chunk];
-        chunk_matches.fill(0);
 
         unsafe {
             U::unchecked_unpack(bit_width, packed_chunk, &mut unpacked);
         }
 
-        fill_chunk(&unpacked, &mut chunk_matches);
-        output.extend_from_slice(&chunk_matches);
+        append_chunk_matches(&mut output, |chunk_matches| {
+            fill_chunk(&unpacked, chunk_matches);
+        });
     }
 
     let total_len = num_chunks * 1024;
@@ -347,6 +346,22 @@ where
             .freeze()
             .slice(offset as usize..offset as usize + len),
     )
+}
+
+#[inline]
+fn append_chunk_matches(output: &mut BufferMut<u64>, fill_chunk: impl FnOnce(&mut [u64; 16])) {
+    let base_len = output.len();
+
+    let spare = output.spare_capacity_mut();
+    debug_assert!(spare.len() >= 16);
+    let chunk_matches = unsafe { &mut *(spare.as_mut_ptr().cast::<[u64; 16]>()) };
+
+    fill_chunk(chunk_matches);
+
+    // SAFETY: `fill_chunk` initializes all 16 words before we expose them via `set_len`.
+    unsafe {
+        output.set_len(base_len + 16);
+    }
 }
 
 #[inline]
@@ -452,6 +467,7 @@ mod tests {
     use vortex_array::scalar_fn::fns::between::StrictComparison;
     use vortex_array::scalar_fn::fns::binary::CompareKernel;
     use vortex_array::scalar_fn::fns::operators::CompareOperator;
+    use vortex_array::validity::Validity;
 
     use crate::BitPacked;
     use crate::BitPackedArrayExt;
@@ -524,11 +540,7 @@ mod tests {
 
         assert_arrays_eq!(
             result,
-            BoolArray::from_indices(
-                array.len(),
-                [256usize],
-                vortex_array::validity::Validity::NonNullable,
-            )
+            BoolArray::from_indices(array.len(), [256usize], Validity::NonNullable,)
         );
     }
 
@@ -594,11 +606,7 @@ mod tests {
 
         assert_arrays_eq!(
             result,
-            BoolArray::from_indices(
-                len,
-                [255usize, 256],
-                vortex_array::validity::Validity::NonNullable,
-            )
+            BoolArray::from_indices(len, [255usize, 256], Validity::NonNullable,)
         );
     }
 

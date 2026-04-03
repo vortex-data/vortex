@@ -14,6 +14,7 @@ use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
+use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -51,8 +52,8 @@ impl CompareKernel for Sequence {
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
         let validity = match nullability {
-            Nullability::NonNullable => vortex_array::validity::Validity::NonNullable,
-            Nullability::Nullable => vortex_array::validity::Validity::AllValid,
+            Nullability::NonNullable => Validity::NonNullable,
+            Nullability::Nullable => Validity::AllValid,
         };
 
         if let Ok(set_idx) = set_idx {
