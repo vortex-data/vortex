@@ -407,3 +407,6 @@ debug = false
 debug-assertions = false
 strip = "debuginfo"
 incremental = false
+
+[patch.crates-io]
+fastlanes = { git = "https://github.com/spiraldb/fastlanes.git", branch = "adamg/actually-compare-packed-bools" }

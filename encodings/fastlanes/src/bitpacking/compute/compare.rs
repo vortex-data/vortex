@@ -22,8 +22,8 @@ use vortex_array::scalar_fn::fns::between::BetweenOptions;
 use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_array::scalar_fn::fns::binary::CompareKernel;
 use vortex_array::scalar_fn::fns::operators::CompareOperator;
-use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
@@ -167,7 +167,7 @@ where
     U: UnsignedPType + BitPacking + BitPackingCompare,
 {
     let mut bits = collect_chunk_masks::<U>(array, |bit_width, packed_chunk, lower_matches| {
-        let mut upper_matches = [false; 1024];
+        let mut upper_matches = [0u64; 16];
 
         unsafe {
             U::unchecked_unpack_cmp(
@@ -207,39 +207,41 @@ where
 
 fn collect_chunk_masks<U>(
     array: ArrayView<'_, BitPacked>,
-    mut fill_chunk: impl FnMut(usize, &[U], &mut [bool; 1024]),
+    mut fill_chunk: impl FnMut(usize, &[U], &mut [u64; 16]),
 ) -> BitBufferMut
 where
     U: UnsignedPType + BitPacking,
 {
+    if array.is_empty() {
+        return BitBufferMut::empty();
+    }
+
     let bit_width = array.bit_width() as usize;
     let packed = array.packed_slice::<U>();
     let elems_per_chunk = 128 * bit_width / size_of::<U>();
     let num_chunks = (array.offset() as usize + array.len()).div_ceil(1024);
-
-    let mut remaining = array.len();
-    let mut output = BitBufferMut::with_capacity(array.len());
+    let mut output = BufferMut::<u64>::with_capacity(num_chunks * 16);
 
     for chunk_idx in 0..num_chunks {
-        let chunk_start = if chunk_idx == 0 {
-            array.offset() as usize
-        } else {
-            0
-        };
-        let chunk_len = (1024 - chunk_start).min(remaining);
-        let chunk_end = chunk_start + chunk_len;
-
         let packed_chunk = &packed[chunk_idx * elems_per_chunk..][..elems_per_chunk];
-        let mut chunk_matches = [false; 1024];
+        let mut chunk_matches = [0u64; 16];
         fill_chunk(bit_width, packed_chunk, &mut chunk_matches);
-
-        let chunk_bits = chunk_matches.into_iter().collect::<BitBuffer>();
-        output.append_buffer(&chunk_bits.slice(chunk_start..chunk_end));
-        remaining -= chunk_len;
+        output.extend_from_slice(&chunk_matches);
     }
 
-    debug_assert_eq!(remaining, 0);
-    output
+    let total_len = num_chunks * 1024;
+    let mut output = BitBufferMut::from_buffer(output.into_byte_buffer(), 0, total_len);
+
+    if array.offset() == 0 {
+        output.truncate(array.len());
+        return output;
+    }
+
+    BitBufferMut::copy_from(
+        &output
+            .freeze()
+            .slice(array.offset() as usize..array.offset() as usize + array.len()),
+    )
 }
 
 fn apply_patch_predicate<T>(
