@@ -185,8 +185,8 @@ fn filter_run_end_primitive<R: NativePType + AsPrimitive<usize>>(
 
         count += run_true_count;
         if keep {
-            new_run_ends[j] =
-                NumCast::from(count).vortex_expect("filtered run end count must fit in run-end type");
+            new_run_ends[j] = NumCast::from(count)
+                .vortex_expect("filtered run end count must fit in run-end type");
             j += 1;
         }
 
@@ -282,7 +282,11 @@ mod tests {
         )
     }
 
-    fn filter_with_mode(array: &ArrayRef, mask: Mask, mode: RunEndFilterMode) -> VortexResult<ArrayRef> {
+    fn filter_with_mode(
+        array: &ArrayRef,
+        mask: Mask,
+        mode: RunEndFilterMode,
+    ) -> VortexResult<ArrayRef> {
         let _guard = override_run_end_filter_mode(mode);
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         array.filter(mask)?.execute::<ArrayRef>(&mut ctx)
@@ -350,7 +354,10 @@ mod tests {
     #[test]
     fn encoded_filter_matches_take_on_partial_word_boundaries() -> VortexResult<()> {
         let array = run_end_fixture(65, 260);
-        let mask = Mask::from_slices(array.len(), vec![(3, 64), (67, 129), (133, 194), (197, 259)]);
+        let mask = Mask::from_slices(
+            array.len(),
+            vec![(3, 64), (67, 129), (133, 194), (197, 259)],
+        );
 
         assert_encoded_filter_matches_take(&array, mask)
     }
@@ -358,7 +365,10 @@ mod tests {
     #[test]
     fn encoded_filter_matches_take_on_clustered_masks() -> VortexResult<()> {
         let array = run_end_fixture(1_024, 16_384);
-        let mask = Mask::from_slices(array.len(), vec![(13, 513), (4_109, 4_733), (9_001, 10_129)]);
+        let mask = Mask::from_slices(
+            array.len(),
+            vec![(13, 513), (4_109, 4_733), (9_001, 10_129)],
+        );
 
         assert_encoded_filter_matches_take(&array, mask)
     }
@@ -366,7 +376,10 @@ mod tests {
     #[test]
     fn encoded_filter_matches_take_on_very_short_runs() -> VortexResult<()> {
         let array = run_end_fixture(1, 64);
-        let mask = Mask::from_slices(array.len(), vec![(1, 3), (5, 8), (13, 14), (21, 25), (34, 35)]);
+        let mask = Mask::from_slices(
+            array.len(),
+            vec![(1, 3), (5, 8), (13, 14), (21, 25), (34, 35)],
+        );
 
         assert_encoded_filter_matches_take(&array, mask)
     }
