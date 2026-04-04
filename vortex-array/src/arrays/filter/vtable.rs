@@ -127,7 +127,7 @@ impl VTable for Filter {
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<FilterData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_bail!("Filter array is not serializable")
     }
 

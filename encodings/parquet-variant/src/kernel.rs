@@ -17,6 +17,7 @@ use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::ParquetVariantArrayExt;
 use crate::ParquetVariant;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[

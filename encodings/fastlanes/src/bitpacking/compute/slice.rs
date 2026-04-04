@@ -11,6 +11,7 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
+use crate::bitpacking::array::BitPackedArrayExt;
 
 impl SliceReduce for BitPacked {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -29,7 +30,7 @@ impl SliceReduce for BitPacked {
                 array.dtype().as_ptype(),
                 array.validity()?.slice(range.clone())?,
                 array
-                    .patches(array.len())
+                    .patches()
                     .map(|p| p.slice(range.clone()))
                     .transpose()?
                     .flatten(),

@@ -53,7 +53,7 @@ pub(crate) fn new_exporter(
         offsets,
         sizes,
         validity,
-    } = array.into_data().into_parts();
+    } = array.into_data_parts();
     // Cache an `elements` vector up front so that future exports can reference it.
     let num_elements = elements.len();
     let nullability = validity.nullability();

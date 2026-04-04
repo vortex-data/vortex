@@ -15,6 +15,7 @@ use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::child_to_validity;
 use crate::arrays::struct_::StructData;
 use crate::arrays::struct_::array::FIELDS_OFFSET;
 use crate::arrays::struct_::array::VALIDITY_SLOT;
@@ -49,16 +50,16 @@ impl VTable for Struct {
         for field in array.iter_unmasked_fields() {
             field.array_hash(state, precision);
         }
-        array.data().validity().array_hash(state, precision);
+        array.struct_validity().array_hash(state, precision);
     }
 
     fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array.slots.len() == other.slots.len()
+        array.slots().len() == other.slots().len()
             && array
                 .iter_unmasked_fields()
                 .zip(other.iter_unmasked_fields())
                 .all(|(a, b)| a.array_eq(b, precision))
-            && array.data().validity().array_eq(&other.data().validity(), precision)
+            && array.struct_validity().array_eq(&other.struct_validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -66,25 +67,74 @@ impl VTable for Struct {
     }
 
     fn validate(&self, data: &StructData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
-        match dtype {
-            DType::Struct(..) => {}
-            _ => vortex_bail!("Expected struct dtype, found {:?}", dtype),
-        }
-        if data.len() != len {
+        let DType::Struct(struct_dtype, nullability) = dtype else {
+            vortex_bail!("Expected struct dtype, found {:?}", dtype)
+        };
+
+        if data.names() != struct_dtype.names() {
             vortex_bail!(
-                InvalidArgument: "StructArray length {} does not match outer length {}",
-                data.len(),
+                InvalidArgument: "StructArray field names {:?} do not match dtype names {:?}",
+                data.names(),
+                struct_dtype.names()
+            );
+        }
+
+        let expected_slots = struct_dtype.nfields() + 1;
+        if slots.len() != expected_slots {
+            vortex_bail!(
+                InvalidArgument: "StructArray has {} slots but expected {}",
+                slots.len(),
+                expected_slots
+            );
+        }
+
+        let validity = child_to_validity(&slots[VALIDITY_SLOT], *nullability);
+        if let Some(validity_len) = validity.maybe_len()
+            && validity_len != len
+        {
+            vortex_bail!(
+                InvalidArgument: "StructArray validity length {} does not match outer length {}",
+                validity_len,
                 len
             );
         }
-        let data_dtype = data.dtype();
-        if &data_dtype != dtype {
-            vortex_bail!(
-                InvalidArgument: "StructArray dtype {} does not match outer dtype {}",
-                data_dtype,
-                dtype
-            );
+
+        let field_slots = &slots[FIELDS_OFFSET..];
+        if field_slots.is_empty() {
+            if data.fieldless_len != Some(len) {
+                vortex_bail!(
+                    InvalidArgument: "Fieldless StructArray length {:?} does not match outer length {}",
+                    data.fieldless_len,
+                    len
+                );
+            }
+            return Ok(());
         }
+
+        if data.fieldless_len.is_some() {
+            vortex_bail!("StructArray cannot have fieldless length and field slots");
+        }
+
+        for (idx, (slot, field_dtype)) in field_slots.iter().zip(struct_dtype.fields()).enumerate() {
+            let field = slot
+                .as_ref()
+                .ok_or_else(|| vortex_error::vortex_err!("StructArray missing field slot {idx}"))?;
+            if field.len() != len {
+                vortex_bail!(
+                    InvalidArgument: "StructArray field {idx} has length {} but expected {}",
+                    field.len(),
+                    len
+                );
+            }
+            if field.dtype() != &field_dtype {
+                vortex_bail!(
+                    InvalidArgument: "StructArray field {idx} has dtype {} but expected {}",
+                    field.dtype(),
+                    field_dtype
+                );
+            }
+        }
+
         Ok(())
     }
 
@@ -109,7 +159,7 @@ impl VTable for Struct {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<StructData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "StructArray expects empty metadata, got {} bytes",
@@ -143,11 +193,9 @@ impl VTable for Struct {
             })
             .try_collect()?;
 
-        StructData::try_new_with_dtype(field_children, struct_dtype.clone(), len, validity)
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        let slots = StructData::make_slots(&field_children, &validity, len);
+        let data = StructData::try_new_with_dtype(field_children, struct_dtype.clone(), len, validity)?;
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

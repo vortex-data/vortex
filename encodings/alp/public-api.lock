@@ -32,15 +32,15 @@ pub type vortex_alp::ALP::OperationsVTable = vortex_alp::ALP
 
 pub type vortex_alp::ALP::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_alp::ALP::array_eq(array: &vortex_alp::ALPData, other: &vortex_alp::ALPData, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_alp::ALP::array_eq(array: vortex_array::array::view::ArrayView<'_, Self>, other: vortex_array::array::view::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_alp::ALP::array_hash<H: core::hash::Hasher>(array: &vortex_alp::ALPData, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_alp::ALP::array_hash<H: core::hash::Hasher>(array: vortex_array::array::view::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_alp::ALP::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_alp::ALP::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_alp::ALP::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_alp::ALPData>
+pub fn vortex_alp::ALP::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
 
 pub fn vortex_alp::ALP::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
@@ -58,9 +58,7 @@ pub fn vortex_alp::ALP::slot_name(_array: vortex_array::array::view::ArrayView<'
 
 pub fn vortex_alp::ALP::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
 
-pub fn vortex_alp::ALP::validate(&self, data: &vortex_alp::ALPData, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
-
-pub fn vortex_alp::ALP::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> vortex_error::VortexResult<()>
+pub fn vortex_alp::ALP::validate(&self, data: &vortex_alp::ALPData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_alp::ALP> for vortex_alp::ALP
 
@@ -68,7 +66,7 @@ pub fn vortex_alp::ALP::scalar_at(array: vortex_array::array::view::ArrayView<'_
 
 impl vortex_array::array::vtable::validity::ValidityChild<vortex_alp::ALP> for vortex_alp::ALP
 
-pub fn vortex_alp::ALP::validity_child(array: &vortex_alp::ALPData) -> &vortex_array::array::erased::ArrayRef
+pub fn vortex_alp::ALP::validity_child(array: vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>) -> vortex_array::array::erased::ArrayRef
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_alp::ALP
 
@@ -106,13 +104,7 @@ pub struct vortex_alp::ALPData
 
 impl vortex_alp::ALPData
 
-pub fn vortex_alp::ALPData::encoded(&self) -> &vortex_array::array::erased::ArrayRef
-
 pub fn vortex_alp::ALPData::exponents(&self) -> vortex_alp::Exponents
-
-pub fn vortex_alp::ALPData::into_parts(self) -> (vortex_array::array::erased::ArrayRef, vortex_alp::Exponents, core::option::Option<vortex_array::patches::Patches>)
-
-pub fn vortex_alp::ALPData::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
 impl vortex_alp::ALPData
 
@@ -174,15 +166,15 @@ pub type vortex_alp::ALPRD::OperationsVTable = vortex_alp::ALPRD
 
 pub type vortex_alp::ALPRD::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_alp::ALPRD::array_eq(array: &vortex_alp::ALPRDData, other: &vortex_alp::ALPRDData, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_alp::ALPRD::array_eq(array: vortex_array::array::view::ArrayView<'_, Self>, other: vortex_array::array::view::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_alp::ALPRD::array_hash<H: core::hash::Hasher>(array: &vortex_alp::ALPRDData, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_alp::ALPRD::array_hash<H: core::hash::Hasher>(array: vortex_array::array::view::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_alp::ALPRD::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_alp::ALPRD::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_alp::ALPRD::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_alp::ALPRDData>
+pub fn vortex_alp::ALPRD::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
 
 pub fn vortex_alp::ALPRD::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
@@ -200,9 +192,7 @@ pub fn vortex_alp::ALPRD::slot_name(_array: vortex_array::array::view::ArrayView
 
 pub fn vortex_alp::ALPRD::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
 
-pub fn vortex_alp::ALPRD::validate(&self, data: &vortex_alp::ALPRDData, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
-
-pub fn vortex_alp::ALPRD::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> vortex_error::VortexResult<()>
+pub fn vortex_alp::ALPRD::validate(&self, data: &vortex_alp::ALPRDData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_alp::ALPRD> for vortex_alp::ALPRD
 
@@ -210,7 +200,7 @@ pub fn vortex_alp::ALPRD::scalar_at(array: vortex_array::array::view::ArrayView<
 
 impl vortex_array::array::vtable::validity::ValidityChild<vortex_alp::ALPRD> for vortex_alp::ALPRD
 
-pub fn vortex_alp::ALPRD::validity_child(array: &vortex_alp::ALPRDData) -> &vortex_array::array::erased::ArrayRef
+pub fn vortex_alp::ALPRD::validity_child(array: vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>) -> vortex_array::array::erased::ArrayRef
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_alp::ALPRD
 
@@ -236,19 +226,13 @@ pub struct vortex_alp::ALPRDData
 
 impl vortex_alp::ALPRDData
 
-pub fn vortex_alp::ALPRDData::into_parts(self) -> vortex_alp::ALPRDDataParts
-
-pub fn vortex_alp::ALPRDData::left_parts(&self) -> &vortex_array::array::erased::ArrayRef
+pub fn vortex_alp::ALPRDData::into_parts(self, left_parts: vortex_array::array::erased::ArrayRef, right_parts: vortex_array::array::erased::ArrayRef) -> vortex_alp::ALPRDDataParts
 
 pub fn vortex_alp::ALPRDData::left_parts_dictionary(&self) -> &vortex_buffer::buffer::Buffer<u16>
 
 pub fn vortex_alp::ALPRDData::left_parts_patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
-pub fn vortex_alp::ALPRDData::replace_left_parts_patches(&mut self, patches: core::option::Option<vortex_array::patches::Patches>)
-
 pub fn vortex_alp::ALPRDData::right_bit_width(&self) -> u8
-
-pub fn vortex_alp::ALPRDData::right_parts(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_alp::ALPRDData::try_new(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::erased::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::erased::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
 
@@ -345,6 +329,56 @@ pub fn vortex_alp::RDEncoder::encode(&self, array: &vortex_array::arrays::primit
 pub fn vortex_alp::RDEncoder::from_parts(right_bit_width: u8, codes: alloc::vec::Vec<u16>) -> Self
 
 pub fn vortex_alp::RDEncoder::new<T>(sample: &[T]) -> Self where T: vortex_alp::ALPRDFloat + vortex_array::dtype::ptype::NativePType, <T as vortex_alp::ALPRDFloat>::UINT: vortex_array::dtype::ptype::NativePType
+
+pub trait vortex_alp::ALPArrayExt
+
+pub fn vortex_alp::ALPArrayExt::alp_data(&self) -> &vortex_alp::ALPData
+
+pub fn vortex_alp::ALPArrayExt::alp_len(&self) -> usize
+
+pub fn vortex_alp::ALPArrayExt::as_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+
+pub fn vortex_alp::ALPArrayExt::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_alp::ALPArrayExt::exponents(&self) -> vortex_alp::Exponents
+
+pub fn vortex_alp::ALPArrayExt::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+
+impl vortex_alp::ALPArrayExt for vortex_array::array::typed::Array<vortex_alp::ALP>
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::alp_data(&self) -> &vortex_alp::ALPData
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::alp_len(&self) -> usize
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::as_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::exponents(&self) -> vortex_alp::Exponents
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+
+impl vortex_alp::ALPArrayExt for vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::alp_data(&self) -> &vortex_alp::ALPData
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::alp_len(&self) -> usize
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::as_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::exponents(&self) -> vortex_alp::Exponents
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+
+pub trait vortex_alp::ALPArrayOwnedExt
+
+pub fn vortex_alp::ALPArrayOwnedExt::into_parts(self) -> (vortex_array::array::erased::ArrayRef, vortex_alp::Exponents, core::option::Option<vortex_array::patches::Patches>)
+
+impl vortex_alp::ALPArrayOwnedExt for vortex_array::array::typed::Array<vortex_alp::ALP>
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::into_parts(self) -> (vortex_array::array::erased::ArrayRef, vortex_alp::Exponents, core::option::Option<vortex_array::patches::Patches>)
 
 pub trait vortex_alp::ALPFloat: vortex_alp::alp::private::Sealed + num_traits::float::Float + core::fmt::Display + vortex_array::dtype::ptype::NativePType
 
@@ -477,6 +511,62 @@ pub fn f64::fast_round(self) -> Self
 pub fn f64::find_best_exponents(values: &[Self]) -> vortex_alp::Exponents
 
 pub fn f64::from_int(n: Self::ALPInt) -> Self
+
+pub trait vortex_alp::ALPRDArrayExt
+
+pub fn vortex_alp::ALPRDArrayExt::alprd_data(&self) -> &vortex_alp::ALPRDData
+
+pub fn vortex_alp::ALPRDArrayExt::alprd_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+
+pub fn vortex_alp::ALPRDArrayExt::left_parts(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_alp::ALPRDArrayExt::left_parts_dictionary(&self) -> &vortex_buffer::buffer::Buffer<u16>
+
+pub fn vortex_alp::ALPRDArrayExt::left_parts_patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+
+pub fn vortex_alp::ALPRDArrayExt::right_bit_width(&self) -> u8
+
+pub fn vortex_alp::ALPRDArrayExt::right_parts(&self) -> &vortex_array::array::erased::ArrayRef
+
+impl vortex_alp::ALPRDArrayExt for vortex_array::array::typed::Array<vortex_alp::ALPRD>
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::alprd_data(&self) -> &vortex_alp::ALPRDData
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::alprd_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::left_parts(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::left_parts_dictionary(&self) -> &vortex_buffer::buffer::Buffer<u16>
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::left_parts_patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::right_bit_width(&self) -> u8
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::right_parts(&self) -> &vortex_array::array::erased::ArrayRef
+
+impl vortex_alp::ALPRDArrayExt for vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::alprd_data(&self) -> &vortex_alp::ALPRDData
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::alprd_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::left_parts(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::left_parts_dictionary(&self) -> &vortex_buffer::buffer::Buffer<u16>
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::left_parts_patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::right_bit_width(&self) -> u8
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::right_parts(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub trait vortex_alp::ALPRDArrayOwnedExt
+
+pub fn vortex_alp::ALPRDArrayOwnedExt::into_data_parts(self) -> vortex_alp::ALPRDDataParts
+
+impl vortex_alp::ALPRDArrayOwnedExt for vortex_array::array::typed::Array<vortex_alp::ALPRD>
+
+pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::into_data_parts(self) -> vortex_alp::ALPRDDataParts
 
 pub trait vortex_alp::ALPRDFloat: vortex_alp::alp_rd::private::Sealed + num_traits::float::Float + core::marker::Copy + vortex_array::dtype::ptype::NativePType
 

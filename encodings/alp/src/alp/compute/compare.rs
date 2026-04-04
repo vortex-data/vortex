@@ -18,6 +18,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::ALPArrayExt;
 use crate::ALP;
 use crate::ALPFloat;
 use crate::match_each_alp_float_ptype;

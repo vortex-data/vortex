@@ -10,11 +10,11 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::FixedSizeList;
 use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::validity::Validity;
 
 /// The `elements` data array, where each fixed-size list scalar is a _slice_ of the `elements`
@@ -81,17 +81,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "validity"];
 /// ```
 #[derive(Clone, Debug)]
 pub struct FixedSizeListData {
-    /// The nullability of the fixed-size list array.
-    pub(super) nullability: Nullability,
-
-    /// Slots holding [elements].
-    pub(super) slots: Vec<Option<ArrayRef>>,
-
-    /// The size of each fixed-size list scalar in the array.
-    ///
-    /// We store the size of each fixed-size list in the array as a field for convenience.
-    list_size: u32,
-
     /// The length of the array.
     ///
     /// Note that this is different from the size of each fixed-size list scalar (`list_size`).
@@ -102,7 +91,21 @@ pub struct FixedSizeListData {
     pub(super) degenerate_len: usize,
 }
 
+pub struct FixedSizeListDataParts {
+    pub elements: ArrayRef,
+    pub validity: Validity,
+    pub dtype: DType,
+}
+
 impl FixedSizeListData {
+    pub(crate) fn make_slots(
+        elements: ArrayRef,
+        validity: &Validity,
+        len: usize,
+    ) -> Vec<Option<ArrayRef>> {
+        vec![Some(elements), validity_to_child(validity, len)]
+    }
+
     /// Creates a new `FixedSizeListArray`.
     ///
     /// # Panics
@@ -160,27 +163,9 @@ impl FixedSizeListData {
         Self::validate(&elements, len, list_size, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `FixedSizeListArray` parameters");
 
-        let nullability = validity.nullability();
-        let validity_slot = validity_to_child(&validity, len);
-
         Self {
-            nullability,
-            slots: vec![Some(elements), validity_slot],
-            list_size,
             degenerate_len: if list_size == 0 { len } else { 0 },
         }
-    }
-
-    pub fn into_parts(mut self) -> (ArrayRef, Validity, DType) {
-        let dtype = self.dtype();
-        let validity = self.validity();
-        (
-            self.slots[ELEMENTS_SLOT]
-                .take()
-                .vortex_expect("FixedSizeListArray elements slot"),
-            validity,
-            dtype,
-        )
     }
 
     /// Validates the components that would be used to create a `FixedSizeListArray`.
@@ -219,50 +204,77 @@ impl FixedSizeListData {
         Ok(())
     }
 
-    /// Returns the dtype of the array.
-    pub fn dtype(&self) -> DType {
-        DType::FixedSizeList(
-            Arc::new(self.elements().dtype().clone()),
-            self.list_size,
-            self.nullability,
-        )
-    }
+}
 
-    /// Returns the length of the array.
-    pub fn len(&self) -> usize {
-        if self.list_size == 0 {
-            self.degenerate_len
-        } else {
-            self.elements().len() / self.list_size as usize
+pub trait FixedSizeListArrayExt {
+    fn fixed_size_list_data(&self) -> &FixedSizeListData;
+    fn as_slots(&self) -> &[Option<ArrayRef>];
+    fn len(&self) -> usize;
+    fn dtype(&self) -> &DType;
+
+    fn dtype_parts(&self) -> (&DType, u32, crate::dtype::Nullability) {
+        match self.dtype() {
+            DType::FixedSizeList(element_dtype, list_size, nullability) => {
+                (element_dtype.as_ref(), *list_size, *nullability)
+            }
+            _ => unreachable!("FixedSizeListArrayExt requires a fixed-size list dtype"),
         }
     }
 
-    /// Returns `true` if the array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns the validity of the array.
-    #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
-    }
-
-    /// Returns the validity as a [`Mask`](vortex_mask::Mask).
-    pub fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.len())
-    }
-
-    /// Returns the elements array.
-    pub fn elements(&self) -> &ArrayRef {
-        self.slots[ELEMENTS_SLOT]
+    fn elements(&self) -> &ArrayRef {
+        self.as_slots()[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("FixedSizeListArray elements slot")
     }
 
-    /// The size of each fixed-size list scalar in the array.
-    pub const fn list_size(&self) -> u32 {
-        self.list_size
+    fn list_size(&self) -> u32 {
+        let (_, list_size, _) = self.dtype_parts();
+        list_size
+    }
+
+    fn fixed_size_list_validity(&self) -> Validity {
+        let (_, _, nullability) = self.dtype_parts();
+        child_to_validity(&self.as_slots()[VALIDITY_SLOT], nullability)
+    }
+
+    fn fixed_size_list_validity_mask(&self) -> vortex_mask::Mask {
+        self.fixed_size_list_validity().to_mask(self.len())
+    }
+}
+
+impl FixedSizeListArrayExt for Array<FixedSizeList> {
+    fn fixed_size_list_data(&self) -> &FixedSizeListData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+
+    fn len(&self) -> usize {
+        Array::len(self)
+    }
+
+    fn dtype(&self) -> &DType {
+        Array::dtype(self)
+    }
+}
+
+impl FixedSizeListArrayExt for ArrayView<'_, FixedSizeList> {
+    fn fixed_size_list_data(&self) -> &FixedSizeListData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+
+    fn len(&self) -> usize {
+        ArrayView::len(self)
+    }
+
+    fn dtype(&self) -> &DType {
+        ArrayView::dtype(self)
     }
 }
 
@@ -274,8 +286,13 @@ impl Array<FixedSizeList> {
             list_size,
             validity.nullability(),
         );
+        let slots = FixedSizeListData::make_slots(elements.clone(), &validity, len);
         let data = FixedSizeListData::new(elements, list_size, validity, len);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
+            )
+        }
     }
 
     /// Constructs a new `FixedSizeListArray`.
@@ -290,12 +307,13 @@ impl Array<FixedSizeList> {
             list_size,
             validity.nullability(),
         );
+        let slots = FixedSizeListData::make_slots(elements.clone(), &validity, len);
         let data = FixedSizeListData::try_new(elements, list_size, validity, len)?;
-        Ok(
-            unsafe {
-                Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data))
-            },
-        )
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
+            )
+        })
     }
 
     /// Creates a new `FixedSizeListArray` without validation.
@@ -314,23 +332,87 @@ impl Array<FixedSizeList> {
             list_size,
             validity.nullability(),
         );
+        let slots = FixedSizeListData::make_slots(elements.clone(), &validity, len);
         let data = unsafe { FixedSizeListData::new_unchecked(elements, list_size, validity, len) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(FixedSizeList, dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
+            )
+        }
+    }
+
+    pub fn elements(&self) -> &ArrayRef {
+        FixedSizeListArrayExt::elements(self)
+    }
+
+    pub fn list_size(&self) -> u32 {
+        FixedSizeListArrayExt::list_size(self)
+    }
+
+    pub fn fixed_size_list_validity(&self) -> Validity {
+        FixedSizeListArrayExt::fixed_size_list_validity(self)
+    }
+
+    pub fn fixed_size_list_validity_mask(&self) -> vortex_mask::Mask {
+        FixedSizeListArrayExt::fixed_size_list_validity_mask(self)
+    }
+
+    pub fn into_data_parts(self) -> FixedSizeListDataParts {
+        let parts = self.into_parts();
+        FixedSizeListDataParts {
+            elements: parts.slots[ELEMENTS_SLOT]
+                .clone()
+                .vortex_expect("FixedSizeListArray elements slot"),
+            validity: child_to_validity(&parts.slots[VALIDITY_SLOT], parts.dtype.nullability()),
+            dtype: parts.dtype,
+        }
     }
 }
 
-impl FixedSizeListData {
+impl Array<FixedSizeList> {
     pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
-            index < self.len(),
+            index < Array::len(self),
             "index {} out of bounds: the len is {}",
             index,
-            self.len(),
+            Array::len(self),
         );
-        debug_assert!(self.validity().is_valid(index).unwrap_or(false));
+        debug_assert!(self.fixed_size_list_validity().is_valid(index).unwrap_or(false));
 
-        let start = self.list_size as usize * index;
-        let end = self.list_size as usize * (index + 1);
+        let start = self.list_size() as usize * index;
+        let end = self.list_size() as usize * (index + 1);
+        self.elements().slice(start..end)
+    }
+}
+
+impl ArrayView<'_, FixedSizeList> {
+    pub fn elements(&self) -> &ArrayRef {
+        FixedSizeListArrayExt::elements(self)
+    }
+
+    pub fn list_size(&self) -> u32 {
+        FixedSizeListArrayExt::list_size(self)
+    }
+
+    pub fn fixed_size_list_validity(&self) -> Validity {
+        FixedSizeListArrayExt::fixed_size_list_validity(self)
+    }
+
+    pub fn fixed_size_list_validity_mask(&self) -> vortex_mask::Mask {
+        FixedSizeListArrayExt::fixed_size_list_validity_mask(self)
+    }
+
+    pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
+        debug_assert!(
+            index < ArrayView::len(self),
+            "index {} out of bounds: the len is {}",
+            index,
+            ArrayView::len(self),
+        );
+        debug_assert!(self.fixed_size_list_validity().is_valid(index).unwrap_or(false));
+
+        let start = self.list_size() as usize * index;
+        let end = self.list_size() as usize * (index + 1);
         self.elements().slice(start..end)
     }
 }

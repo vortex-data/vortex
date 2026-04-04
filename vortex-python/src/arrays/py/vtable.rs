@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use vortex::array::Array;
 use vortex::array::ArrayId;
+use vortex::array::ArrayParts;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
 use vortex::array::ExecutionCtx;
@@ -110,7 +111,7 @@ impl VTable for PythonVTable {
         _buffers: &[BufferHandle],
         _children: &dyn vortex::array::serde::ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<PythonArray> {
+    ) -> VortexResult<ArrayParts<Self>> {
         _ = bytes;
         vortex_bail!("PythonArray deserialization is not supported");
     }

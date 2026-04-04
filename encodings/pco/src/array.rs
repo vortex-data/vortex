@@ -180,7 +180,7 @@ impl VTable for Pco {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<PcoData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = PcoMetadata::decode(metadata)?;
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
@@ -208,18 +208,16 @@ impl VTable for Pco {
             .sum::<usize>();
         vortex_ensure!(pages.len() == expected_n_pages);
 
-        Ok(PcoData::new(
+        let slots = vec![validity_to_child(&validity, len)];
+        let data = PcoData::new(
             chunk_metas,
             pages,
             dtype.as_ptype(),
             metadata,
             len,
             validity,
-        ))
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        );
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -285,7 +283,10 @@ impl Pco {
     pub(crate) fn try_new(dtype: DType, data: PcoData) -> VortexResult<PcoArray> {
         let len = data.len();
         data.validate(&dtype, len)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data)) })
+        let slots = vec![validity_to_child(&data.unsliced_validity, data.unsliced_n_rows)];
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data).with_slots(slots))
+        })
     }
 
     /// Compress a primitive array using pcodec.
@@ -313,7 +314,6 @@ pub struct PcoData {
     ptype: PType,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
-    pub(super) slots: Vec<Option<ArrayRef>>,
     slice_start: usize,
     slice_stop: usize,
 }
@@ -380,8 +380,6 @@ impl PcoData {
         len: usize,
         validity: Validity,
     ) -> Self {
-        let validity_slot = validity_to_child(&validity, len);
-
         Self {
             chunk_metas,
             pages,
@@ -389,7 +387,6 @@ impl PcoData {
             ptype,
             unsliced_validity: validity,
             unsliced_n_rows: len,
-            slots: vec![validity_slot],
             slice_start: 0,
             slice_stop: len,
         }

@@ -10,18 +10,19 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Patched;
 use crate::arrays::PatchedArray;
+use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Patched {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // We **always** slice the patches at 1024-element chunk boundaries. We keep the offset + len
         // around so that when we execute we know how much to chop off.
-        let new_offset = (range.start + array.offset) % 1024;
-        let chunk_start = (range.start + array.offset) / 1024;
-        let chunk_stop = (range.end + array.offset).div_ceil(1024);
+        let new_offset = (range.start + array.offset()) % 1024;
+        let chunk_start = (range.start + array.offset()) / 1024;
+        let chunk_stop = (range.end + array.offset()).div_ceil(1024);
         let sliced_lane_offsets = array
             .lane_offsets()
-            .slice((chunk_start * array.n_lanes)..(chunk_stop * array.n_lanes) + 1)?;
+            .slice((chunk_start * array.n_lanes())..(chunk_stop * array.n_lanes()) + 1)?;
 
         // Unlike the patches, we slice the inner to the exact range. This is handled
         // at execution time by making sure to skip patch indices that are < offset
@@ -29,15 +30,19 @@ impl SliceReduce for Patched {
         let inner = array.base_array().slice(range.start..range.end)?;
 
         Ok(Some(
-            PatchedArray {
-                slots: vec![
-                    Some(inner),
-                    Some(sliced_lane_offsets),
-                    Some(array.patch_indices().clone()),
-                    Some(array.patch_values().clone()),
-                ],
-                n_lanes: array.n_lanes,
-                offset: new_offset,
+            unsafe {
+                PatchedArray::from_prevalidated_parts(
+                    array.dtype().clone(),
+                    inner.len(),
+                    vec![
+                        Some(inner),
+                        Some(sliced_lane_offsets),
+                        Some(array.patch_indices().clone()),
+                        Some(array.patch_values().clone()),
+                    ],
+                    array.n_lanes(),
+                    new_offset,
+                )
             }
             .into_array(),
         ))

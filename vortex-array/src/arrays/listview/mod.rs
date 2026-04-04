@@ -4,6 +4,7 @@
 mod array;
 pub use array::ListViewData;
 pub use array::ListViewDataParts;
+pub use array::ListViewArrayExt;
 pub use vtable::ListViewArray;
 
 pub(crate) mod compute;

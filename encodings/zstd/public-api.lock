@@ -32,15 +32,15 @@ pub type vortex_zstd::Zstd::OperationsVTable = vortex_zstd::Zstd
 
 pub type vortex_zstd::Zstd::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromValiditySliceHelper
 
-pub fn vortex_zstd::Zstd::array_eq(array: &vortex_zstd::ZstdData, other: &vortex_zstd::ZstdData, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_zstd::Zstd::array_eq(array: vortex_array::array::view::ArrayView<'_, Self>, other: vortex_array::array::view::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_zstd::Zstd::array_hash<H: core::hash::Hasher>(array: &vortex_zstd::ZstdData, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_zstd::Zstd::array_hash<H: core::hash::Hasher>(array: vortex_array::array::view::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_zstd::Zstd::buffer(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_zstd::Zstd::buffer_name(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_zstd::Zstd::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_zstd::ZstdData>
+pub fn vortex_zstd::Zstd::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
 
 pub fn vortex_zstd::Zstd::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
@@ -56,9 +56,7 @@ pub fn vortex_zstd::Zstd::slot_name(_array: vortex_array::array::view::ArrayView
 
 pub fn vortex_zstd::Zstd::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
 
-pub fn vortex_zstd::Zstd::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
-
-pub fn vortex_zstd::Zstd::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> vortex_error::VortexResult<()>
+pub fn vortex_zstd::Zstd::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_zstd::Zstd> for vortex_zstd::Zstd
 

@@ -480,8 +480,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
     let filled_array = builder.finish_into_decimal();
     let dtype = filled_array.dtype().clone();
     let len = filled_array.len();
-    let data = filled_array.into_data().patch(patches, ctx)?;
-    Ok(Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data))?.into_array())
+    Ok(filled_array.patch(patches, ctx)?.into_array())
 }
 
 fn execute_varbin(

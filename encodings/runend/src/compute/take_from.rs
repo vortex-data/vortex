@@ -11,6 +11,7 @@ use vortex_array::kernel::ExecuteParentKernel;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::array::RunEndArrayExt;
 
 #[derive(Debug)]
 pub(crate) struct RunEndTakeFrom;

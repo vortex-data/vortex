@@ -68,8 +68,7 @@ fn test_remove_column() {
     )
     .unwrap();
 
-    let mut data = struct_a.into_data();
-    let removed = data.remove_column("xs").unwrap();
+    let (data, removed) = struct_a.remove_column("xs").unwrap();
     assert_eq!(
         removed.dtype(),
         &DType::Primitive(PType::I64, Nullability::NonNullable)

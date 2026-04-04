@@ -69,12 +69,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()>;
 
-    /// Temporary migration hook for encodings that still store slot state inside `ArrayData`.
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        _ = data;
-        Vec::new()
-    }
-
     /// Hashes the array contents.
     fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision);
 
@@ -155,7 +149,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<Self::ArrayData>;
+    ) -> VortexResult<crate::array::ArrayParts<Self>>;
 
     /// Writes the array into a canonical builder.
     fn append_to_builder(
@@ -185,8 +179,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// The backing storage is a `Vec` (rather than a fixed-size array) so that it can be
     /// moved out of an `ArrayData` into the concrete `Array` type during deserialization
     /// without copying.
-    ///
-    /// TODO: once no encodings rely on `infer_slots`, replace it with direct outer storage only.
     fn slots<'a>(array: ArrayView<'a, Self>) -> &'a [Option<ArrayRef>] {
         array.slots()
     }

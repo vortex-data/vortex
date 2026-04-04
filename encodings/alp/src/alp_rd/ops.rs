@@ -10,6 +10,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
+use crate::ALPRDArrayExt;
 
 impl OperationsVTable<ALPRD> for ALPRD {
     fn scalar_at(

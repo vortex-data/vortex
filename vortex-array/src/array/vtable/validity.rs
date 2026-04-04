@@ -44,7 +44,7 @@ where
 pub struct ValidityVTableFromChild;
 
 pub trait ValidityChild<V: VTable> {
-    fn validity_child(array: &V::ArrayData) -> &ArrayRef;
+    fn validity_child(array: ArrayView<'_, V>) -> ArrayRef;
 }
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromChild
@@ -52,7 +52,7 @@ where
     V: ValidityChild<V>,
 {
     fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {
-        V::validity_child(array.data()).validity()
+        V::validity_child(array).validity()
     }
 }
 

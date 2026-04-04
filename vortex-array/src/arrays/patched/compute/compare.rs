@@ -9,10 +9,12 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::child_to_validity;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
+use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolDataParts;
 use crate::arrays::primitive::NativeValue;
@@ -55,18 +57,18 @@ impl CompareKernel for Patched {
             bits,
             offset,
             len,
-            validity,
         } = result.data.into_parts();
+        let validity = child_to_validity(&result.slots[0], result.dtype.nullability());
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 
         let lane_offsets = lhs.lane_offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let indices = lhs.patch_indices().clone().execute::<PrimitiveArray>(ctx)?;
         let values = lhs.patch_values().clone().execute::<PrimitiveArray>(ctx)?;
-        let n_lanes = lhs.n_lanes;
+        let n_lanes = lhs.n_lanes();
 
         match_each_native_ptype!(values.ptype(), |V| {
-            let offset = lhs.offset;
+            let offset = lhs.offset();
             let indices = indices.as_slice::<u16>();
             let values = values.as_slice::<V>();
             let constant = constant

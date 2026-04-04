@@ -4,6 +4,7 @@
 mod array;
 pub use array::StructData;
 pub use array::StructDataParts;
+pub use array::StructArrayExt;
 pub use vtable::StructArray;
 pub(crate) mod compute;
 

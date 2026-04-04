@@ -25,12 +25,14 @@ use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexResult;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::FoRData;
+use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::NUM_SLOTS;
 use crate::r#for::array::SLOT_NAMES;
 use crate::r#for::array::for_decompress::decompress;
@@ -62,7 +64,8 @@ impl VTable for FoR {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate(dtype, len)
+        let encoded = slots[0].as_ref().vortex_expect("FoRArray encoded slot");
+        FoRData::validate_parts(encoded, &data.reference, dtype, len)
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -95,10 +98,6 @@ impl VTable for FoR {
         None
     }
 
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
-    }
-
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
         array.slots()
     }
@@ -122,7 +121,7 @@ impl VTable for FoR {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<FoRData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
             "FoRArray expects 0 buffers, got {}",
@@ -138,8 +137,10 @@ impl VTable for FoR {
         let scalar_value = ScalarValue::from_proto_bytes(metadata, dtype, session)?;
         let reference = Scalar::try_new(dtype.clone(), scalar_value)?;
         let encoded = children.get(0, dtype, len)?;
+        let slots = vec![Some(encoded.clone())];
 
-        FoRData::try_new(encoded, reference)
+        let data = FoRData::try_new(encoded, reference)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn reduce_parent(
@@ -178,8 +179,11 @@ impl FoR {
             .with_nullability(encoded.dtype().nullability());
         let reference = reference.cast(&dtype)?;
         let len = encoded.len();
+        let slots = vec![Some(encoded.clone())];
         let data = FoRData::try_new(encoded, reference)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(FoR, dtype, len, data)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
+        })
     }
 
     /// Encode a primitive array using Frame of Reference encoding.

@@ -8,6 +8,7 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
+use crate::bitpacking::array::BitPackedArrayExt;
 use crate::bitpack_decompress;
 impl OperationsVTable<BitPacked> for BitPacked {
     fn scalar_at(
@@ -16,7 +17,7 @@ impl OperationsVTable<BitPacked> for BitPacked {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         Ok(
-            if let Some(patches) = array.patches(array.len())
+            if let Some(patches) = array.patches()
                 && let Some(patch) = patches.get_patched(index)?
             {
                 patch
@@ -141,14 +142,14 @@ mod test {
         // We create an array that has 1 element that does not fit in the 6-bit range.
         let array = BitPackedData::encode(&buffer![0u32..=64].into_array(), 6).unwrap();
 
-        assert!(array.patches(array.len()).is_some());
+        assert!(array.patches().is_some());
 
-        let patch_indices = array.patches(array.len()).unwrap().indices().clone();
+        let patch_indices = array.patches().unwrap().indices().clone();
         assert_eq!(patch_indices.len(), 1);
 
         // Slicing drops the empty patches array.
         let sliced_bp = slice_via_reduce(&array, 0..64);
-        assert!(sliced_bp.patches(sliced_bp.len()).is_none());
+        assert!(sliced_bp.patches().is_none());
     }
 
     #[test]
@@ -211,9 +212,9 @@ mod test {
         let values = (0u32..257).collect::<Buffer<_>>();
         let uncompressed = values.clone().into_array();
         let packed = BitPackedData::encode(&uncompressed, 8).unwrap();
-        assert!(packed.patches(packed.len()).is_some());
+        assert!(packed.patches().is_some());
 
-        let patches = packed.patches(packed.len()).unwrap().indices().clone();
+        let patches = packed.patches().unwrap().indices().clone();
         assert_eq!(
             usize::try_from(&patches.scalar_at(0).unwrap()).unwrap(),
             256

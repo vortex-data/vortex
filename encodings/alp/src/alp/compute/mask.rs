@@ -12,6 +12,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::ALP;
+use crate::ALPArrayExt;
 
 impl MaskReduce for ALP {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

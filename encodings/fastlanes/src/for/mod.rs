@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::FoRData;
+pub use array::FoRArrayExt;
 
 pub(crate) mod compute;
 

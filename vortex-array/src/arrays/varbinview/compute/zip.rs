@@ -15,6 +15,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
@@ -53,8 +54,8 @@ impl ZipKernel for VarBinView {
         let mut views_builder = BufferMut::<BinaryView>::with_capacity(len);
         let mut validity_builder = LazyBitBufferBuilder::new(len);
 
-        let true_validity = if_true.validity_mask();
-        let false_validity = if_false.validity_mask();
+        let true_validity = if_true.varbinview_validity_mask();
+        let false_validity = if_false.varbinview_validity_mask();
 
         let mask = mask.try_to_mask_fill_null_false(ctx)?;
         let if_false_view = if_false;

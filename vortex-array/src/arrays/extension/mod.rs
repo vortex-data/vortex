@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::ExtensionData;
+pub use array::ExtensionArrayExt;
 pub use vtable::ExtensionArray;
 
 pub(crate) mod compute;

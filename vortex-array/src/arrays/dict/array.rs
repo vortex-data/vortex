@@ -11,6 +11,7 @@ use vortex_mask::AllOr;
 use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
+use crate::array::ArrayView;
 use crate::array::ArrayParts;
 use crate::arrays::Dict;
 use crate::dtype::DType;
@@ -42,18 +43,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["codes", "values"];
 
 #[derive(Debug, Clone)]
 pub struct DictData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
     /// Indicates whether all dictionary values are definitely referenced by at least one code.
     /// `true` = all values are referenced (computed during encoding).
     /// `false` = unknown/might have unreferenced values.
     /// In case this is incorrect never use this to enable memory unsafe behaviour just semantically
     /// incorrect behaviour.
     pub(super) all_values_referenced: bool,
-}
-
-pub struct DictDataParts {
-    pub codes: ArrayRef,
-    pub values: ArrayRef,
 }
 
 impl DictData {
@@ -63,9 +58,8 @@ impl DictData {
     /// This should be called only when you can guarantee the invariants checked
     /// by the safe `DictArray::try_new` constructor are valid, for example when
     /// you are filtering or slicing an existing valid `DictArray`.
-    pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
+    pub unsafe fn new_unchecked(_codes: ArrayRef, _values: ArrayRef) -> Self {
         Self {
-            slots: vec![Some(codes), Some(values)],
             all_values_referenced: false,
         }
     }
@@ -81,14 +75,6 @@ impl DictData {
     /// that all values are referenced.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
         self.all_values_referenced = all_values_referenced;
-
-        #[cfg(debug_assertions)]
-        {
-            use vortex_error::VortexExpect;
-            self.validate_all_values_referenced()
-                .vortex_expect("validation should succeed when all values are referenced")
-        }
-
         self
     }
 
@@ -118,68 +104,20 @@ impl DictData {
 
         Ok(unsafe { Self::new_unchecked(codes, values) })
     }
+}
 
-    /// Returns the length of this array.
-    pub fn len(&self) -> usize {
-        self.codes().len()
-    }
-
-    /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> DType {
-        self.values()
-            .dtype()
-            .union_nullability(self.codes().dtype().nullability())
-    }
-
-    /// Returns `true` if this array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    pub fn into_parts(mut self) -> DictDataParts {
-        DictDataParts {
-            codes: self.slots[CODES_SLOT]
-                .take()
-                .vortex_expect("DictArray codes slot"),
-            values: self.slots[VALUES_SLOT]
-                .take()
-                .vortex_expect("DictArray values slot"),
-        }
-    }
+pub trait DictArrayExt {
+    fn dict_data(&self) -> &DictData;
+    fn codes(&self) -> &ArrayRef;
+    fn values(&self) -> &ArrayRef;
 
     #[inline]
-    pub fn codes(&self) -> &ArrayRef {
-        self.slots[CODES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray codes slot")
+    fn has_all_values_referenced(&self) -> bool {
+        self.dict_data().all_values_referenced
     }
 
-    #[inline]
-    pub fn values(&self) -> &ArrayRef {
-        self.slots[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray values slot")
-    }
-
-    /// Returns `true` if all dictionary values are definitely referenced by at least one code.
-    ///
-    /// When `true`, operations like min/max can safely operate on all values without needing to
-    /// compute which values are actually referenced. When `false`, it is unknown whether all
-    /// values are referenced (conservative default).
-    #[inline]
-    pub fn has_all_values_referenced(&self) -> bool {
-        self.all_values_referenced
-    }
-
-    /// Validates that the `all_values_referenced` flag matches reality.
-    ///
-    /// Returns `Ok(())` if the flag is consistent with the actual referenced values,
-    /// or an error describing the mismatch.
-    ///
-    /// This is primarily useful for testing and debugging.
-    pub fn validate_all_values_referenced(&self) -> VortexResult<()> {
-        if self.all_values_referenced {
-            // Skip host-only validation when codes are not host-resident.
+    fn validate_all_values_referenced(&self) -> VortexResult<()> {
+        if self.has_all_values_referenced() {
             if !self.codes().is_host() {
                 return Ok(());
             }
@@ -192,62 +130,13 @@ impl DictData {
 
         Ok(())
     }
-}
 
-impl Array<Dict> {
-    /// Build a new `DictArray` from its components, `codes` and `values`.
-    pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
-        let data = DictData::new(codes, values);
-        let dtype = data.dtype();
-        let len = data.len();
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data)) }
-    }
-
-    /// Build a new `DictArray` from its components, `codes` and `values`.
-    pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
-        let data = DictData::try_new(codes, values)?;
-        let dtype = data.dtype();
-        let len = data.len();
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data)) })
-    }
-
-    /// Build a new `DictArray` without validating the codes or values.
-    ///
-    /// # Safety
-    ///
-    /// See [`DictData::new_unchecked`].
-    pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
-        let data = unsafe { DictData::new_unchecked(codes, values) };
-        let dtype = data.dtype();
-        let len = data.len();
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data)) }
-    }
-
-    /// Set whether all values in the dictionary are referenced by at least one code.
-    ///
-    /// # Safety
-    ///
-    /// See [`DictData::set_all_values_referenced`].
-    pub unsafe fn set_all_values_referenced(self, all_values_referenced: bool) -> Self {
-        let dtype = self.dtype().clone();
-        let len = self.len();
-        let data = unsafe {
-            self.into_data()
-                .set_all_values_referenced(all_values_referenced)
-        };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data)) }
-    }
-}
-
-impl DictData {
-    pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
+    fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes_validity = self.codes().validity_mask()?;
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
 
-        // Initialize with the starting value: false for referenced, true for unreferenced
         let init_value = !referenced;
-        // Value to set when we find a referenced code: true for referenced, false for unreferenced
         let referenced_value = referenced;
 
         let mut values_vec = vec![init_value; values_len];
@@ -259,29 +148,178 @@ impl DictData {
                         clippy::cast_sign_loss,
                         reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
                     )]
-                    for &code in codes_primitive.as_slice::<P>().iter() {
-                        values_vec[code as usize] = referenced_value;
+                    for &idx in codes_primitive.as_slice::<P>() {
+                        values_vec[idx as usize] = referenced_value;
                     }
                 });
             }
             AllOr::None => {}
-            AllOr::Some(buf) => {
+            AllOr::Some(mask) => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    let codes = codes_primitive.as_slice::<P>();
-
                     #[allow(
                         clippy::cast_possible_truncation,
                         clippy::cast_sign_loss,
                         reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
                     )]
-                    buf.set_indices().for_each(|idx| {
-                        values_vec[codes[idx] as usize] = referenced_value;
-                    })
+                    for (valid, &idx) in mask.iter().zip(codes_primitive.as_slice::<P>()) {
+                        if valid {
+                            values_vec[idx as usize] = referenced_value;
+                        }
+                    }
                 });
             }
         }
 
-        Ok(BitBuffer::collect_bool(values_len, |idx| values_vec[idx]))
+        Ok(BitBuffer::from(values_vec))
+    }
+}
+
+impl DictArrayExt for Array<Dict> {
+    fn dict_data(&self) -> &DictData {
+        self.data()
+    }
+
+    fn codes(&self) -> &ArrayRef {
+        self.slots()[CODES_SLOT]
+            .as_ref()
+            .vortex_expect("DictArray codes slot")
+    }
+
+    fn values(&self) -> &ArrayRef {
+        self.slots()[VALUES_SLOT]
+            .as_ref()
+            .vortex_expect("DictArray values slot")
+    }
+}
+
+impl DictArrayExt for ArrayView<'_, Dict> {
+    fn dict_data(&self) -> &DictData {
+        self.data()
+    }
+
+    fn codes(&self) -> &ArrayRef {
+        self.slots()[CODES_SLOT]
+            .as_ref()
+            .vortex_expect("DictArray codes slot")
+    }
+
+    fn values(&self) -> &ArrayRef {
+        self.slots()[VALUES_SLOT]
+            .as_ref()
+            .vortex_expect("DictArray values slot")
+    }
+}
+
+impl Array<Dict> {
+    #[inline]
+    pub fn codes(&self) -> &ArrayRef {
+        DictArrayExt::codes(self)
+    }
+
+    #[inline]
+    pub fn values(&self) -> &ArrayRef {
+        DictArrayExt::values(self)
+    }
+
+    #[inline]
+    pub fn has_all_values_referenced(&self) -> bool {
+        DictArrayExt::has_all_values_referenced(self)
+    }
+
+    pub fn validate_all_values_referenced(&self) -> VortexResult<()> {
+        DictArrayExt::validate_all_values_referenced(self)
+    }
+
+    pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
+        DictArrayExt::compute_referenced_values_mask(self, referenced)
+    }
+
+    /// Build a new `DictArray` from its components, `codes` and `values`.
+    pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
+        let dtype = values.dtype().union_nullability(codes.dtype().nullability());
+        let len = codes.len();
+        let data = DictData::new(codes.clone(), values.clone());
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Dict, dtype, len, data)
+                    .with_slots(vec![Some(codes), Some(values)]),
+            )
+        }
+    }
+
+    /// Build a new `DictArray` from its components, `codes` and `values`.
+    pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+        let dtype = values.dtype().union_nullability(codes.dtype().nullability());
+        let len = codes.len();
+        let data = DictData::try_new(codes.clone(), values.clone())?;
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Dict, dtype, len, data)
+                    .with_slots(vec![Some(codes), Some(values)]),
+            )
+        })
+    }
+
+    /// Build a new `DictArray` without validating the codes or values.
+    ///
+    /// # Safety
+    ///
+    /// See [`DictData::new_unchecked`].
+    pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
+        let dtype = values.dtype().union_nullability(codes.dtype().nullability());
+        let len = codes.len();
+        let data = unsafe { DictData::new_unchecked(codes.clone(), values.clone()) };
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Dict, dtype, len, data)
+                    .with_slots(vec![Some(codes), Some(values)]),
+            )
+        }
+    }
+
+    /// Set whether all values in the dictionary are referenced by at least one code.
+    ///
+    /// # Safety
+    ///
+    /// See [`DictData::set_all_values_referenced`].
+    pub unsafe fn set_all_values_referenced(self, all_values_referenced: bool) -> Self {
+        let dtype = self.dtype().clone();
+        let len = self.len();
+        let slots = self.slots().to_vec();
+        let data = unsafe {
+            self.into_data()
+                .set_all_values_referenced(all_values_referenced)
+        };
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Dict, dtype, len, data).with_slots(slots),
+            )
+        }
+    }
+}
+
+impl ArrayView<'_, Dict> {
+    #[inline]
+    pub fn codes(&self) -> &ArrayRef {
+        DictArrayExt::codes(self)
+    }
+
+    #[inline]
+    pub fn values(&self) -> &ArrayRef {
+        DictArrayExt::values(self)
+    }
+
+    #[inline]
+    pub fn has_all_values_referenced(&self) -> bool {
+        DictArrayExt::has_all_values_referenced(self)
+    }
+
+    pub fn validate_all_values_referenced(&self) -> VortexResult<()> {
+        DictArrayExt::validate_all_values_referenced(self)
+    }
+
+    pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
+        DictArrayExt::compute_referenced_values_mask(self, referenced)
     }
 }
 

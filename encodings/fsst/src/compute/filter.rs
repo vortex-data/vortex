@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::FSST;
+use crate::FSSTArrayExt;
 
 impl FilterKernel for FSST {
     fn filter(

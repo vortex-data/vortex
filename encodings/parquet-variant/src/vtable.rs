@@ -9,6 +9,7 @@ use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -23,6 +24,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
+use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -30,8 +32,8 @@ use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 
-use crate::array::NUM_SLOTS;
 use crate::array::ParquetVariantData;
+use crate::array::ParquetVariantArrayExt;
 use crate::array::SLOT_NAMES;
 use crate::kernel::PARENT_KERNELS;
 
@@ -74,20 +76,23 @@ impl VTable for ParquetVariant {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate(dtype, len)
+        let _ = data;
+        ParquetVariantData::validate_slots(dtype, len, slots)
     }
 
     fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.data().validity().array_hash(state, precision);
-        array.metadata_array().array_hash(state, precision);
+        ParquetVariantArrayExt::validity(&array).array_hash(state, precision);
+        ParquetVariantArrayExt::metadata_array(&array).array_hash(state, precision);
         // Hash discriminators so that (value=Some, typed_value=None) and
         // (value=None, typed_value=Some) produce different hashes.
-        array.value_array().is_some().hash(state);
-        if let Some(value) = array.value_array() {
+        ParquetVariantArrayExt::value_array(&array).is_some().hash(state);
+        if let Some(value) = ParquetVariantArrayExt::value_array(&array) {
             value.array_hash(state, precision);
         }
-        array.typed_value_array().is_some().hash(state);
-        if let Some(typed_value) = array.typed_value_array() {
+        ParquetVariantArrayExt::typed_value_array(&array)
+            .is_some()
+            .hash(state);
+        if let Some(typed_value) = ParquetVariantArrayExt::typed_value_array(&array) {
             typed_value.array_hash(state, precision);
         }
     }
@@ -97,17 +102,17 @@ impl VTable for ParquetVariant {
         other: ArrayView<'_, Self>,
         precision: Precision,
     ) -> bool {
-        if !array
-            .data()
-            .validity()
-            .array_eq(&other.data().validity(), precision)
-            || !array
-                .metadata_array()
-                .array_eq(other.metadata_array(), precision)
+        if !ParquetVariantArrayExt::validity(&array)
+            .array_eq(&ParquetVariantArrayExt::validity(&other), precision)
+            || !ParquetVariantArrayExt::metadata_array(&array)
+                .array_eq(ParquetVariantArrayExt::metadata_array(&other), precision)
         {
             return false;
         }
-        match (array.value_array(), other.value_array()) {
+        match (
+            ParquetVariantArrayExt::value_array(&array),
+            ParquetVariantArrayExt::value_array(&other),
+        ) {
             (Some(a), Some(b)) => {
                 if !a.array_eq(b, precision) {
                     return false;
@@ -116,7 +121,10 @@ impl VTable for ParquetVariant {
             (None, None) => {}
             _ => return false,
         }
-        match (array.typed_value_array(), other.typed_value_array()) {
+        match (
+            ParquetVariantArrayExt::typed_value_array(&array),
+            ParquetVariantArrayExt::typed_value_array(&other),
+        ) {
             (Some(a), Some(b)) => a.array_eq(b, precision),
             (None, None) => true,
             _ => false,
@@ -133,10 +141,6 @@ impl VTable for ParquetVariant {
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -170,7 +174,7 @@ impl VTable for ParquetVariant {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<Self::ArrayData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
             "ParquetVariantArray expects 0 buffers, got {}",
@@ -226,7 +230,14 @@ impl VTable for ParquetVariant {
             None
         };
 
-        ParquetVariantData::try_new(validity, variant_metadata, value, typed_value)
+        let slots = vec![
+            validity_to_child(&validity, len),
+            Some(variant_metadata.clone()),
+            value.clone(),
+            typed_value.clone(),
+        ];
+        let data = ParquetVariantData::try_new(validity, variant_metadata, value, typed_value)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

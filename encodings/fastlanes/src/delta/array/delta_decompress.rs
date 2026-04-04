@@ -16,6 +16,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
+use crate::delta::array::DeltaArrayExt;
 use crate::DeltaArray;
 use crate::bit_transpose::untranspose_validity;
 

@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::RLEData;
+pub use array::RLEArrayExt;
 
 mod compute;
 mod kernel;

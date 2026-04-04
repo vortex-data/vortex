@@ -73,10 +73,7 @@ pub(crate) struct ArrayInner<V: VTable> {
 impl<V: VTable> ArrayInner<V> {
     /// Create a new inner array from explicit construction parameters.
     #[doc(hidden)]
-    pub fn try_new(mut new: ArrayParts<V>) -> VortexResult<Self> {
-        if new.slots.is_empty() {
-            new.slots = V::infer_slots(&new.data);
-        }
+    pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
         new.vtable.validate(&new.data, &new.dtype, new.len, &new.slots)?;
         Ok(unsafe {
             Self::from_data_unchecked(
@@ -196,18 +193,13 @@ impl<V: VTable> Array<V> {
     /// Caller must ensure the provided parts are logically consistent.
     #[doc(hidden)]
     pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
-        let slots = if new.slots.is_empty() {
-            V::infer_slots(&new.data)
-        } else {
-            new.slots
-        };
         let inner = ArrayRef::from_inner(Arc::new(unsafe {
             ArrayInner::<V>::from_data_unchecked(
                 new.vtable,
                 new.dtype,
                 new.len,
                 new.data,
-                slots,
+                new.slots,
                 ArrayStats::default(),
             )
         }));
@@ -308,7 +300,7 @@ impl<V: VTable> Array<V> {
     pub fn as_view(&self) -> ArrayView<'_, V> {
         let inner = self.downcast_inner();
         // SAFETY: `inner.data` is the `V::ArrayData` stored inside `self.inner`.
-        unsafe { ArrayView::new_unchecked(&self.inner, &inner.data, &inner.slots) }
+        unsafe { ArrayView::new_unchecked(&self.inner, &inner.data) }
     }
 
     /// Downcast the inner `ArrayRef` to `&ArrayInner<V>`.

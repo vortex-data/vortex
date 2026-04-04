@@ -116,7 +116,7 @@ impl VTable for Variant {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::ArrayData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_ensure!(
             metadata.is_empty(),
             "VariantArray expects empty metadata, got {} bytes",
@@ -129,8 +129,11 @@ impl VTable for Variant {
             children.len()
         );
         // The child carries the nullability for the whole VariantArray.
-        children.get(0, dtype, len)?;
-        Ok(VariantData)
+        let child = children.get(0, dtype, len)?;
+        Ok(
+            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, VariantData)
+                .with_slots(vec![Some(child)]),
+        )
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

@@ -18,6 +18,7 @@ use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::bool::array::BoolArrayExt;
 use crate::arrays::bool::BoolData;
 use crate::arrays::bool::array::NUM_SLOTS;
 use crate::arrays::bool::array::SLOT_NAMES;
@@ -58,14 +59,14 @@ impl VTable for Bool {
 
     fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.to_bit_buffer().array_hash(state, precision);
-        array.data().validity().array_hash(state, precision);
+        BoolArrayExt::validity(&array).array_hash(state, precision);
     }
 
     fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array
             .to_bit_buffer()
             .array_eq(&other.to_bit_buffer(), precision)
-            && array.data().validity().array_eq(&other.data().validity(), precision)
+            && BoolArrayExt::validity(&array).array_eq(&BoolArrayExt::validity(&other), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -101,6 +102,9 @@ impl VTable for Bool {
     }
 
     fn validate(&self, data: &BoolData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+        let DType::Bool(nullability) = dtype else {
+            vortex_bail!("Expected bool dtype, got {dtype:?}");
+        };
         vortex_ensure!(
             data.len() == len,
             "BoolArray length {} does not match outer length {}",
@@ -108,13 +112,15 @@ impl VTable for Bool {
             len
         );
 
-        let actual_dtype = data.dtype();
-        vortex_ensure!(
-            &actual_dtype == dtype,
-            "BoolArray dtype {} does not match outer dtype {}",
-            actual_dtype,
-            dtype
-        );
+        let validity = crate::array::child_to_validity(&slots[0], *nullability);
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == len,
+                "BoolArray validity len {} does not match outer length {}",
+                validity_len,
+                len
+            );
+        }
 
         Ok(())
     }
@@ -128,7 +134,7 @@ impl VTable for Bool {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<BoolData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         let metadata = BoolMetadata::decode(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -144,12 +150,9 @@ impl VTable for Bool {
         };
 
         let buffer = buffers[0].clone();
-
-        BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        let slots = BoolData::make_slots(&validity, len);
+        let data = BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)?;
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

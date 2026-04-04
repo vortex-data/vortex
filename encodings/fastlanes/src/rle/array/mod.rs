@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::Array;
+use vortex_array::ArrayView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -33,7 +35,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["values", "indices", "values_i
 
 #[derive(Clone, Debug)]
 pub struct RLEData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
     // Offset relative to the start of the chunk.
     pub(super) offset: usize,
 }
@@ -50,18 +51,16 @@ impl RLEData {
         Ok(())
     }
 
-    pub(crate) fn validate_against_outer(&self, dtype: &DType, length: usize) -> VortexResult<()> {
-        Self::validate_parts(
-            self.values(),
-            self.indices(),
-            self.values_idx_offsets(),
-            self.offset,
-            length,
-        )?;
-        let expected_dtype = DType::Primitive(
-            self.values().dtype().as_ptype(),
-            self.indices().dtype().nullability(),
-        );
+    pub(crate) fn validate_against_slots(
+        &self,
+        values: &ArrayRef,
+        indices: &ArrayRef,
+        value_idx_offsets: &ArrayRef,
+        dtype: &DType,
+        length: usize,
+    ) -> VortexResult<()> {
+        Self::validate_parts(values, indices, value_idx_offsets, self.offset, length)?;
+        let expected_dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
         vortex_ensure!(
             dtype == &expected_dtype,
             "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
@@ -147,10 +146,8 @@ impl RLEData {
     ) -> VortexResult<Self> {
         Self::validate(&values, &indices, &values_idx_offsets, offset, length)?;
 
-        Ok(Self {
-            slots: vec![Some(values), Some(indices), Some(values_idx_offsets)],
-            offset,
-        })
+        drop((values, indices, values_idx_offsets));
+        Ok(Self { offset })
     }
 
     /// Create a new RLEArray without validation.
@@ -166,29 +163,37 @@ impl RLEData {
         values_idx_offsets: ArrayRef,
         offset: usize,
     ) -> Self {
-        Self {
-            slots: vec![Some(values), Some(indices), Some(values_idx_offsets)],
-            offset,
-        }
+        drop((values, indices, values_idx_offsets));
+        Self { offset }
     }
 
     #[inline]
-    pub fn values(&self) -> &ArrayRef {
-        self.slots[VALUES_SLOT]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+}
+
+pub trait RLEArrayExt {
+    fn rle_data(&self) -> &RLEData;
+    fn as_slots(&self) -> &[Option<ArrayRef>];
+
+    #[inline]
+    fn values(&self) -> &ArrayRef {
+        self.as_slots()[VALUES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values slot must be populated")
     }
 
     #[inline]
-    pub fn indices(&self) -> &ArrayRef {
-        self.slots[INDICES_SLOT]
+    fn indices(&self) -> &ArrayRef {
+        self.as_slots()[INDICES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray indices slot must be populated")
     }
 
     #[inline]
-    pub fn values_idx_offsets(&self) -> &ArrayRef {
-        self.slots[VALUES_IDX_OFFSETS_SLOT]
+    fn values_idx_offsets(&self) -> &ArrayRef {
+        self.as_slots()[VALUES_IDX_OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values_idx_offsets slot must be populated")
     }
@@ -202,7 +207,7 @@ impl RLEData {
         clippy::expect_used,
         reason = "expect is safe here as scalar_at returns a valid primitive"
     )]
-    pub(crate) fn values_idx_offset(&self, chunk_idx: usize) -> usize {
+    fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets()
             .scalar_at(chunk_idx)
             .expect("index must be in bounds")
@@ -220,8 +225,28 @@ impl RLEData {
 
     /// Index offset into the array
     #[inline]
-    pub fn offset(&self) -> usize {
-        self.offset
+    fn offset(&self) -> usize {
+        self.rle_data().offset
+    }
+}
+
+impl RLEArrayExt for Array<crate::RLE> {
+    fn rle_data(&self) -> &RLEData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl RLEArrayExt for ArrayView<'_, crate::RLE> {
+    fn rle_data(&self) -> &RLEData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
     }
 }
 

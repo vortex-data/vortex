@@ -129,7 +129,7 @@ impl VTable for Slice {
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<Self::ArrayData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_bail!("Slice array is not serializable")
     }
 

@@ -17,6 +17,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ZigZag;
+use crate::array::ZigZagArrayExt;
 
 impl FilterReduce for ZigZag {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {

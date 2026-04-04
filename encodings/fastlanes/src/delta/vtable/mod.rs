@@ -24,6 +24,7 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -31,7 +32,9 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::DeltaData;
-use crate::delta::array::NUM_SLOTS;
+use crate::delta::array::BASES_SLOT;
+use crate::delta::array::DELTAS_SLOT;
+use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::SLOT_NAMES;
 use crate::delta::array::delta_decompress::delta_decompress;
 
@@ -68,7 +71,14 @@ impl VTable for Delta {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate(dtype, len)
+        data.validate_against_slots(
+            slots[BASES_SLOT].as_ref().vortex_expect("DeltaArray bases slot"),
+            slots[DELTAS_SLOT]
+                .as_ref()
+                .vortex_expect("DeltaArray deltas slot"),
+            dtype,
+            len,
+        )
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -111,10 +121,6 @@ impl VTable for Delta {
         rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
-    }
-
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
         array.slots()
     }
@@ -141,7 +147,7 @@ impl VTable for Delta {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<DeltaData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
             "DeltaArray expects 0 buffers, got {}",
@@ -166,7 +172,9 @@ impl VTable for Delta {
         let bases = children.get(0, dtype, bases_len)?;
         let deltas = children.get(1, dtype, deltas_len)?;
 
-        DeltaData::try_new(bases, deltas, metadata.offset as usize, len)
+        let slots = vec![Some(bases.clone()), Some(deltas.clone())];
+        let data = DeltaData::try_new(bases, deltas, metadata.offset as usize, len)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -189,8 +197,11 @@ impl Delta {
         len: usize,
     ) -> VortexResult<DeltaArray> {
         let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
+        let slots = vec![Some(bases.clone()), Some(deltas.clone())];
         let data = DeltaData::try_new(bases, deltas, offset, len)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Delta, dtype, len, data)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Delta, dtype, len, data).with_slots(slots))
+        })
     }
 
     /// Compress a primitive array using Delta encoding.

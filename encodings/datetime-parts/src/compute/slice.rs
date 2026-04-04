@@ -10,6 +10,7 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
+use crate::array::DateTimePartsArrayExt;
 
 impl SliceReduce for DateTimeParts {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

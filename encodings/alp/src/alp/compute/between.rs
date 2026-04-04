@@ -18,6 +18,7 @@ use vortex_array::scalar_fn::fns::between::StrictComparison;
 use vortex_error::VortexResult;
 
 use crate::ALP;
+use crate::ALPArrayExt;
 use crate::ALPFloat;
 use crate::match_each_alp_float_ptype;
 

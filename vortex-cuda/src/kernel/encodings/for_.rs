@@ -20,6 +20,7 @@ use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
+use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;

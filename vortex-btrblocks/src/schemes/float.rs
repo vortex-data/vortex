@@ -4,6 +4,9 @@
 //! Float compression schemes.
 
 use vortex_alp::ALP;
+use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPRDArrayExt;
+use vortex_alp::ALPRDArrayOwnedExt;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
@@ -148,14 +151,8 @@ impl Scheme for ALPRDScheme {
         let alp_rd = encoder.encode(stats.source());
         let dtype = alp_rd.dtype().clone();
         let right_bit_width = alp_rd.right_bit_width();
-        let mut alp_rd_data = alp_rd.into_data();
-
-        let patches = alp_rd_data
-            .left_parts_patches()
-            .map(compress_patches)
-            .transpose()?;
-        alp_rd_data.replace_left_parts_patches(patches);
-        let parts = alp_rd_data.into_parts();
+        let mut parts = ALPRDArrayOwnedExt::into_data_parts(alp_rd);
+        parts.left_parts_patches = parts.left_parts_patches.map(compress_patches).transpose()?;
 
         Ok(vortex_alp::ALPRD::try_new(
             dtype,

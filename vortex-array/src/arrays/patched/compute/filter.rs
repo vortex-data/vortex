@@ -10,6 +10,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::FilterArray;
 use crate::arrays::Patched;
+use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::filter::FilterReduce;
 
 impl FilterReduce for Patched {
@@ -31,13 +32,13 @@ impl FilterReduce for Patched {
 
                 // Convert mask indices to absolute positions by adding offset
                 (
-                    (array.offset + first) / 1024,
-                    (array.offset + last).div_ceil(1024),
+                    (array.offset() + first) / 1024,
+                    (array.offset() + last).div_ceil(1024),
                 )
             }
         };
 
-        let n_chunks = (array.offset + array.len()).div_ceil(1024);
+        let n_chunks = (array.offset() + array.len()).div_ceil(1024);
 
         // If all chunks already covered, there is nothing to do.
         if chunk_start == 0 && chunk_stop == n_chunks {
@@ -48,9 +49,9 @@ impl FilterReduce for Patched {
 
         // Slice the mask according to if the chunk is sliced.
         // Convert chunk bounds back to mask indices by subtracting offset.
-        let mask_start = (chunk_start * 1024).saturating_sub(array.offset);
+        let mask_start = (chunk_start * 1024).saturating_sub(array.offset());
         let mask_end = (chunk_stop * 1024)
-            .saturating_sub(array.offset)
+            .saturating_sub(array.offset())
             .min(array.len());
         let remainder = mask.slice(mask_start..mask_end);
 

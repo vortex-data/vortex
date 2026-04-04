@@ -103,7 +103,7 @@ impl VTable for Shared {
         _buffers: &[BufferHandle],
         _children: &dyn crate::serde::ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<SharedData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_error::vortex_bail!("Shared array is not serializable")
     }
 

@@ -50,20 +50,23 @@ impl VTable for ZigZag {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        _data: &Self::ArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let expected_dtype = ZigZagData::dtype_from_encoded_dtype(data.encoded().dtype())?;
+        let encoded = slots[ENCODED_SLOT]
+            .as_ref()
+            .vortex_expect("ZigZagArray encoded slot");
+        let expected_dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;
         vortex_ensure!(
             dtype == &expected_dtype,
             "expected dtype {expected_dtype}, got {dtype}"
         );
         vortex_ensure!(
-            data.encoded().len() == len,
+            encoded.len() == len,
             "expected len {len}, got {}",
-            data.encoded().len()
+            encoded.len()
         );
         Ok(())
     }
@@ -108,7 +111,7 @@ impl VTable for ZigZag {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<ZigZagData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "ZigZagArray expects empty metadata, got {} bytes",
@@ -123,11 +126,9 @@ impl VTable for ZigZag {
         let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
 
         let encoded = children.get(0, &encoded_type, len)?;
-        ZigZagData::try_new(encoded)
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        let slots = vec![Some(encoded.clone())];
+        let data = ZigZagData::try_new(encoded)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -168,8 +169,34 @@ pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
 
 #[derive(Clone, Debug)]
-pub struct ZigZagData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
+pub struct ZigZagData {}
+
+pub trait ZigZagArrayExt {
+    fn as_slots(&self) -> &[Option<ArrayRef>];
+
+    fn encoded(&self) -> &ArrayRef {
+        self.as_slots()[ENCODED_SLOT]
+            .as_ref()
+            .vortex_expect("ZigZagArray encoded slot")
+    }
+
+    fn ptype(&self) -> PType {
+        PType::try_from(self.encoded().dtype())
+            .vortex_expect("ZigZagArray encoded dtype")
+            .to_signed()
+    }
+}
+
+impl ZigZagArrayExt for Array<ZigZag> {
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl ZigZagArrayExt for ArrayView<'_, ZigZag> {
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -180,10 +207,13 @@ impl ZigZag {
 
     /// Construct a new [`ZigZagArray`] from an encoded unsigned integer array.
     pub fn try_new(encoded: ArrayRef) -> VortexResult<ZigZagArray> {
+        let dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;
+        let len = encoded.len();
+        let slots = vec![Some(encoded.clone())];
         let data = ZigZagData::try_new(encoded)?;
-        let dtype = ZigZagData::dtype_from_encoded_dtype(data.encoded().dtype())?;
-        let len = data.len();
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(ZigZag, dtype, len, data)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(ZigZag, dtype, len, data).with_slots(slots))
+        })
     }
 }
 
@@ -205,33 +235,7 @@ impl ZigZagData {
 
         Self::dtype_from_encoded_dtype(&encoded_dtype)?;
 
-        Ok(Self {
-            slots: vec![Some(encoded)],
-        })
-    }
-
-    /// Returns the length of the array.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.encoded().len()
-    }
-
-    /// Returns whether the array is empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.encoded().is_empty()
-    }
-
-    pub fn ptype(&self) -> PType {
-        PType::try_from(self.encoded().dtype())
-            .vortex_expect("ZigZagArray encoded dtype")
-            .to_signed()
-    }
-
-    pub fn encoded(&self) -> &ArrayRef {
-        self.slots[ENCODED_SLOT]
-            .as_ref()
-            .vortex_expect("ZigZagArray encoded slot")
+        Ok(Self {})
     }
 }
 
@@ -243,7 +247,7 @@ impl OperationsVTable<ZigZag> for ZigZag {
     ) -> VortexResult<Scalar> {
         let scalar = array.encoded().scalar_at(index)?;
         if scalar.is_null() {
-            return scalar.primitive_reinterpret_cast(array.ptype());
+            return scalar.primitive_reinterpret_cast(ZigZagArrayExt::ptype(&array));
         }
 
         let pscalar = scalar.as_primitive();
@@ -261,8 +265,8 @@ impl OperationsVTable<ZigZag> for ZigZag {
 }
 
 impl ValidityChild<ZigZag> for ZigZag {
-    fn validity_child(array: &ZigZagData) -> &ArrayRef {
-        array.encoded()
+    fn validity_child(array: ArrayView<'_, ZigZag>) -> ArrayRef {
+        array.encoded().clone()
     }
 }
 

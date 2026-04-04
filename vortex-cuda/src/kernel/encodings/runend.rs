@@ -21,7 +21,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArray;
-use vortex::encodings::runend::RunEndDataParts;
+use vortex::encodings::runend::RunEndArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -61,7 +61,8 @@ impl CudaExecute for RunEndExecutor {
 
         let offset = array.offset();
         let output_len = array.len();
-        let RunEndDataParts { ends, values, .. } = array.into_data().into_parts();
+        let ends = array.ends().clone();
+        let values = array.values().clone();
 
         let values_ptype = PType::try_from(values.dtype())?;
         let ends_ptype = PType::try_from(ends.dtype())?;

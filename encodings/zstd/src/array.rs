@@ -191,7 +191,7 @@ impl VTable for Zstd {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<ZstdData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ZstdMetadata::decode(metadata)?;
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
@@ -222,17 +222,15 @@ impl VTable for Zstd {
             )
         };
 
-        Ok(ZstdData::new(
+        let slots = vec![validity_to_child(&validity, len)];
+        let data = ZstdData::new(
             dictionary_buffer,
             compressed_buffers,
             metadata,
             len,
             validity,
-        ))
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        );
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -267,7 +265,10 @@ impl Zstd {
     pub fn try_new(dtype: DType, data: ZstdData) -> VortexResult<ZstdArray> {
         let len = data.len();
         data.validate(&dtype, len)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data)) })
+        let slots = vec![validity_to_child(&data.unsliced_validity, data.unsliced_n_rows)];
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data).with_slots(slots))
+        })
     }
 
     /// Compress a [`VarBinViewArray`] using Zstd without a dictionary.
@@ -323,7 +324,6 @@ pub struct ZstdData {
     pub(crate) metadata: ZstdMetadata,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
-    pub(super) slots: Vec<Option<ArrayRef>>,
     slice_start: usize,
     slice_stop: usize,
 }
@@ -444,14 +444,12 @@ impl ZstdData {
         n_rows: usize,
         validity: Validity,
     ) -> Self {
-        let validity_slot = validity_to_child(&validity, n_rows);
         Self {
             dictionary,
             frames,
             metadata,
             unsliced_validity: validity,
             unsliced_n_rows: n_rows,
-            slots: vec![validity_slot],
             slice_start: 0,
             slice_stop: n_rows,
         }

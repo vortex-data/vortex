@@ -139,7 +139,7 @@ impl VTable for Sparse {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<Self::ArrayData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = SparseMetadata::decode(metadata)?;
 
         // Once we have the patches metadata, we need to get the fill value from the buffers.
@@ -166,20 +166,16 @@ impl VTable for Sparse {
         )?;
         let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
 
-        SparseData::try_new_from_patches(
-            Patches::new(
-                len,
-                metadata.patches.offset()?,
-                patch_indices,
-                patch_values,
-                None,
-            )?,
-            fill_value,
-        )
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        let patches = Patches::new(
+            len,
+            metadata.patches.offset()?,
+            patch_indices,
+            patch_values,
+            None,
+        )?;
+        let slots = SparseData::make_slots(&patches);
+        let data = SparseData::try_new_from_patches(patches, fill_value)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -224,7 +220,6 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
 
 #[derive(Clone, Debug)]
 pub struct SparseData {
-    pub(crate) slots: Vec<Option<ArrayRef>>,
     patches: Patches,
     fill_value: Scalar,
 }
@@ -243,22 +238,37 @@ impl Sparse {
         fill_value: Scalar,
     ) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
+        let slots = SparseData::make_slots(&Patches::new(
+            len,
+            0,
+            indices.clone(),
+            values.clone(),
+            None,
+        )?);
         let data = SparseData::try_new(indices, values, len, fill_value)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
+        })
     }
 
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
         let len = patches.array_len();
+        let slots = SparseData::make_slots(&patches);
         let data = SparseData::try_new_from_patches(patches, fill_value)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
+        })
     }
 
     pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> SparseArray {
         let dtype = fill_value.dtype().clone();
         let len = patches.array_len();
+        let slots = SparseData::make_slots(&patches);
         let data = unsafe { SparseData::new_unchecked(patches, fill_value) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
+        }
     }
 
     /// Encode the given array as a [`SparseArray`].
@@ -382,24 +392,11 @@ impl SparseData {
     /// Build a new SparseArray from an existing set of patches.
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
         let patches = Self::normalize_patches_dtype(patches, &fill_value)?;
-
-        let slots = Self::make_slots(&patches);
-
-        Ok(Self {
-            slots,
-            patches,
-            fill_value,
-        })
+        Ok(Self { patches, fill_value })
     }
 
     pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> Self {
-        let slots = Self::make_slots(&patches);
-
-        Self {
-            slots,
-            patches,
-            fill_value,
-        }
+        Self { patches, fill_value }
     }
 
     /// Returns the length of the array.

@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
 use crate::RLE;
+use crate::rle::RLEArrayExt;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<RLE> =
     ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(RLE))]);

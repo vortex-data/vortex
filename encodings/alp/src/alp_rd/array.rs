@@ -79,7 +79,7 @@ impl VTable for ALPRD {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate_against_outer(dtype, len)
+        data.validate_against_outer(dtype, len, slots)
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -152,7 +152,7 @@ impl VTable for ALPRD {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<ALPRDData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ALPRDMetadata::decode(metadata)?;
         if children.len() < 2 {
             vortex_bail!(
@@ -200,7 +200,8 @@ impl VTable for ALPRD {
             })
             .transpose()?;
 
-        ALPRDData::try_new(
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let data = ALPRDData::try_new(
             dtype.clone(),
             left_parts,
             left_parts_dictionary,
@@ -212,11 +213,8 @@ impl VTable for ALPRD {
                 )
             })?,
             left_parts_patches,
-        )
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        )?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -245,7 +243,7 @@ impl VTable for ALPRD {
             right_parts,
             left_parts_dictionary,
             left_parts_patches,
-        } = array.into_data().into_parts();
+        } = ALPRDArrayOwnedExt::into_data_parts(array);
         let ptype = dtype.as_ptype();
 
         let left_parts = left_parts
@@ -329,7 +327,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
 
 #[derive(Clone, Debug)]
 pub struct ALPRDData {
-    slots: Vec<Option<ArrayRef>>,
     left_parts_patches: Option<Patches>,
     left_parts_dictionary: Buffer<u16>,
     right_bit_width: u8,
@@ -359,6 +356,7 @@ impl ALPRD {
     ) -> VortexResult<ALPRDArray> {
         let len = left_parts.len();
         let logical_dtype = dtype.clone();
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
         let data = ALPRDData::try_new(
             dtype,
             left_parts,
@@ -367,11 +365,11 @@ impl ALPRD {
             right_bit_width,
             left_parts_patches,
         )?;
-        Ok(
-            unsafe {
-                Array::from_parts_unchecked(ArrayParts::new(ALPRD, logical_dtype, len, data))
-            },
-        )
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(ALPRD, logical_dtype, len, data).with_slots(slots),
+            )
+        })
     }
 
     /// # Safety
@@ -386,6 +384,7 @@ impl ALPRD {
     ) -> ALPRDArray {
         let len = left_parts.len();
         let logical_dtype = dtype.clone();
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
         let data = unsafe {
             ALPRDData::new_unchecked(
                 dtype,
@@ -396,7 +395,11 @@ impl ALPRD {
                 left_parts_patches,
             )
         };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(ALPRD, logical_dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(ALPRD, logical_dtype, len, data).with_slots(slots),
+            )
+        }
     }
 }
 
@@ -473,12 +476,17 @@ impl ALPRDData {
         Ok(())
     }
 
-    fn validate_against_outer(&self, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate_against_outer(
+        &self,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         Self::validate_parts(
             dtype,
             len,
-            self.left_parts(),
-            self.right_parts(),
+            left_parts_from_slots(slots),
+            right_parts_from_slots(slots),
             self.left_parts_patches.as_ref(),
         )
     }
@@ -516,10 +524,7 @@ impl ALPRDData {
             left_parts_patches.as_ref(),
         )?;
 
-        let slots = Self::make_slots(&left_parts, &right_parts, &left_parts_patches);
-
         Ok(Self {
-            slots,
             left_parts_patches,
             left_parts_dictionary,
             right_bit_width,
@@ -536,10 +541,9 @@ impl ALPRDData {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> Self {
-        let slots = Self::make_slots(&left_parts, &right_parts, &left_parts_patches);
-
+        drop(left_parts);
+        drop(right_parts);
         Self {
-            slots,
             left_parts_patches,
             left_parts_dictionary,
             right_bit_width,
@@ -569,36 +573,13 @@ impl ALPRDData {
     }
 
     /// Return all the owned parts of the array
-    pub fn into_parts(mut self) -> ALPRDDataParts {
-        let left_parts = self.slots[LEFT_PARTS_SLOT]
-            .take()
-            .vortex_expect("ALPRDArray left_parts slot");
-        let right_parts = self.slots[RIGHT_PARTS_SLOT]
-            .take()
-            .vortex_expect("ALPRDArray right_parts slot");
+    pub fn into_parts(self, left_parts: ArrayRef, right_parts: ArrayRef) -> ALPRDDataParts {
         ALPRDDataParts {
             left_parts,
             left_parts_patches: self.left_parts_patches,
             left_parts_dictionary: self.left_parts_dictionary,
             right_parts,
         }
-    }
-
-    /// The leftmost (most significant) bits of the floating point values stored in the array.
-    ///
-    /// These are bit-packed and dictionary encoded, and cannot directly be interpreted without
-    /// the metadata of this array.
-    pub fn left_parts(&self) -> &ArrayRef {
-        self.slots[LEFT_PARTS_SLOT]
-            .as_ref()
-            .vortex_expect("ALPRDArray left_parts slot")
-    }
-
-    /// The rightmost (least significant) bits of the floating point values stored in the array.
-    pub fn right_parts(&self) -> &ArrayRef {
-        self.slots[RIGHT_PARTS_SLOT]
-            .as_ref()
-            .vortex_expect("ALPRDArray right_parts slot")
     }
 
     #[inline]
@@ -616,27 +597,85 @@ impl ALPRDData {
     pub fn left_parts_dictionary(&self) -> &Buffer<u16> {
         &self.left_parts_dictionary
     }
+}
 
-    pub fn replace_left_parts_patches(&mut self, patches: Option<Patches>) {
-        // Update both the patches and the corresponding slots to keep them in sync.
-        let (pi, pv, pco) = match &patches {
-            Some(p) => (
-                Some(p.indices().clone()),
-                Some(p.values().clone()),
-                p.chunk_offsets().clone(),
-            ),
-            None => (None, None, None),
-        };
-        self.slots[LP_PATCH_INDICES_SLOT] = pi;
-        self.slots[LP_PATCH_VALUES_SLOT] = pv;
-        self.slots[LP_PATCH_CHUNK_OFFSETS_SLOT] = pco;
-        self.left_parts_patches = patches;
+fn left_parts_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
+    slots[LEFT_PARTS_SLOT]
+        .as_ref()
+        .vortex_expect("ALPRDArray left_parts slot")
+}
+
+fn right_parts_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
+    slots[RIGHT_PARTS_SLOT]
+        .as_ref()
+        .vortex_expect("ALPRDArray right_parts slot")
+}
+
+pub trait ALPRDArrayExt {
+    fn alprd_data(&self) -> &ALPRDData;
+    fn alprd_slots(&self) -> &[Option<ArrayRef>];
+
+    fn left_parts(&self) -> &ArrayRef {
+        left_parts_from_slots(self.alprd_slots())
+    }
+
+    fn right_parts(&self) -> &ArrayRef {
+        right_parts_from_slots(self.alprd_slots())
+    }
+
+    fn right_bit_width(&self) -> u8 {
+        self.alprd_data().right_bit_width()
+    }
+
+    fn left_parts_patches(&self) -> Option<Patches> {
+        self.alprd_data().left_parts_patches()
+    }
+
+    fn left_parts_dictionary(&self) -> &Buffer<u16> {
+        self.alprd_data().left_parts_dictionary()
+    }
+}
+
+impl ALPRDArrayExt for Array<ALPRD> {
+    fn alprd_data(&self) -> &ALPRDData {
+        self.data()
+    }
+
+    fn alprd_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl ALPRDArrayExt for ArrayView<'_, ALPRD> {
+    fn alprd_data(&self) -> &ALPRDData {
+        self.data()
+    }
+
+    fn alprd_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+pub trait ALPRDArrayOwnedExt {
+    fn into_data_parts(self) -> ALPRDDataParts;
+}
+
+impl ALPRDArrayOwnedExt for Array<ALPRD> {
+    fn into_data_parts(self) -> ALPRDDataParts {
+        let mut parts = self.into_parts();
+        let left_parts = parts.slots[LEFT_PARTS_SLOT]
+            .take()
+            .vortex_expect("ALPRDArray left_parts slot");
+        let right_parts = parts.slots[RIGHT_PARTS_SLOT]
+            .take()
+            .vortex_expect("ALPRDArray right_parts slot");
+        parts.data.into_parts(left_parts, right_parts)
     }
 }
 
 impl ValidityChild<ALPRD> for ALPRD {
-    fn validity_child(array: &ALPRDData) -> &ArrayRef {
-        array.left_parts()
+    fn validity_child(array: ArrayView<'_, ALPRD>) -> ArrayRef {
+        array.left_parts().clone()
     }
 }
 

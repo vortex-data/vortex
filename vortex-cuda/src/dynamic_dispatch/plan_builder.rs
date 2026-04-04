@@ -16,12 +16,17 @@ use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
+use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::fastlanes::BitPacked;
+use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::FoR;
+use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::runend::RunEnd;
+use vortex::encodings::runend::RunEndArrayExt;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::zigzag::ZigZag;
+use vortex::encodings::zigzag::ZigZagArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -52,7 +57,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
     }
     if id == BitPacked::ID {
-        return array.as_::<BitPacked>().patches(array.len()).is_none();
+        return array.as_::<BitPacked>().patches().is_none();
     }
     if id == Dict::ID {
         let arr = array.as_::<Dict>();
@@ -413,7 +418,7 @@ impl FusedPlan {
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Stage> {
         let bp = array.as_::<BitPacked>();
 
-        if bp.patches(array.len()).is_some() {
+        if bp.patches().is_some() {
             vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
         }
 

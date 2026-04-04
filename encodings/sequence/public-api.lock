@@ -26,15 +26,15 @@ pub type vortex_sequence::Sequence::OperationsVTable = vortex_sequence::Sequence
 
 pub type vortex_sequence::Sequence::ValidityVTable = vortex_sequence::Sequence
 
-pub fn vortex_sequence::Sequence::array_eq(array: &vortex_sequence::SequenceData, other: &vortex_sequence::SequenceData, _precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_sequence::Sequence::array_eq(array: vortex_array::array::view::ArrayView<'_, Self>, other: vortex_array::array::view::ArrayView<'_, Self>, _precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_sequence::Sequence::array_hash<H: core::hash::Hasher>(array: &vortex_sequence::SequenceData, state: &mut H, _precision: vortex_array::hash::Precision)
+pub fn vortex_sequence::Sequence::array_hash<H: core::hash::Hasher>(array: vortex_array::array::view::ArrayView<'_, Self>, state: &mut H, _precision: vortex_array::hash::Precision)
 
 pub fn vortex_sequence::Sequence::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_sequence::Sequence::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_sequence::Sequence::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::ArrayData>
+pub fn vortex_sequence::Sequence::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
 
 pub fn vortex_sequence::Sequence::execute(array: vortex_array::array::typed::Array<Self>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
@@ -52,9 +52,7 @@ pub fn vortex_sequence::Sequence::slot_name(_array: vortex_array::array::view::A
 
 pub fn vortex_sequence::Sequence::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
 
-pub fn vortex_sequence::Sequence::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
-
-pub fn vortex_sequence::Sequence::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> vortex_error::VortexResult<()>
+pub fn vortex_sequence::Sequence::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 

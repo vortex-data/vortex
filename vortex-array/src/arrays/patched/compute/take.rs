@@ -10,6 +10,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Patched;
+use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::primitive::PrimitiveDataParts;
@@ -39,7 +40,7 @@ impl TakeExecute for Patched {
             buffer,
             validity,
             ptype,
-        } = inner.into_data().into_parts();
+        } = inner.into_data_parts();
 
         let indices_ptype = indices.dtype().as_ptype();
 
@@ -62,9 +63,9 @@ impl TakeExecute for Patched {
                 take_map(
                     output.as_mut(),
                     indices.as_slice::<I>(),
-                    array.offset,
+                    array.offset(),
                     array.len(),
-                    array.n_lanes,
+                    array.n_lanes(),
                     lane_offsets.as_slice::<u32>(),
                     patch_indices.as_slice::<u16>(),
                     patch_values.as_slice::<V>(),

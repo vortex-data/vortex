@@ -139,7 +139,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         sizes,
         validity,
         ..
-    } = array.into_data().into_parts();
+    } = array.into_data_parts();
 
     // For ZCTL, we know that we only care about the final size.
     assert!(!sizes.is_empty());

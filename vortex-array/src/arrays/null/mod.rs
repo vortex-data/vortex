@@ -92,20 +92,25 @@ impl VTable for Null {
 
     fn deserialize(
         &self,
-        _dtype: &DType,
-        _len: usize,
+        dtype: &DType,
+        len: usize,
         metadata: &[u8],
 
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<NullData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             metadata.is_empty(),
             "NullArray expects empty metadata, got {} bytes",
             metadata.len()
         );
-        Ok(NullData::new())
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            NullData::new(),
+        ))
     }
 
     fn reduce_parent(

@@ -15,6 +15,7 @@ use crate::IntoArray;
 use crate::aggregate_fn;
 use crate::array::ArrayView;
 use crate::arrays::Primitive;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::NativePType;

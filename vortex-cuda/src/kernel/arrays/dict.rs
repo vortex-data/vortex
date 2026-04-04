@@ -16,7 +16,6 @@ use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::decimal::DecimalDataParts;
-use vortex::array::arrays::dict::DictDataParts;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
@@ -65,7 +64,8 @@ impl CudaExecute for DictExecutor {
 
 #[expect(clippy::cognitive_complexity)]
 async fn execute_dict_prim(dict: DictArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-    let DictDataParts { values, codes, .. } = dict.into_data().into_parts();
+    let values = dict.values().clone();
+    let codes = dict.codes().clone();
 
     // Execute both children to get them as primitives on the device
     let values_canonical = values.execute_cuda(ctx).await?;
@@ -144,7 +144,8 @@ async fn execute_dict_decimal(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
     let dtype = dict.dtype().clone();
-    let DictDataParts { values, codes, .. } = dict.into_data().into_parts();
+    let values = dict.values().clone();
+    let codes = dict.codes().clone();
 
     // Execute codes to get them as primitives on the device
     let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
@@ -231,7 +232,8 @@ async fn execute_dict_varbinview(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
     let dtype = dict.dtype().clone();
-    let DictDataParts { values, codes, .. } = dict.into_data().into_parts();
+    let values = dict.values().clone();
+    let codes = dict.codes().clone();
 
     let codes_prim = codes.execute_cuda(ctx).await?.into_primitive();
     let codes_ptype = codes_prim.ptype();
@@ -243,7 +245,7 @@ async fn execute_dict_varbinview(
         buffers: values_data_buffers,
         validity: values_validity,
         ..
-    } = values_vbv.into_data().into_parts();
+    } = values_vbv.into_data_parts();
     let output_validity = values_validity.take(&codes_prim.clone().into_array())?;
 
     let PrimitiveDataParts {

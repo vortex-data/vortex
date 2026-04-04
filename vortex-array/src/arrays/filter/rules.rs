@@ -75,7 +75,7 @@ impl ArrayReduceRule<Filter> for FilterStructRule {
             struct_fields,
             validity,
             ..
-        } = struct_array.into_owned().into_data().into_parts();
+        } = struct_array.into_owned().into_data_parts();
 
         let filtered_validity = validity.filter(mask)?;
 

@@ -127,13 +127,13 @@ impl VTable for Constant {
     fn deserialize(
         &self,
         dtype: &DType,
-        _len: usize,
+        len: usize,
         _metadata: &[u8],
 
         buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<ConstantData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_ensure!(
             buffers.len() == 1,
             "Expected 1 buffer, got {}",
@@ -146,7 +146,12 @@ impl VTable for Constant {
         let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
         let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        Ok(ConstantData::new(scalar))
+        Ok(crate::array::ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            ConstantData::new(scalar),
+        ))
     }
 
     fn reduce_parent(

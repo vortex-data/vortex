@@ -13,6 +13,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::FoR;
+use crate::r#for::array::FoRArrayExt;
 
 pub(super) const PARENT_RULES: ParentRuleSet<FoR> = ParentRuleSet::new(&[
     // TODO: add BetweenReduceAdaptor(FoR)

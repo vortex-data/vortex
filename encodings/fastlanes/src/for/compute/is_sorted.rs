@@ -15,6 +15,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::FoR;
+use crate::r#for::array::FoRArrayExt;
 
 #[derive(Debug)]
 pub(crate) struct FoRIsSortedKernel;

@@ -6,7 +6,9 @@ use std::ops::Range;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::arrays::chunked::ChunkedData;
+use crate::array::Array;
+use crate::array::ArrayView;
+use crate::arrays::Chunked;
 
 pub(crate) struct AlignedPair {
     pub left: ArrayRef,
@@ -67,8 +69,24 @@ pub(crate) struct PairedChunks {
     total_len: usize,
 }
 
-impl ChunkedData {
-    pub(crate) fn paired_chunks(&self, other: &ChunkedData) -> PairedChunks {
+impl Array<Chunked> {
+    pub(crate) fn paired_chunks(&self, other: &Array<Chunked>) -> PairedChunks {
+        assert_eq!(
+            self.len(),
+            other.len(),
+            "paired_chunks requires arrays of equal length"
+        );
+        PairedChunks {
+            left: ChunkCursor::new(self.chunks()),
+            right: ChunkCursor::new(other.chunks()),
+            pos: 0,
+            total_len: self.len(),
+        }
+    }
+}
+
+impl ArrayView<'_, Chunked> {
+    pub(crate) fn paired_chunks(&self, other: &ArrayView<'_, Chunked>) -> PairedChunks {
         assert_eq!(
             self.len(),
             other.len(),

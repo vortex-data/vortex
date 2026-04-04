@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::ChunkedData;
+pub use array::ChunkedArrayExt;
 pub use vtable::ChunkedArray;
 
 pub(crate) mod compute;

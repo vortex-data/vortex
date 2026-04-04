@@ -350,7 +350,7 @@ impl ArrayRef {
     /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
     pub fn as_typed<V: VTable>(&self) -> Option<ArrayView<'_, V>> {
         let inner = self.0.as_any().downcast_ref::<ArrayInner<V>>()?;
-        Some(unsafe { ArrayView::new_unchecked(self, &inner.data, &inner.slots) })
+        Some(unsafe { ArrayView::new_unchecked(self, &inner.data) })
     }
 
     /// Returns the constant scalar if this is a constant array.
@@ -385,16 +385,37 @@ impl ArrayRef {
 
     /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
     ///
+    /// This is only valid for physical rewrites: the replacement must have the same logical
+    /// `DType` and `len` as the existing slot.
+    ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
     pub fn with_slot(self, slot_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
-        let nslots = self.slots().len();
+        let slots = self.slots();
+        let nslots = slots.len();
         vortex_ensure!(
             slot_idx < nslots,
             "slot index {} out of bounds for array with {} slots",
             slot_idx,
             nslots
         );
-        let mut slots = self.slots().to_vec();
+        let existing = slots[slot_idx]
+            .as_ref()
+            .vortex_expect("with_slot cannot replace an absent slot");
+        vortex_ensure!(
+            existing.dtype() == replacement.dtype(),
+            "slot {} dtype changed from {} to {} during physical rewrite",
+            slot_idx,
+            existing.dtype(),
+            replacement.dtype()
+        );
+        vortex_ensure!(
+            existing.len() == replacement.len(),
+            "slot {} len changed from {} to {} during physical rewrite",
+            slot_idx,
+            existing.len(),
+            replacement.len()
+        );
+        let mut slots = slots;
         slots[slot_idx] = Some(replacement);
         let vtable = self.vtable().clone_boxed();
         vtable.with_slots(self, slots)
@@ -517,6 +538,6 @@ impl<V: VTable> Matcher for V {
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
         let inner = array.0.as_any().downcast_ref::<ArrayInner<V>>()?;
-        Some(unsafe { ArrayView::new_unchecked(array, &inner.data, &inner.slots) })
+        Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
     }
 }

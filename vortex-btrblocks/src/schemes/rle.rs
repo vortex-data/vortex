@@ -24,6 +24,7 @@ use vortex_error::VortexResult;
 #[cfg(feature = "unstable_encodings")]
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::RLE;
+use vortex_fastlanes::RLEArrayExt;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;

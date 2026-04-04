@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::FastLanes;
+use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -62,7 +64,47 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 #[derive(Clone, Debug)]
 pub struct DeltaData {
     pub(super) offset: usize,
-    pub(super) slots: Vec<Option<ArrayRef>>,
+}
+
+pub trait DeltaArrayExt {
+    fn delta_data(&self) -> &DeltaData;
+    fn as_slots(&self) -> &[Option<ArrayRef>];
+
+    fn bases(&self) -> &ArrayRef {
+        self.as_slots()[BASES_SLOT]
+            .as_ref()
+            .vortex_expect("DeltaArray bases slot")
+    }
+
+    fn deltas(&self) -> &ArrayRef {
+        self.as_slots()[DELTAS_SLOT]
+            .as_ref()
+            .vortex_expect("DeltaArray deltas slot")
+    }
+
+    fn offset(&self) -> usize {
+        self.delta_data().offset
+    }
+}
+
+impl DeltaArrayExt for Array<crate::Delta> {
+    fn delta_data(&self) -> &DeltaData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl DeltaArrayExt for ArrayView<'_, crate::Delta> {
+    fn delta_data(&self) -> &DeltaData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
 }
 
 impl DeltaData {
@@ -80,12 +122,17 @@ impl DeltaData {
         Ok(unsafe { Self::new_unchecked(bases, deltas, offset) })
     }
 
-    pub(crate) fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
-        Self::validate_parts(self.bases(), self.deltas(), self.offset, len)?;
-        let expected_dtype = self
-            .bases()
+    pub(crate) fn validate_against_slots(
+        &self,
+        bases: &ArrayRef,
+        deltas: &ArrayRef,
+        dtype: &DType,
+        len: usize,
+    ) -> VortexResult<()> {
+        Self::validate_parts(bases, deltas, self.offset, len)?;
+        let expected_dtype = bases
             .dtype()
-            .with_nullability(self.deltas().dtype().nullability());
+            .with_nullability(deltas.dtype().nullability());
         vortex_ensure!(
             dtype == &expected_dtype,
             "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"
@@ -134,38 +181,8 @@ impl DeltaData {
     }
 
     pub(crate) unsafe fn new_unchecked(bases: ArrayRef, deltas: ArrayRef, offset: usize) -> Self {
-        Self {
-            offset,
-            slots: vec![Some(bases), Some(deltas)],
-        }
-    }
-
-    #[inline]
-    pub fn bases(&self) -> &ArrayRef {
-        self.slots[BASES_SLOT]
-            .as_ref()
-            .vortex_expect("DeltaArray bases slot")
-    }
-
-    #[inline]
-    pub fn deltas(&self) -> &ArrayRef {
-        self.slots[DELTAS_SLOT]
-            .as_ref()
-            .vortex_expect("DeltaArray deltas slot")
-    }
-
-    #[inline]
-    /// The logical offset into the first chunk of [`Self::deltas`].
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
-
-    pub(crate) fn bases_len(&self) -> usize {
-        self.bases().len()
-    }
-
-    pub(crate) fn deltas_len(&self) -> usize {
-        self.deltas().len()
+        drop((bases, deltas));
+        Self { offset }
     }
 }
 

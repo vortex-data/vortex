@@ -224,7 +224,7 @@ mod test {
         let values = (0..u16::MAX as u32 + num_patches as u32).collect::<Buffer<_>>();
         let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let packed = BitPackedData::encode(&uncompressed.into_array(), 16).unwrap();
-        assert!(packed.patches(packed.len()).is_some());
+        assert!(packed.patches().is_some());
 
         let rng = rng();
         let range = Uniform::new(0, values.len()).unwrap();

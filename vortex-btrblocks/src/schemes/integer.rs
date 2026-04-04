@@ -19,6 +19,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_fastlanes::FoR;
+use vortex_fastlanes::FoRArrayExt;
+use vortex_fastlanes::BitPackedArrayExt;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
@@ -27,6 +29,7 @@ use vortex_runend::compress::runend_encode;
 use vortex_sequence::sequence_encode;
 use vortex_sparse::Sparse;
 use vortex_zigzag::ZigZag;
+use vortex_zigzag::ZigZagArrayExt;
 use vortex_zigzag::zigzag_encode;
 
 use crate::ArrayAndStats;
@@ -339,11 +342,9 @@ impl Scheme for BitPackingScheme {
         let ptype = packed.dtype().as_ptype();
         let len = packed.len();
         let nullability = packed.dtype().nullability();
-        let mut packed_data = packed.into_data();
-
-        let patches = packed_data.patches(len).map(compress_patches).transpose()?;
-        packed_data.replace_patches(patches);
-        let parts = packed_data.into_parts(len, nullability);
+        let patches = packed.patches().map(compress_patches).transpose()?;
+        let mut parts = packed.into_data().into_parts(len, nullability);
+        parts.patches = patches;
 
         Ok(vortex_fastlanes::BitPacked::try_new(
             parts.packed,

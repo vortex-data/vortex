@@ -19,6 +19,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::array::validity_to_child;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::array::CHILD_SLOT;
 use crate::arrays::masked::MaskedData;
@@ -112,7 +113,7 @@ impl VTable for Masked {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<MaskedData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "MaskedArray expects empty metadata, got {} bytes",
@@ -138,7 +139,12 @@ impl VTable for Masked {
             Validity::from(dtype.nullability())
         };
 
-        MaskedData::try_new(child, validity)
+        let validity_slot = validity_to_child(&validity, len);
+        let data = MaskedData::try_new(child.clone(), validity)?;
+        Ok(
+            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
+                .with_slots(vec![Some(child), validity_slot]),
+        )
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

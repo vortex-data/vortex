@@ -11,6 +11,7 @@ use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
+use crate::ALPRDArrayExt;
 
 impl MaskReduce for ALPRD {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

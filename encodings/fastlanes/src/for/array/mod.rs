@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
@@ -23,25 +25,52 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
 /// storage requirements when values are clustered around a specific point.
 #[derive(Clone, Debug)]
 pub struct FoRData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) reference: Scalar,
+}
+
+pub trait FoRArrayExt {
+    fn for_data(&self) -> &FoRData;
+    fn as_slots(&self) -> &[Option<ArrayRef>];
+
+    fn encoded(&self) -> &ArrayRef {
+        self.as_slots()[ENCODED_SLOT]
+            .as_ref()
+            .vortex_expect("FoRArray encoded slot")
+    }
+
+    fn reference_scalar(&self) -> &Scalar {
+        &self.for_data().reference
+    }
+}
+
+impl FoRArrayExt for Array<crate::FoR> {
+    fn for_data(&self) -> &FoRData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl FoRArrayExt for ArrayView<'_, crate::FoR> {
+    fn for_data(&self) -> &FoRData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
 }
 
 impl FoRData {
     pub(crate) fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<Self> {
         Self::validate_parts(&encoded, &reference, reference.dtype(), encoded.len())?;
 
-        Ok(Self {
-            slots: vec![Some(encoded)],
-            reference,
-        })
+        Ok(Self { reference })
     }
 
-    pub(crate) fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
-        Self::validate_parts(self.encoded(), &self.reference, dtype, len)
-    }
-
-    fn validate_parts(
+    pub(crate) fn validate_parts(
         encoded: &ArrayRef,
         reference: &Scalar,
         dtype: &DType,
@@ -67,38 +96,8 @@ impl FoRData {
         Ok(())
     }
 
-    /// Returns the length of the array.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.encoded().len()
-    }
-
-    /// Returns `true` if the array is empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.encoded().is_empty()
-    }
-
-    /// Returns the dtype of the array.
-    #[inline]
-    pub fn dtype(&self) -> &DType {
-        self.reference.dtype()
-    }
-
     #[inline]
     pub fn ptype(&self) -> PType {
-        self.dtype().as_ptype()
-    }
-
-    #[inline]
-    pub fn encoded(&self) -> &ArrayRef {
-        self.slots[ENCODED_SLOT]
-            .as_ref()
-            .vortex_expect("FoRArray encoded slot")
-    }
-
-    #[inline]
-    pub fn reference_scalar(&self) -> &Scalar {
-        &self.reference
+        self.reference.dtype().as_ptype()
     }
 }

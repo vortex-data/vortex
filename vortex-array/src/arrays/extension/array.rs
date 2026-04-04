@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::array::Array;
+use crate::array::ArrayView;
 use crate::array::ArrayParts;
 use crate::arrays::Extension;
 use crate::dtype::DType;
@@ -58,7 +59,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["storage"];
 pub struct ExtensionData {
     /// The storage dtype. This **must** be a [`Extension::DType`] variant.
     pub(super) ext_dtype: ExtDTypeRef,
-    pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
 impl ExtensionData {
@@ -110,38 +110,50 @@ impl ExtensionData {
 
         Self {
             ext_dtype,
-            slots: vec![Some(storage_array)],
         }
-    }
-
-    /// Returns the length of this array.
-    pub fn len(&self) -> usize {
-        self.storage_array().len()
-    }
-
-    /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> DType {
-        DType::Extension(self.ext_dtype.clone())
-    }
-
-    /// Returns `true` if this array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     /// The extension dtype of this array.
     pub fn ext_dtype(&self) -> &ExtDTypeRef {
         &self.ext_dtype
     }
+}
 
-    pub fn storage_array(&self) -> &ArrayRef {
-        self.slots[STORAGE_SLOT]
+pub trait ExtensionArrayExt {
+    fn extension_data(&self) -> &ExtensionData;
+    fn storage_array(&self) -> &ArrayRef;
+}
+
+impl ExtensionArrayExt for Array<Extension> {
+    fn extension_data(&self) -> &ExtensionData {
+        self.data()
+    }
+
+    fn storage_array(&self) -> &ArrayRef {
+        self.slots()[STORAGE_SLOT]
+            .as_ref()
+            .vortex_expect("ExtensionArray storage slot")
+    }
+}
+
+impl ExtensionArrayExt for ArrayView<'_, Extension> {
+    fn extension_data(&self) -> &ExtensionData {
+        self.data()
+    }
+
+    fn storage_array(&self) -> &ArrayRef {
+        self.slots()[STORAGE_SLOT]
             .as_ref()
             .vortex_expect("ExtensionArray storage slot")
     }
 }
 
 impl Array<Extension> {
+    #[inline]
+    pub fn storage_array(&self) -> &ArrayRef {
+        ExtensionArrayExt::storage_array(self)
+    }
+
     /// Constructs a new `ExtensionArray`.
     ///
     /// # Panics
@@ -150,15 +162,32 @@ impl Array<Extension> {
     pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
         let dtype = DType::Extension(ext_dtype.clone());
         let len = storage_array.len();
-        let data = ExtensionData::new(ext_dtype, storage_array);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Extension, dtype, len, data)) }
+        let data = ExtensionData::new(ext_dtype, storage_array.clone());
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Extension, dtype, len, data)
+                    .with_slots(vec![Some(storage_array)]),
+            )
+        }
     }
 
     /// Tries to construct a new `ExtensionArray`.
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
         let dtype = DType::Extension(ext_dtype.clone());
         let len = storage_array.len();
-        let data = ExtensionData::try_new(ext_dtype, storage_array)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Extension, dtype, len, data)) })
+        let data = ExtensionData::try_new(ext_dtype, storage_array.clone())?;
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Extension, dtype, len, data)
+                    .with_slots(vec![Some(storage_array)]),
+            )
+        })
+    }
+}
+
+impl ArrayView<'_, Extension> {
+    #[inline]
+    pub fn storage_array(&self) -> &ArrayRef {
+        ExtensionArrayExt::storage_array(self)
     }
 }

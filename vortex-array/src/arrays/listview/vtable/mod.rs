@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use prost::Message;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -16,6 +19,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewData;
 use crate::arrays::listview::array::NUM_SLOTS;
 use crate::arrays::listview::array::SLOT_NAMES;
@@ -64,14 +68,16 @@ impl VTable for ListView {
         array.elements().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
         array.sizes().array_hash(state, precision);
-        array.data().validity().array_hash(state, precision);
+        array.listview_validity().array_hash(state, precision);
     }
 
     fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.elements().array_eq(other.elements(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
             && array.sizes().array_eq(other.sizes(), precision)
-            && array.data().validity().array_eq(&other.data().validity(), precision)
+            && array
+                .listview_validity()
+                .array_eq(&other.listview_validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -97,15 +103,25 @@ impl VTable for ListView {
         ))
     }
 
-    fn validate(&self, data: &ListViewData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+    fn validate(&self, _data: &ListViewData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+        vortex_ensure!(slots.len() == NUM_SLOTS, "ListViewArray expected {NUM_SLOTS} slots, found {}", slots.len());
+        let elements = slots[crate::arrays::listview::array::ELEMENTS_SLOT]
+            .as_ref()
+            .vortex_expect("ListViewArray elements slot");
+        let offsets = slots[crate::arrays::listview::array::OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("ListViewArray offsets slot");
+        let sizes = slots[crate::arrays::listview::array::SIZES_SLOT]
+            .as_ref()
+            .vortex_expect("ListViewArray sizes slot");
         vortex_ensure!(
-            data.len() == len,
+            offsets.len() == len && sizes.len() == len,
             "ListViewArray length {} does not match outer length {}",
-            data.len(),
+            offsets.len(),
             len
         );
 
-        let actual_dtype = data.dtype();
+        let actual_dtype = DType::List(Arc::new(elements.dtype().clone()), dtype.nullability());
         vortex_ensure!(
             &actual_dtype == dtype,
             "ListViewArray dtype {} does not match outer dtype {}",
@@ -125,7 +141,7 @@ impl VTable for ListView {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<ListViewData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         let metadata = ListViewMetadata::decode(metadata)?;
         vortex_ensure!(
             buffers.is_empty(),
@@ -169,11 +185,9 @@ impl VTable for ListView {
             len,
         )?;
 
-        ListViewData::try_new(elements, offsets, sizes, validity)
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        let data = ListViewData::try_new(elements.clone(), offsets.clone(), sizes.clone(), validity.clone())?;
+        let slots = ListViewData::make_slots(elements, offsets, sizes, &validity, len);
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

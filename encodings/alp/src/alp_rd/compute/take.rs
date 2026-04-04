@@ -11,6 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
+use crate::ALPRDArrayExt;
 
 impl TakeExecute for ALPRD {
     fn take(

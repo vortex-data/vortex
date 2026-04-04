@@ -8,8 +8,6 @@ use vortex_buffer::buffer;
 
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
-use crate::array::ArrayParts;
-use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ListArray;
@@ -34,6 +32,33 @@ fn chunked_array() -> ChunkedArray {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap()
+}
+
+#[test]
+fn with_slot_rewrites_chunk_and_offsets() {
+    let array = chunked_array().into_array();
+
+    let replacement = buffer![10u64, 11, 12].into_array();
+    let array = array.with_slot(1, replacement).unwrap();
+    let array = array.as_::<Chunked>();
+
+    assert_eq!(array.nchunks(), 3);
+    assert_eq!(array.chunk_offsets(), buffer![0u64, 3, 6, 9]);
+    assert_arrays_eq!(array.chunk(0).clone(), PrimitiveArray::from_iter([10u64, 11, 12]));
+    assert_arrays_eq!(
+        array.array().clone(),
+        PrimitiveArray::from_iter([10u64, 11, 12, 4, 5, 6, 7, 8, 9])
+    );
+}
+
+#[test]
+fn with_slot_rejects_len_mismatch() {
+    let err = chunked_array()
+        .into_array()
+        .with_slot(1, buffer![10u64, 11].into_array())
+        .unwrap_err();
+
+    assert!(err.to_string().contains("physical rewrite"));
 }
 
 #[test]
@@ -197,5 +222,3 @@ pub fn pack_nested_lists() {
     assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
     assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
 }
-
-#[test]

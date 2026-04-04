@@ -68,7 +68,7 @@ fn export_canonical(
                 let len = primitive.len();
                 let PrimitiveDataParts {
                     buffer, validity, ..
-                } = primitive.into_data().into_parts();
+                } = primitive.into_data_parts();
 
                 check_validity_empty(&validity)?;
 
@@ -95,7 +95,7 @@ fn export_canonical(
                     values_type,
                     validity,
                     ..
-                } = decimal.into_data().into_parts();
+                } = decimal.into_data_parts();
 
                 // verify that there is no null buffer
                 check_validity_empty(&validity)?;
@@ -120,7 +120,7 @@ fn export_canonical(
 
                 let PrimitiveDataParts {
                     buffer, validity, ..
-                } = values.into_data().into_parts();
+                } = values.into_data_parts();
 
                 check_validity_empty(&validity)?;
 
@@ -128,11 +128,11 @@ fn export_canonical(
                 export_fixed_size(buffer, len, 0, ctx)
             }
             Canonical::Bool(bool_array) => {
+                let validity = bool_array.validity()?;
                 let BoolDataParts {
                     bits,
                     offset,
                     len,
-                    validity,
                     ..
                 } = bool_array.into_data().into_parts();
 
@@ -184,7 +184,7 @@ async fn export_struct(
     let len = array.len();
     let StructDataParts {
         validity, fields, ..
-    } = array.into_data().into_parts();
+    } = array.into_data_parts();
 
     check_validity_empty(&validity)?;
 

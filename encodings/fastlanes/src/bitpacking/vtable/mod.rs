@@ -29,10 +29,11 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
+use vortex_array::vtable::child_to_validity;
+use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -42,7 +43,6 @@ use crate::BitPackedData;
 use crate::BitPackedDataParts;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
-use crate::bitpacking::array::NUM_SLOTS;
 use crate::bitpacking::array::PATCH_CHUNK_OFFSETS_SLOT;
 use crate::bitpacking::array::PATCH_INDICES_SLOT;
 use crate::bitpacking::array::PATCH_VALUES_SLOT;
@@ -84,7 +84,26 @@ impl VTable for BitPacked {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate_against_outer(dtype, len)
+        let validity = child_to_validity(&slots[VALIDITY_SLOT].clone(), dtype.nullability());
+        let patches = match (&slots[PATCH_INDICES_SLOT], &slots[PATCH_VALUES_SLOT]) {
+            (Some(indices), Some(values)) => {
+                let patch_offset = data
+                    .patch_offset
+                    .vortex_expect("has patch slots but no patch_offset");
+                Some(unsafe {
+                    Patches::new_unchecked(
+                        len,
+                        patch_offset,
+                        indices.clone(),
+                        values.clone(),
+                        slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                        data.patch_offset_within_chunk,
+                    )
+                })
+            }
+            _ => None,
+        };
+        data.validate_against_slots(dtype, len, &validity, patches.as_ref())
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -185,10 +204,6 @@ impl VTable for BitPacked {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
-    }
-
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
         array.slots()
     }
@@ -219,7 +234,7 @@ impl VTable for BitPacked {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<BitPackedData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = BitPackedMetadata::decode(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -264,7 +279,19 @@ impl VTable for BitPacked {
             })
             .transpose()?;
 
-        BitPackedData::try_new(
+        let slots = {
+            let (pi, pv, pco) = match &patches {
+                Some(p) => (
+                    Some(p.indices().clone()),
+                    Some(p.values().clone()),
+                    p.chunk_offsets().clone(),
+                ),
+                None => (None, None, None),
+            };
+            let validity_slot = validity_to_child(&validity, len);
+            vec![pi, pv, pco, validity_slot]
+        };
+        let data = BitPackedData::try_new(
             packed,
             PType::try_from(dtype)?,
             validity,
@@ -282,7 +309,8 @@ impl VTable for BitPacked {
                     metadata.offset
                 )
             })?,
-        )
+        )?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn append_to_builder(
@@ -348,15 +376,38 @@ impl BitPacked {
         offset: u16,
     ) -> VortexResult<BitPackedArray> {
         let dtype = DType::Primitive(ptype, validity.nullability());
+        let slots = {
+            let (pi, pv, pco) = match &patches {
+                Some(p) => (
+                    Some(p.indices().clone()),
+                    Some(p.values().clone()),
+                    p.chunk_offsets().clone(),
+                ),
+                None => (None, None, None),
+            };
+            let validity_slot = validity_to_child(&validity, len);
+            vec![pi, pv, pco, validity_slot]
+        };
         let data =
             BitPackedData::try_new(packed, ptype, validity, patches, bit_width, len, offset)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(BitPacked, dtype, len, data)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
+        })
     }
 
     pub fn into_parts(array: BitPackedArray) -> BitPackedDataParts {
         let len = array.len();
-        let nullability = array.dtype().nullability();
-        array.into_data().into_parts(len, nullability)
+        let patches = array.patches();
+        let validity = array.validity().vortex_expect("BitPacked validity");
+        let data = array.into_data();
+        BitPackedDataParts {
+            offset: data.offset,
+            bit_width: data.bit_width,
+            len,
+            packed: data.packed,
+            patches,
+            validity,
+        }
     }
 
     /// Encode an array into a bitpacked representation with the given bit width.

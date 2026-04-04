@@ -288,7 +288,7 @@ pub fn runend_decode_varbinview(
         )
     });
 
-    let parts = values.into_data().into_parts();
+    let parts = values.into_data_parts();
     let view_handle = BufferHandle::new_host(decoded_views.into_byte_buffer());
 
     // SAFETY: we are expanding views from a valid VarBinViewArray with the same

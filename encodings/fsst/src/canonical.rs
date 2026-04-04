@@ -19,13 +19,13 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::FSST;
-use crate::FSSTData;
+use crate::FSSTArrayExt;
 
 pub(super) fn canonicalize_fsst(
     array: ArrayView<'_, FSST>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let (buffers, views) = fsst_decode_views(array.data(), 0, ctx)?;
+    let (buffers, views) = fsst_decode_views(array, 0, ctx)?;
     // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
     //  top of them, so the view pointers will all be valid.
     Ok(unsafe {
@@ -40,7 +40,7 @@ pub(super) fn canonicalize_fsst(
 }
 
 pub(crate) fn fsst_decode_views(
-    fsst_array: &FSSTData,
+    fsst_array: ArrayView<'_, FSST>,
     start_buf_index: u32,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {

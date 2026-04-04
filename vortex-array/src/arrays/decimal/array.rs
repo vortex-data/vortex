@@ -16,6 +16,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Decimal;
@@ -98,7 +99,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// ```
 #[derive(Clone, Debug)]
 pub struct DecimalData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) decimal_dtype: DecimalDType,
     pub(super) nullability: Nullability,
     pub(super) values: BufferHandle,
@@ -110,6 +110,39 @@ pub struct DecimalDataParts {
     pub values: BufferHandle,
     pub values_type: DecimalType,
     pub validity: Validity,
+}
+
+pub trait DecimalArrayExt {
+    fn decimal_data(&self) -> &DecimalData;
+    fn as_slots(&self) -> &[Option<ArrayRef>];
+
+    fn validity_child(&self) -> Option<&ArrayRef> {
+        self.as_slots()[VALIDITY_SLOT].as_ref()
+    }
+
+    fn validity(&self) -> Validity {
+        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.decimal_data().nullability)
+    }
+}
+
+impl DecimalArrayExt for Array<Decimal> {
+    fn decimal_data(&self) -> &DecimalData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl DecimalArrayExt for ArrayView<'_, Decimal> {
+    fn decimal_data(&self) -> &DecimalData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
 }
 
 impl DecimalData {
@@ -240,7 +273,6 @@ impl DecimalData {
 
         let len = values.len() / values_type.byte_width();
         Self {
-            slots: Self::make_slots(&validity, len),
             values,
             values_type,
             decimal_dtype,
@@ -310,18 +342,12 @@ impl DecimalData {
         self.len() == 0
     }
 
-    /// Reconstructs the validity from the slot state.
-    pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
-    }
-
     pub fn into_parts(self) -> DecimalDataParts {
-        let validity = self.validity();
         DecimalDataParts {
             decimal_dtype: self.decimal_dtype,
             values: self.values,
             values_type: self.values_type,
-            validity,
+            validity: Validity::from(self.nullability),
         }
     }
 
@@ -398,43 +424,18 @@ impl DecimalData {
             Validity::from(validity.freeze()),
         )
     }
+}
 
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "complexity from nested match_each_* macros"
-    )]
-    pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let offset = patches.offset();
-        let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-        let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
-
-        let patch_validity = patch_values.validity()?;
-        let patched_validity = self.validity().patch(
-            self.len(),
-            offset,
-            &patch_indices.clone().into_array(),
-            &patch_validity,
-            ctx,
-        )?;
-        assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
-
-        Ok(match_each_integer_ptype!(patch_indices.ptype(), |I| {
-            let patch_indices = patch_indices.as_slice::<I>();
-            match_each_decimal_value_type!(patch_values.values_type(), |PatchDVT| {
-                let patch_values = patch_values.buffer::<PatchDVT>();
-                match_each_decimal_value_type!(self.values_type(), |ValuesDVT| {
-                    let buffer = self.buffer::<ValuesDVT>().into_mut();
-                    patch_typed(
-                        buffer,
-                        self.decimal_dtype(),
-                        patch_indices,
-                        offset,
-                        patch_values,
-                        patched_validity,
-                    )
-                })
-            })
-        }))
+impl Array<Decimal> {
+    pub fn into_data_parts(self) -> DecimalDataParts {
+        let validity = DecimalArrayExt::validity(&self);
+        let data = self.into_data();
+        DecimalDataParts {
+            decimal_dtype: data.decimal_dtype,
+            values: data.values,
+            values_type: data.values_type,
+            validity,
+        }
     }
 }
 
@@ -447,8 +448,11 @@ impl Array<Decimal> {
     ) -> Self {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = buffer.len();
+        let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::new(buffer, decimal_dtype, validity);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        }
     }
 
     /// Creates a new [`DecimalArray`] without validation.
@@ -463,8 +467,11 @@ impl Array<Decimal> {
     ) -> Self {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = buffer.len();
+        let slots = DecimalData::make_slots(&validity, len);
         let data = unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        }
     }
 
     /// Creates a new [`DecimalArray`] from a host-native buffer with validation.
@@ -475,8 +482,11 @@ impl Array<Decimal> {
     ) -> VortexResult<Self> {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = buffer.len();
+        let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new(buffer, decimal_dtype, validity)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        })
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.
@@ -491,7 +501,10 @@ impl Array<Decimal> {
         let data = DecimalData::from_iter(iter, decimal_dtype);
         let dtype = data.dtype();
         let len = data.len();
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
+        let slots = DecimalData::make_slots(&Validity::from(dtype.nullability()), len);
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        }
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of optional values.
@@ -502,7 +515,10 @@ impl Array<Decimal> {
         let data = DecimalData::from_option_iter(iter, decimal_dtype);
         let dtype = data.dtype();
         let len = data.len();
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
+        let slots = DecimalData::make_slots(&Validity::from(dtype.nullability()), len);
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        }
     }
 
     /// Creates a new [`DecimalArray`] from a [`BufferHandle`].
@@ -514,8 +530,11 @@ impl Array<Decimal> {
     ) -> Self {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = values.len() / values_type.byte_width();
+        let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::new_handle(values, values_type, decimal_dtype, validity);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        }
     }
 
     /// Creates a new [`DecimalArray`] without validation from a [`BufferHandle`].
@@ -531,10 +550,54 @@ impl Array<Decimal> {
     ) -> Self {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = values.len() / values_type.byte_width();
+        let slots = DecimalData::make_slots(&validity, len);
         let data = unsafe {
             DecimalData::new_unchecked_handle(values, values_type, decimal_dtype, validity)
         };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        }
+    }
+
+    pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let offset = patches.offset();
+        let dtype = self.dtype().clone();
+        let len = self.len();
+        let patch_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let patch_values = patches.values().clone().execute::<DecimalArray>(ctx)?;
+
+        let patch_validity = patch_values.validity()?;
+        let patched_validity = self.validity()?.patch(
+            self.len(),
+            offset,
+            &patch_indices.clone().into_array(),
+            &patch_validity,
+            ctx,
+        )?;
+        assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
+
+        let data = self.into_data();
+        let data = match_each_integer_ptype!(patch_indices.ptype(), |I| {
+            let patch_indices = patch_indices.as_slice::<I>();
+            match_each_decimal_value_type!(patch_values.values_type(), |PatchDVT| {
+                let patch_values = patch_values.buffer::<PatchDVT>();
+                match_each_decimal_value_type!(data.values_type(), |ValuesDVT| {
+                    let buffer = data.buffer::<ValuesDVT>().into_mut();
+                    patch_typed(
+                        buffer,
+                        data.decimal_dtype(),
+                        patch_indices,
+                        offset,
+                        patch_values,
+                        patched_validity.clone(),
+                    )
+                })
+            })
+        });
+        let slots = DecimalData::make_slots(&patched_validity, len);
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        })
     }
 }
 

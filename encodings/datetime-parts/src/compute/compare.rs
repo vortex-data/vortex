@@ -17,6 +17,7 @@ use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_error::VortexResult;
 
 use crate::array::DateTimeParts;
+use crate::array::DateTimePartsArrayExt;
 use crate::timestamp;
 
 impl CompareKernel for DateTimeParts {

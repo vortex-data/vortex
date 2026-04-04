@@ -17,6 +17,7 @@ use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArray;
+use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::match_each_alp_float_ptype;
 use vortex::error::VortexResult;

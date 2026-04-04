@@ -63,7 +63,6 @@ pub(super) const SLOT_NAMES: [&str; 0] = [];
 pub struct SequenceData {
     base: PValue,
     multiplier: PValue,
-    pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
 pub struct SequenceDataParts {
@@ -144,11 +143,7 @@ impl SequenceData {
     /// - `base` and `multiplier` are both normalized to the same integer `ptype`.
     /// - they are logically compatible with the outer dtype and len.
     pub(crate) unsafe fn new_unchecked(base: PValue, multiplier: PValue) -> Self {
-        Self {
-            base,
-            multiplier,
-            slots: vec![],
-        }
+        Self { base, multiplier }
     }
 
     pub fn ptype(&self) -> PType {
@@ -271,7 +266,7 @@ impl VTable for Sequence {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<Self::ArrayData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
             "SequenceArray expects 0 buffers, got {}",
@@ -311,11 +306,8 @@ impl VTable for Sequence {
         .pvalue()
         .vortex_expect("sequence array multiplier should be a non-nullable primitive");
 
-        SequenceData::try_new(base, multiplier, ptype, dtype.nullability(), len)
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        let data = SequenceData::try_new(base, multiplier, ptype, dtype.nullability(), len)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

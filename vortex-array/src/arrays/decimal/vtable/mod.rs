@@ -16,6 +16,7 @@ use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::decimal::DecimalData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -60,13 +61,14 @@ impl VTable for Decimal {
     fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.values.array_hash(state, precision);
         std::mem::discriminant(&array.values_type).hash(state);
-        array.data().validity().array_hash(state, precision);
+        DecimalArrayExt::validity(&array).array_hash(state, precision);
     }
 
     fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
-            && array.data().validity().array_eq(&other.data().validity(), precision)
+            && DecimalArrayExt::validity(&array)
+                .array_eq(&DecimalArrayExt::validity(&other), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -111,6 +113,15 @@ impl VTable for Decimal {
             actual_dtype,
             dtype
         );
+        let validity = crate::array::child_to_validity(&slots[0], data.nullability);
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == len,
+                "DecimalArray validity len {} does not match outer length {}",
+                validity_len,
+                len
+            );
+        }
 
         Ok(())
     }
@@ -124,7 +135,7 @@ impl VTable for Decimal {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<DecimalData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         let metadata = DecimalMetadata::decode(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -144,7 +155,8 @@ impl VTable for Decimal {
             vortex_bail!("Expected Decimal dtype, got {:?}", dtype)
         };
 
-        match_each_decimal_value_type!(metadata.values_type(), |D| {
+        let slots = DecimalData::make_slots(&validity, len);
+        let data = match_each_decimal_value_type!(metadata.values_type(), |D| {
             // Check and reinterpret-cast the buffer
             vortex_ensure!(
                 values.is_aligned_to(Alignment::of::<D>()),
@@ -152,11 +164,8 @@ impl VTable for Decimal {
                 D::DECIMAL_TYPE
             );
             DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
-        })
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        })?;
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

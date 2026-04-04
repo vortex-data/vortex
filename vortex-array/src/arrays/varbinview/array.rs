@@ -18,6 +18,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::VarBinView;
@@ -95,7 +96,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 /// ```
 #[derive(Clone, Debug)]
 pub struct VarBinViewData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) is_utf8: bool,
     pub(super) nullability: Nullability,
     pub(super) buffers: Arc<[BufferHandle]>,
@@ -277,12 +277,9 @@ impl VarBinViewData {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        let len = views.len() / size_of::<BinaryView>();
-        let slots = Self::make_slots(&validity, len);
         let (is_utf8, nullability) =
             Self::dtype_parts(&dtype).vortex_expect("VarBinViewArray dtype must be utf8 or binary");
         Self {
-            slots,
             is_utf8,
             nullability,
             buffers,
@@ -392,28 +389,6 @@ impl VarBinViewData {
     /// Returns `true` if this array is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    /// Returns the [`Validity`] of this array.
-    #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.nullability)
-    }
-
-    /// Returns the validity as a [`Mask`].
-    pub fn validity_mask(&self) -> Mask {
-        self.validity().to_mask(self.len())
-    }
-
-    /// Splits the array into owned parts
-    pub fn into_parts(self) -> VarBinViewDataParts {
-        let validity = self.validity();
-        VarBinViewDataParts {
-            dtype: self.dtype(),
-            buffers: self.buffers,
-            views: self.views,
-            validity,
-        }
     }
 
     /// Access to the primitive views buffer.
@@ -569,12 +544,51 @@ impl VarBinViewData {
     }
 }
 
+pub trait VarBinViewArrayExt {
+    fn varbinview_data(&self) -> &VarBinViewData;
+    fn as_slots(&self) -> &[Option<ArrayRef>];
+
+    fn varbinview_validity(&self) -> Validity {
+        child_to_validity(
+            &self.as_slots()[VALIDITY_SLOT],
+            self.varbinview_data().nullability,
+        )
+    }
+
+    fn varbinview_validity_mask(&self) -> Mask {
+        self.varbinview_validity()
+            .to_mask(self.varbinview_data().len())
+    }
+}
+
+impl VarBinViewArrayExt for Array<VarBinView> {
+    fn varbinview_data(&self) -> &VarBinViewData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl VarBinViewArrayExt for ArrayView<'_, VarBinView> {
+    fn varbinview_data(&self) -> &VarBinViewData {
+        self.data()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
 impl Array<VarBinView> {
     #[inline]
-    fn from_prevalidated_data(data: VarBinViewData) -> Self {
+    fn from_prevalidated_data(data: VarBinViewData, slots: Vec<Option<ArrayRef>>) -> Self {
         let dtype = data.dtype();
         let len = data.len();
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(VarBinView, dtype, len, data)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(VarBinView, dtype, len, data).with_slots(slots))
+        }
     }
 
     /// Construct a `VarBinViewArray` from an iterator of optional byte slices.
@@ -586,27 +600,52 @@ impl Array<VarBinView> {
         iter: I,
         dtype: DType,
     ) -> Self {
-        Self::from_prevalidated_data(VarBinViewData::from_iter(iter, dtype))
+        let array = VarBinViewData::from_iter(iter, dtype);
+        let slots = VarBinViewData::make_slots(
+            &Validity::from(array.nullability),
+            array.len(),
+        );
+        Self::from_prevalidated_data(array, slots)
     }
 
     pub fn from_iter_str<T: AsRef<str>, I: IntoIterator<Item = T>>(iter: I) -> Self {
-        Self::from_prevalidated_data(VarBinViewData::from_iter_str(iter))
+        let array = VarBinViewData::from_iter_str(iter);
+        let slots = VarBinViewData::make_slots(
+            &Validity::from(array.nullability),
+            array.len(),
+        );
+        Self::from_prevalidated_data(array, slots)
     }
 
     pub fn from_iter_nullable_str<T: AsRef<str>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
     ) -> Self {
-        Self::from_prevalidated_data(VarBinViewData::from_iter_nullable_str(iter))
+        let array = VarBinViewData::from_iter_nullable_str(iter);
+        let slots = VarBinViewData::make_slots(
+            &Validity::from(array.nullability),
+            array.len(),
+        );
+        Self::from_prevalidated_data(array, slots)
     }
 
     pub fn from_iter_bin<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(iter: I) -> Self {
-        Self::from_prevalidated_data(VarBinViewData::from_iter_bin(iter))
+        let array = VarBinViewData::from_iter_bin(iter);
+        let slots = VarBinViewData::make_slots(
+            &Validity::from(array.nullability),
+            array.len(),
+        );
+        Self::from_prevalidated_data(array, slots)
     }
 
     pub fn from_iter_nullable_bin<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
     ) -> Self {
-        Self::from_prevalidated_data(VarBinViewData::from_iter_nullable_bin(iter))
+        let array = VarBinViewData::from_iter_nullable_bin(iter);
+        let slots = VarBinViewData::make_slots(
+            &Validity::from(array.nullability),
+            array.len(),
+        );
+        Self::from_prevalidated_data(array, slots)
     }
 
     /// Creates a new `VarBinViewArray`.
@@ -616,9 +655,9 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Ok(Self::from_prevalidated_data(VarBinViewData::try_new(
-            views, buffers, dtype, validity,
-        )?))
+        let data = VarBinViewData::try_new(views, buffers, dtype, validity.clone())?;
+        let slots = VarBinViewData::make_slots(&validity, data.len());
+        Ok(Self::from_prevalidated_data(data, slots))
     }
 
     /// Creates a new `VarBinViewArray` without validation.
@@ -632,9 +671,9 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        Self::from_prevalidated_data(unsafe {
-            VarBinViewData::new_unchecked(views, buffers, dtype, validity)
-        })
+        let data = unsafe { VarBinViewData::new_unchecked(views, buffers, dtype, validity.clone()) };
+        let slots = VarBinViewData::make_slots(&validity, data.len());
+        Self::from_prevalidated_data(data, slots)
     }
 
     /// Creates a new `VarBinViewArray` with device or host memory.
@@ -644,7 +683,9 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        Self::from_prevalidated_data(VarBinViewData::new_handle(views, buffers, dtype, validity))
+        let data = VarBinViewData::new_handle(views, buffers, dtype, validity.clone());
+        let slots = VarBinViewData::make_slots(&validity, data.len());
+        Self::from_prevalidated_data(data, slots)
     }
 
     /// Construct a new array from `BufferHandle`s without validation.
@@ -658,9 +699,38 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        Self::from_prevalidated_data(unsafe {
-            VarBinViewData::new_handle_unchecked(views, buffers, dtype, validity)
-        })
+        let data =
+            unsafe { VarBinViewData::new_handle_unchecked(views, buffers, dtype, validity.clone()) };
+        let slots = VarBinViewData::make_slots(&validity, data.len());
+        Self::from_prevalidated_data(data, slots)
+    }
+
+    pub fn varbinview_validity(&self) -> Validity {
+        VarBinViewArrayExt::varbinview_validity(self)
+    }
+
+    pub fn varbinview_validity_mask(&self) -> Mask {
+        VarBinViewArrayExt::varbinview_validity_mask(self)
+    }
+
+    pub fn into_data_parts(self) -> VarBinViewDataParts {
+        let parts = self.into_parts();
+        VarBinViewDataParts {
+            dtype: parts.dtype,
+            buffers: parts.data.buffers,
+            views: parts.data.views,
+            validity: child_to_validity(&parts.slots[VALIDITY_SLOT], parts.data.nullability),
+        }
+    }
+}
+
+impl ArrayView<'_, VarBinView> {
+    pub fn varbinview_validity(&self) -> Validity {
+        VarBinViewArrayExt::varbinview_validity(self)
+    }
+
+    pub fn varbinview_validity_mask(&self) -> Mask {
+        VarBinViewArrayExt::varbinview_validity_mask(self)
     }
 }
 
@@ -692,24 +762,24 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinViewData {
 
 impl<'a> FromIterator<Option<&'a [u8]>> for Array<VarBinView> {
     fn from_iter<T: IntoIterator<Item = Option<&'a [u8]>>>(iter: T) -> Self {
-        Self::from_prevalidated_data(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+        Self::from_iter(iter, DType::Binary(Nullability::Nullable))
     }
 }
 
 impl FromIterator<Option<Vec<u8>>> for Array<VarBinView> {
     fn from_iter<T: IntoIterator<Item = Option<Vec<u8>>>>(iter: T) -> Self {
-        Self::from_prevalidated_data(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+        Self::from_iter(iter, DType::Binary(Nullability::Nullable))
     }
 }
 
 impl FromIterator<Option<String>> for Array<VarBinView> {
     fn from_iter<T: IntoIterator<Item = Option<String>>>(iter: T) -> Self {
-        Self::from_prevalidated_data(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+        Self::from_iter_nullable_str(iter)
     }
 }
 
 impl<'a> FromIterator<Option<&'a str>> for Array<VarBinView> {
     fn from_iter<T: IntoIterator<Item = Option<&'a str>>>(iter: T) -> Self {
-        Self::from_prevalidated_data(<VarBinViewData as FromIterator<_>>::from_iter(iter))
+        Self::from_iter_nullable_str(iter)
     }
 }

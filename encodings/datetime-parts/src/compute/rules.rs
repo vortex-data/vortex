@@ -363,3 +363,4 @@ mod tests {
         assert_eq!(optimized.as_bool_typed().true_count().unwrap(), 1);
     }
 }
+use crate::array::DateTimePartsArrayExt;

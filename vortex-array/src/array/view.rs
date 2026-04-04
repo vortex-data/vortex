@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayId;
+use crate::array::ArrayInner;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::stats::StatsSetRef;
@@ -19,7 +20,6 @@ use crate::validity::Validity;
 pub struct ArrayView<'a, V: VTable> {
     array: &'a ArrayRef,
     data: &'a V::ArrayData,
-    slots: &'a [Option<ArrayRef>],
 }
 
 impl<V: VTable> Copy for ArrayView<'_, V> {}
@@ -36,10 +36,9 @@ impl<'a, V: VTable> ArrayView<'a, V> {
     pub(crate) unsafe fn new_unchecked(
         array: &'a ArrayRef,
         data: &'a V::ArrayData,
-        slots: &'a [Option<ArrayRef>],
     ) -> Self {
         debug_assert!(array.is::<V>());
-        Self { array, data, slots }
+        Self { array, data }
     }
 
     pub fn array(&self) -> &'a ArrayRef {
@@ -51,7 +50,13 @@ impl<'a, V: VTable> ArrayView<'a, V> {
     }
 
     pub fn slots(&self) -> &'a [Option<ArrayRef>] {
-        self.slots
+        &self
+            .array
+            .inner()
+            .as_any()
+            .downcast_ref::<ArrayInner<V>>()
+            .expect("ArrayView slots requested for mismatched array type")
+            .slots
     }
 
     pub fn dtype(&self) -> &DType {

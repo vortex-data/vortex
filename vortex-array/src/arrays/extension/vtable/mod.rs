@@ -6,6 +6,7 @@ mod operations;
 mod validity;
 
 use kernel::PARENT_KERNELS;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -21,8 +22,9 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityVTableFromChild;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::extension::ExtensionData;
-use crate::arrays::extension::array::NUM_SLOTS;
+use crate::arrays::extension::array::STORAGE_SLOT;
 use crate::arrays::extension::array::SLOT_NAMES;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -70,10 +72,6 @@ impl VTable for Extension {
         None
     }
 
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
-    }
-
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
         array.slots()
     }
@@ -87,14 +85,18 @@ impl VTable for Extension {
     }
 
     fn validate(&self, data: &ExtensionData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+        _ = data;
+        let storage = slots[STORAGE_SLOT]
+            .as_ref()
+            .vortex_expect("ExtensionArray storage slot");
         vortex_ensure!(
-            data.len() == len,
+            storage.len() == len,
             "ExtensionArray length {} does not match outer length {}",
-            data.len(),
+            storage.len(),
             len
         );
 
-        let actual_dtype = data.dtype();
+        let actual_dtype = DType::Extension(data.ext_dtype.clone());
         vortex_ensure!(
             &actual_dtype == dtype,
             "ExtensionArray dtype {} does not match outer dtype {}",
@@ -114,7 +116,7 @@ impl VTable for Extension {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<ExtensionData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "ExtensionArray expects empty metadata, got {} bytes",
@@ -128,7 +130,15 @@ impl VTable for Extension {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
-        Ok(ExtensionData::new(ext_dtype.clone(), storage))
+        Ok(
+            crate::array::ArrayParts::new(
+                self.clone(),
+                dtype.clone(),
+                len,
+                ExtensionData::new(ext_dtype.clone(), storage.clone()),
+            )
+            .with_slots(vec![Some(storage)]),
+        )
     }
 
 

@@ -175,7 +175,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
     }
 
     fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         <V::OperationsVTable as OperationsVTable<V>>::scalar_at(
             view,
             index,
@@ -185,7 +185,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
 
     fn validity(&self, this: &ArrayRef) -> VortexResult<Validity> {
         if self.dtype.is_nullable() {
-            let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+            let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
             let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(view)?;
             if let Validity::Array(array) = &validity {
                 vortex_ensure!(array.len() == self.len, "Validity array length mismatch");
@@ -216,7 +216,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         }
         let len = builder.len();
 
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::append_to_builder(view, builder, ctx)?;
 
         assert_eq!(
@@ -233,29 +233,29 @@ impl<V: VTable> DynArray for ArrayInner<V> {
     }
 
     fn children(&self, this: &ArrayRef) -> Vec<ArrayRef> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nchildren(view)).map(|i| V::child(view, i)).collect()
     }
 
     fn nchildren(&self, this: &ArrayRef) -> usize {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::nchildren(view)
     }
 
     fn nth_child(&self, this: &ArrayRef, idx: usize) -> Option<ArrayRef> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (idx < V::nchildren(view)).then(|| V::child(view, idx))
     }
 
     fn children_names(&self, this: &ArrayRef) -> Vec<String> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nchildren(view))
             .map(|i| V::child_name(view, i))
             .collect()
     }
 
     fn named_children(&self, this: &ArrayRef) -> Vec<(String, ArrayRef)> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nchildren(view))
             .map(|i| (V::child_name(view, i), V::child(view, i)))
             .collect()
@@ -266,48 +266,48 @@ impl<V: VTable> DynArray for ArrayInner<V> {
     }
 
     fn slot_name(&self, this: &ArrayRef, idx: usize) -> String {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::slot_name(view, idx)
     }
 
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view))
             .map(|i| V::buffer(view, i).to_host_sync())
             .collect()
     }
 
     fn buffer_handles(&self, this: &ArrayRef) -> Vec<BufferHandle> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view)).map(|i| V::buffer(view, i)).collect()
     }
 
     fn buffer_names(&self, this: &ArrayRef) -> Vec<String> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view))
             .filter_map(|i| V::buffer_name(view, i))
             .collect()
     }
 
     fn named_buffers(&self, this: &ArrayRef) -> Vec<(String, BufferHandle)> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view))
             .filter_map(|i| V::buffer_name(view, i).map(|name| (name, V::buffer(view, i))))
             .collect()
     }
 
     fn nbuffers(&self, this: &ArrayRef) -> usize {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::nbuffers(view)
     }
 
     fn metadata(&self, this: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::serialize(view)
     }
 
     fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::fmt_metadata(view, f)
     }
 
@@ -316,7 +316,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         self.len.hash(&mut wrapper);
         self.dtype.hash(&mut wrapper);
         self.vtable.id().hash(&mut wrapper);
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::array_hash(view, &mut wrapper, precision);
     }
 
@@ -326,9 +326,9 @@ impl<V: VTable> DynArray for ArrayInner<V> {
                 && self.dtype == *other.dtype()
                 && self.vtable.id() == other.encoding_id()
                 && {
-                    let this = unsafe { ArrayView::new_unchecked(this, &self.data, &self.slots) };
+                    let this = unsafe { ArrayView::new_unchecked(this, &self.data) };
                     let other = unsafe {
-                        ArrayView::new_unchecked(other, &other_inner.data, &other_inner.slots)
+                        ArrayView::new_unchecked(other, &other_inner.data)
                     };
                     V::array_eq(this, other, precision)
                 }

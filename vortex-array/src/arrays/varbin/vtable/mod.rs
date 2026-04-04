@@ -61,13 +61,13 @@ impl VTable for VarBin {
     fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.bytes().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
-        array.data().validity().array_hash(state, precision);
+        array.varbin_validity().array_hash(state, precision);
     }
 
     fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.bytes().array_eq(other.bytes(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
-            && array.data().validity().array_eq(&other.data().validity(), precision)
+            && array.varbin_validity().array_eq(&other.varbin_validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -75,10 +75,14 @@ impl VTable for VarBin {
     }
 
     fn validate(&self, data: &VarBinData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+        vortex_ensure!(slots.len() == NUM_SLOTS, "VarBinArray expected {NUM_SLOTS} slots, found {}", slots.len());
+        let offsets = slots[crate::arrays::varbin::array::OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("VarBinArray offsets slot");
         vortex_ensure!(
-            data.len() == len,
+            offsets.len().saturating_sub(1) == len,
             "VarBinArray length {} does not match outer length {}",
-            data.len(),
+            offsets.len().saturating_sub(1),
             len
         );
         vortex_ensure!(
@@ -123,7 +127,7 @@ impl VTable for VarBin {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<VarBinData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         let metadata = VarBinMetadata::decode(metadata)?;
         let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
@@ -145,11 +149,9 @@ impl VTable for VarBin {
         }
         let bytes = buffers[0].clone().try_to_host_sync()?;
 
-        VarBinData::try_new(offsets, bytes, dtype.clone(), validity)
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        let data = VarBinData::try_new(offsets.clone(), bytes, dtype.clone(), validity.clone())?;
+        let slots = VarBinData::make_slots(offsets, &validity, len);
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

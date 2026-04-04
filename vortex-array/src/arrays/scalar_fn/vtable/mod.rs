@@ -27,6 +27,7 @@ use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::scalar_fn::array::ScalarFnData;
+use crate::arrays::scalar_fn::array::ScalarFnArrayDataExt;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
@@ -68,12 +69,16 @@ impl VTable for ScalarFnVTable {
             "ScalarFnArray data scalar_fn does not match vtable"
         );
         vortex_ensure!(
-            data.iter_children().all(|c| c.len() == len),
+            slots
+                .iter()
+                .flatten()
+                .all(|c| c.len() == len),
             "All child arrays must have the same length as the scalar function array"
         );
 
-        let child_dtypes = data
-            .iter_children()
+        let child_dtypes = slots
+            .iter()
+            .flatten()
             .map(|c| c.dtype().clone())
             .collect_vec();
         vortex_ensure!(
@@ -128,12 +133,8 @@ impl VTable for ScalarFnVTable {
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<Self::ArrayData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_bail!("Deserialization of ScalarFnVTable metadata is not supported");
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -193,12 +194,16 @@ pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
 
         let data = ScalarFnData {
             scalar_fn: scalar_fn.clone(),
-            slots: children.into_iter().map(Some).collect(),
         };
         let vtable = ScalarFnVTable { scalar_fn };
         Ok(
-            unsafe { Array::from_parts_unchecked(ArrayParts::new(vtable, dtype, len, data)) }
-                .into_array(),
+            unsafe {
+                Array::from_parts_unchecked(
+                    ArrayParts::new(vtable, dtype, len, data)
+                        .with_slots(children.into_iter().map(Some).collect()),
+                )
+            }
+            .into_array(),
         )
     }
 }

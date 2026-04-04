@@ -10,6 +10,6 @@ use crate::validity::Validity;
 
 impl ValidityVTable<VarBin> for VarBin {
     fn validity(array: ArrayView<'_, VarBin>) -> VortexResult<Validity> {
-        Ok(array.data().validity())
+        Ok(array.varbin_validity())
     }
 }

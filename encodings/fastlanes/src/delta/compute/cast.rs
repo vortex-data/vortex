@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::delta::Delta;
+use crate::delta::array::DeltaArrayExt;
 impl CastReduce for Delta {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Delta encoding stores differences between consecutive values, which requires

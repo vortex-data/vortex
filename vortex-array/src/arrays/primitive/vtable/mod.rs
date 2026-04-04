@@ -13,6 +13,7 @@ use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::primitive::array::PrimitiveArrayExt;
 use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -51,12 +52,13 @@ impl VTable for Primitive {
 
     fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.buffer.array_hash(state, precision);
-        array.data().validity().array_hash(state, precision);
+        PrimitiveArrayExt::validity(&array).array_hash(state, precision);
     }
 
     fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.buffer.array_eq(&other.buffer, precision)
-            && array.data().validity().array_eq(&other.data().validity(), precision)
+            && PrimitiveArrayExt::validity(&array)
+                .array_eq(&PrimitiveArrayExt::validity(&other), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -96,6 +98,15 @@ impl VTable for Primitive {
             actual_dtype,
             dtype
         );
+        let validity = crate::array::child_to_validity(&slots[0], data.nullability);
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == len,
+                "PrimitiveArray validity len {} does not match outer length {}",
+                validity_len,
+                len
+            );
+        }
 
         Ok(())
     }
@@ -109,7 +120,7 @@ impl VTable for Primitive {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<PrimitiveData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "PrimitiveArray expects empty metadata, got {} bytes",
@@ -155,15 +166,9 @@ impl VTable for Primitive {
         );
 
         // SAFETY: checked ahead of time
-        unsafe {
-            Ok(PrimitiveData::new_unchecked_from_handle(
-                buffer, ptype, validity,
-            ))
-        }
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        let slots = PrimitiveData::make_slots(&validity, len);
+        let data = unsafe { PrimitiveData::new_unchecked_from_handle(buffer, ptype, validity) };
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

@@ -19,6 +19,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::FSST;
+use crate::FSSTArrayExt;
 
 impl TakeExecute for FSST {
     fn take(

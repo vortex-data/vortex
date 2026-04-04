@@ -4,6 +4,7 @@
 mod array;
 pub use array::PrimitiveData;
 pub use array::PrimitiveDataParts;
+pub use array::PrimitiveArrayExt;
 pub use array::chunk_range;
 pub use array::patch_chunk;
 pub use vtable::PrimitiveArray;

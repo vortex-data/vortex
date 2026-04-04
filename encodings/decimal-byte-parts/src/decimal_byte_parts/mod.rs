@@ -73,7 +73,10 @@ impl VTable for DecimalByteParts {
         let Some(decimal_dtype) = dtype.as_decimal_opt() else {
             vortex_bail!("expected decimal dtype, got {}", dtype)
         };
-        DecimalBytePartsData::validate(data.msp(), *decimal_dtype, dtype, len)
+        let msp = slots[MSP_SLOT]
+            .as_ref()
+            .vortex_expect("DecimalBytePartsArray msp slot");
+        DecimalBytePartsData::validate(msp, *decimal_dtype, dtype, len)
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -122,7 +125,7 @@ impl VTable for DecimalByteParts {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<DecimalBytePartsData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = DecimalBytesPartsMetadata::decode(metadata)?;
         let Some(decimal_dtype) = dtype.as_decimal_opt() else {
             vortex_bail!("decoding decimal but given non decimal dtype {}", dtype)
@@ -137,11 +140,9 @@ impl VTable for DecimalByteParts {
             "lower_part_count > 0 not currently supported"
         );
 
-        DecimalBytePartsData::try_new(msp, *decimal_dtype)
-    }
-
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
+        let slots = vec![Some(msp.clone())];
+        let data = DecimalBytePartsData::try_new(msp, *decimal_dtype)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
@@ -186,7 +187,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["msp"];
 /// e.g. for a decimal i128 \[ 127..64 | 64..0 \] msp = 127..64 and lower_part\[0\] = 64..0
 #[derive(Clone, Debug)]
 pub struct DecimalBytePartsData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
     // NOTE: the lower_parts is currently unused, we reserve this field so that it is properly
     //  read/written during serde, but provide no constructor to initialize this to anything
     //  other than the empty Vec.
@@ -195,6 +195,28 @@ pub struct DecimalBytePartsData {
 
 pub struct DecimalBytePartsDataParts {
     pub msp: ArrayRef,
+}
+
+pub trait DecimalBytePartsArrayExt {
+    fn as_slots(&self) -> &[Option<ArrayRef>];
+
+    fn msp(&self) -> &ArrayRef {
+        self.as_slots()[MSP_SLOT]
+            .as_ref()
+            .vortex_expect("DecimalBytePartsArray msp slot")
+    }
+}
+
+impl DecimalBytePartsArrayExt for Array<DecimalByteParts> {
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl DecimalBytePartsArrayExt for ArrayView<'_, DecimalByteParts> {
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
 }
 
 impl DecimalBytePartsData {
@@ -220,34 +242,7 @@ impl DecimalBytePartsData {
     pub(crate) fn try_new(msp: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
         Self::validate(&msp, decimal_dtype, &dtype, msp.len())?;
-        Ok(Self {
-            slots: vec![Some(msp)],
-            _lower_parts: Vec::new(),
-        })
-    }
-
-    /// Returns the number of elements in the array.
-    pub fn len(&self) -> usize {
-        self.msp().len()
-    }
-
-    /// Returns `true` if the array contains no elements.
-    pub fn is_empty(&self) -> bool {
-        self.msp().len() == 0
-    }
-
-    pub(crate) fn msp(&self) -> &ArrayRef {
-        self.slots[MSP_SLOT]
-            .as_ref()
-            .vortex_expect("DecimalBytePartsArray msp slot")
-    }
-
-    pub fn into_parts(mut self) -> DecimalBytePartsDataParts {
-        DecimalBytePartsDataParts {
-            msp: self.slots[MSP_SLOT]
-                .take()
-                .vortex_expect("DecimalBytePartsArray msp slot"),
-        }
+        Ok(Self { _lower_parts: Vec::new() })
     }
 }
 
@@ -262,11 +257,14 @@ impl DecimalByteParts {
         msp: ArrayRef,
         decimal_dtype: DecimalDType,
     ) -> VortexResult<DecimalBytePartsArray> {
+        let len = msp.len();
+        let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
+        let slots = vec![Some(msp.clone())];
         let data = DecimalBytePartsData::try_new(msp, decimal_dtype)?;
-        let dtype = DType::Decimal(decimal_dtype, data.msp().dtype().nullability());
-        let len = data.len();
         Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(DecimalByteParts, dtype, len, data))
+            Array::from_parts_unchecked(
+                ArrayParts::new(DecimalByteParts, dtype, len, data).with_slots(slots),
+            )
         })
     }
 }
@@ -319,9 +317,9 @@ impl OperationsVTable<DecimalByteParts> for DecimalByteParts {
 }
 
 impl ValidityChild<DecimalByteParts> for DecimalByteParts {
-    fn validity_child(array: &DecimalBytePartsData) -> &ArrayRef {
+    fn validity_child(array: ArrayView<'_, DecimalByteParts>) -> ArrayRef {
         // validity stored in 0th child
-        array.msp()
+        array.msp().clone()
     }
 }
 

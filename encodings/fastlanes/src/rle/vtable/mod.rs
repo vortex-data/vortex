@@ -24,11 +24,16 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::RLEData;
+use crate::rle::array::INDICES_SLOT;
+use crate::rle::array::RLEArrayExt;
+use crate::rle::array::VALUES_IDX_OFFSETS_SLOT;
+use crate::rle::array::VALUES_SLOT;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::kernel::PARENT_KERNELS;
 use crate::rle::vtable::rules::RULES;
@@ -72,7 +77,19 @@ impl VTable for RLE {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate_against_outer(dtype, len)
+        data.validate_against_slots(
+            slots[VALUES_SLOT]
+                .as_ref()
+                .vortex_expect("RLEArray values slot must be populated"),
+            slots[INDICES_SLOT]
+                .as_ref()
+                .vortex_expect("RLEArray indices slot must be populated"),
+            slots[VALUES_IDX_OFFSETS_SLOT]
+                .as_ref()
+                .vortex_expect("RLEArray values_idx_offsets slot must be populated"),
+            dtype,
+            len,
+        )
     }
 
     fn array_hash<H: std::hash::Hasher>(
@@ -119,10 +136,6 @@ impl VTable for RLE {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
-        data.slots.clone()
-    }
-
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
         array.slots()
     }
@@ -154,7 +167,7 @@ impl VTable for RLE {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<RLEData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
             "RLEArray expects 0 buffers, got {}",
@@ -182,13 +195,13 @@ impl VTable for RLE {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        RLEData::try_new(
-            values,
-            indices,
-            values_idx_offsets,
-            metadata.offset as usize,
-            len,
-        )
+        let slots = vec![
+            Some(values.clone()),
+            Some(indices.clone()),
+            Some(values_idx_offsets.clone()),
+        ];
+        let data = RLEData::try_new(values, indices, values_idx_offsets, metadata.offset as usize, len)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn execute_parent(
@@ -221,8 +234,15 @@ impl RLE {
         length: usize,
     ) -> VortexResult<RLEArray> {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
+        let slots = vec![
+            Some(values.clone()),
+            Some(indices.clone()),
+            Some(values_idx_offsets.clone()),
+        ];
         let data = RLEData::try_new(values, indices, values_idx_offsets, offset, length)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
+        })
     }
 
     /// Create a new RLE array without validation.
@@ -237,8 +257,15 @@ impl RLE {
         length: usize,
     ) -> RLEArray {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
+        let slots = vec![
+            Some(values.clone()),
+            Some(indices.clone()),
+            Some(values_idx_offsets.clone()),
+        ];
         let data = unsafe { RLEData::new_unchecked(values, indices, values_idx_offsets, offset) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
+        }
     }
 
     /// Encode a primitive array using FastLanes RLE.
