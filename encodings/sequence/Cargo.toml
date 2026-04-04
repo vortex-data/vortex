@@ -35,3 +35,7 @@ workspace = true
 [[bench]]
 name = "sequence_compare"
 harness = false
+
+[[bench]]
+name = "sequence_scalar_fn"
+harness = false

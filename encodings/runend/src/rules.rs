@@ -54,8 +54,10 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
             }
         }
 
-        // TODO(ngates): relax this constraint and implement run-end decoding for all vector types.
-        if !matches!(parent.dtype(), DType::Bool(_) | DType::Primitive(..)) {
+        if !matches!(
+            parent.dtype(),
+            DType::Bool(_) | DType::Primitive(..) | DType::Utf8(_) | DType::Binary(_)
+        ) {
             return Ok(None);
         }
 
@@ -89,5 +91,176 @@ impl ArrayParentReduceRule<RunEnd> for RunEndScalarFnRule {
             }
             .into_array(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::RecursiveCanonical;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::StructFields;
+    use vortex_array::optimizer::ArrayOptimizer;
+    use vortex_array::scalar::Scalar;
+    use vortex_buffer::buffer;
+
+    use super::*;
+    use crate::RunEnd;
+
+    fn bool_mask_fixture() -> ArrayRef {
+        RunEnd::new(
+            buffer![256u32, 512, 768, 1024].into_array(),
+            BoolArray::from_iter([true, false, true, false]).into_array(),
+        )
+        .into_array()
+    }
+
+    #[test]
+    fn pushes_down_utf8_zip_to_runend() {
+        let mask = bool_mask_fixture();
+        let if_true = ConstantArray::new(
+            Scalar::utf8("runend-true-branch", Nullability::NonNullable),
+            mask.len(),
+        )
+        .into_array();
+        let if_false = ConstantArray::new(
+            Scalar::utf8("runend-false-branch", Nullability::NonNullable),
+            mask.len(),
+        )
+        .into_array();
+
+        let optimized = mask.zip(if_true, if_false).unwrap().optimize().unwrap();
+
+        assert!(optimized.is::<RunEnd>());
+        assert_eq!(optimized.dtype(), &DType::Utf8(Nullability::NonNullable));
+
+        let actual = optimized
+            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .0
+            .into_array();
+        let expected = vortex_array::arrays::VarBinViewArray::from_iter_str((0..1024).map(|idx| {
+            if idx < 256 || (512..768).contains(&idx) {
+                "runend-true-branch"
+            } else {
+                "runend-false-branch"
+            }
+        }))
+        .into_array();
+        assert_arrays_eq!(actual, expected);
+    }
+
+    #[test]
+    fn pushes_down_binary_zip_to_runend() {
+        let mask = bool_mask_fixture();
+        let if_true = vec![0xAA; 8];
+        let if_false = vec![0x55; 12];
+        let optimized = mask
+            .zip(
+                ConstantArray::new(
+                    Scalar::binary(if_true.clone(), Nullability::NonNullable),
+                    mask.len(),
+                )
+                .into_array(),
+                ConstantArray::new(
+                    Scalar::binary(if_false.clone(), Nullability::NonNullable),
+                    mask.len(),
+                )
+                .into_array(),
+            )
+            .unwrap()
+            .optimize()
+            .unwrap();
+
+        assert!(optimized.is::<RunEnd>());
+        assert_eq!(optimized.dtype(), &DType::Binary(Nullability::NonNullable));
+
+        let actual = optimized
+            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .0
+            .into_array();
+        let expected = vortex_array::arrays::VarBinViewArray::from_iter_bin((0..1024).map(|idx| {
+            if idx < 256 || (512..768).contains(&idx) {
+                if_true.clone()
+            } else {
+                if_false.clone()
+            }
+        }))
+        .into_array();
+        assert_arrays_eq!(actual, expected);
+    }
+
+    #[test]
+    fn pushes_down_sliced_nullable_utf8_zip_to_runend() {
+        let mask = bool_mask_fixture()
+            .slice(128..896)
+            .unwrap()
+            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
+        let optimized = mask
+            .zip(
+                ConstantArray::new(
+                    Scalar::utf8("slice-true-branch", Nullability::Nullable),
+                    mask.len(),
+                )
+                .into_array(),
+                ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), mask.len())
+                    .into_array(),
+            )
+            .unwrap()
+            .optimize()
+            .unwrap();
+
+        assert!(optimized.is::<RunEnd>());
+        assert_eq!(optimized.dtype(), &DType::Utf8(Nullability::Nullable));
+        assert_eq!(optimized.as_::<RunEnd>().offset(), 128);
+
+        let actual = optimized
+            .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
+            .0
+            .into_array();
+        let expected = vortex_array::arrays::VarBinViewArray::from_iter(
+            (128..896)
+                .map(|idx| (idx < 256 || (512..768).contains(&idx)).then_some("slice-true-branch")),
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array();
+        assert_arrays_eq!(actual, expected);
+    }
+
+    #[test]
+    fn keeps_struct_zip_on_fallback_path() {
+        let mask = bool_mask_fixture();
+        let struct_dtype = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["value"]),
+                vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
+        let if_true = ConstantArray::new(
+            Scalar::struct_(struct_dtype.clone(), vec![Scalar::from(1i32)]),
+            mask.len(),
+        )
+        .into_array();
+        let if_false = ConstantArray::new(
+            Scalar::struct_(struct_dtype, vec![Scalar::from(2i32)]),
+            mask.len(),
+        )
+        .into_array();
+
+        let optimized = mask.zip(if_true, if_false).unwrap().optimize().unwrap();
+
+        assert!(!optimized.is::<RunEnd>());
     }
 }
