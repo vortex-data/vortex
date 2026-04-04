@@ -20,7 +20,6 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::bool::array::BoolArrayExt;
 use crate::arrays::bool::BoolData;
-use crate::arrays::bool::array::NUM_SLOTS;
 use crate::arrays::bool::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;

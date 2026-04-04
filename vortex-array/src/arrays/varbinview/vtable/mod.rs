@@ -93,12 +93,7 @@ impl VTable for VarBinView {
             data.len(),
             len
         );
-        vortex_ensure!(
-            data.dtype() == *dtype,
-            "VarBinViewArray dtype {} does not match outer dtype {}",
-            data.dtype(),
-            dtype
-        );
+        vortex_ensure!(matches!(dtype, DType::Binary(_) | DType::Utf8(_)), "VarBinViewArray dtype must be binary or utf8, got {dtype}");
         Ok(())
     }
 

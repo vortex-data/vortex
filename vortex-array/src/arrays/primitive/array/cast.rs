@@ -17,7 +17,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
-use crate::validity::Validity;
 
 impl PrimitiveData {
     /// Return a slice of the array's buffer.
@@ -57,10 +56,8 @@ impl PrimitiveData {
             "can't reinterpret cast between integers of two different widths"
         );
 
-        PrimitiveData::from_buffer_handle(
-            self.buffer_handle().clone(),
-            ptype,
-            Validity::from(self.nullability),
+        vortex_panic!(
+            "PrimitiveData::reinterpret_cast requires outer validity; use PrimitiveArray::reinterpret_cast"
         )
     }
 }

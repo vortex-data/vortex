@@ -100,7 +100,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct DecimalData {
     pub(super) decimal_dtype: DecimalDType,
-    pub(super) nullability: Nullability,
     pub(super) values: BufferHandle,
     pub(super) values_type: DecimalType,
 }
@@ -115,13 +114,28 @@ pub struct DecimalDataParts {
 pub trait DecimalArrayExt {
     fn decimal_data(&self) -> &DecimalData;
     fn as_slots(&self) -> &[Option<ArrayRef>];
+    fn dtype(&self) -> &DType;
+
+    fn decimal_dtype(&self) -> DecimalDType {
+        match self.dtype() {
+            DType::Decimal(decimal_dtype, _) => *decimal_dtype,
+            _ => unreachable!("DecimalArrayExt requires a decimal dtype"),
+        }
+    }
+
+    fn nullability(&self) -> Nullability {
+        match self.dtype() {
+            DType::Decimal(_, nullability) => *nullability,
+            _ => unreachable!("DecimalArrayExt requires a decimal dtype"),
+        }
+    }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
         self.as_slots()[VALIDITY_SLOT].as_ref()
     }
 
     fn validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.decimal_data().nullability)
+        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.nullability())
     }
 }
 
@@ -133,6 +147,10 @@ impl DecimalArrayExt for Array<Decimal> {
     fn as_slots(&self) -> &[Option<ArrayRef>] {
         self.slots()
     }
+
+    fn dtype(&self) -> &DType {
+        Array::dtype(self)
+    }
 }
 
 impl DecimalArrayExt for ArrayView<'_, Decimal> {
@@ -142,6 +160,10 @@ impl DecimalArrayExt for ArrayView<'_, Decimal> {
 
     fn as_slots(&self) -> &[Option<ArrayRef>] {
         self.slots()
+    }
+
+    fn dtype(&self) -> &DType {
+        ArrayView::dtype(self)
     }
 }
 
@@ -271,12 +293,10 @@ impl DecimalData {
                 .vortex_expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
         }
 
-        let len = values.len() / values_type.byte_width();
         Self {
+            decimal_dtype,
             values,
             values_type,
-            decimal_dtype,
-            nullability: validity.nullability(),
         }
     }
 
@@ -332,23 +352,13 @@ impl DecimalData {
         self.values.len() / self.values_type.byte_width()
     }
 
-    /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> DType {
-        DType::Decimal(self.decimal_dtype, self.nullability)
-    }
-
     /// Returns `true` if this array is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     pub fn into_parts(self) -> DecimalDataParts {
-        DecimalDataParts {
-            decimal_dtype: self.decimal_dtype,
-            values: self.values,
-            values_type: self.values_type,
-            validity: Validity::from(self.nullability),
-        }
+        vortex_panic!("DecimalData::into_parts requires outer dtype; use Array<Decimal>::into_data_parts")
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.
@@ -367,22 +377,22 @@ impl DecimalData {
         Buffer::<T>::from_byte_buffer(self.values.as_host().clone())
     }
 
-    /// Returns the decimal type information
-    pub fn decimal_dtype(&self) -> DecimalDType {
-        self.decimal_dtype
-    }
-
     /// Return the `DecimalType` used to represent the values in the array.
     pub fn values_type(&self) -> DecimalType {
         self.values_type
     }
 
+    /// Returns the decimal type information.
+    pub fn decimal_dtype(&self) -> DecimalDType {
+        self.decimal_dtype
+    }
+
     pub fn precision(&self) -> u8 {
-        self.decimal_dtype().precision()
+        self.decimal_dtype.precision()
     }
 
     pub fn scale(&self) -> i8 {
-        self.decimal_dtype().scale()
+        self.decimal_dtype.scale()
     }
 
     pub fn from_iter<T: NativeDecimalType, I: IntoIterator<Item = T>>(
@@ -429,9 +439,10 @@ impl DecimalData {
 impl Array<Decimal> {
     pub fn into_data_parts(self) -> DecimalDataParts {
         let validity = DecimalArrayExt::validity(&self);
+        let decimal_dtype = DecimalArrayExt::decimal_dtype(&self);
         let data = self.into_data();
         DecimalDataParts {
-            decimal_dtype: data.decimal_dtype,
+            decimal_dtype,
             values: data.values,
             values_type: data.values_type,
             validity,
@@ -499,7 +510,7 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
     ) -> Self {
         let data = DecimalData::from_iter(iter, decimal_dtype);
-        let dtype = data.dtype();
+        let dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
         let len = data.len();
         let slots = DecimalData::make_slots(&Validity::from(dtype.nullability()), len);
         unsafe {
@@ -513,7 +524,7 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
     ) -> Self {
         let data = DecimalData::from_option_iter(iter, decimal_dtype);
-        let dtype = data.dtype();
+        let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
         let len = data.len();
         let slots = DecimalData::make_slots(&Validity::from(dtype.nullability()), len);
         unsafe {
@@ -598,6 +609,56 @@ impl Array<Decimal> {
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
         })
+    }
+
+    pub fn decimal_dtype(&self) -> DecimalDType {
+        DecimalArrayExt::decimal_dtype(self)
+    }
+
+    pub fn values_type(&self) -> DecimalType {
+        self.data().values_type
+    }
+
+    pub fn precision(&self) -> u8 {
+        self.decimal_dtype().precision()
+    }
+
+    pub fn scale(&self) -> i8 {
+        self.decimal_dtype().scale()
+    }
+
+    pub fn buffer_handle(&self) -> &BufferHandle {
+        &self.data().values
+    }
+
+    pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
+        self.data().buffer::<T>()
+    }
+}
+
+impl ArrayView<'_, Decimal> {
+    pub fn decimal_dtype(&self) -> DecimalDType {
+        DecimalArrayExt::decimal_dtype(self)
+    }
+
+    pub fn values_type(&self) -> DecimalType {
+        self.data().values_type
+    }
+
+    pub fn precision(&self) -> u8 {
+        self.decimal_dtype().precision()
+    }
+
+    pub fn scale(&self) -> i8 {
+        self.decimal_dtype().scale()
+    }
+
+    pub fn buffer_handle(&self) -> &BufferHandle {
+        &self.data().values
+    }
+
+    pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
+        self.data().buffer::<T>()
     }
 }
 

@@ -32,7 +32,6 @@ use vortex_session::VortexSession;
 
 use crate::Precision;
 use crate::array::ArrayId;
-use crate::arrays::primitive::array::NUM_SLOTS;
 use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
@@ -84,21 +83,16 @@ impl VTable for Primitive {
     }
 
     fn validate(&self, data: &PrimitiveData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+        let DType::Primitive(_, nullability) = dtype else {
+            vortex_bail!("Expected primitive dtype, got {dtype:?}");
+        };
         vortex_ensure!(
             data.len() == len,
             "PrimitiveArray length {} does not match outer length {}",
             data.len(),
             len
         );
-
-        let actual_dtype = data.dtype();
-        vortex_ensure!(
-            &actual_dtype == dtype,
-            "PrimitiveArray dtype {} does not match outer dtype {}",
-            actual_dtype,
-            dtype
-        );
-        let validity = crate::array::child_to_validity(&slots[0], data.nullability);
+        let validity = crate::array::child_to_validity(&slots[0], *nullability);
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == len,

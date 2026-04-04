@@ -34,7 +34,6 @@ use std::hash::Hash;
 
 use crate::Precision;
 use crate::array::ArrayId;
-use crate::arrays::decimal::array::NUM_SLOTS;
 use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
@@ -99,21 +98,16 @@ impl VTable for Decimal {
     }
 
     fn validate(&self, data: &DecimalData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+        let DType::Decimal(_, nullability) = dtype else {
+            vortex_bail!("Expected decimal dtype, got {dtype:?}");
+        };
         vortex_ensure!(
             data.len() == len,
             "DecimalArray length {} does not match outer length {}",
             data.len(),
             len
         );
-
-        let actual_dtype = data.dtype();
-        vortex_ensure!(
-            &actual_dtype == dtype,
-            "DecimalArray dtype {} does not match outer dtype {}",
-            actual_dtype,
-            dtype
-        );
-        let validity = crate::array::child_to_validity(&slots[0], data.nullability);
+        let validity = crate::array::child_to_validity(&slots[0], *nullability);
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == len,

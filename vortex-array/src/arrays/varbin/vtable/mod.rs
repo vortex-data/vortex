@@ -74,7 +74,7 @@ impl VTable for VarBin {
         1
     }
 
-    fn validate(&self, data: &VarBinData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+    fn validate(&self, _data: &VarBinData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         vortex_ensure!(slots.len() == NUM_SLOTS, "VarBinArray expected {NUM_SLOTS} slots, found {}", slots.len());
         let offsets = slots[crate::arrays::varbin::array::OFFSETS_SLOT]
             .as_ref()
@@ -85,12 +85,7 @@ impl VTable for VarBin {
             offsets.len().saturating_sub(1),
             len
         );
-        vortex_ensure!(
-            data.dtype() == *dtype,
-            "VarBinArray dtype {} does not match outer dtype {}",
-            data.dtype(),
-            dtype
-        );
+        vortex_ensure!(matches!(dtype, DType::Binary(_) | DType::Utf8(_)), "VarBinArray dtype must be binary or utf8, got {dtype}");
         Ok(())
     }
 

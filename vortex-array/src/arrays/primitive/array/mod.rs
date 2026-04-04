@@ -78,7 +78,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct PrimitiveData {
     pub(super) ptype: PType,
-    pub(super) nullability: Nullability,
     pub(super) buffer: BufferHandle,
 }
 
@@ -91,17 +90,33 @@ pub struct PrimitiveDataParts {
 pub trait PrimitiveArrayExt {
     fn primitive_data(&self) -> &PrimitiveData;
     fn as_slots(&self) -> &[Option<ArrayRef>];
+    fn dtype(&self) -> &DType;
+    fn len(&self) -> usize;
+
+    fn ptype(&self) -> PType {
+        match self.dtype() {
+            DType::Primitive(ptype, _) => *ptype,
+            _ => unreachable!("PrimitiveArrayExt requires a primitive dtype"),
+        }
+    }
+
+    fn nullability(&self) -> Nullability {
+        match self.dtype() {
+            DType::Primitive(_, nullability) => *nullability,
+            _ => unreachable!("PrimitiveArrayExt requires a primitive dtype"),
+        }
+    }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
         self.as_slots()[VALIDITY_SLOT].as_ref()
     }
 
     fn validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.primitive_data().nullability)
+        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.nullability())
     }
 
     fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.primitive_data().len())
+        self.validity().to_mask(self.len())
     }
 }
 
@@ -113,6 +128,14 @@ impl PrimitiveArrayExt for Array<Primitive> {
     fn as_slots(&self) -> &[Option<ArrayRef>] {
         self.slots()
     }
+
+    fn dtype(&self) -> &DType {
+        Array::dtype(self)
+    }
+
+    fn len(&self) -> usize {
+        Array::len(self)
+    }
 }
 
 impl PrimitiveArrayExt for ArrayView<'_, Primitive> {
@@ -122,6 +145,14 @@ impl PrimitiveArrayExt for ArrayView<'_, Primitive> {
 
     fn as_slots(&self) -> &[Option<ArrayRef>] {
         self.slots()
+    }
+
+    fn dtype(&self) -> &DType {
+        ArrayView::dtype(self)
+    }
+
+    fn len(&self) -> usize {
+        ArrayView::len(self)
     }
 }
 
@@ -141,13 +172,11 @@ impl PrimitiveData {
     pub unsafe fn new_unchecked_from_handle(
         handle: BufferHandle,
         ptype: PType,
-        validity: Validity,
+        _validity: Validity,
     ) -> Self {
-        let len = handle.len() / ptype.byte_width();
         Self {
-            buffer: handle,
             ptype,
-            nullability: validity.nullability(),
+            buffer: handle,
         }
     }
 
@@ -196,10 +225,9 @@ impl PrimitiveData {
         Self::validate(&buffer, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `PrimitiveArray` parameters");
 
-        let len = buffer.len();
+        drop(validity);
         Self {
             ptype: T::PTYPE,
-            nullability: validity.nullability(),
             buffer: BufferHandle::new_host(buffer.into_byte_buffer()),
         }
     }
@@ -344,9 +372,10 @@ impl Array<Primitive> {
 
     pub fn into_data_parts(self) -> PrimitiveDataParts {
         let validity = PrimitiveArrayExt::validity(&self);
+        let ptype = PrimitiveArrayExt::ptype(&self);
         let data = self.into_data();
         PrimitiveDataParts {
-            ptype: data.ptype(),
+            ptype,
             buffer: data.buffer,
             validity,
         }
@@ -381,28 +410,18 @@ impl Array<Primitive> {
 impl PrimitiveData {
     /// Consume the primitive array and returns its component parts.
     pub fn into_parts(self) -> PrimitiveDataParts {
-        PrimitiveDataParts {
-            ptype: self.ptype(),
-            buffer: self.buffer,
-            validity: Validity::from(self.nullability),
-        }
+        vortex_panic!("PrimitiveData::into_parts requires outer dtype; use Array<Primitive>::into_data_parts")
     }
 }
 
 impl PrimitiveData {
-    /// Returns the dtype of the array.
-    pub fn dtype(&self) -> DType {
-        DType::Primitive(self.ptype, self.nullability)
-    }
-
-    /// Returns the length of the array.
     pub fn len(&self) -> usize {
-        self.buffer.len() / self.ptype().byte_width()
+        self.buffer.len() / self.ptype.byte_width()
     }
 
     /// Returns `true` if the array is empty.
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.buffer.is_empty()
     }
 
     pub fn ptype(&self) -> PType {
@@ -415,11 +434,10 @@ impl PrimitiveData {
     }
 
     pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
-        let len = handle.len() / ptype.byte_width();
+        drop(validity);
         Self {
-            buffer: handle,
             ptype,
-            nullability: validity.nullability(),
+            buffer: handle,
         }
     }
 
@@ -482,41 +500,19 @@ impl PrimitiveData {
         R: NativePType,
         F: FnMut(T) -> R,
     {
-        let validity = Validity::from(self.nullability);
-        let buffer = match self.try_into_buffer_mut() {
-            Ok(buffer_mut) => buffer_mut.map_each_in_place(f),
-            Err(buffer) => BufferMut::from_iter(buffer.iter().copied().map(f)),
-        };
-        PrimitiveData::new(buffer.freeze(), validity)
+        let _f = f;
+        vortex_panic!("PrimitiveData::map_each requires outer dtype; use Array<Primitive> helpers")
     }
 
-    /// Map each element in the array to a new value.
-    ///
-    /// This doesn't ignore validity and maps over all maybe-null elements, with a bool true if
-    /// valid and false otherwise.
-    pub fn map_each_with_validity<T, R, F>(self, f: F) -> VortexResult<Self>
+    pub fn map_each_with_validity<T, R, F>(self, _f: F) -> VortexResult<Self>
     where
         T: NativePType,
         R: NativePType,
         F: FnMut((T, bool)) -> R,
     {
-        let validity = Validity::from(self.nullability);
-
-        let buf_iter = self.to_buffer::<T>().into_iter();
-
-        let buffer = match &validity {
-            Validity::NonNullable | Validity::AllValid => {
-                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(true)).map(f))
-            }
-            Validity::AllInvalid => {
-                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
-            }
-            Validity::Array(val) => {
-                let val = val.to_bool().into_bit_buffer();
-                BufferMut::<R>::from_iter(buf_iter.zip(val.iter()).map(f))
-            }
-        };
-        Ok(PrimitiveData::new(buffer.freeze(), validity))
+        vortex_panic!(
+            "PrimitiveData::map_each_with_validity requires outer dtype; use Array<Primitive> helpers"
+        )
     }
 
     /// Consume the array and get a host Buffer containing the data values.
@@ -550,4 +546,26 @@ impl PrimitiveData {
         let buffer = Buffer::<T>::from_byte_buffer(self.buffer.into_host_sync());
         buffer.try_into_mut()
     }
+}
+
+impl Array<Primitive> {
+    pub fn ptype(&self) -> PType {
+        PrimitiveArrayExt::ptype(self)
+    }
+
+    pub fn buffer_handle(&self) -> &BufferHandle {
+        &self.data().buffer
+    }
+
+}
+
+impl ArrayView<'_, Primitive> {
+    pub fn ptype(&self) -> PType {
+        PrimitiveArrayExt::ptype(self)
+    }
+
+    pub fn buffer_handle(&self) -> &BufferHandle {
+        &self.data().buffer
+    }
+
 }

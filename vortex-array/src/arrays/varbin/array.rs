@@ -35,8 +35,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets", "validity"];
 
 #[derive(Clone, Debug)]
 pub struct VarBinData {
-    pub(super) is_utf8: bool,
-    pub(super) nullability: Nullability,
     pub(super) bytes: BufferHandle,
 }
 
@@ -53,14 +51,6 @@ impl VarBinData {
             DType::Utf8(nullability) => Ok((true, *nullability)),
             DType::Binary(nullability) => Ok((false, *nullability)),
             _ => vortex_bail!(MismatchedTypes: "utf8 or binary", dtype),
-        }
-    }
-
-    fn make_dtype(is_utf8: bool, nullability: Nullability) -> DType {
-        if is_utf8 {
-            DType::Utf8(nullability)
-        } else {
-            DType::Binary(nullability)
         }
     }
 
@@ -196,13 +186,10 @@ impl VarBinData {
         Self::validate(&offsets, &bytes, &dtype, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `VarBinArray` parameters");
 
-        let len = offsets.len().saturating_sub(1);
-        let (is_utf8, nullability) =
+        let _ =
             Self::dtype_parts(&dtype).vortex_expect("VarBinArray dtype must be utf8 or binary");
 
         Self {
-            is_utf8,
-            nullability,
             bytes,
         }
     }
@@ -301,11 +288,6 @@ impl VarBinData {
         Ok(())
     }
 
-    /// Returns the length of this array.
-    pub fn dtype(&self) -> DType {
-        Self::make_dtype(self.is_utf8, self.nullability)
-    }
-
     /// Access the value bytes child buffer
     ///
     /// # Note
@@ -328,6 +310,7 @@ impl VarBinData {
 pub trait VarBinArrayExt {
     fn varbin_data(&self) -> &VarBinData;
     fn as_slots(&self) -> &[Option<ArrayRef>];
+    fn dtype(&self) -> &DType;
 
     fn offsets(&self) -> &ArrayRef {
         self.as_slots()[OFFSETS_SLOT]
@@ -339,8 +322,24 @@ pub trait VarBinArrayExt {
         self.as_slots()[VALIDITY_SLOT].as_ref()
     }
 
+    fn dtype_parts(&self) -> (bool, Nullability) {
+        match self.dtype() {
+            DType::Utf8(nullability) => (true, *nullability),
+            DType::Binary(nullability) => (false, *nullability),
+            _ => unreachable!("VarBinArrayExt requires a utf8 or binary dtype"),
+        }
+    }
+
+    fn is_utf8(&self) -> bool {
+        self.dtype_parts().0
+    }
+
+    fn nullability(&self) -> Nullability {
+        self.dtype_parts().1
+    }
+
     fn varbin_validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.varbin_data().nullability)
+        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.nullability())
     }
 
     fn varbin_validity_mask(&self) -> Mask {
@@ -385,6 +384,10 @@ impl VarBinArrayExt for Array<VarBin> {
     fn len(&self) -> usize {
         Array::len(self)
     }
+
+    fn dtype(&self) -> &DType {
+        Array::dtype(self)
+    }
 }
 
 impl VarBinArrayExt for ArrayView<'_, VarBin> {
@@ -398,6 +401,10 @@ impl VarBinArrayExt for ArrayView<'_, VarBin> {
 
     fn len(&self) -> usize {
         ArrayView::len(self)
+    }
+
+    fn dtype(&self) -> &DType {
+        ArrayView::dtype(self)
     }
 }
 
