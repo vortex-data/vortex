@@ -18,6 +18,7 @@ use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
 use crate::arrays::shared::SharedData;
+use crate::arrays::shared::SharedArrayExt;
 use crate::arrays::shared::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -47,18 +48,27 @@ impl VTable for Shared {
         Self::ID
     }
 
-    fn validate(&self, data: &SharedData, dtype: &DType, len: usize) -> VortexResult<()> {
-        vortex_error::vortex_ensure!(data.source().dtype() == dtype, "SharedArray dtype mismatch");
-        vortex_error::vortex_ensure!(data.source().len() == len, "SharedArray len mismatch");
+    fn validate(
+        &self,
+        _data: &SharedData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let source = slots[0]
+            .as_ref()
+            .vortex_expect("SharedArray source slot must be present");
+        vortex_error::vortex_ensure!(source.dtype() == dtype, "SharedArray dtype mismatch");
+        vortex_error::vortex_ensure!(source.len() == len, "SharedArray len mismatch");
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &SharedData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         let current = array.current_array_ref();
         current.array_hash(state, precision);
     }
 
-    fn array_eq(array: &SharedData, other: &SharedData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         let current = array.current_array_ref();
         let other_current = other.current_array_ref();
         current.array_eq(other_current, precision)
@@ -76,26 +86,8 @@ impl VTable for Shared {
         None
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_error::vortex_ensure!(
-            slots.len() == 1,
-            "SharedArray expects exactly 1 slot, got {}",
-            slots.len()
-        );
-        let slot = slots
-            .into_iter()
-            .next()
-            .vortex_expect("slots length already validated");
-        array.set_source(slot);
-        Ok(())
     }
 
     fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {

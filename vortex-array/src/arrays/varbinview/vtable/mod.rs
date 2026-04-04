@@ -56,7 +56,7 @@ impl VTable for VarBinView {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &VarBinViewData,
+        array: ArrayView<'_, Self>,
         state: &mut H,
         precision: Precision,
     ) {
@@ -64,10 +64,10 @@ impl VTable for VarBinView {
             buffer.array_hash(state, precision);
         }
         array.views.array_hash(state, precision);
-        array.validity().array_hash(state, precision);
+        array.data().validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &VarBinViewData, other: &VarBinViewData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.buffers.len() == other.buffers.len()
             && array
                 .buffers
@@ -75,14 +75,14 @@ impl VTable for VarBinView {
                 .zip(other.buffers.iter())
                 .all(|(a, b)| a.array_eq(b, precision))
             && array.views.array_eq(&other.views, precision)
-            && array.validity().array_eq(&other.validity(), precision)
+            && array.data().validity().array_eq(&other.data().validity(), precision)
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {
         array.data_buffers().len() + 1
     }
 
-    fn validate(&self, data: &VarBinViewData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &VarBinViewData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         vortex_ensure!(
             data.len() == len,
             "VarBinViewArray length {} does not match outer length {}",
@@ -184,24 +184,18 @@ impl VTable for VarBinView {
         VarBinViewData::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VarBinViewArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
-    }
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,

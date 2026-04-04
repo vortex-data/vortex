@@ -41,16 +41,30 @@ impl VTable for Null {
         Self::ID
     }
 
-    fn validate(&self, _data: &NullData, dtype: &DType, _len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        _data: &NullData,
+        dtype: &DType,
+        _len: usize,
+        _slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         vortex_ensure!(*dtype == DType::Null, "NullArray dtype must be DType::Null");
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(_array: &NullData, _state: &mut H, _precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        _array: ArrayView<'_, Self>,
+        _state: &mut H,
+        _precision: Precision,
+    ) {
         // len and dtype are hashed by ArrayInner; NullData has no additional fields.
     }
 
-    fn array_eq(_array: &NullData, _other: &NullData, _precision: Precision) -> bool {
+    fn array_eq(
+        _array: ArrayView<'_, Self>,
+        _other: ArrayView<'_, Self>,
+        _precision: Precision,
+    ) -> bool {
         // len and dtype are compared by ArrayInner; NullData has no additional fields.
         true
     }
@@ -67,23 +81,10 @@ impl VTable for Null {
         None
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("NullArray slot_name index {idx} out of bounds")
     }
 
-    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "NullArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        Ok(())
-    }
 
     fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
@@ -148,9 +149,7 @@ impl VTable for Null {
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct NullData {
-    slots: Vec<Option<ArrayRef>>,
-}
+pub struct NullData;
 
 #[derive(Clone, Debug)]
 pub struct Null;
@@ -175,7 +174,7 @@ impl Default for NullData {
 
 impl NullData {
     pub fn new() -> Self {
-        Self { slots: vec![] }
+        Self
     }
 }
 impl OperationsVTable<Null> for Null {

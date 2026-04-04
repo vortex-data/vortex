@@ -60,7 +60,7 @@ impl VTable for Chunked {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ChunkedData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         PrimitiveArray::new(
             array.chunk_offsets.to_buffer::<u64>(),
             Validity::NonNullable,
@@ -72,7 +72,7 @@ impl VTable for Chunked {
         }
     }
 
-    fn array_eq(array: &ChunkedData, other: &ChunkedData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         PrimitiveArray::new(
             array.chunk_offsets.to_buffer::<u64>(),
             Validity::NonNullable,
@@ -108,19 +108,16 @@ impl VTable for Chunked {
         Ok(Some(vec![]))
     }
 
-    fn validate(&self, data: &ChunkedData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &ChunkedData, dtype: &DType, len: usize, _slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         vortex_ensure!(
             data.len() == len,
             "ChunkedArray length {} does not match outer length {}",
             data.len(),
             len
         );
-        vortex_ensure!(
-            data.dtype() == dtype,
-            "ChunkedArray dtype {} does not match outer dtype {}",
-            data.dtype(),
-            dtype
-        );
+        for chunk in &data.chunks {
+            vortex_ensure!(chunk.dtype() == dtype, "ChunkedArray chunk dtype {} does not match outer dtype {}", chunk.dtype(), dtype);
+        }
         Ok(())
     }
 
@@ -175,15 +172,18 @@ impl VTable for Chunked {
         let slots = ChunkedData::make_slots(&chunk_offsets, &chunks);
         // Construct directly using the struct fields to avoid recomputing chunk_offsets
         Ok(ChunkedData {
-            empty_dtype: chunks.is_empty().then_some(dtype.clone()),
             chunk_offsets,
             chunks,
             slots,
         })
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -193,37 +193,6 @@ impl VTable for Chunked {
         }
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        // Slots: chunk_offsets, then chunks...
-        vortex_ensure!(!slots.is_empty(), "Chunked array needs at least one slot");
-
-        let nchunks = slots.len() - CHUNKS_OFFSET;
-        let chunk_offsets_ref = slots[CHUNK_OFFSETS_SLOT]
-            .as_ref()
-            .ok_or_else(|| vortex_err!("chunk_offsets slot must not be None"))?;
-        let chunk_offsets_buf = chunk_offsets_ref.to_primitive().to_buffer::<u64>();
-
-        vortex_ensure!(
-            chunk_offsets_buf.len() == nchunks + 1,
-            "Expected {} chunk offsets, found {}",
-            nchunks + 1,
-            chunk_offsets_buf.len()
-        );
-
-        let chunks: Vec<ArrayRef> = slots[CHUNKS_OFFSET..]
-            .iter()
-            .map(|s| {
-                s.clone()
-                    .ok_or_else(|| vortex_err!("chunk slot must not be None"))
-            })
-            .try_collect()?;
-        array.chunk_offsets = PrimitiveData::new(chunk_offsets_buf, Validity::NonNullable);
-        array.empty_dtype = chunks.is_empty().then_some(array.dtype().clone());
-        array.chunks = chunks;
-        array.slots = slots;
-
-        Ok(())
-    }
 
     fn append_to_builder(
         array: ArrayView<'_, Self>,

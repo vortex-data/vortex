@@ -21,6 +21,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
+use crate::arrays::variant::VariantArrayExt;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
 use crate::match_each_decimal_value_type;

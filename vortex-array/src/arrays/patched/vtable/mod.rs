@@ -84,7 +84,7 @@ impl VTable for Patched {
         ArrayId::new_ref("vortex.patched")
     }
 
-    fn array_hash<H: Hasher>(array: &PatchedArray, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.offset.hash(state);
         array.n_lanes.hash(state);
         array.base_array().array_hash(state, precision);
@@ -93,7 +93,7 @@ impl VTable for Patched {
         array.patch_values().array_hash(state, precision);
     }
 
-    fn array_eq(array: &PatchedArray, other: &PatchedArray, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.offset == other.offset
             && array.n_lanes == other.n_lanes
             && array.base_array().array_eq(other.base_array(), precision)
@@ -112,7 +112,7 @@ impl VTable for Patched {
         0
     }
 
-    fn validate(&self, data: &PatchedArray, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &PatchedArray, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         vortex_ensure!(
             data.base_array().dtype() == dtype,
             "PatchedArray base dtype {} does not match outer dtype {}",
@@ -256,24 +256,18 @@ impl VTable for Patched {
         Ok(())
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "PatchedArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
-    }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let inner = array

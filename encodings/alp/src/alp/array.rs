@@ -54,17 +54,31 @@ impl VTable for ALP {
         Self::ID
     }
 
-    fn validate(&self, data: &ALPData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &ALPData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         data.validate_against_outer(dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ALPData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.encoded().array_hash(state, precision);
         array.exponents.hash(state);
         array.patches().array_hash(state, precision);
     }
 
-    fn array_eq(array: &ALPData, other: &ALPData, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.encoded().array_eq(other.encoded(), precision)
             && array.exponents == other.exponents
             && array.patches().array_eq(&other.patches(), precision)
@@ -138,30 +152,16 @@ impl VTable for ALP {
         )
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ALPArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // If patch slots are being cleared, clear the metadata too
-        if slots[PATCH_INDICES_SLOT].is_none() || slots[PATCH_VALUES_SLOT].is_none() {
-            array.patch_offset = None;
-            array.patch_offset_within_chunk = None;
-        };
-
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

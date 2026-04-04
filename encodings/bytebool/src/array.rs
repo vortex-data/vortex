@@ -50,19 +50,36 @@ impl VTable for ByteBool {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         let validity = data.validity();
         ByteBoolData::validate(data.buffer(), &validity, dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ByteBoolData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.buffer.array_hash(state, precision);
-        array.validity().array_hash(state, precision);
+        array.data().validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &ByteBoolData, other: &ByteBoolData, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.buffer.array_eq(&other.buffer, precision)
-            && array.validity().array_eq(&other.validity(), precision)
+            && array
+                .data()
+                .validity()
+                .array_eq(&other.data().validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -119,23 +136,16 @@ impl VTable for ByteBool {
         Ok(ByteBoolData::new(buffer, validity))
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ByteBoolArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn reduce_parent(

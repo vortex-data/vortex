@@ -60,18 +60,18 @@ impl VTable for ListView {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ListViewData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.elements().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
         array.sizes().array_hash(state, precision);
-        array.validity().array_hash(state, precision);
+        array.data().validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &ListViewData, other: &ListViewData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.elements().array_eq(other.elements(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
             && array.sizes().array_eq(other.sizes(), precision)
-            && array.validity().array_eq(&other.validity(), precision)
+            && array.data().validity().array_eq(&other.data().validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -97,7 +97,7 @@ impl VTable for ListView {
         ))
     }
 
-    fn validate(&self, data: &ListViewData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &ListViewData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         vortex_ensure!(
             data.len() == len,
             "ListViewArray length {} does not match outer length {}",
@@ -172,24 +172,18 @@ impl VTable for ListView {
         ListViewData::try_new(elements, offsets, sizes, validity)
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ListViewArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
-    }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

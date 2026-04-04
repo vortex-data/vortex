@@ -27,6 +27,7 @@ use crate::arrays::StructArray;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
+use crate::arrays::variant::VariantArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::TakeReduce;
 

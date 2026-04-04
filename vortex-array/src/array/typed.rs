@@ -31,6 +31,7 @@ pub struct ArrayParts<V: VTable> {
     pub dtype: DType,
     pub len: usize,
     pub data: V::ArrayData,
+    pub slots: Vec<Option<ArrayRef>>,
 }
 
 impl<V: VTable> ArrayParts<V> {
@@ -40,8 +41,15 @@ impl<V: VTable> ArrayParts<V> {
             dtype,
             len,
             data,
+            slots: Vec::new(),
         }
     }
+
+    pub fn with_slots(mut self, slots: Vec<Option<ArrayRef>>) -> Self {
+        self.slots = slots;
+        self
+    }
+
 }
 // =============================================================================
 // ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
@@ -58,20 +66,25 @@ pub(crate) struct ArrayInner<V: VTable> {
     pub(crate) dtype: DType,
     pub(crate) len: usize,
     pub(crate) data: V::ArrayData,
+    pub(crate) slots: Vec<Option<ArrayRef>>,
     pub(crate) stats: ArrayStats,
 }
 
 impl<V: VTable> ArrayInner<V> {
     /// Create a new inner array from explicit construction parameters.
     #[doc(hidden)]
-    pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
-        new.vtable.validate(&new.data, &new.dtype, new.len)?;
+    pub fn try_new(mut new: ArrayParts<V>) -> VortexResult<Self> {
+        if new.slots.is_empty() {
+            new.slots = V::infer_slots(&new.data);
+        }
+        new.vtable.validate(&new.data, &new.dtype, new.len, &new.slots)?;
         Ok(unsafe {
             Self::from_data_unchecked(
                 new.vtable,
                 new.dtype,
                 new.len,
                 new.data,
+                new.slots,
                 ArrayStats::default(),
             )
         })
@@ -86,6 +99,7 @@ impl<V: VTable> ArrayInner<V> {
         dtype: DType,
         len: usize,
         data: V::ArrayData,
+        slots: Vec<Option<ArrayRef>>,
         stats: ArrayStats,
     ) -> Self {
         Self {
@@ -93,6 +107,7 @@ impl<V: VTable> ArrayInner<V> {
             dtype,
             len,
             data,
+            slots,
             stats,
         }
     }
@@ -118,6 +133,7 @@ impl<V: VTable> Clone for ArrayInner<V> {
             dtype: self.dtype.clone(),
             len: self.len,
             data: self.data.clone(),
+            slots: self.slots.clone(),
             stats: self.stats.clone(),
         }
     }
@@ -130,6 +146,7 @@ impl<V: VTable> Debug for ArrayInner<V> {
             .field("dtype", &self.dtype)
             .field("len", &self.len)
             .field("inner", &self.data)
+            .field("slots", &self.slots)
             .finish()
     }
 }
@@ -179,12 +196,18 @@ impl<V: VTable> Array<V> {
     /// Caller must ensure the provided parts are logically consistent.
     #[doc(hidden)]
     pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
+        let slots = if new.slots.is_empty() {
+            V::infer_slots(&new.data)
+        } else {
+            new.slots
+        };
         let inner = ArrayRef::from_inner(Arc::new(unsafe {
             ArrayInner::<V>::from_data_unchecked(
                 new.vtable,
                 new.dtype,
                 new.len,
                 new.data,
+                slots,
                 ArrayStats::default(),
             )
         }));
@@ -256,6 +279,7 @@ impl<V: VTable> Array<V> {
             dtype: inner.dtype.clone(),
             len: inner.len,
             data: inner.data.clone(),
+            slots: inner.slots.clone(),
         }
     }
 
@@ -269,6 +293,11 @@ impl<V: VTable> Array<V> {
         self.downcast_inner().data.clone()
     }
 
+    /// Returns the array slots.
+    pub fn slots(&self) -> &[Option<ArrayRef>] {
+        &self.downcast_inner().slots
+    }
+
     /// Returns the internal [`ArrayRef`].
     #[inline(always)]
     pub fn as_array(&self) -> &ArrayRef {
@@ -279,7 +308,7 @@ impl<V: VTable> Array<V> {
     pub fn as_view(&self) -> ArrayView<'_, V> {
         let inner = self.downcast_inner();
         // SAFETY: `inner.data` is the `V::ArrayData` stored inside `self.inner`.
-        unsafe { ArrayView::new_unchecked(&self.inner, &inner.data) }
+        unsafe { ArrayView::new_unchecked(&self.inner, &inner.data, &inner.slots) }
     }
 
     /// Downcast the inner `ArrayRef` to `&ArrayInner<V>`.

@@ -48,7 +48,13 @@ impl VTable for ZigZag {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         let expected_dtype = ZigZagData::dtype_from_encoded_dtype(data.encoded().dtype())?;
         vortex_ensure!(
             dtype == &expected_dtype,
@@ -62,11 +68,19 @@ impl VTable for ZigZag {
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ZigZagData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.encoded().array_hash(state, precision);
     }
 
-    fn array_eq(array: &ZigZagData, other: &ZigZagData, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.encoded().array_eq(other.encoded(), precision)
     }
 
@@ -112,23 +126,16 @@ impl VTable for ZigZag {
         ZigZagData::try_new(encoded)
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ZigZagArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

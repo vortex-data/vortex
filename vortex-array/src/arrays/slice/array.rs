@@ -10,8 +10,8 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
 use crate::arrays::Slice;
-use crate::dtype::DType;
 
 /// The underlying child array being sliced.
 pub(super) const CHILD_SLOT: usize = 0;
@@ -20,17 +20,56 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 
 #[derive(Clone, Debug)]
 pub struct SliceData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) range: Range<usize>,
 }
 
 pub struct SliceDataParts {
-    pub child: ArrayRef,
     pub range: Range<usize>,
 }
 
+pub trait SliceArrayExt {
+    fn slice_data(&self) -> &SliceData;
+    fn slice_len(&self) -> usize;
+
+    fn child(&self) -> &ArrayRef {
+        self.as_slots()[CHILD_SLOT]
+            .as_ref()
+            .expect("validated slice child slot")
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>];
+}
+
+impl SliceArrayExt for Array<Slice> {
+    fn slice_data(&self) -> &SliceData {
+        self.data()
+    }
+
+    fn slice_len(&self) -> usize {
+        self.len()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl SliceArrayExt for ArrayView<'_, Slice> {
+    fn slice_data(&self) -> &SliceData {
+        self.data()
+    }
+
+    fn slice_len(&self) -> usize {
+        self.len()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
 impl SliceData {
-    fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
+    fn try_new(child: &ArrayRef, range: Range<usize>) -> VortexResult<Self> {
         if range.end > child.len() {
             vortex_panic!(
                 "SliceArray range out of bounds: range {:?} exceeds child array length {}",
@@ -38,24 +77,16 @@ impl SliceData {
                 child.len()
             );
         }
-        Ok(Self {
-            slots: vec![Some(child)],
-            range,
-        })
+        Ok(Self { range })
     }
 
     pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
-        Self::try_new(child, range).vortex_expect("failed")
+        Self::try_new(&child, range).vortex_expect("failed")
     }
 
     /// Returns the length of this array.
     pub fn len(&self) -> usize {
         self.range.len()
-    }
-
-    /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        self.child().dtype()
     }
 
     /// Returns `true` if this array is empty.
@@ -68,20 +99,8 @@ impl SliceData {
         &self.range
     }
 
-    /// The child array being sliced.
-    pub fn child(&self) -> &ArrayRef {
-        self.slots[CHILD_SLOT]
-            .as_ref()
-            .vortex_expect("SliceArray child slot")
-    }
-
-    pub fn into_parts(mut self) -> SliceDataParts {
-        SliceDataParts {
-            child: self.slots[CHILD_SLOT]
-                .take()
-                .vortex_expect("SliceArray child slot"),
-            range: self.range,
-        }
+    pub fn into_parts(self) -> SliceDataParts {
+        SliceDataParts { range: self.range }
     }
 }
 
@@ -90,15 +109,23 @@ impl Array<Slice> {
     pub fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
         let len = range.len();
         let dtype = child.dtype().clone();
-        let data = SliceData::try_new(child, range)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Slice, dtype, len, data)) })
+        let data = SliceData::try_new(&child, range)?;
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Slice, dtype, len, data).with_slots(vec![Some(child)]),
+            )
+        })
     }
 
     /// Constructs a new `SliceArray`.
     pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
         let len = range.len();
         let dtype = child.dtype().clone();
-        let data = SliceData::new(child, range);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Slice, dtype, len, data)) }
+        let data = SliceData::new(child.clone(), range);
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Slice, dtype, len, data).with_slots(vec![Some(child)]),
+            )
+        }
     }
 }

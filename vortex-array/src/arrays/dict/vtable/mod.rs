@@ -63,7 +63,7 @@ impl VTable for Dict {
         Self::ID
     }
 
-    fn validate(&self, data: &DictData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &DictData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         vortex_ensure!(data.codes().len() == len, "DictArray codes length mismatch");
         vortex_ensure!(
             data.dtype() == *dtype,
@@ -72,12 +72,12 @@ impl VTable for Dict {
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DictData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.codes().array_hash(state, precision);
         array.values().array_hash(state, precision);
     }
 
-    fn array_eq(array: &DictData, other: &DictData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.codes().array_eq(other.codes(), precision)
             && array.values().array_eq(other.values(), precision)
     }
@@ -145,24 +145,18 @@ impl VTable for Dict {
         })
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "DictArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
-    }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if array.is_empty() {

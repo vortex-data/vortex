@@ -7,6 +7,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -26,9 +27,10 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
-use crate::arrays::slice::array::NUM_SLOTS;
+use crate::arrays::slice::array::CHILD_SLOT;
 use crate::arrays::slice::array::SLOT_NAMES;
 use crate::arrays::slice::array::SliceData;
+use crate::arrays::slice::SliceArrayExt;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -57,11 +59,19 @@ impl VTable for Slice {
         Slice::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(slots[CHILD_SLOT].is_some(), "SliceArray child slot must be present");
+        let child = slots[CHILD_SLOT].as_ref().vortex_expect("validated child slot");
         vortex_ensure!(
-            data.child().dtype() == dtype,
+            child.dtype() == dtype,
             "SliceArray dtype {} does not match outer dtype {}",
-            data.child().dtype(),
+            child.dtype(),
             dtype
         );
         vortex_ensure!(
@@ -71,21 +81,21 @@ impl VTable for Slice {
             len
         );
         vortex_ensure!(
-            data.range.end <= data.child().len(),
+            data.range.end <= child.len(),
             "SliceArray range {:?} exceeds child length {}",
             data.range,
-            data.child().len()
+            child.len()
         );
         Ok(())
     }
 
-    fn array_hash<H: Hasher>(array: &SliceData, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
         array.range.start.hash(state);
         array.range.end.hash(state);
     }
 
-    fn array_eq(array: &SliceData, other: &SliceData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.child().array_eq(other.child(), precision) && array.range == other.range
     }
 
@@ -99,10 +109,6 @@ impl VTable for Slice {
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -127,16 +133,6 @@ impl VTable for Slice {
         vortex_bail!("Slice array is not serializable")
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "SliceArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
-    }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // Execute the child to get canonical form, then slice it

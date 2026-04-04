@@ -63,7 +63,13 @@ impl VTable for DecimalByteParts {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         let Some(decimal_dtype) = dtype.as_decimal_opt() else {
             vortex_bail!("expected decimal dtype, got {}", dtype)
         };
@@ -71,7 +77,7 @@ impl VTable for DecimalByteParts {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &DecimalBytePartsData,
+        array: ArrayView<'_, Self>,
         state: &mut H,
         precision: Precision,
     ) {
@@ -79,8 +85,8 @@ impl VTable for DecimalByteParts {
     }
 
     fn array_eq(
-        array: &DecimalBytePartsData,
-        other: &DecimalBytePartsData,
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
         precision: Precision,
     ) -> bool {
         array.msp().array_eq(other.msp(), precision)
@@ -134,23 +140,16 @@ impl VTable for DecimalByteParts {
         DecimalBytePartsData::try_new(msp, *decimal_dtype)
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "DecimalBytePartsArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn reduce_parent(

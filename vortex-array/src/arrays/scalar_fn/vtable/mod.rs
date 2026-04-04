@@ -62,7 +62,7 @@ impl VTable for ScalarFnVTable {
         self.scalar_fn.id()
     }
 
-    fn validate(&self, data: &ScalarFnData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &ScalarFnData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         vortex_ensure!(
             data.scalar_fn == self.scalar_fn,
             "ScalarFnArray data scalar_fn does not match vtable"
@@ -83,14 +83,14 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn array_hash<H: Hasher>(array: &ScalarFnData, state: &mut H, precision: Precision) {
+    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.scalar_fn().hash(state);
         for child in array.iter_children() {
             child.array_hash(state, precision);
         }
     }
 
-    fn array_eq(array: &ScalarFnData, other: &ScalarFnData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         if array.scalar_fn() != other.scalar_fn() {
             return false;
         }
@@ -132,8 +132,12 @@ impl VTable for ScalarFnVTable {
         vortex_bail!("Deserialization of ScalarFnVTable metadata is not supported");
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -145,10 +149,6 @@ impl VTable for ScalarFnVTable {
             .to_string()
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        array.slots = slots;
-        Ok(())
-    }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn()));

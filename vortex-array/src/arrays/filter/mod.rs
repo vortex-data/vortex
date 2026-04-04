@@ -4,6 +4,7 @@
 mod array;
 pub use array::FilterData;
 pub use array::FilterDataParts;
+pub use array::FilterArrayExt;
 pub use vtable::FilterArray;
 
 mod execute;

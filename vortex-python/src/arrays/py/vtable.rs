@@ -45,18 +45,32 @@ impl VTable for PythonVTable {
         self.id.clone()
     }
 
-    fn validate(&self, data: &PythonArray, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &PythonArray,
+        dtype: &DType,
+        len: usize,
+        _slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         vortex_ensure!(data.vtable.id == self.id, "PythonArray vtable id mismatch");
         vortex_ensure!(&data.dtype == dtype, "PythonArray dtype mismatch");
         vortex_ensure!(data.len == len, "PythonArray len mismatch");
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        _precision: Precision,
+    ) {
         Arc::as_ptr(&array.object).hash(state);
     }
 
-    fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        _precision: Precision,
+    ) -> bool {
         Arc::ptr_eq(&array.object, &other.object)
     }
 
@@ -107,15 +121,6 @@ impl VTable for PythonVTable {
 
     fn slot_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
         vortex_panic!("PythonArray has no slots")
-    }
-
-    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.is_empty(),
-            "PythonArray has no slots, got {}",
-            slots.len()
-        );
-        Ok(())
     }
 
     fn execute(_array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

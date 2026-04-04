@@ -215,12 +215,18 @@ impl VTable for Sequence {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         SequenceData::validate(data.base, data.multiplier, dtype, len)
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &SequenceData,
+        array: ArrayView<'_, Self>,
         state: &mut H,
         _precision: Precision,
     ) {
@@ -228,7 +234,11 @@ impl VTable for Sequence {
         array.multiplier.hash(state);
     }
 
-    fn array_eq(array: &SequenceData, other: &SequenceData, _precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        _precision: Precision,
+    ) -> bool {
         array.base == other.base && array.multiplier == other.multiplier
     }
 
@@ -304,22 +314,16 @@ impl VTable for Sequence {
         SequenceData::try_new(base, multiplier, ptype, dtype.nullability(), len)
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.is_empty(),
-            "SequenceArray expects 0 slots, got {}",
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

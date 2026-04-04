@@ -4,6 +4,7 @@ mod canonical;
 mod operations;
 mod validity;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -19,9 +20,10 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::ConstantArray;
+use crate::arrays::masked::array::CHILD_SLOT;
 use crate::arrays::masked::MaskedData;
-use crate::arrays::masked::array::NUM_SLOTS;
 use crate::arrays::masked::array::SLOT_NAMES;
+use crate::arrays::masked::MaskedArrayExt;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
@@ -53,26 +55,36 @@ impl VTable for Masked {
         Self::ID
     }
 
-    fn validate(&self, data: &MaskedData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &MaskedData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(slots[CHILD_SLOT].is_some(), "MaskedArray child slot must be present");
+        let child = slots[CHILD_SLOT].as_ref().vortex_expect("validated child slot");
         vortex_ensure!(
-            data.child().len() == len,
+            child.len() == len,
             "MaskedArray child length mismatch"
         );
         vortex_ensure!(
-            data.dtype() == *dtype,
+            child.dtype().as_nullable() == *dtype,
             "MaskedArray dtype does not match child and validity"
         );
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &MaskedData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.child().array_hash(state, precision);
-        array.validity().array_hash(state, precision);
+        array.masked_validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &MaskedData, other: &MaskedData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.child().array_eq(other.child(), precision)
-            && array.validity().array_eq(&other.validity(), precision)
+            && array
+                .masked_validity()
+                .array_eq(&other.masked_validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -130,7 +142,7 @@ impl VTable for Masked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let validity_mask = array.validity_mask()?;
+        let validity_mask = array.masked_validity_mask();
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
@@ -159,24 +171,8 @@ impl VTable for Masked {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "MaskedArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 }
 

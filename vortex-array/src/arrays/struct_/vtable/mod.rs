@@ -45,27 +45,27 @@ impl VTable for Struct {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &StructData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         for field in array.iter_unmasked_fields() {
             field.array_hash(state, precision);
         }
-        array.validity().array_hash(state, precision);
+        array.data().validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &StructData, other: &StructData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.slots.len() == other.slots.len()
             && array
                 .iter_unmasked_fields()
                 .zip(other.iter_unmasked_fields())
                 .all(|(a, b)| a.array_eq(b, precision))
-            && array.validity().array_eq(&other.validity(), precision)
+            && array.data().validity().array_eq(&other.data().validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn validate(&self, data: &StructData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &StructData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         match dtype {
             DType::Struct(..) => {}
             _ => vortex_bail!("Expected struct dtype, found {:?}", dtype),
@@ -146,8 +146,12 @@ impl VTable for Struct {
         StructData::try_new_with_dtype(field_children, struct_dtype.clone(), len, validity)
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -158,10 +162,6 @@ impl VTable for Struct {
         }
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        array.slots = slots;
-        Ok(())
-    }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

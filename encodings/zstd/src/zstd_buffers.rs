@@ -358,7 +358,7 @@ impl VTable for ZstdBuffers {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &ZstdBuffersData,
+        array: ArrayView<'_, Self>,
         state: &mut H,
         precision: Precision,
     ) {
@@ -374,7 +374,11 @@ impl VTable for ZstdBuffers {
         }
     }
 
-    fn array_eq(array: &ZstdBuffersData, other: &ZstdBuffersData, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.inner_encoding_id == other.inner_encoding_id
             && array.inner_metadata == other.inner_metadata
             && array.compressed_buffers.len() == other.compressed_buffers.len()
@@ -406,17 +410,16 @@ impl VTable for ZstdBuffers {
         Some(format!("compressed_{idx}"))
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         format!("child_{idx}")
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        array.slots = slots;
-        Ok(())
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {

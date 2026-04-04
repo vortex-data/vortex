@@ -72,11 +72,21 @@ impl VTable for ALPRD {
         Self::ID
     }
 
-    fn validate(&self, data: &ALPRDData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &ALPRDData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         data.validate_against_outer(dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ALPRDData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.left_parts().array_hash(state, precision);
         array.left_parts_dictionary.array_hash(state, precision);
         array.right_parts().array_hash(state, precision);
@@ -84,7 +94,11 @@ impl VTable for ALPRD {
         array.left_parts_patches.array_hash(state, precision);
     }
 
-    fn array_eq(array: &ALPRDData, other: &ALPRDData, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.left_parts().array_eq(other.left_parts(), precision)
             && array
                 .left_parts_dictionary
@@ -201,42 +215,16 @@ impl VTable for ALPRD {
         )
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ALPRDArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // Reconstruct patches from slots + existing metadata
-        array.left_parts_patches =
-            match (&slots[LP_PATCH_INDICES_SLOT], &slots[LP_PATCH_VALUES_SLOT]) {
-                (Some(indices), Some(values)) => {
-                    let old = array
-                        .left_parts_patches
-                        .as_ref()
-                        .vortex_expect("ALPRDArray had patch slots but no patches metadata");
-                    Some(Patches::new(
-                        old.array_len(),
-                        old.offset(),
-                        indices.clone(),
-                        values.clone(),
-                        slots[LP_PATCH_CHUNK_OFFSETS_SLOT].clone(),
-                    )?)
-                }
-                _ => None,
-            };
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

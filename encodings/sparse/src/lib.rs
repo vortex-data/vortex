@@ -74,16 +74,30 @@ impl VTable for Sparse {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         SparseData::validate(data.patches(), data.fill_scalar(), dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &SparseData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.patches.array_hash(state, precision);
         array.fill_value.hash(state);
     }
 
-    fn array_eq(array: &SparseData, other: &SparseData, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.patches.array_eq(&other.patches, precision) && array.fill_value == other.fill_value
     }
 
@@ -164,39 +178,16 @@ impl VTable for Sparse {
         )
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "SparseArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // Reconstruct patches from slots + existing metadata
-        let indices = slots[PATCH_INDICES_SLOT]
-            .clone()
-            .vortex_expect("SparseArray requires patch_indices slot");
-        let values = slots[PATCH_VALUES_SLOT]
-            .clone()
-            .vortex_expect("SparseArray requires patch_values slot");
-
-        array.patches = Patches::new(
-            array.patches.array_len(),
-            array.patches.offset(),
-            indices,
-            values,
-            slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
-        )?;
-        array.slots = slots;
-        Ok(())
     }
 
     fn reduce_parent(

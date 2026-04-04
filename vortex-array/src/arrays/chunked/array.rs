@@ -34,7 +34,6 @@ pub(super) const CHUNKS_OFFSET: usize = 1;
 
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
-    pub(super) empty_dtype: Option<DType>,
     pub(super) chunk_offsets: PrimitiveData,
     pub(super) chunks: Vec<ArrayRef>,
     pub(super) slots: Vec<Option<ArrayRef>>,
@@ -106,7 +105,6 @@ impl ChunkedData {
 
         let slots = Self::make_slots(&chunk_offsets, &chunks);
         Self {
-            empty_dtype: chunks.is_empty().then_some(dtype),
             chunk_offsets,
             chunks,
             slots,
@@ -133,15 +131,6 @@ impl ChunkedData {
             .copied()
             .and_then(|len| usize::try_from(len).ok())
             .vortex_expect("chunk offset must fit in usize")
-    }
-
-    /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        self.chunks
-            .first()
-            .map(|chunk| chunk.dtype())
-            .or(self.empty_dtype.as_ref())
-            .vortex_expect("ChunkedArray dtype must come from chunks or the empty dtype")
     }
 
     /// Returns `true` if this array is empty.
@@ -201,21 +190,26 @@ impl ChunkedData {
         self.chunks.iter().filter(|c| !c.is_empty())
     }
 
-    pub fn array_iterator(&self) -> impl ArrayIterator + '_ {
+    pub fn array_iterator(&self, dtype: &DType) -> impl ArrayIterator + '_ {
         ArrayIteratorAdapter::new(
-            self.dtype().clone(),
+            dtype.clone(),
             self.chunks.iter().map(|c| Ok(c.clone())),
         )
     }
 
-    pub fn array_stream(&self) -> impl ArrayStream + '_ {
+    pub fn array_stream(&self, dtype: &DType) -> impl ArrayStream + '_ {
         ArrayStreamAdapter::new(
-            self.dtype().clone(),
+            dtype.clone(),
             stream::iter(self.chunks.iter().map(|c| Ok(c.clone()))),
         )
     }
 
-    pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
+    pub fn rechunk(
+        &self,
+        dtype: &DType,
+        target_bytesize: u64,
+        target_rowsize: usize,
+    ) -> VortexResult<Self> {
         let mut new_chunks = Vec::new();
         let mut chunks_to_combine = Vec::new();
         let mut new_chunk_n_bytes = 0;
@@ -230,9 +224,9 @@ impl ChunkedData {
             {
                 new_chunks.push(
                     // SAFETY: chunks_to_combine contains valid chunks of the same dtype as self.
-                    // All chunks are guaranteed to be valid arrays matching self.dtype().
+                    // All chunks are guaranteed to be valid arrays matching `dtype`.
                     unsafe {
-                        Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone())
+                        Array::<Chunked>::new_unchecked(chunks_to_combine, dtype.clone())
                     }
                     .into_array()
                     .to_canonical()?
@@ -255,32 +249,31 @@ impl ChunkedData {
 
         if !chunks_to_combine.is_empty() {
             new_chunks.push(
-                // SAFETY: chunks_to_combine contains valid chunks of the same dtype as self.
-                // All chunks are guaranteed to be valid arrays matching self.dtype().
-                unsafe { Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone()) }
+                // SAFETY: chunks_to_combine contains valid chunks of the same dtype as `dtype`.
+                unsafe { Array::<Chunked>::new_unchecked(chunks_to_combine, dtype.clone()) }
                     .into_array()
                     .to_canonical()?
                     .into_array(),
             );
         }
 
-        // SAFETY: new_chunks contains valid arrays of the same dtype as self.
-        // All chunks were either taken from self or created from self's chunks.
-        unsafe { Ok(Self::new_unchecked(new_chunks, self.dtype().clone())) }
+        // SAFETY: new_chunks contains valid arrays of the same dtype as `dtype`.
+        unsafe { Ok(Self::new_unchecked(new_chunks, dtype.clone())) }
     }
 }
 
 impl Array<Chunked> {
     /// Constructs a new `ChunkedArray`.
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
-        let data = ChunkedData::try_new(chunks, dtype)?;
-        let dtype = data.dtype().clone();
+        let data = ChunkedData::try_new(chunks, dtype.clone())?;
         let len = data.len();
         Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Chunked, dtype, len, data)) })
     }
 
     pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
-        let data = self.data().rechunk(target_bytesize, target_rowsize)?;
+        let data = self
+            .data()
+            .rechunk(self.dtype(), target_bytesize, target_rowsize)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(
                 Chunked,
@@ -297,8 +290,7 @@ impl Array<Chunked> {
     ///
     /// See [`ChunkedData::new_unchecked`].
     pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
-        let data = unsafe { ChunkedData::new_unchecked(chunks, dtype) };
-        let dtype = data.dtype().clone();
+        let data = unsafe { ChunkedData::new_unchecked(chunks, dtype.clone()) };
         let len = data.len();
         unsafe { Array::from_parts_unchecked(ArrayParts::new(Chunked, dtype, len, data)) }
     }

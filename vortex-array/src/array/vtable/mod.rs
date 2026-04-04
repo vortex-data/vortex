@@ -61,13 +61,29 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn id(&self) -> ArrayId;
 
     /// Validates that externally supplied logical metadata matches the array data.
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()>;
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()>;
+
+    /// Temporary migration hook for encodings that still store slot state inside `ArrayData`.
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        _ = data;
+        Vec::new()
+    }
 
     /// Hashes the array contents.
-    fn array_hash<H: Hasher>(array: &Self::ArrayData, state: &mut H, precision: Precision);
+    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision);
 
     /// Compares two arrays of the same type for equality.
-    fn array_eq(array: &Self::ArrayData, other: &Self::ArrayData, precision: Precision) -> bool;
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool;
 
     /// Returns the number of buffers in the array.
     fn nbuffers(array: ArrayView<'_, Self>) -> usize;
@@ -170,21 +186,16 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// moved out of an `ArrayData` into the concrete `Array` type during deserialization
     /// without copying.
     ///
-    /// TODO: once no encodings rely on side-effects in [`Self::with_slots`], replace the
-    /// `slots`/`with_slots` pair with a single `slots_mut` returning `&mut [Option<ArrayRef>]`.
-    fn slots<'a>(array: ArrayView<'a, Self>) -> &'a [Option<ArrayRef>];
+    /// TODO: once no encodings rely on `infer_slots`, replace it with direct outer storage only.
+    fn slots<'a>(array: ArrayView<'a, Self>) -> &'a [Option<ArrayRef>] {
+        array.slots()
+    }
 
     /// Returns the name of the slot at the given index.
     ///
     /// # Panics
     /// Panics if `idx >= slots(array).len()`.
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String;
-
-    /// Replaces the slots in `array` with the given `slots` vec.
-    ///
-    /// Some encodings use this to perform side-effects (e.g. cache invalidation) when
-    /// slots change. Once those are removed, this will be replaced by `slots_mut`.
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()>;
 
     /// Execute this array by returning an [`ExecutionResult`].
     ///

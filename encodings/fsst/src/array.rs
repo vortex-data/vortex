@@ -79,11 +79,21 @@ impl VTable for FSST {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         data.validate(dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &FSSTData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.symbols.array_hash(state, precision);
         array.symbol_lengths.array_hash(state, precision);
         array
@@ -94,7 +104,11 @@ impl VTable for FSST {
         array.uncompressed_lengths().array_hash(state, precision);
     }
 
-    fn array_eq(array: &FSSTData, other: &FSSTData, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.symbols.array_eq(&other.symbols, precision)
             && array
                 .symbol_lengths
@@ -228,41 +242,16 @@ impl VTable for FSST {
         );
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "FSSTArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // Rebuild the codes VarBinArray from the slots
-        let codes_offsets = slots[CODES_OFFSETS_SLOT]
-            .clone()
-            .vortex_expect("FSSTArray requires codes_offsets slot");
-        let codes_validity = match &slots[CODES_VALIDITY_SLOT] {
-            Some(v) => Validity::Array(v.clone()),
-            None => Validity::from(array.codes.dtype().nullability()),
-        };
-        let codes = VarBinArray::try_new(
-            codes_offsets,
-            array.codes.bytes().clone(),
-            array.codes.dtype().clone(),
-            codes_validity,
-        )?;
-        array.codes = codes;
-        array.codes_array = array.codes.clone().into_array();
-        array.slots = slots;
-
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

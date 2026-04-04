@@ -37,6 +37,7 @@ use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
+use crate::arrays::variant::VariantArrayExt;
 use crate::arrays::bool::BoolDataParts;
 use crate::arrays::decimal::DecimalDataParts;
 use crate::arrays::listview::ListViewDataParts;

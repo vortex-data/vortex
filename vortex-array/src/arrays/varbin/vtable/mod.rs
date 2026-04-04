@@ -58,23 +58,23 @@ impl VTable for VarBin {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &VarBinData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.bytes().array_hash(state, precision);
         array.offsets().array_hash(state, precision);
-        array.validity().array_hash(state, precision);
+        array.data().validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &VarBinData, other: &VarBinData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.bytes().array_eq(other.bytes(), precision)
             && array.offsets().array_eq(other.offsets(), precision)
-            && array.validity().array_eq(&other.validity(), precision)
+            && array.data().validity().array_eq(&other.data().validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn validate(&self, data: &VarBinData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &VarBinData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         vortex_ensure!(
             data.len() == len,
             "VarBinArray length {} does not match outer length {}",
@@ -148,24 +148,18 @@ impl VTable for VarBin {
         VarBinData::try_new(offsets, bytes, dtype.clone(), validity)
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VarBinArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
-    }
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,

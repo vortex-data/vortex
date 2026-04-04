@@ -77,12 +77,18 @@ impl VTable for BitPacked {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         data.validate_against_outer(dtype, len)
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &BitPackedData,
+        array: ArrayView<'_, Self>,
         state: &mut H,
         precision: Precision,
     ) {
@@ -121,7 +127,11 @@ impl VTable for BitPacked {
         array.patch_offset_within_chunk.hash(state);
     }
 
-    fn array_eq(array: &BitPackedData, other: &BitPackedData, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         array.offset == other.offset
             && array.bit_width == other.bit_width
             && array.packed.array_eq(&other.packed, precision)
@@ -175,30 +185,16 @@ impl VTable for BitPacked {
         RULES.evaluate(array, parent, child_idx)
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "BitPackedArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // If patch slots are being cleared, clear the metadata too
-        if slots[PATCH_INDICES_SLOT].is_none() || slots[PATCH_VALUES_SLOT].is_none() {
-            array.patch_offset = None;
-            array.patch_offset_within_chunk = None;
-        }
-
-        array.slots = slots;
-        Ok(())
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {

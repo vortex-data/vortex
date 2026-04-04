@@ -22,6 +22,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
+
 /// Reference-counted DynVTable
 pub type DynVTableRef = Arc<dyn DynVTable>;
 
@@ -41,7 +42,8 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
-    /// See [`VTable::with_slots`]
+
+    /// Rebuilds the array with the provided outer slots.
     fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
 
     /// See [`VTable::reduce`]
@@ -84,29 +86,22 @@ impl<V: VTable> DynVTable for V {
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let inner = self.deserialize(dtype, len, metadata, buffers, children, session)?;
-        Ok(
-            Array::<V>::try_from_parts(ArrayParts::new(self.clone(), dtype.clone(), len, inner))?
-                .into_array(),
-        )
+        Ok(Array::<V>::try_from_parts(ArrayParts::new(self.clone(), dtype.clone(), len, inner))?
+            .into_array())
     }
 
     fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
         let typed = array
             .as_opt::<V>()
             .vortex_expect("Failed to downcast array");
-        let mut data = typed.data().clone();
-        V::with_slots(&mut data, slots)?;
+        let data = typed.data().clone();
         let stats = array.statistics().to_owned();
-        Ok(unsafe {
-            Array::<V>::from_parts_unchecked(ArrayParts::new(
-                self.clone(),
-                array.dtype().clone(),
-                array.len(),
-                data,
-            ))
-            .with_stats_set(stats)
-            .into_array()
-        })
+        Ok(Array::<V>::try_from_parts(
+            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                .with_slots(slots),
+        )?
+        .with_stats_set(stats)
+        .into_array())
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -155,7 +150,6 @@ impl<V: VTable> DynVTable for V {
     }
 
     fn execute(&self, array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // Capture metadata before the move for post-validation and stats inheritance.
         let len = array.len();
         let dtype = array.dtype().clone();
         let stats = array.statistics().to_owned();
@@ -179,7 +173,6 @@ impl<V: VTable> DynVTable for V {
                 );
             }
 
-            // TODO(ngates): do we want to do this on every execution? We used to in to_canonical.
             result.array().statistics().set_iter(stats.into_iter());
         }
 

@@ -9,6 +9,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
+use crate::arrays::masked::MaskedArrayExt;
 use crate::arrays::filter::FilterReduce;
 
 impl FilterReduce for Masked {

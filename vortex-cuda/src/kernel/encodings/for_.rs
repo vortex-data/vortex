@@ -13,6 +13,7 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Slice;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::NativePType;

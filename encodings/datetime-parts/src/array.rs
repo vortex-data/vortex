@@ -79,12 +79,18 @@ impl VTable for DateTimeParts {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         DateTimePartsData::validate(dtype, data.days(), data.seconds(), data.subseconds(), len)
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &DateTimePartsData,
+        array: ArrayView<'_, Self>,
         state: &mut H,
         precision: Precision,
     ) {
@@ -94,8 +100,8 @@ impl VTable for DateTimeParts {
     }
 
     fn array_eq(
-        array: &DateTimePartsData,
-        other: &DateTimePartsData,
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
         precision: Precision,
     ) -> bool {
         array.days().array_eq(other.days(), precision)
@@ -162,23 +168,16 @@ impl VTable for DateTimeParts {
         DateTimePartsData::try_new(dtype.clone(), days, seconds, subseconds)
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "DateTimePartsArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

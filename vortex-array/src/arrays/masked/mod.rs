@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::MaskedData;
+pub use array::MaskedArrayExt;
 pub use vtable::MaskedArray;
 
 pub(crate) mod compute;

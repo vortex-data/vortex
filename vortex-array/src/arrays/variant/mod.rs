@@ -3,13 +3,12 @@
 
 mod vtable;
 
-use vortex_error::VortexExpect;
-
 pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
 use crate::dtype::DType;
 
 pub(super) const NUM_SLOTS: usize = 1;
@@ -24,38 +23,53 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 /// always `DType::Variant(child.dtype().nullability())`. The child's validity
 /// determines which rows are null.
 #[derive(Clone, Debug)]
-pub struct VariantData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
+pub struct VariantData;
+
+pub trait VariantArrayExt {
+    fn variant_data(&self) -> &VariantData;
+    fn variant_dtype(&self) -> &DType;
+    fn variant_len(&self) -> usize;
+
+    fn child(&self) -> &ArrayRef {
+        self.as_slots()[0].as_ref().expect("validated variant child slot")
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>];
 }
 
-impl VariantData {
-    /// Creates a new VariantArray. Nullability comes from the child's dtype.
-    pub fn new(child: ArrayRef) -> Self {
-        Self {
-            slots: vec![Some(child)],
-        }
+impl VariantArrayExt for Array<Variant> {
+    fn variant_data(&self) -> &VariantData {
+        self.data()
     }
 
-    /// Returns the length of this array.
-    pub fn len(&self) -> usize {
-        self.child().len()
+    fn variant_dtype(&self) -> &DType {
+        self.dtype()
     }
 
-    /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> DType {
-        DType::Variant(self.child().dtype().nullability())
+    fn variant_len(&self) -> usize {
+        self.len()
     }
 
-    /// Returns `true` if this array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl VariantArrayExt for ArrayView<'_, Variant> {
+    fn variant_data(&self) -> &VariantData {
+        self.data()
     }
 
-    /// Returns a reference to the underlying child array.
-    pub fn child(&self) -> &ArrayRef {
-        self.slots[0]
-            .as_ref()
-            .vortex_expect("VariantArray child slot")
+    fn variant_dtype(&self) -> &DType {
+        self.dtype()
+    }
+
+    fn variant_len(&self) -> usize {
+        self.len()
+    }
+
+    fn as_slots(&self) -> &[Option<ArrayRef>] {
+        self.slots()
     }
 }
 
@@ -66,12 +80,9 @@ impl Array<Variant> {
         let len = child.len();
         let stats = child.statistics().to_owned();
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(
-                Variant,
-                dtype,
-                len,
-                VariantData::new(child),
-            ))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Variant, dtype, len, VariantData).with_slots(vec![Some(child)]),
+            )
         }
         .with_stats_set(stats)
     }

@@ -90,11 +90,21 @@ impl VTable for Pco {
         Self::ID
     }
 
-    fn validate(&self, data: &PcoData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &PcoData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         data.validate(dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &PcoData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         array.unsliced_validity.array_hash(state, precision);
         array.unsliced_n_rows.hash(state);
         array.slice_start.hash(state);
@@ -108,7 +118,11 @@ impl VTable for Pco {
         }
     }
 
-    fn array_eq(array: &PcoData, other: &PcoData, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         if !array
             .unsliced_validity
             .array_eq(&other.unsliced_validity, precision)
@@ -204,27 +218,16 @@ impl VTable for Pco {
         ))
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "PcoArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.unsliced_validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.unsliced_validity.nullability()),
-        };
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

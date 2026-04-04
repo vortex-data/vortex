@@ -45,14 +45,14 @@ impl VTable for Extension {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &ExtensionData,
+        array: ArrayView<'_, Self>,
         state: &mut H,
         precision: Precision,
     ) {
         array.storage_array().array_hash(state, precision);
     }
 
-    fn array_eq(array: &ExtensionData, other: &ExtensionData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array
             .storage_array()
             .array_eq(other.storage_array(), precision)
@@ -70,8 +70,12 @@ impl VTable for Extension {
         None
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -82,7 +86,7 @@ impl VTable for Extension {
         Ok(Some(vec![]))
     }
 
-    fn validate(&self, data: &ExtensionData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &ExtensionData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         vortex_ensure!(
             data.len() == len,
             "ExtensionArray length {} does not match outer length {}",
@@ -127,16 +131,6 @@ impl VTable for Extension {
         Ok(ExtensionData::new(ext_dtype.clone(), storage))
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ExtensionArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
-    }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

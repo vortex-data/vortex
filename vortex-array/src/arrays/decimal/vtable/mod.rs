@@ -57,16 +57,16 @@ impl VTable for Decimal {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &DecimalData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
         array.values.array_hash(state, precision);
         std::mem::discriminant(&array.values_type).hash(state);
-        array.validity().array_hash(state, precision);
+        array.data().validity().array_hash(state, precision);
     }
 
-    fn array_eq(array: &DecimalData, other: &DecimalData, precision: Precision) -> bool {
+    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
         array.values.array_eq(&other.values, precision)
             && array.values_type == other.values_type
-            && array.validity().array_eq(&other.validity(), precision)
+            && array.data().validity().array_eq(&other.data().validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -96,7 +96,7 @@ impl VTable for Decimal {
         ))
     }
 
-    fn validate(&self, data: &DecimalData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(&self, data: &DecimalData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
         vortex_ensure!(
             data.len() == len,
             "DecimalArray length {} does not match outer length {}",
@@ -155,24 +155,18 @@ impl VTable for Decimal {
         })
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "DecimalArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
-    }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

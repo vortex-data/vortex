@@ -91,11 +91,21 @@ impl VTable for Zstd {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         data.validate(dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &ZstdData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        array: ArrayView<'_, Self>,
+        state: &mut H,
+        precision: Precision,
+    ) {
         match &array.dictionary {
             Some(dict) => {
                 true.hash(state);
@@ -114,7 +124,11 @@ impl VTable for Zstd {
         array.slice_stop.hash(state);
     }
 
-    fn array_eq(array: &ZstdData, other: &ZstdData, precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        precision: Precision,
+    ) -> bool {
         if !match (&array.dictionary, &other.dictionary) {
             (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
             (None, None) => true,
@@ -217,29 +231,16 @@ impl VTable for Zstd {
         ))
     }
 
+    fn infer_slots(data: &Self::ArrayData) -> Vec<Option<ArrayRef>> {
+        data.slots.clone()
+    }
+
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ZstdArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        array.unsliced_validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.unsliced_validity.nullability()),
-        };
-
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

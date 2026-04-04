@@ -12,6 +12,7 @@ use vortex::array::ArrayRef;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Slice;
+use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;

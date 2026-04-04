@@ -107,13 +107,13 @@ impl Debug for ArrayRef {
 
 impl ArrayHash for ArrayRef {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
-        self.0.dyn_array_hash(state as &mut dyn Hasher, precision);
+        self.0.dyn_array_hash(self, state as &mut dyn Hasher, precision);
     }
 }
 
 impl ArrayEq for ArrayRef {
     fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
-        self.0.dyn_array_eq(other.0.as_any(), precision)
+        self.0.dyn_array_eq(self, other, precision)
     }
 }
 
@@ -350,7 +350,7 @@ impl ArrayRef {
     /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
     pub fn as_typed<V: VTable>(&self) -> Option<ArrayView<'_, V>> {
         let inner = self.0.as_any().downcast_ref::<ArrayInner<V>>()?;
-        Some(unsafe { ArrayView::new_unchecked(self, &inner.data) })
+        Some(unsafe { ArrayView::new_unchecked(self, &inner.data, &inner.slots) })
     }
 
     /// Returns the constant scalar if this is a constant array.
@@ -516,7 +516,7 @@ impl<V: VTable> Matcher for V {
     }
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
-        let data = &array.0.as_any().downcast_ref::<ArrayInner<V>>()?.data;
-        Some(unsafe { ArrayView::new_unchecked(array, data) })
+        let inner = array.0.as_any().downcast_ref::<ArrayInner<V>>()?;
+        Some(unsafe { ArrayView::new_unchecked(array, &inner.data, &inner.slots) })
     }
 }

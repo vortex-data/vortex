@@ -19,6 +19,7 @@ use crate::validity::Validity;
 pub struct ArrayView<'a, V: VTable> {
     array: &'a ArrayRef,
     data: &'a V::ArrayData,
+    slots: &'a [Option<ArrayRef>],
 }
 
 impl<V: VTable> Copy for ArrayView<'_, V> {}
@@ -32,9 +33,13 @@ impl<V: VTable> Clone for ArrayView<'_, V> {
 impl<'a, V: VTable> ArrayView<'a, V> {
     /// # Safety
     /// Caller must ensure `data` is the `V::ArrayData` stored inside `array`.
-    pub(crate) unsafe fn new_unchecked(array: &'a ArrayRef, data: &'a V::ArrayData) -> Self {
+    pub(crate) unsafe fn new_unchecked(
+        array: &'a ArrayRef,
+        data: &'a V::ArrayData,
+        slots: &'a [Option<ArrayRef>],
+    ) -> Self {
         debug_assert!(array.is::<V>());
-        Self { array, data }
+        Self { array, data, slots }
     }
 
     pub fn array(&self) -> &'a ArrayRef {
@@ -43,6 +48,10 @@ impl<'a, V: VTable> ArrayView<'a, V> {
 
     pub fn data(&self) -> &'a V::ArrayData {
         self.data
+    }
+
+    pub fn slots(&self) -> &'a [Option<ArrayRef>] {
+        self.slots
     }
 
     pub fn dtype(&self) -> &DType {

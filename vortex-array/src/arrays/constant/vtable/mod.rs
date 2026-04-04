@@ -63,7 +63,13 @@ impl VTable for Constant {
         Self::ID
     }
 
-    fn validate(&self, data: &ConstantData, dtype: &DType, _len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &ConstantData,
+        dtype: &DType,
+        _len: usize,
+        _slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         vortex_ensure!(
             data.scalar.dtype() == dtype,
             "ConstantArray scalar dtype does not match outer dtype"
@@ -72,14 +78,18 @@ impl VTable for Constant {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: &ConstantData,
+        array: ArrayView<'_, Self>,
         state: &mut H,
         _precision: Precision,
     ) {
         array.scalar.hash(state);
     }
 
-    fn array_eq(array: &ConstantData, other: &ConstantData, _precision: Precision) -> bool {
+    fn array_eq(
+        array: ArrayView<'_, Self>,
+        other: ArrayView<'_, Self>,
+        _precision: Precision,
+    ) -> bool {
         array.scalar == other.scalar
     }
 
@@ -103,23 +113,10 @@ impl VTable for Constant {
         }
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
 
-    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ConstantArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        Ok(())
-    }
 
     fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
