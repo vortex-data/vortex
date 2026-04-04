@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::min;
-use std::ops::AddAssign;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering;
 
 use num_traits::AsPrimitive;
+use num_traits::NumCast;
 use parking_lot::Mutex;
 use parking_lot::MutexGuard;
 use vortex_array::ArrayRef;
@@ -71,8 +71,8 @@ impl FilterKernel for RunEnd {
                     match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
                         filter_run_end_primitive(
                             primitive_run_ends.as_slice::<P>(),
-                            array.offset() as u64,
-                            array.len() as u64,
+                            array.offset(),
+                            array.len(),
                             mask_values.bit_buffer(),
                         )?
                     });
@@ -166,33 +166,29 @@ fn auto_filter_path(array: ArrayView<'_, RunEnd>, mask_values: &MaskValues) -> F
     }
 }
 
-// Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
-fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
+fn filter_run_end_primitive<R: NativePType + AsPrimitive<usize>>(
     run_ends: &[R],
-    offset: u64,
-    length: u64,
+    offset: usize,
+    length: usize,
     mask: &BitBuffer,
 ) -> VortexResult<(PrimitiveArray, Mask)> {
     let mut new_run_ends = buffer_mut![R::zero(); run_ends.len()];
 
-    let mut start = 0u64;
+    let mut start = 0usize;
     let mut j = 0;
-    let mut count = R::zero();
+    let mut count = 0u64;
 
     let new_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |i| {
-        let mut keep = false;
         let end = min(run_ends[i].as_() - offset, length);
+        let run_true_count = mask.slice(start..end).true_count() as u64;
+        let keep = run_true_count != 0;
 
-        // Safety: predicate must be the same length as the array the ends have been taken from
-        for pred in (start..end).map(|i| unsafe {
-            mask.value_unchecked(i.try_into().vortex_expect("index must fit in usize"))
-        }) {
-            count += <R as From<bool>>::from(pred);
-            keep |= pred
+        count += run_true_count;
+        if keep {
+            new_run_ends[j] =
+                NumCast::from(count).vortex_expect("filtered run end count must fit in run-end type");
+            j += 1;
         }
-        // this is to avoid branching
-        new_run_ends[j] = count;
-        j += keep as usize;
 
         start = end;
         keep
@@ -212,6 +208,8 @@ mod tests {
 
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
@@ -219,7 +217,9 @@ mod tests {
     use vortex_mask::Mask;
 
     use super::FilterPath;
+    use super::override_run_end_filter_mode;
     use super::select_filter_path;
+    use crate::_benchmarking::RunEndFilterMode;
     use crate::RunEnd;
     use crate::RunEndArray;
 
@@ -282,6 +282,20 @@ mod tests {
         )
     }
 
+    fn filter_with_mode(array: &ArrayRef, mask: Mask, mode: RunEndFilterMode) -> VortexResult<ArrayRef> {
+        let _guard = override_run_end_filter_mode(mode);
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        array.filter(mask)?.execute::<ArrayRef>(&mut ctx)
+    }
+
+    fn assert_encoded_filter_matches_take(array: &ArrayRef, mask: Mask) -> VortexResult<()> {
+        let take_filtered = filter_with_mode(array, mask.clone(), RunEndFilterMode::Take)?;
+        let encoded_filtered = filter_with_mode(array, mask, RunEndFilterMode::Encoded)?;
+
+        assert_arrays_eq!(encoded_filtered, take_filtered);
+        Ok(())
+    }
+
     #[test]
     fn filter_sliced_run_end() -> VortexResult<()> {
         let arr = ree_array().slice(2..7).unwrap();
@@ -331,5 +345,29 @@ mod tests {
 
         assert_eq!(filter_path(&array, &mask), FilterPath::Encoded);
         Ok(())
+    }
+
+    #[test]
+    fn encoded_filter_matches_take_on_partial_word_boundaries() -> VortexResult<()> {
+        let array = run_end_fixture(65, 260);
+        let mask = Mask::from_slices(array.len(), vec![(3, 64), (67, 129), (133, 194), (197, 259)]);
+
+        assert_encoded_filter_matches_take(&array, mask)
+    }
+
+    #[test]
+    fn encoded_filter_matches_take_on_clustered_masks() -> VortexResult<()> {
+        let array = run_end_fixture(1_024, 16_384);
+        let mask = Mask::from_slices(array.len(), vec![(13, 513), (4_109, 4_733), (9_001, 10_129)]);
+
+        assert_encoded_filter_matches_take(&array, mask)
+    }
+
+    #[test]
+    fn encoded_filter_matches_take_on_very_short_runs() -> VortexResult<()> {
+        let array = run_end_fixture(1, 64);
+        let mask = Mask::from_slices(array.len(), vec![(1, 3), (5, 8), (13, 14), (21, 25), (34, 35)]);
+
+        assert_encoded_filter_matches_take(&array, mask)
     }
 }

@@ -29,6 +29,7 @@ const TRUE_COUNT: usize = 32_768;
 const LONG_SLICE_COUNT: usize = 8;
 const SHORT_SLICE_LEN: usize = 8;
 const CLUSTER_COUNT: usize = 8;
+const LONG_RUN_HEAVY_SLICE_COUNT: usize = 4;
 
 #[derive(Clone, Copy, Debug)]
 enum MaskShape {
@@ -36,6 +37,7 @@ enum MaskShape {
     FewLongSlices,
     ManyShortSlices,
     ClusteredFewRuns,
+    LongRunHeavy,
 }
 
 impl fmt::Display for MaskShape {
@@ -45,6 +47,7 @@ impl fmt::Display for MaskShape {
             Self::FewLongSlices => write!(f, "few_long_slices"),
             Self::ManyShortSlices => write!(f, "many_short_slices"),
             Self::ClusteredFewRuns => write!(f, "clustered_few_runs"),
+            Self::LongRunHeavy => write!(f, "long_run_heavy"),
         }
     }
 }
@@ -110,6 +113,18 @@ const BENCH_ARGS: &[BenchArgs] = &[
         run_length: 4096,
         mask_shape: MaskShape::ClusteredFewRuns,
     },
+    BenchArgs {
+        run_length: 4096,
+        mask_shape: MaskShape::LongRunHeavy,
+    },
+    BenchArgs {
+        run_length: 16_384,
+        mask_shape: MaskShape::LongRunHeavy,
+    },
+    BenchArgs {
+        run_length: 65_536,
+        mask_shape: MaskShape::LongRunHeavy,
+    },
 ];
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -168,6 +183,7 @@ fn mask_fixture(mask_shape: MaskShape, run_length: usize) -> Mask {
         MaskShape::FewLongSlices => few_long_slices_mask(run_length),
         MaskShape::ManyShortSlices => many_short_slices_mask(run_length),
         MaskShape::ClusteredFewRuns => clustered_few_runs_mask(run_length),
+        MaskShape::LongRunHeavy => long_run_heavy_mask(run_length),
     }
 }
 
@@ -227,6 +243,25 @@ fn clustered_few_runs_mask(run_length: usize) -> Mask {
 
             let start = start_run * run_length;
             let end = (end_run * run_length).min(LEN);
+            (start, end)
+        })
+        .collect();
+
+    Mask::from_slices(LEN, slices)
+}
+
+fn long_run_heavy_mask(run_length: usize) -> Mask {
+    let run_count = LEN.div_ceil(run_length);
+    let slice_count = LONG_RUN_HEAVY_SLICE_COUNT.min(run_count);
+    let slice_len = (run_length * 3) / 4;
+    let misalignment = (run_length - slice_len).min(13);
+    let spacing = run_count / slice_count;
+
+    let slices = (0..slice_count)
+        .map(|slice_idx| {
+            let start_run = slice_idx * spacing;
+            let start = start_run * run_length + misalignment;
+            let end = (start + slice_len).min(LEN);
             (start, end)
         })
         .collect();
