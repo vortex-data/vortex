@@ -3,6 +3,7 @@
 
 //! TurboQuant encoding (quantization) logic.
 
+use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -15,6 +16,7 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_float_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -105,14 +107,18 @@ fn turboquant_quantize_core(
     // the input, so null vectors get null norms automatically.
     let norms_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, ext.as_ref().clone(), num_rows)?;
     let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
-    let norms_prim: PrimitiveArray = norms_array.to_canonical()?.into_primitive();
+    let norms_prim: PrimitiveArray = norms_array.clone().execute(ctx)?;
 
     // Extract f32 norms for the internal quantization loop.
     let f32_norms: Vec<f32> = match_each_float_ptype!(norms_prim.ptype(), |T| {
         norms_prim
             .as_slice::<T>()
             .iter()
-            .map(|&v| num_traits::ToPrimitive::to_f32(&v).unwrap_or(0.0))
+            .map(|&v| {
+                // `ToPrimitive::to_f32` is infallible for all float types: f16 -> f32 is lossless,
+                // f32 is identity, and f64 -> f32 saturates to +-inf.
+                ToPrimitive::to_f32(&v).vortex_expect("float-to-f32 conversion is infallible")
+            })
             .collect()
     });
 

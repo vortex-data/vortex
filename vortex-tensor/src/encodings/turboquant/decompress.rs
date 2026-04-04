@@ -3,8 +3,8 @@
 
 //! TurboQuant decoding (dequantization) logic.
 
+use num_traits::Float;
 use num_traits::FromPrimitive;
-use num_traits::Zero;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -20,6 +20,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::array::float_from_f32;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
 use crate::utils::extension_element_ptype;
 
@@ -103,7 +104,7 @@ pub fn execute_decompress(
 }
 
 /// Typed decompress: reads norms as `T`, dequantizes in f32, and produces output as `T`.
-fn decompress_typed<T: NativePType + FromPrimitive + Zero>(
+fn decompress_typed<T: NativePType + Float + FromPrimitive>(
     norms_prim: &PrimitiveArray,
     centroids: &[f32],
     rotation: &RotationMatrix,
@@ -129,8 +130,7 @@ fn decompress_typed<T: NativePType + FromPrimitive + Zero>(
         rotation.inverse_rotate(&dequantized, &mut unrotated);
 
         for idx in 0..dim {
-            // Convert f32 dequantized value to T, then scale by the native-precision norm.
-            let val = T::from_f32(unrotated[idx]).unwrap_or_else(T::zero) * norm;
+            let val = float_from_f32::<T>(unrotated[idx]) * norm;
             output.push(val);
         }
     }

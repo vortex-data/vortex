@@ -30,8 +30,6 @@
 //! usually sufficient -- the relative ordering of cosine similarities is preserved
 //! even if the absolute values have bounded error.
 
-use num_traits::FromPrimitive;
-use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -44,18 +42,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
 use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::array::float_from_f32;
 use crate::utils::extension_element_ptype;
-
-/// Convert an f32 value to `T`, returning `T::zero()` if the conversion fails.
-///
-/// This helper exists because `half::f16` has an inherent `from_f32` method that shadows
-/// the [`FromPrimitive`] trait method, causing compilation errors when used inside
-/// [`match_each_float_ptype!`].
-#[inline]
-fn f32_to_t<T: FromPrimitive + Zero>(v: f32) -> T {
-    // TODO(connor): Is this actually correct? How should we handle f64 overflow?
-    FromPrimitive::from_f32(v).unwrap_or_else(T::zero)
-}
 
 /// Compute the per-row unit-norm dot products in f32 (centroids are always f32).
 ///
@@ -124,7 +112,7 @@ pub fn cosine_similarity_quantized_column(
         let mut result = BufferMut::<T>::with_capacity(dots.len());
         for &dot in &dots {
             // SAFETY: We allocated the correct amount.
-            unsafe { result.push_unchecked(f32_to_t(dot)) };
+            unsafe { result.push_unchecked(float_from_f32(dot)) };
         }
 
         // SAFETY: `result` has the same length as the input arrays, matching `validity`.
@@ -164,7 +152,7 @@ pub fn dot_product_quantized_column(
 
         let mut result = BufferMut::<T>::with_capacity(num_rows);
         for row in 0..num_rows {
-            let dot_t: T = f32_to_t(dots[row]);
+            let dot_t: T = float_from_f32(dots[row]);
             // SAFETY: We allocated the correct amount.
             unsafe { result.push_unchecked(na[row] * nb[row] * dot_t) };
         }

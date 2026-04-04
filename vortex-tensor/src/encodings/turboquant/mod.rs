@@ -98,6 +98,7 @@ pub(crate) mod compute;
 
 mod vtable;
 pub use vtable::TurboQuant;
+pub use vtable::TurboQuantArray;
 
 mod compress;
 pub use compress::TurboQuantConfig;

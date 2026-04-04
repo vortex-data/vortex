@@ -10,6 +10,8 @@ impl vortex_tensor::encodings::turboquant::TurboQuant
 
 pub const vortex_tensor::encodings::turboquant::TurboQuant::ID: vortex_array::array::ArrayId
 
+pub fn vortex_tensor::encodings::turboquant::TurboQuant::try_new_array(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_tensor::encodings::turboquant::TurboQuantArray>
+
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::validate_dtype(dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<&vortex_array::dtype::extension::erased::ExtDTypeRef>
 
 impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuant
@@ -24,8 +26,6 @@ impl vortex_array::array::vtable::VTable for vortex_tensor::encodings::turboquan
 
 pub type vortex_tensor::encodings::turboquant::TurboQuant::ArrayData = vortex_tensor::encodings::turboquant::TurboQuantData
 
-pub type vortex_tensor::encodings::turboquant::TurboQuant::Metadata = vortex_tensor::encodings::turboquant::TurboQuantMetadata
-
 pub type vortex_tensor::encodings::turboquant::TurboQuant::OperationsVTable = vortex_tensor::encodings::turboquant::TurboQuant
 
 pub type vortex_tensor::encodings::turboquant::TurboQuant::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
@@ -38,11 +38,7 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuant::buffer(_array: vortex_a
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_tensor::encodings::turboquant::TurboQuantData>
-
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::deserialize(bytes: &[u8], _dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
-
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::dtype(array: &vortex_tensor::encodings::turboquant::TurboQuantData) -> &vortex_array::dtype::DType
+pub fn vortex_tensor::encodings::turboquant::TurboQuant::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::ArrayData>
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
@@ -50,23 +46,17 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuant::execute_parent(array: v
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::id(&self) -> vortex_array::array::ArrayId
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::len(array: &vortex_tensor::encodings::turboquant::TurboQuantData) -> usize
-
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::metadata(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<Self::Metadata>
-
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::nbuffers(_array: vortex_array::array::view::ArrayView<'_, Self>) -> usize
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_tensor::encodings::turboquant::TurboQuant::serialize(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::stats(array: &vortex_tensor::encodings::turboquant::TurboQuantData) -> &vortex_array::stats::array::ArrayStats
-
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::vtable(_array: &Self::ArrayData) -> &Self
+pub fn vortex_tensor::encodings::turboquant::TurboQuant::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::with_slots(array: &mut vortex_tensor::encodings::turboquant::TurboQuantData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> vortex_error::VortexResult<()>
 
@@ -116,7 +106,7 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuantData::codes(&self) -> &vo
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::dimension(&self) -> u32
 
-pub unsafe fn vortex_tensor::encodings::turboquant::TurboQuantData::new_unchecked(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> Self
+pub unsafe fn vortex_tensor::encodings::turboquant::TurboQuantData::new_unchecked(dtype: &vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> Self
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::norms(&self) -> &vortex_array::array::erased::ArrayRef
 
@@ -124,7 +114,7 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuantData::padded_dim(&self) -
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::rotation_signs(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantData::try_new(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<Self>
+pub fn vortex_tensor::encodings::turboquant::TurboQuantData::try_new(dtype: &vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::validate(dtype: &vortex_array::dtype::DType, codes: &vortex_array::array::erased::ArrayRef, norms: &vortex_array::array::erased::ArrayRef, centroids: &vortex_array::array::erased::ArrayRef, rotation_signs: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
@@ -132,29 +122,9 @@ impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuantData
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::clone(&self) -> vortex_tensor::encodings::turboquant::TurboQuantData
 
-impl core::convert::From<vortex_tensor::encodings::turboquant::TurboQuantData> for vortex_array::array::erased::ArrayRef
-
-pub fn vortex_array::array::erased::ArrayRef::from(value: vortex_tensor::encodings::turboquant::TurboQuantData) -> vortex_array::array::erased::ArrayRef
-
 impl core::fmt::Debug for vortex_tensor::encodings::turboquant::TurboQuantData
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_array::array::IntoArray for vortex_tensor::encodings::turboquant::TurboQuantData
-
-pub fn vortex_tensor::encodings::turboquant::TurboQuantData::into_array(self) -> vortex_array::array::erased::ArrayRef
-
-pub struct vortex_tensor::encodings::turboquant::TurboQuantMetadata
-
-pub vortex_tensor::encodings::turboquant::TurboQuantMetadata::bit_width: u8
-
-impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuantMetadata
-
-pub fn vortex_tensor::encodings::turboquant::TurboQuantMetadata::clone(&self) -> vortex_tensor::encodings::turboquant::TurboQuantMetadata
-
-impl core::fmt::Debug for vortex_tensor::encodings::turboquant::TurboQuantMetadata
-
-pub fn vortex_tensor::encodings::turboquant::TurboQuantMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_tensor::encodings::turboquant::TurboQuantScheme
 
@@ -186,9 +156,9 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::matches(&self, ca
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::scheme_name(&self) -> &'static str
 
-pub fn vortex_tensor::encodings::turboquant::initialize(session: &mut vortex_session::VortexSession)
-
 pub fn vortex_tensor::encodings::turboquant::turboquant_encode(ext: &vortex_array::arrays::extension::vtable::ExtensionArray, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub type vortex_tensor::encodings::turboquant::TurboQuantArray = vortex_array::array::typed::Array<vortex_tensor::encodings::turboquant::TurboQuant>
 
 pub mod vortex_tensor::fixed_shape
 
