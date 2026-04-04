@@ -10,6 +10,10 @@ on:
         required: false
         type: string
         default: c6id.8xlarge
+      build_lance:
+        required: false
+        type: boolean
+        default: false
       benchmark_matrix:
         required: false
         type: string
@@ -98,7 +102,55 @@ on:
           ]
 
 jobs:
+  build:
+    timeout-minutes: 60
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/tag=sql-build{1}', github.run_id, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+        if: inputs.mode == 'pr'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/checkout@v6
+        if: inputs.mode != 'pr'
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build binaries
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
+          if [ "${{ inputs.build_lance }}" = "true" ]; then
+            packages="$packages --bin lance-bench"
+          fi
+          cargo build $packages --profile release_debug
+      - name: Stage binaries for upload
+        shell: bash
+        run: |
+          mkdir -p staging/bin staging/lib
+          cp target/release_debug/data-gen staging/bin/
+          cp target/release_debug/datafusion-bench staging/bin/
+          cp target/release_debug/duckdb-bench staging/bin/
+          if [ -f target/release_debug/lance-bench ]; then
+            cp target/release_debug/lance-bench staging/bin/
+          fi
+          cp target/duckdb-lib-*/libduckdb.so staging/lib/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sql-bench-binaries
+          path: staging/
+          retention-days: 1
+
   bench:
+    needs: build
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -112,8 +164,6 @@ jobs:
     steps:
       - uses: runs-on/action@v2
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
         if: inputs.mode == 'pr'
         with:
@@ -123,9 +173,6 @@ jobs:
         if: inputs.mode != 'pr'
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install DuckDB
         run: |
@@ -135,16 +182,17 @@ jobs:
 
       - uses: ./.github/actions/system-info
 
-      - name: Build binaries
+      - uses: actions/download-artifact@v8
+        with:
+          name: sql-bench-binaries
+          path: staging
+      - name: Install binaries
         shell: bash
-        env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
-          if [ "${{ matrix.build_lance }}" = "true" ]; then
-            packages="$packages --bin lance-bench"
-          fi
-          cargo build $packages --profile release_debug
+          mkdir -p target/release_debug
+          cp staging/bin/* target/release_debug/
+          chmod +x target/release_debug/*
+          echo "LD_LIBRARY_PATH=${{ github.workspace }}/staging/lib" >> "$GITHUB_ENV"
 
       - name: Generate data
         shell: bash

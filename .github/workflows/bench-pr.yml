@@ -19,7 +19,43 @@ permissions:
   id-token: write  # enables AWS-GitHub OIDC
 
 jobs:
+  build:
+    timeout-minutes: 60
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/tag=bench-build{1}', github.run_id, github.event.pull_request.head.repo.fork == false && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: github.event.pull_request.head.repo.fork == false
+        with:
+          sccache: s3
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build binaries
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+        run: |
+          cargo build --package random-access-bench --package compress-bench --profile release_debug
+      - name: Stage binaries for upload
+        shell: bash
+        run: |
+          mkdir -p staging/bin
+          cp target/release_debug/random-access-bench staging/bin/
+          cp target/release_debug/compress-bench staging/bin/
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench-binaries
+          path: staging/
+          retention-days: 1
+
   bench:
+    needs: build
     timeout-minutes: 120
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
@@ -30,22 +66,16 @@ jobs:
         benchmark:
           - id: random-access-bench
             name: Random Access
-            build_args: "--features lance"
           - id: compress-bench
             name: Compression
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install DuckDB
         run: |
@@ -55,12 +85,16 @@ jobs:
 
       - uses: ./.github/actions/system-info
 
-      - name: Build binary
+      - uses: actions/download-artifact@v8
+        with:
+          name: bench-binaries
+          path: staging
+      - name: Install binaries
         shell: bash
-        env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
+          mkdir -p target/release_debug
+          cp staging/bin/* target/release_debug/
+          chmod +x target/release_debug/*
 
       - name: Setup Polar Signals
         if: github.event.pull_request.head.repo.fork == false
