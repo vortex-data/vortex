@@ -60,3 +60,7 @@ harness = false
 [[bench]]
 name = "run_end_take"
 harness = false
+
+[[bench]]
+name = "run_end_filter"
+harness = false

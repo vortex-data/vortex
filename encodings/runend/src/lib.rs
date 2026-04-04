@@ -24,6 +24,22 @@ pub mod _benchmarking {
     pub use compute::take::take_indices_unchecked;
 
     use super::*;
+
+    /// Benchmark-only override for the RunEnd filter dispatcher.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub enum RunEndFilterMode {
+        /// Use the normal dispatcher heuristic.
+        Auto,
+        /// Always force the `take(indices)` filter path.
+        Take,
+        /// Always force the preserve-`RunEnd` encoded filter path.
+        Encoded,
+    }
+
+    /// Override the RunEnd filter dispatcher for the lifetime of the returned guard.
+    pub fn override_run_end_filter_mode(mode: RunEndFilterMode) -> impl Drop {
+        compute::filter::override_run_end_filter_mode(mode)
+    }
 }
 
 use vortex_array::aggregate_fn::AggregateFnVTable;

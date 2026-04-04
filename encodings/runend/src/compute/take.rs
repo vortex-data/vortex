@@ -61,13 +61,16 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     let physical_indices = match_each_integer_ptype!(ends.ptype(), |I| {
         let end_slices = ends.as_slice::<I>();
         let physical_indices_vec =
-            collect_physical_indices(end_slices, indices, array.offset(), &validity_mask);
+            collect_physical_indices(end_slices, indices, array.offset(), &validity_mask)?;
         let buffer = Buffer::from(physical_indices_vec);
 
-        PrimitiveArray::new(buffer, validity.clone())
+        Ok::<PrimitiveArray, vortex_error::VortexError>(PrimitiveArray::new(
+            buffer,
+            validity.clone(),
+        ))
     });
 
-    array.values().take(physical_indices.into_array())
+    array.values().take(physical_indices?.into_array())
 }
 
 fn check_indices<T: AsPrimitive<usize>>(
@@ -110,10 +113,10 @@ fn collect_physical_indices<E: AsPrimitive<usize> + NumCast + PartialOrd, T: AsP
     indices: &[T],
     offset: usize,
     validity_mask: &Mask,
-) -> Vec<u64> {
+) -> VortexResult<Vec<u64>> {
     let valid_count = validity_mask.true_count();
     if valid_count == 0 {
-        return vec![0; indices.len()];
+        return Ok(vec![0; indices.len()]);
     }
 
     if !should_try_sorted_merge(valid_count) {
@@ -128,7 +131,7 @@ fn collect_physical_indices<E: AsPrimitive<usize> + NumCast + PartialOrd, T: AsP
         validity_mask,
         &mut physical_indices,
     ) {
-        return physical_indices;
+        return Ok(physical_indices);
     }
 
     if !should_sort_merge(valid_count, end_slices.len()) {
@@ -139,7 +142,7 @@ fn collect_physical_indices<E: AsPrimitive<usize> + NumCast + PartialOrd, T: AsP
     indexed_indices.sort_unstable_by_key(|&(logical_index, _)| logical_index);
     fill_physical_indices(end_slices, indexed_indices, &mut physical_indices);
 
-    physical_indices
+    Ok(physical_indices)
 }
 
 fn should_try_sorted_merge(valid_count: usize) -> bool {
@@ -191,36 +194,38 @@ fn search_physical_indices<E: NumCast + PartialOrd, T: AsPrimitive<usize>>(
     indices: &[T],
     offset: usize,
     validity_mask: &Mask,
-) -> Vec<u64> {
+) -> VortexResult<Vec<u64>> {
     let ends_len = end_slices.len();
     let mut physical_indices = vec![0; indices.len()];
 
-    let mut record_index = |position: usize, logical_index: usize| {
+    let mut record_index = |position: usize, logical_index: usize| -> VortexResult<()> {
         physical_indices[position] = match E::from(logical_index) {
             Some(logical_index) => end_slices
-                .search_sorted(&logical_index, SearchSortedSide::Right)
-                .expect("validated take index must map to a run")
+                .search_sorted(&logical_index, SearchSortedSide::Right)?
                 .to_ends_index(ends_len) as u64,
             None => SearchResult::NotFound(ends_len).to_ends_index(ends_len) as u64,
         };
+
+        Ok(())
     };
 
     match validity_mask.bit_buffer() {
-        AllOr::All => indices
-            .iter()
-            .copied()
-            .enumerate()
-            .for_each(|(position, idx)| record_index(position, idx.as_() + offset)),
+        AllOr::All => {
+            for (position, idx) in indices.iter().copied().enumerate() {
+                record_index(position, idx.as_() + offset)?;
+            }
+        }
         AllOr::None => {}
-        AllOr::Some(mask) => indices
-            .iter()
-            .copied()
-            .enumerate()
-            .filter(|(position, _)| mask.value(*position))
-            .for_each(|(position, idx)| record_index(position, idx.as_() + offset)),
+        AllOr::Some(mask) => {
+            for (position, idx) in indices.iter().copied().enumerate() {
+                if mask.value(position) {
+                    record_index(position, idx.as_() + offset)?;
+                }
+            }
+        }
     }
 
-    physical_indices
+    Ok(physical_indices)
 }
 
 fn collect_logical_indices<T: AsPrimitive<usize>>(
