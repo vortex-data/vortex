@@ -15,6 +15,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_utils::aliases::dash_map::DashMap;
 
+use crate::encodings::turboquant::TurboQuant;
+
 /// Number of numerical integration points for computing conditional expectations.
 const INTEGRATION_POINTS: usize = 1000;
 
@@ -36,8 +38,11 @@ pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
     if !(1..=8).contains(&bit_width) {
         vortex_bail!("TurboQuant bit_width must be 1-8, got {bit_width}");
     }
-    if dimension < 3 {
-        vortex_bail!("TurboQuant dimension must be >= 3, got {dimension}");
+    if dimension < TurboQuant::MIN_DIMENSION {
+        vortex_bail!(
+            "TurboQuant dimension must be >= {}, got {dimension}",
+            TurboQuant::MIN_DIMENSION
+        );
     }
 
     if let Some(centroids) = CENTROID_CACHE.get(&(dimension, bit_width)) {
@@ -306,6 +311,6 @@ mod tests {
         assert!(get_centroids(128, 0).is_err());
         assert!(get_centroids(128, 9).is_err());
         assert!(get_centroids(1, 2).is_err());
-        assert!(get_centroids(2, 2).is_err());
+        assert!(get_centroids(127, 2).is_err());
     }
 }

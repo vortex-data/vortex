@@ -10,6 +10,8 @@ impl vortex_tensor::encodings::turboquant::TurboQuant
 
 pub const vortex_tensor::encodings::turboquant::TurboQuant::ID: vortex_array::array::ArrayId
 
+pub const vortex_tensor::encodings::turboquant::TurboQuant::MIN_DIMENSION: u32
+
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::try_new_array(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_tensor::encodings::turboquant::TurboQuantArray>
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::validate_dtype(dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<&vortex_array::dtype::extension::erased::ExtDTypeRef>

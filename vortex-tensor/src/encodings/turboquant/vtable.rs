@@ -50,8 +50,11 @@ pub struct TurboQuant;
 impl TurboQuant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.turboquant");
 
+    /// Minimum vector dimension for TurboQuant encoding.
+    pub const MIN_DIMENSION: u32 = 128;
+
     /// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
-    /// dimension >= 3.
+    /// dimension >= [`MIN_DIMENSION`](Self::MIN_DIMENSION).
     ///
     /// Returns the validated [`ExtDTypeRef`] on success, which can be used to extract the
     /// element ptype and list size.
@@ -65,8 +68,9 @@ impl TurboQuant {
 
         let dimension = extension_list_size(ext)?;
         vortex_ensure!(
-            dimension >= 3,
-            "TurboQuant requires dimension >= 3, got {dimension}"
+            dimension >= Self::MIN_DIMENSION,
+            "TurboQuant requires dimension >= {}, got {dimension}",
+            Self::MIN_DIMENSION
         );
 
         Ok(ext)
@@ -111,8 +115,9 @@ impl VTable for TurboQuant {
 
         let dimension = extension_list_size(ext)?;
         vortex_ensure!(
-            dimension >= 3,
-            "TurboQuant requires dimension >= 3, got {dimension}"
+            dimension >= Self::MIN_DIMENSION,
+            "TurboQuant requires dimension >= {}, got {dimension}",
+            Self::MIN_DIMENSION
         );
 
         vortex_ensure_eq!(data.dimension(), dimension);

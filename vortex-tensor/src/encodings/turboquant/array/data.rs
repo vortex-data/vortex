@@ -92,7 +92,7 @@ impl TurboQuantData {
     /// The caller must ensure:
     ///
     /// - `dtype` is a [`Vector`](crate::vector::Vector) extension type whose storage list size
-    ///   is >= 3.
+    ///   is >= [`MIN_DIMENSION`](crate::encodings::turboquant::TurboQuant::MIN_DIMENSION).
     /// - `codes` is a non-nullable `FixedSizeListArray<u8>` with `list_size == padded_dim` and
     ///   `codes.len() == norms.len()`. Null vectors are represented by all-zero codes.
     /// - `norms` is a primitive array whose ptype matches the element type of the Vector's storage

@@ -152,11 +152,9 @@ fn encode_decode(
 // -----------------------------------------------------------------------
 
 #[rstest]
-#[case(32, 1)]
-#[case(32, 2)]
-#[case(32, 3)]
-#[case(32, 4)]
+#[case(128, 1)]
 #[case(128, 2)]
+#[case(128, 3)]
 #[case(128, 4)]
 #[case(128, 6)]
 #[case(128, 8)]
@@ -280,8 +278,9 @@ fn roundtrip_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
 
 #[rstest]
 #[case(1)]
-#[case(2)]
-fn rejects_dimension_below_3(#[case] dim: usize) {
+#[case(64)]
+#[case(127)]
+fn rejects_dimension_below_128(#[case] dim: usize) {
     let fsl = make_fsl_small(dim);
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
@@ -340,7 +339,7 @@ fn all_zero_vectors_roundtrip() -> VortexResult<()> {
 #[test]
 fn f64_input_encodes_successfully() -> VortexResult<()> {
     let num_rows = 10;
-    let dim = 64;
+    let dim = 128;
     let mut rng = StdRng::seed_from_u64(99);
     let normal = Normal::new(0.0f64, 1.0).unwrap();
 
@@ -368,6 +367,48 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     let encoded = encoded.as_opt::<TurboQuant>().unwrap();
     assert_eq!(encoded.norms().len(), num_rows);
     assert_eq!(encoded.dimension() as usize, dim);
+    Ok(())
+}
+
+/// Verify that f16 input is accepted and encoded (upcast to f32 internally).
+#[test]
+fn f16_input_encodes_successfully() -> VortexResult<()> {
+    let num_rows = 10;
+    let dim = 128;
+    let mut rng = StdRng::seed_from_u64(99);
+    let normal = Normal::new(0.0f32, 1.0).unwrap();
+
+    let mut buf = BufferMut::<half::f16>::with_capacity(num_rows * dim);
+    for _ in 0..(num_rows * dim) {
+        buf.push(half::f16::from_f32(normal.sample(&mut rng)));
+    }
+    let elements = PrimitiveArray::new::<half::f16>(buf.freeze(), Validity::NonNullable);
+    let fsl = FixedSizeListArray::try_new(
+        elements.into_array(),
+        dim.try_into()
+            .expect("somehow got dimension greater than u32::MAX"),
+        Validity::NonNullable,
+        num_rows,
+    )?;
+
+    let ext = make_vector_ext(&fsl);
+    let config = TurboQuantConfig {
+        bit_width: 3,
+        seed: Some(42),
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let tq = encoded.as_opt::<TurboQuant>().unwrap();
+    assert_eq!(tq.norms().len(), num_rows);
+    assert_eq!(tq.dimension() as usize, dim);
+
+    // Verify roundtrip: decode and check reconstruction is reasonable.
+    let decoded_ext = encoded.execute::<ExtensionArray>(&mut ctx)?;
+    let decoded_fsl = decoded_ext
+        .storage_array()
+        .to_canonical()?
+        .into_fixed_size_list();
+    assert_eq!(decoded_fsl.len(), num_rows);
     Ok(())
 }
 
@@ -494,7 +535,7 @@ fn slice_preserves_data() -> VortexResult<()> {
 
 #[test]
 fn scalar_at_matches_decompress() -> VortexResult<()> {
-    let fsl = make_fsl(10, 64, 42);
+    let fsl = make_fsl(10, 128, 42);
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 3,
@@ -593,7 +634,9 @@ fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
                 .sum::<f32>()
         };
 
-        // 4-bit quantization: expect reasonable accuracy.
+        // At 4-bit, the theoretical MSE bound per coordinate is ~0.0106 (Theorem 1). For cosine
+        // similarity (bounded [-1, 1]), the error is bounded roughly by 2*sqrt(MSE) ~ 0.2. We use
+        // 0.15 as a tighter empirical bound.
         let error = (exact_cos - approx_cos).abs();
         assert!(
             error < 0.15,
@@ -601,6 +644,105 @@ fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
                  exact={exact_cos:.4}, approx={approx_cos:.4}, error={error:.4}"
         );
     }
+    Ok(())
+}
+
+/// Verify approximate dot product in the quantized domain.
+///
+/// NOTE: The MSE quantizer (TurboQuant_mse) has inherent **multiplicative bias** for inner
+/// products — the quantized dot product systematically over- or under-estimates the true value.
+/// This is a fundamental property: the paper's `TurboQuant_prod` variant adds QJL specifically
+/// to debias inner products, but we only implement the MSE-only variant.
+///
+/// Even at 8-bit (near-lossless reconstruction, MSE ~4e-5), the quantized-domain dot product
+/// can have ~10-15% relative error due to this bias. This tolerance is therefore intentionally
+/// loose — we're testing that the approximation is in the right ballpark, not that it's precise.
+///
+/// TODO(connor): Revisit these tolerances when we have TurboQuant_prod (QJL debiasing).
+#[test]
+fn dot_product_quantized_accuracy() -> VortexResult<()> {
+    let fsl = make_fsl(20, 128, 42);
+    let ext = make_vector_ext(&fsl);
+    let config = TurboQuantConfig {
+        bit_width: 8,
+        seed: Some(123),
+    };
+    let mut ctx = SESSION.create_execution_ctx();
+    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let tq = encoded.as_opt::<TurboQuant>().unwrap();
+
+    let input_prim = fsl.elements().to_canonical()?.into_primitive();
+    let input_f32 = input_prim.as_slice::<f32>();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let pd = tq.padded_dim() as usize;
+    let norms_prim = tq.norms().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let norms = norms_prim.as_slice::<f32>();
+    let codes_fsl = tq.codes().clone().execute::<FixedSizeListArray>(&mut ctx)?;
+    let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
+    let all_codes = codes_prim.as_slice::<u8>();
+    let centroids_prim = tq.centroids().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let centroid_vals = centroids_prim.as_slice::<f32>();
+
+    for (row_a, row_b) in [(0, 1), (5, 10), (0, 19)] {
+        let vec_a = &input_f32[row_a * 128..(row_a + 1) * 128];
+        let vec_b = &input_f32[row_b * 128..(row_b + 1) * 128];
+
+        let exact_dot: f32 = vec_a.iter().zip(vec_b.iter()).map(|(&x, &y)| x * y).sum();
+
+        let codes_a = &all_codes[row_a * pd..(row_a + 1) * pd];
+        let codes_b = &all_codes[row_b * pd..(row_b + 1) * pd];
+        let unit_dot: f32 = codes_a
+            .iter()
+            .zip(codes_b.iter())
+            .map(|(&ca, &cb)| centroid_vals[ca as usize] * centroid_vals[cb as usize])
+            .sum();
+        let approx_dot = norms[row_a] * norms[row_b] * unit_dot;
+
+        // See doc comment above: 15% relative error is expected due to MSE quantizer bias.
+        let scale = exact_dot.abs().max(1.0);
+        let rel_error = (exact_dot - approx_dot).abs() / scale;
+        assert!(
+            rel_error < 0.15,
+            "dot product error too large for ({row_a}, {row_b}): \
+                 exact={exact_dot:.4}, approx={approx_dot:.4}, rel_error={rel_error:.4}"
+        );
+    }
+    Ok(())
+}
+
+/// Roundtrip at large embedding dimensions to validate padding and SRHT at common sizes.
+///
+/// NOTE: The theoretical MSE bound (Theorem 1) is proved for Haar-distributed random orthogonal
+/// matrices, not SRHT. The SRHT is a practical O(d log d) approximation that doesn't exactly
+/// satisfy the Haar assumption, so empirical MSE can slightly exceed the theoretical bound. We
+/// use a 2x multiplier to account for this gap.
+///
+/// The 1024-d case uses 5-bit instead of 4-bit because at 4-bit the SRHT approximation error
+/// at d=1024 pushes MSE ~20% above the 1x theoretical bound (0.0127 vs bound 0.0106).
+///
+/// TODO(connor): Revisit after Stage 2 block decomposition — at d=768 with block_size=256,
+/// the per-block SRHT will be lower-dimensional and may have different error characteristics.
+#[rstest]
+#[case(768, 4)]
+#[case(1024, 5)]
+fn large_dimension_roundtrip(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
+    let num_rows = 10;
+    let fsl = make_fsl(num_rows, dim, 42);
+    let config = TurboQuantConfig {
+        bit_width,
+        seed: Some(123),
+    };
+    let (original, decoded) = encode_decode(&fsl, &config)?;
+    assert_eq!(decoded.len(), original.len());
+
+    let normalized_mse = per_vector_normalized_mse(&original, &decoded, dim, num_rows);
+    // 2x slack for the SRHT-vs-Haar gap (see doc comment above).
+    let bound = 2.0 * theoretical_mse_bound(bit_width);
+    assert!(
+        normalized_mse < bound,
+        "Normalized MSE {normalized_mse:.6} exceeds 2x bound {bound:.6} for dim={dim}, bits={bit_width}",
+    );
     Ok(())
 }
 
@@ -702,7 +844,7 @@ fn nullable_vectors_roundtrip() -> VortexResult<()> {
 #[test]
 fn nullable_norms_match_validity() -> VortexResult<()> {
     let validity = Validity::from_iter([true, false, true, false, true]);
-    let fsl = make_fsl_with_validity(5, 64, 42, validity);
+    let fsl = make_fsl_with_validity(5, 128, 42, validity);
     let ext = make_vector_ext(&fsl);
 
     let config = TurboQuantConfig {
@@ -729,7 +871,7 @@ fn nullable_norms_match_validity() -> VortexResult<()> {
 #[test]
 fn nullable_l2_norm_readthrough() -> VortexResult<()> {
     let validity = Validity::from_iter([true, false, true, false, true]);
-    let fsl = make_fsl_with_validity(5, 64, 42, validity);
+    let fsl = make_fsl_with_validity(5, 128, 42, validity);
     let ext = make_vector_ext(&fsl);
 
     let config = TurboQuantConfig {
@@ -749,7 +891,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
     for row in 0..5 {
         if row % 2 == 0 {
             assert!(norms.is_valid(row)?, "row {row} should be valid");
-            let expected: f32 = orig_f32[row * 64..(row + 1) * 64]
+            let expected: f32 = orig_f32[row * 128..(row + 1) * 128]
                 .iter()
                 .map(|&v| v * v)
                 .sum::<f32>()
@@ -773,7 +915,7 @@ fn nullable_slice_preserves_validity() -> VortexResult<()> {
     let validity = Validity::from_iter([
         true, true, false, true, true, false, true, false, true, true,
     ]);
-    let fsl = make_fsl_with_validity(10, 64, 42, validity);
+    let fsl = make_fsl_with_validity(10, 128, 42, validity);
     let ext = make_vector_ext(&fsl);
 
     let config = TurboQuantConfig {

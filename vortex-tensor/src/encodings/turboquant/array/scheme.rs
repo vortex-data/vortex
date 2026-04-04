@@ -114,12 +114,12 @@ mod tests {
     /// f32 input at 768-d (padded to 1024) with 1000 vectors should give ~4-6x.
     /// f32 input at 1024-d (no padding) should give higher ratio since no waste.
     #[rstest]
-    #[case::f32_768d(32, 768, 1000, 3.5, 8.0)]
-    #[case::f32_1024d(32, 1024, 1000, 5.0, 9.0)]
-    #[case::f32_1536d(32, 1536, 1000, 3.0, 8.0)]
-    #[case::f32_128d(32, 128, 1000, 4.0, 8.0)]
-    #[case::f64_768d(64, 768, 1000, 7.0, 16.0)]
-    #[case::f16_768d(16, 768, 1000, 1.5, 4.5)]
+    #[case::f32_768d(32, 768, 1000, 2.5, 4.0)]
+    #[case::f32_1024d(32, 1024, 1000, 3.5, 5.0)]
+    #[case::f32_1536d(32, 1536, 1000, 2.5, 4.0)]
+    #[case::f32_128d(32, 128, 1000, 3.0, 5.0)]
+    #[case::f64_768d(64, 768, 1000, 5.0, 7.0)]
+    #[case::f16_768d(16, 768, 1000, 1.2, 2.0)]
     fn compression_ratio_in_expected_range(
         #[case] bits_per_element: usize,
         #[case] dim: u32,

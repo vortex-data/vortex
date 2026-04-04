@@ -4,9 +4,9 @@
 //! Approximate cosine similarity in the quantized domain.
 //!
 //! Since the SRHT is orthogonal, inner products are preserved in the rotated
-//! domain. For two vectors from the same TurboQuant column (same rotation and
-//! centroids), we can compute the dot product of their quantized representations
-//! without full decompression:
+//! domain. For two TurboQuant arrays that share the same SRHT rotation (i.e.,
+//! encoded from the same column), we can compute the dot product of their
+//! quantized representations without full decompression:
 //!
 //! ```text
 //! cos_approx(a, b) = sum(centroids[code_a[j]] × centroids[code_b[j]])
@@ -85,8 +85,12 @@ fn compute_unit_dots(
     Ok(dots)
 }
 
-/// Compute approximate cosine similarity for all rows between two TurboQuant
-/// arrays (same rotation matrix and codebook) without full decompression.
+/// Compute approximate cosine similarity for all rows between two TurboQuant arrays without
+/// full decompression.
+///
+/// Both arrays must share the same rotation (i.e., were encoded from the same TurboQuant
+/// column). For this function, results are meaningless if the rotations differ (there are other
+/// methods that can allow this, but that is future work).
 ///
 /// Since TurboQuant stores unit-normalized rotated vectors, the dot product of the quantized
 /// codes directly approximates cosine similarity without needing the stored norms.
@@ -120,8 +124,12 @@ pub fn cosine_similarity_quantized_column(
     })
 }
 
-/// Compute approximate dot product for all rows between two TurboQuant
-/// arrays (same rotation matrix and codebook) without full decompression.
+/// Compute approximate dot product for all rows between two TurboQuant arrays without
+/// full decompression.
+///
+/// Both arrays must share the same SRHT rotation (i.e., were encoded from the same TurboQuant
+/// column). For this function, results are meaningless if the rotations differ (there are other
+/// methods that can allow this, but that is future work).
 ///
 /// `dot_product(a, b) = ||a|| * ||b|| * sum(c[code_a[j]] * c[code_b[j]])`
 ///

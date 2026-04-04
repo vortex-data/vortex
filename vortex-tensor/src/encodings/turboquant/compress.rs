@@ -43,7 +43,7 @@ pub struct TurboQuantConfig {
 impl Default for TurboQuantConfig {
     fn default() -> Self {
         Self {
-            bit_width: 4,
+            bit_width: 8,
             seed: Some(42),
         }
     }
@@ -226,8 +226,9 @@ pub fn turboquant_encode(
     );
     let dimension = fsl.list_size();
     vortex_ensure!(
-        dimension >= 3,
-        "TurboQuant requires dimension >= 3, got {dimension}"
+        dimension >= TurboQuant::MIN_DIMENSION,
+        "TurboQuant requires dimension >= {}, got {dimension}",
+        TurboQuant::MIN_DIMENSION
     );
 
     if fsl.is_empty() {
