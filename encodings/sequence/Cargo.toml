@@ -24,9 +24,14 @@ vortex-proto = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
 itertools = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "sequence_compare"
+harness = false
