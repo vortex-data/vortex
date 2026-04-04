@@ -3,12 +3,12 @@
 
 use std::cmp::min;
 use std::ops::AddAssign;
-use std::sync::Mutex;
-use std::sync::MutexGuard;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering;
 
 use num_traits::AsPrimitive;
+use parking_lot::Mutex;
+use parking_lot::MutexGuard;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -28,15 +28,18 @@ use vortex_mask::MaskValues;
 use crate::_benchmarking::RunEndFilterMode;
 use crate::RunEnd;
 use crate::compute::take::take_indices_unchecked;
-const FILTER_TAKE_THRESHOLD: f64 = 0.1;
+
+const FILTER_TAKE_MIN_TRUE_COUNT: usize = 25;
+const FILTER_ENCODED_DENSITY_SHIFT: usize = 3;
+const FILTER_ENCODED_MIN_TRUES_PER_RUN: usize = 32;
+const FILTER_ENCODED_MAX_SLICE_COUNT: usize = 32;
+const FILTER_ENCODED_MIN_AVG_SLICE_LEN: usize = 256;
+
 static FILTER_MODE_OVERRIDE: AtomicU8 = AtomicU8::new(RunEndFilterMode::Auto.as_u8());
 static FILTER_MODE_OVERRIDE_LOCK: Mutex<()> = Mutex::new(());
 
 pub(crate) fn override_run_end_filter_mode(mode: RunEndFilterMode) -> impl Drop {
-    let lock = match FILTER_MODE_OVERRIDE_LOCK.lock() {
-        Ok(lock) => lock,
-        Err(err) => err.into_inner(),
-    };
+    let lock = FILTER_MODE_OVERRIDE_LOCK.lock();
     let previous_mode = current_filter_mode();
     FILTER_MODE_OVERRIDE.store(mode.as_u8(), Ordering::SeqCst);
 
@@ -140,13 +143,26 @@ fn select_filter_path(array: ArrayView<'_, RunEnd>, mask_values: &MaskValues) ->
 }
 
 fn auto_filter_path(array: ArrayView<'_, RunEnd>, mask_values: &MaskValues) -> FilterPath {
+    let len = array.len();
+    let run_count = array.ends().len();
     let true_count = mask_values.true_count();
-    let runs_ratio = true_count as f64 / array.ends().len() as f64;
+    let slice_count = mask_values.slices().len();
+    let average_slice_len = true_count.div_ceil(slice_count);
 
-    if runs_ratio < FILTER_TAKE_THRESHOLD || true_count < 25 {
-        FilterPath::Take
-    } else {
+    if true_count < FILTER_TAKE_MIN_TRUE_COUNT {
+        return FilterPath::Take;
+    }
+
+    let dense_selection = true_count.saturating_mul(1 << FILTER_ENCODED_DENSITY_SHIFT) >= len;
+    let localized_selection = true_count
+        >= run_count.saturating_mul(FILTER_ENCODED_MIN_TRUES_PER_RUN)
+        && slice_count <= FILTER_ENCODED_MAX_SLICE_COUNT
+        && average_slice_len >= FILTER_ENCODED_MIN_AVG_SLICE_LEN;
+
+    if dense_selection || localized_selection {
         FilterPath::Encoded
+    } else {
+        FilterPath::Take
     }
 }
 
@@ -192,18 +208,78 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::cast_possible_truncation)]
+
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
+    use super::FilterPath;
+    use super::select_filter_path;
     use crate::RunEnd;
     use crate::RunEndArray;
 
     fn ree_array() -> RunEndArray {
         RunEnd::encode(PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array())
             .unwrap()
+    }
+
+    fn run_end_fixture(run_length: usize, len: usize) -> ArrayRef {
+        let run_count = len.div_ceil(run_length);
+        let ends = (0..run_count)
+            .map(|run_idx| ((run_idx + 1) * run_length).min(len) as u32)
+            .collect::<Buffer<_>>()
+            .into_array();
+        let values =
+            PrimitiveArray::from_iter((0..run_count).map(|run_idx| run_idx as i32)).into_array();
+
+        RunEnd::new(ends, values).into_array()
+    }
+
+    fn run_end_offset_fixture(
+        run_length: usize,
+        total_len: usize,
+        offset: usize,
+        len: usize,
+    ) -> VortexResult<ArrayRef> {
+        let run_count = total_len.div_ceil(run_length);
+        let ends = (0..run_count)
+            .map(|run_idx| ((run_idx + 1) * run_length).min(total_len) as u32)
+            .collect::<Buffer<_>>()
+            .into_array();
+        let values =
+            PrimitiveArray::from_iter((0..run_count).map(|run_idx| run_idx as i32)).into_array();
+
+        Ok(RunEnd::try_new_offset_length(ends, values, offset, len)?.into_array())
+    }
+
+    fn sparse_random_mask(len: usize, true_count: usize) -> Mask {
+        let mut indices = (0..true_count)
+            .map(|idx| (idx * 7_919) % len)
+            .collect::<Vec<_>>();
+        indices.sort_unstable();
+
+        Mask::from_indices(len, indices)
+    }
+
+    fn sparse_clustered_mask(len: usize) -> Mask {
+        Mask::from_slices(len, vec![(1_024, 1_536), (8_192, 8_704)])
+    }
+
+    fn sparse_clustered_mask_for_slice(len: usize) -> Mask {
+        Mask::from_slices(len, vec![(1_024, 1_536), (6_144, 6_656)])
+    }
+
+    fn filter_path(array: &ArrayRef, mask: &Mask) -> FilterPath {
+        select_filter_path(
+            array.as_::<RunEnd>(),
+            mask.values()
+                .expect("heuristic tests require a partial filter mask"),
+        )
     }
 
     #[test]
@@ -218,6 +294,42 @@ mod tests {
                 PrimitiveArray::from_iter([1i32, 4, 2]).into_array()
             )
         );
+        Ok(())
+    }
+
+    #[test]
+    fn heuristic_prefers_take_for_sparse_random_mask() -> VortexResult<()> {
+        let array = run_end_fixture(1_024, 16_384);
+        let mask = sparse_random_mask(array.len(), 1_024);
+
+        assert_eq!(filter_path(&array, &mask), FilterPath::Take);
+        Ok(())
+    }
+
+    #[test]
+    fn heuristic_prefers_encoded_for_sparse_clustered_mask() -> VortexResult<()> {
+        let array = run_end_fixture(1_024, 16_384);
+        let mask = sparse_clustered_mask(array.len());
+
+        assert_eq!(filter_path(&array, &mask), FilterPath::Encoded);
+        Ok(())
+    }
+
+    #[test]
+    fn heuristic_prefers_take_for_sparse_random_mask_on_slice() -> VortexResult<()> {
+        let array = run_end_offset_fixture(1_024, 16_384, 1_024, 14_336)?;
+        let mask = sparse_random_mask(array.len(), 1_024);
+
+        assert_eq!(filter_path(&array, &mask), FilterPath::Take);
+        Ok(())
+    }
+
+    #[test]
+    fn heuristic_prefers_encoded_for_sparse_clustered_mask_on_slice() -> VortexResult<()> {
+        let array = run_end_offset_fixture(1_024, 16_384, 1_024, 14_336)?;
+        let mask = sparse_clustered_mask_for_slice(array.len());
+
+        assert_eq!(filter_path(&array, &mask), FilterPath::Encoded);
         Ok(())
     }
 }
