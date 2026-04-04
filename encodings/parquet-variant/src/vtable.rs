@@ -80,55 +80,15 @@ impl VTable for ParquetVariant {
         ParquetVariantData::validate_slots(dtype, len, slots)
     }
 
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        ParquetVariantArrayExt::validity(&array).array_hash(state, precision);
-        ParquetVariantArrayExt::metadata_array(&array).array_hash(state, precision);
-        // Hash discriminators so that (value=Some, typed_value=None) and
-        // (value=None, typed_value=Some) produce different hashes.
-        ParquetVariantArrayExt::value_array(&array).is_some().hash(state);
-        if let Some(value) = ParquetVariantArrayExt::value_array(&array) {
-            value.array_hash(state, precision);
-        }
-        ParquetVariantArrayExt::typed_value_array(&array)
-            .is_some()
-            .hash(state);
-        if let Some(typed_value) = ParquetVariantArrayExt::typed_value_array(&array) {
-            typed_value.array_hash(state, precision);
-        }
+    fn array_hash<H: Hasher>(_data: &ParquetVariantData, _state: &mut H, _precision: Precision) {
     }
 
     fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
+        _data: &ParquetVariantData,
+        _other: &ParquetVariantData,
+        _precision: Precision,
     ) -> bool {
-        if !ParquetVariantArrayExt::validity(&array)
-            .array_eq(&ParquetVariantArrayExt::validity(&other), precision)
-            || !ParquetVariantArrayExt::metadata_array(&array)
-                .array_eq(ParquetVariantArrayExt::metadata_array(&other), precision)
-        {
-            return false;
-        }
-        match (
-            ParquetVariantArrayExt::value_array(&array),
-            ParquetVariantArrayExt::value_array(&other),
-        ) {
-            (Some(a), Some(b)) => {
-                if !a.array_eq(b, precision) {
-                    return false;
-                }
-            }
-            (None, None) => {}
-            _ => return false,
-        }
-        match (
-            ParquetVariantArrayExt::typed_value_array(&array),
-            ParquetVariantArrayExt::typed_value_array(&other),
-        ) {
-            (Some(a), Some(b)) => a.array_eq(b, precision),
-            (None, None) => true,
-            _ => false,
-        }
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

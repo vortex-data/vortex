@@ -63,15 +63,11 @@ impl VTable for Shared {
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        let current = array.current_array_ref();
-        current.array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(_data: &SharedData, _state: &mut H, _precision: Precision) {
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        let current = array.current_array_ref();
-        let other_current = other.current_array_ref();
-        current.array_eq(other_current, precision)
+    fn array_eq(_data: &SharedData, _other: &SharedData, _precision: Precision) -> bool {
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

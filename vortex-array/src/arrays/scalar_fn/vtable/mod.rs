@@ -88,23 +88,12 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.scalar_fn().hash(state);
-        for child in array.iter_children() {
-            child.array_hash(state, precision);
-        }
+    fn array_hash<H: Hasher>(data: &ScalarFnData, state: &mut H, _precision: Precision) {
+        data.scalar_fn().hash(state);
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        if array.scalar_fn() != other.scalar_fn() {
-            return false;
-        }
-        for (child, other_child) in array.iter_children().zip(other.iter_children()) {
-            if !child.array_eq(other_child, precision) {
-                return false;
-            }
-        }
-        true
+    fn array_eq(data: &ScalarFnData, other: &ScalarFnData, _precision: Precision) -> bool {
+        data.scalar_fn() == other.scalar_fn()
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

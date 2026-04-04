@@ -101,12 +101,8 @@ impl VTable for Zstd {
         data.validate(dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        match &array.dictionary {
+    fn array_hash<H: std::hash::Hasher>(data: &ZstdData, state: &mut H, precision: Precision) {
+        match &data.dictionary {
             Some(dict) => {
                 true.hash(state);
                 dict.array_hash(state, precision);
@@ -115,41 +111,35 @@ impl VTable for Zstd {
                 false.hash(state);
             }
         }
-        for frame in &array.frames {
+        for frame in &data.frames {
             frame.array_hash(state, precision);
         }
-        array.unsliced_validity.array_hash(state, precision);
-        array.unsliced_n_rows.hash(state);
-        array.slice_start.hash(state);
-        array.slice_stop.hash(state);
+        data.unsliced_validity.array_hash(state, precision);
+        data.unsliced_n_rows.hash(state);
+        data.slice_start.hash(state);
+        data.slice_stop.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        if !match (&array.dictionary, &other.dictionary) {
+    fn array_eq(data: &ZstdData, other: &ZstdData, precision: Precision) -> bool {
+        if !match (&data.dictionary, &other.dictionary) {
             (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
             (None, None) => true,
             _ => false,
         } {
             return false;
         }
-        if array.frames.len() != other.frames.len() {
+        if data.frames.len() != other.frames.len() {
             return false;
         }
-        for (a, b) in array.frames.iter().zip(&other.frames) {
+        for (a, b) in data.frames.iter().zip(&other.frames) {
             if !a.array_eq(b, precision) {
                 return false;
             }
         }
-        array
-            .unsliced_validity
-            .array_eq(&other.unsliced_validity, precision)
-            && array.unsliced_n_rows == other.unsliced_n_rows
-            && array.slice_start == other.slice_start
-            && array.slice_stop == other.slice_stop
+        data.unsliced_validity.array_eq(&other.unsliced_validity, precision)
+            && data.unsliced_n_rows == other.unsliced_n_rows
+            && data.slice_start == other.slice_start
+            && data.slice_stop == other.slice_stop
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {

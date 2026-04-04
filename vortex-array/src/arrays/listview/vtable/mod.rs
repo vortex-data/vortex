@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hash;
 use std::sync::Arc;
 
 use prost::Message;
@@ -63,20 +64,12 @@ impl VTable for ListView {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.elements().array_hash(state, precision);
-        array.offsets().array_hash(state, precision);
-        array.sizes().array_hash(state, precision);
-        array.listview_validity().array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(data: &ListViewData, state: &mut H, _precision: Precision) {
+        data.is_zero_copy_to_list().hash(state);
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array.elements().array_eq(other.elements(), precision)
-            && array.offsets().array_eq(other.offsets(), precision)
-            && array.sizes().array_eq(other.sizes(), precision)
-            && array
-                .listview_validity()
-                .array_eq(&other.listview_validity(), precision)
+    fn array_eq(data: &ListViewData, other: &ListViewData, _precision: Precision) -> bool {
+        data.is_zero_copy_to_list() == other.is_zero_copy_to_list()
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

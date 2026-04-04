@@ -35,6 +35,8 @@ pub use vtable::*;
 
 mod view;
 pub use view::*;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 
 /// The public API trait for all Vortex arrays.
 ///
@@ -316,8 +318,11 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         self.len.hash(&mut wrapper);
         self.dtype.hash(&mut wrapper);
         self.vtable.id().hash(&mut wrapper);
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::array_hash(view, &mut wrapper, precision);
+        self.slots.len().hash(&mut wrapper);
+        for slot in &self.slots {
+            slot.array_hash(&mut wrapper, precision);
+        }
+        V::array_hash(&self.data, &mut wrapper, precision);
     }
 
     fn dyn_array_eq(&self, this: &ArrayRef, other: &ArrayRef, precision: crate::Precision) -> bool {
@@ -325,13 +330,13 @@ impl<V: VTable> DynArray for ArrayInner<V> {
             self.len == other.len()
                 && self.dtype == *other.dtype()
                 && self.vtable.id() == other.encoding_id()
-                && {
-                    let this = unsafe { ArrayView::new_unchecked(this, &self.data) };
-                    let other = unsafe {
-                        ArrayView::new_unchecked(other, &other_inner.data)
-                    };
-                    V::array_eq(this, other, precision)
-                }
+                && self.slots.len() == other_inner.slots.len()
+                && self
+                    .slots
+                    .iter()
+                    .zip(other_inner.slots.iter())
+                    .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
+                && V::array_eq(&self.data, &other_inner.data, precision)
         })
     }
 }

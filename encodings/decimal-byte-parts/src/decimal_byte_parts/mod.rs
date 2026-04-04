@@ -80,19 +80,18 @@ impl VTable for DecimalByteParts {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
+        _data: &DecimalBytePartsData,
+        _state: &mut H,
+        _precision: Precision,
     ) {
-        array.msp().array_hash(state, precision);
     }
 
     fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
+        _data: &DecimalBytePartsData,
+        _other: &DecimalBytePartsData,
+        _precision: Precision,
     ) -> bool {
-        array.msp().array_eq(other.msp(), precision)
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

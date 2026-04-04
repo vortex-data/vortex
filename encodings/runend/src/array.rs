@@ -89,24 +89,12 @@ impl VTable for RunEnd {
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.ends().array_hash(state, precision);
-        array.values().array_hash(state, precision);
-        array.offset.hash(state);
+    fn array_hash<H: std::hash::Hasher>(data: &RunEndData, state: &mut H, _precision: Precision) {
+        data.offset.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.ends().array_eq(other.ends(), precision)
-            && array.values().array_eq(other.values(), precision)
-            && array.offset == other.offset
+    fn array_eq(data: &RunEndData, other: &RunEndData, _precision: Precision) -> bool {
+        data.offset == other.offset
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

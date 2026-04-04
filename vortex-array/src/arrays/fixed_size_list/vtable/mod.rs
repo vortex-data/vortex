@@ -53,26 +53,12 @@ impl VTable for FixedSizeList {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.elements().array_hash(state, precision);
-        array.list_size().hash(state);
-        array.fixed_size_list_validity().array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(data: &FixedSizeListData, state: &mut H, _precision: Precision) {
+        data.degenerate_len.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.elements().array_eq(other.elements(), precision)
-            && array.list_size() == other.list_size()
-            && array
-                .fixed_size_list_validity()
-                .array_eq(&other.fixed_size_list_validity(), precision)
+    fn array_eq(data: &FixedSizeListData, other: &FixedSizeListData, _precision: Precision) -> bool {
+        data.degenerate_len == other.degenerate_len
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

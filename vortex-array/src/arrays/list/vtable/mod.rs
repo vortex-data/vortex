@@ -57,16 +57,11 @@ impl VTable for List {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.elements().array_hash(state, precision);
-        array.offsets().array_hash(state, precision);
-        array.list_validity().array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(_data: &ListData, _state: &mut H, _precision: Precision) {
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array.elements().array_eq(other.elements(), precision)
-            && array.offsets().array_eq(other.offsets(), precision)
-            && array.list_validity().array_eq(&other.list_validity(), precision)
+    fn array_eq(_data: &ListData, _other: &ListData, _precision: Precision) -> bool {
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

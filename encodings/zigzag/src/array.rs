@@ -72,19 +72,14 @@ impl VTable for ZigZag {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
+        _data: &ZigZagData,
+        _state: &mut H,
+        _precision: Precision,
     ) {
-        array.encoded().array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.encoded().array_eq(other.encoded(), precision)
+    fn array_eq(_data: &ZigZagData, _other: &ZigZagData, _precision: Precision) -> bool {
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

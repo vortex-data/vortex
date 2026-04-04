@@ -82,30 +82,17 @@ impl VTable for ALPRD {
         data.validate_against_outer(dtype, len, slots)
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.left_parts().array_hash(state, precision);
-        array.left_parts_dictionary.array_hash(state, precision);
-        array.right_parts().array_hash(state, precision);
-        array.right_bit_width.hash(state);
-        array.left_parts_patches.array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(data: &ALPRDData, state: &mut H, precision: Precision) {
+        data.left_parts_dictionary.array_hash(state, precision);
+        data.right_bit_width.hash(state);
+        data.left_parts_patches.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.left_parts().array_eq(other.left_parts(), precision)
-            && array
-                .left_parts_dictionary
-                .array_eq(&other.left_parts_dictionary, precision)
-            && array.right_parts().array_eq(other.right_parts(), precision)
-            && array.right_bit_width == other.right_bit_width
-            && array
+    fn array_eq(data: &ALPRDData, other: &ALPRDData, precision: Precision) -> bool {
+        data.left_parts_dictionary
+            .array_eq(&other.left_parts_dictionary, precision)
+            && data.right_bit_width == other.right_bit_width
+            && data
                 .left_parts_patches
                 .array_eq(&other.left_parts_patches, precision)
     }

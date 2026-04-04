@@ -58,16 +58,12 @@ impl VTable for VarBin {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.bytes().array_hash(state, precision);
-        array.offsets().array_hash(state, precision);
-        array.varbin_validity().array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(data: &VarBinData, state: &mut H, precision: Precision) {
+        data.bytes().array_hash(state, precision);
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array.bytes().array_eq(other.bytes(), precision)
-            && array.offsets().array_eq(other.offsets(), precision)
-            && array.varbin_validity().array_eq(&other.varbin_validity(), precision)
+    fn array_eq(data: &VarBinData, other: &VarBinData, precision: Precision) -> bool {
+        data.bytes().array_eq(other.bytes(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

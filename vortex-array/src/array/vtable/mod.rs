@@ -70,12 +70,12 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ) -> VortexResult<()>;
 
     /// Hashes the array contents.
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision);
+    fn array_hash<H: Hasher>(data: &Self::ArrayData, state: &mut H, precision: Precision);
 
     /// Compares two arrays of the same type for equality.
     fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
+        data: &Self::ArrayData,
+        other: &Self::ArrayData,
         precision: Precision,
     ) -> bool;
 

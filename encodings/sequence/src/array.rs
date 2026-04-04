@@ -220,21 +220,13 @@ impl VTable for Sequence {
         SequenceData::validate(data.base, data.multiplier, dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        _precision: Precision,
-    ) {
-        array.base.hash(state);
-        array.multiplier.hash(state);
+    fn array_hash<H: std::hash::Hasher>(data: &SequenceData, state: &mut H, _precision: Precision) {
+        data.base.hash(state);
+        data.multiplier.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        _precision: Precision,
-    ) -> bool {
-        array.base == other.base && array.multiplier == other.multiplier
+    fn array_eq(data: &SequenceData, other: &SequenceData, _precision: Precision) -> bool {
+        data.base == other.base && data.multiplier == other.multiplier
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

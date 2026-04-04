@@ -100,46 +100,36 @@ impl VTable for Pco {
         data.validate(dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.unsliced_validity.array_hash(state, precision);
-        array.unsliced_n_rows.hash(state);
-        array.slice_start.hash(state);
-        array.slice_stop.hash(state);
+    fn array_hash<H: std::hash::Hasher>(data: &PcoData, state: &mut H, precision: Precision) {
+        data.unsliced_validity.array_hash(state, precision);
+        data.unsliced_n_rows.hash(state);
+        data.slice_start.hash(state);
+        data.slice_stop.hash(state);
         // Hash chunk_metas and pages using pointer-based hashing
-        for chunk_meta in &array.chunk_metas {
+        for chunk_meta in &data.chunk_metas {
             chunk_meta.array_hash(state, precision);
         }
-        for page in &array.pages {
+        for page in &data.pages {
             page.array_hash(state, precision);
         }
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        if !array
-            .unsliced_validity
-            .array_eq(&other.unsliced_validity, precision)
-            || array.unsliced_n_rows != other.unsliced_n_rows
-            || array.slice_start != other.slice_start
-            || array.slice_stop != other.slice_stop
-            || array.chunk_metas.len() != other.chunk_metas.len()
-            || array.pages.len() != other.pages.len()
+    fn array_eq(data: &PcoData, other: &PcoData, precision: Precision) -> bool {
+        if !data.unsliced_validity.array_eq(&other.unsliced_validity, precision)
+            || data.unsliced_n_rows != other.unsliced_n_rows
+            || data.slice_start != other.slice_start
+            || data.slice_stop != other.slice_stop
+            || data.chunk_metas.len() != other.chunk_metas.len()
+            || data.pages.len() != other.pages.len()
         {
             return false;
         }
-        for (a, b) in array.chunk_metas.iter().zip(&other.chunk_metas) {
+        for (a, b) in data.chunk_metas.iter().zip(&other.chunk_metas) {
             if !a.array_eq(b, precision) {
                 return false;
             }
         }
-        for (a, b) in array.pages.iter().zip(&other.pages) {
+        for (a, b) in data.pages.iter().zip(&other.pages) {
             if !a.array_eq(b, precision) {
                 return false;
             }

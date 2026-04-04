@@ -46,20 +46,11 @@ impl VTable for Struct {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        for field in array.iter_unmasked_fields() {
-            field.array_hash(state, precision);
-        }
-        array.struct_validity().array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(_data: &StructData, _state: &mut H, _precision: Precision) {
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array.slots().len() == other.slots().len()
-            && array
-                .iter_unmasked_fields()
-                .zip(other.iter_unmasked_fields())
-                .all(|(a, b)| a.array_eq(b, precision))
-            && array.struct_validity().array_eq(&other.struct_validity(), precision)
+    fn array_eq(_data: &StructData, _other: &StructData, _precision: Precision) -> bool {
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

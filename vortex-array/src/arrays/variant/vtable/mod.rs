@@ -83,12 +83,11 @@ impl VTable for Variant {
         Ok(())
     }
 
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.child().array_hash(state, precision);
+    fn array_hash<H: Hasher>(_data: &VariantData, _state: &mut H, _precision: Precision) {
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array.child().array_eq(other.child(), precision)
+    fn array_eq(_data: &VariantData, _other: &VariantData, _precision: Precision) -> bool {
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

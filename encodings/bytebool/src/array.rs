@@ -60,23 +60,12 @@ impl VTable for ByteBool {
         ByteBoolData::validate(data.buffer(), &validity, dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.buffer.array_hash(state, precision);
-        ByteBoolArrayExt::validity(&array).array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(data: &ByteBoolData, state: &mut H, precision: Precision) {
+        data.buffer.array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.buffer.array_eq(&other.buffer, precision)
-            && ByteBoolArrayExt::validity(&array)
-                .array_eq(&ByteBoolArrayExt::validity(&other), precision)
+    fn array_eq(data: &ByteBoolData, other: &ByteBoolData, precision: Precision) -> bool {
+        data.buffer.array_eq(&other.buffer, precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

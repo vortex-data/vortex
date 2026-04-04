@@ -84,21 +84,13 @@ impl VTable for Sparse {
         SparseData::validate(data.patches(), data.fill_scalar(), dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.patches.array_hash(state, precision);
-        array.fill_value.hash(state);
+    fn array_hash<H: std::hash::Hasher>(data: &SparseData, state: &mut H, precision: Precision) {
+        data.patches.array_hash(state, precision);
+        data.fill_value.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.patches.array_eq(&other.patches, precision) && array.fill_value == other.fill_value
+    fn array_eq(data: &SparseData, other: &SparseData, precision: Precision) -> bool {
+        data.patches.array_eq(&other.patches, precision) && data.fill_value == other.fill_value
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

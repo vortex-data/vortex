@@ -92,28 +92,12 @@ impl VTable for RLE {
         )
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.values().array_hash(state, precision);
-        array.indices().array_hash(state, precision);
-        array.values_idx_offsets().array_hash(state, precision);
-        array.offset().hash(state);
+    fn array_hash<H: std::hash::Hasher>(data: &RLEData, state: &mut H, _precision: Precision) {
+        data.offset.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.values().array_eq(other.values(), precision)
-            && array.indices().array_eq(other.indices(), precision)
-            && array
-                .values_idx_offsets()
-                .array_eq(other.values_idx_offsets(), precision)
-            && array.offset() == other.offset()
+    fn array_eq(data: &RLEData, other: &RLEData, _precision: Precision) -> bool {
+        data.offset == other.offset
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

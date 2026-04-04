@@ -99,23 +99,18 @@ impl VTable for DateTimeParts {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
+        _data: &DateTimePartsData,
+        _state: &mut H,
+        _precision: Precision,
     ) {
-        array.days().array_hash(state, precision);
-        array.seconds().array_hash(state, precision);
-        array.subseconds().array_hash(state, precision);
     }
 
     fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
+        _data: &DateTimePartsData,
+        _other: &DateTimePartsData,
+        _precision: Precision,
     ) -> bool {
-        array.days().array_eq(other.days(), precision)
-            && array.seconds().array_eq(other.seconds(), precision)
-            && array.subseconds().array_eq(other.subseconds(), precision)
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

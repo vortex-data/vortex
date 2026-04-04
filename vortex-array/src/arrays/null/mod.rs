@@ -53,7 +53,7 @@ impl VTable for Null {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        _array: ArrayView<'_, Self>,
+        _data: &NullData,
         _state: &mut H,
         _precision: Precision,
     ) {
@@ -61,11 +61,11 @@ impl VTable for Null {
     }
 
     fn array_eq(
-        _array: ArrayView<'_, Self>,
-        _other: ArrayView<'_, Self>,
+        _data: &NullData,
+        _other: &NullData,
         _precision: Precision,
     ) -> bool {
-        // len and dtype are compared by ArrayInner; NullData has no additional fields.
+        // len, dtype, and slots are compared by ArrayInner; NullData has no additional fields.
         true
     }
 

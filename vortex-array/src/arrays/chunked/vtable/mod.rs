@@ -60,20 +60,11 @@ impl VTable for Chunked {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.chunk_offsets_array().array_hash(state, precision);
-        for chunk in array.iter_chunks() {
-            chunk.array_hash(state, precision);
-        }
+    fn array_hash<H: std::hash::Hasher>(_data: &ChunkedData, _state: &mut H, _precision: Precision) {
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array.chunk_offsets_array().array_eq(other.chunk_offsets_array(), precision)
-            && array.nchunks() == other.nchunks()
-            && array
-                .iter_chunks()
-                .zip(other.iter_chunks())
-                .all(|(a, b)| a.array_eq(b, precision))
+    fn array_eq(_data: &ChunkedData, _other: &ChunkedData, _precision: Precision) -> bool {
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

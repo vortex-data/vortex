@@ -57,17 +57,13 @@ impl VTable for Decimal {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.values.array_hash(state, precision);
-        std::mem::discriminant(&array.values_type).hash(state);
-        DecimalArrayExt::validity(&array).array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(data: &DecimalData, state: &mut H, precision: Precision) {
+        data.values.array_hash(state, precision);
+        std::mem::discriminant(&data.values_type).hash(state);
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array.values.array_eq(&other.values, precision)
-            && array.values_type == other.values_type
-            && DecimalArrayExt::validity(&array)
-                .array_eq(&DecimalArrayExt::validity(&other), precision)
+    fn array_eq(data: &DecimalData, other: &DecimalData, precision: Precision) -> bool {
+        data.values.array_eq(&other.values, precision) && data.values_type == other.values_type
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

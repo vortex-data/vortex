@@ -89,14 +89,13 @@ impl VTable for Slice {
         Ok(())
     }
 
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.child().array_hash(state, precision);
-        array.range.start.hash(state);
-        array.range.end.hash(state);
+    fn array_hash<H: Hasher>(data: &SliceData, state: &mut H, _precision: Precision) {
+        data.range.start.hash(state);
+        data.range.end.hash(state);
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array.child().array_eq(other.child(), precision) && array.range == other.range
+    fn array_eq(data: &SliceData, other: &SliceData, _precision: Precision) -> bool {
+        data.range == other.range
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

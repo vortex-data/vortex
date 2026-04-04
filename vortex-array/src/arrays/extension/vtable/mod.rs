@@ -47,17 +47,14 @@ impl VTable for Extension {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
+        _data: &ExtensionData,
+        _state: &mut H,
+        _precision: Precision,
     ) {
-        array.storage_array().array_hash(state, precision);
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array
-            .storage_array()
-            .array_eq(other.storage_array(), precision)
+    fn array_eq(_data: &ExtensionData, _other: &ExtensionData, _precision: Precision) -> bool {
+        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

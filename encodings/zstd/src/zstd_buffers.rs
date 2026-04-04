@@ -341,44 +341,30 @@ impl VTable for ZstdBuffers {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
+        data: &ZstdBuffersData,
         state: &mut H,
         precision: Precision,
     ) {
-        array.inner_encoding_id.hash(state);
-        array.inner_metadata.hash(state);
-        for buf in &array.compressed_buffers {
+        data.inner_encoding_id.hash(state);
+        data.inner_metadata.hash(state);
+        for buf in &data.compressed_buffers {
             buf.array_hash(state, precision);
         }
-        array.uncompressed_sizes.hash(state);
-        array.buffer_alignments.hash(state);
-        for child in array.slots().iter().flatten() {
-            child.array_hash(state, precision);
-        }
+        data.uncompressed_sizes.hash(state);
+        data.buffer_alignments.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.inner_encoding_id == other.inner_encoding_id
-            && array.inner_metadata == other.inner_metadata
-            && array.compressed_buffers.len() == other.compressed_buffers.len()
-            && array
+    fn array_eq(data: &ZstdBuffersData, other: &ZstdBuffersData, precision: Precision) -> bool {
+        data.inner_encoding_id == other.inner_encoding_id
+            && data.inner_metadata == other.inner_metadata
+            && data.compressed_buffers.len() == other.compressed_buffers.len()
+            && data
                 .compressed_buffers
                 .iter()
                 .zip(&other.compressed_buffers)
                 .all(|(a, b)| a.array_eq(b, precision))
-            && array.uncompressed_sizes == other.uncompressed_sizes
-            && array.buffer_alignments == other.buffer_alignments
-            && array.slots().len() == other.slots().len()
-            && array
-                .slots()
-                .iter()
-                .flatten()
-                .zip(other.slots().iter().flatten())
-                .all(|(a, b)| a.array_eq(b, precision))
+            && data.uncompressed_sizes == other.uncompressed_sizes
+            && data.buffer_alignments == other.buffer_alignments
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {

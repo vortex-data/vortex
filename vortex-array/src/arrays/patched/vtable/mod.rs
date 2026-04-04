@@ -84,28 +84,13 @@ impl VTable for Patched {
         ArrayId::new_ref("vortex.patched")
     }
 
-    fn array_hash<H: Hasher>(array: ArrayView<'_, Self>, state: &mut H, precision: Precision) {
-        array.offset().hash(state);
-        array.n_lanes().hash(state);
-        array.base_array().array_hash(state, precision);
-        array.lane_offsets().array_hash(state, precision);
-        array.patch_indices().array_hash(state, precision);
-        array.patch_values().array_hash(state, precision);
+    fn array_hash<H: Hasher>(data: &PatchedData, state: &mut H, _precision: Precision) {
+        data.offset.hash(state);
+        data.n_lanes.hash(state);
     }
 
-    fn array_eq(array: ArrayView<'_, Self>, other: ArrayView<'_, Self>, precision: Precision) -> bool {
-        array.offset() == other.offset()
-            && array.n_lanes() == other.n_lanes()
-            && array.base_array().array_eq(other.base_array(), precision)
-            && array
-                .lane_offsets()
-                .array_eq(other.lane_offsets(), precision)
-            && array
-                .patch_indices()
-                .array_eq(other.patch_indices(), precision)
-            && array
-                .patch_values()
-                .array_eq(other.patch_values(), precision)
+    fn array_eq(data: &PatchedData, other: &PatchedData, _precision: Precision) -> bool {
+        data.offset == other.offset && data.n_lanes == other.n_lanes
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

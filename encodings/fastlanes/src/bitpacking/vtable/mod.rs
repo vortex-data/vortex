@@ -106,76 +106,20 @@ impl VTable for BitPacked {
         data.validate_against_slots(dtype, len, &validity, patches.as_ref())
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.offset.hash(state);
-        array.bit_width.hash(state);
-        array.packed.array_hash(state, precision);
-        match array.patch_indices() {
-            Some(indices) => {
-                true.hash(state);
-                indices.array_hash(state, precision);
-            }
-            None => false.hash(state),
-        }
-        match array.patch_values() {
-            Some(values) => {
-                true.hash(state);
-                values.array_hash(state, precision);
-            }
-            None => false.hash(state),
-        }
-        match array.patch_chunk_offsets() {
-            Some(offsets) => {
-                true.hash(state);
-                offsets.array_hash(state, precision);
-            }
-            None => false.hash(state),
-        }
-        match array.validity_child() {
-            Some(validity) => {
-                true.hash(state);
-                validity.array_hash(state, precision);
-            }
-            None => false.hash(state),
-        }
-        array.patch_offset.hash(state);
-        array.patch_offset_within_chunk.hash(state);
+    fn array_hash<H: std::hash::Hasher>(data: &BitPackedData, state: &mut H, precision: Precision) {
+        data.offset.hash(state);
+        data.bit_width.hash(state);
+        data.packed.array_hash(state, precision);
+        data.patch_offset.hash(state);
+        data.patch_offset_within_chunk.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.offset == other.offset
-            && array.bit_width == other.bit_width
-            && array.packed.array_eq(&other.packed, precision)
-            && match (array.patch_indices(), other.patch_indices()) {
-                (Some(lhs), Some(rhs)) => lhs.array_eq(rhs, precision),
-                (None, None) => true,
-                _ => false,
-            }
-            && match (array.patch_values(), other.patch_values()) {
-                (Some(lhs), Some(rhs)) => lhs.array_eq(rhs, precision),
-                (None, None) => true,
-                _ => false,
-            }
-            && match (array.patch_chunk_offsets(), other.patch_chunk_offsets()) {
-                (Some(lhs), Some(rhs)) => lhs.array_eq(rhs, precision),
-                (None, None) => true,
-                _ => false,
-            }
-            && match (array.validity_child(), other.validity_child()) {
-                (Some(lhs), Some(rhs)) => lhs.array_eq(rhs, precision),
-                (None, None) => true,
-                _ => false,
-            }
-            && array.patch_offset == other.patch_offset
-            && array.patch_offset_within_chunk == other.patch_offset_within_chunk
+    fn array_eq(data: &BitPackedData, other: &BitPackedData, precision: Precision) -> bool {
+        data.offset == other.offset
+            && data.bit_width == other.bit_width
+            && data.packed.array_eq(&other.packed, precision)
+            && data.patch_offset == other.patch_offset
+            && data.patch_offset_within_chunk == other.patch_offset_within_chunk
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

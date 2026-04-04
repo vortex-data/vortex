@@ -89,38 +89,26 @@ impl VTable for FSST {
         data.validate(dtype, len, slots)
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.symbols.array_hash(state, precision);
-        array.symbol_lengths.array_hash(state, precision);
-        array
+    fn array_hash<H: std::hash::Hasher>(data: &FSSTData, state: &mut H, precision: Precision) {
+        data.symbols.array_hash(state, precision);
+        data.symbol_lengths.array_hash(state, precision);
+        data
             .codes
             .clone()
             .into_array()
             .array_hash(state, precision);
-        array.uncompressed_lengths().array_hash(state, precision);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.symbols.array_eq(&other.symbols, precision)
-            && array
+    fn array_eq(data: &FSSTData, other: &FSSTData, precision: Precision) -> bool {
+        data.symbols.array_eq(&other.symbols, precision)
+            && data
                 .symbol_lengths
                 .array_eq(&other.symbol_lengths, precision)
-            && array
+            && data
                 .codes
                 .clone()
                 .into_array()
                 .array_eq(&other.codes.clone().into_array(), precision)
-            && array
-                .uncompressed_lengths()
-                .array_eq(other.uncompressed_lengths(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

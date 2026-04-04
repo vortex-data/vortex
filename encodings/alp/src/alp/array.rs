@@ -76,24 +76,16 @@ impl VTable for ALP {
         )
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.encoded().array_hash(state, precision);
-        array.exponents.hash(state);
-        array.patches().array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(data: &ALPData, state: &mut H, precision: Precision) {
+        data.exponents.hash(state);
+        data.patch_offset.hash(state);
+        data.patch_offset_within_chunk.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.encoded().array_eq(other.encoded(), precision)
-            && array.exponents == other.exponents
-            && array.patches().array_eq(&other.patches(), precision)
+    fn array_eq(data: &ALPData, other: &ALPData, _precision: Precision) -> bool {
+        data.exponents == other.exponents
+            && data.patch_offset == other.patch_offset
+            && data.patch_offset_within_chunk == other.patch_offset_within_chunk
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

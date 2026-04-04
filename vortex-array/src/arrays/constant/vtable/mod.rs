@@ -78,19 +78,19 @@ impl VTable for Constant {
     }
 
     fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
+        data: &ConstantData,
         state: &mut H,
         _precision: Precision,
     ) {
-        array.scalar.hash(state);
+        data.scalar.hash(state);
     }
 
     fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
+        data: &ConstantData,
+        other: &ConstantData,
         _precision: Precision,
     ) -> bool {
-        array.scalar == other.scalar
+        data.scalar == other.scalar
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

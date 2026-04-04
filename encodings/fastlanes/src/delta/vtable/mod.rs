@@ -81,24 +81,12 @@ impl VTable for Delta {
         )
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.offset().hash(state);
-        array.bases().array_hash(state, precision);
-        array.deltas().array_hash(state, precision);
+    fn array_hash<H: std::hash::Hasher>(data: &DeltaData, state: &mut H, _precision: Precision) {
+        data.offset.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.offset() == other.offset()
-            && array.bases().array_eq(other.bases(), precision)
-            && array.deltas().array_eq(other.deltas(), precision)
+    fn array_eq(data: &DeltaData, other: &DeltaData, _precision: Precision) -> bool {
+        data.offset == other.offset
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

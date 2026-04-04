@@ -68,22 +68,12 @@ impl VTable for FoR {
         FoRData::validate_parts(encoded, &data.reference, dtype, len)
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        array: ArrayView<'_, Self>,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.encoded().array_hash(state, precision);
-        array.reference_scalar().hash(state);
+    fn array_hash<H: std::hash::Hasher>(data: &FoRData, state: &mut H, _precision: Precision) {
+        data.reference.hash(state);
     }
 
-    fn array_eq(
-        array: ArrayView<'_, Self>,
-        other: ArrayView<'_, Self>,
-        precision: Precision,
-    ) -> bool {
-        array.encoded().array_eq(other.encoded(), precision)
-            && array.reference_scalar() == other.reference_scalar()
+    fn array_eq(data: &FoRData, other: &FoRData, _precision: Precision) -> bool {
+        data.reference == other.reference
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
