@@ -97,7 +97,7 @@ impl DeltaData {
         Self::validate_parts(&bases, &deltas, offset, len)?;
 
         // SAFETY: validation done above
-        Ok(unsafe { Self::new_unchecked(bases, deltas, offset) })
+        Ok(unsafe { Self::new_unchecked(offset) })
     }
 
     pub(crate) fn validate_against_slots(
@@ -156,7 +156,7 @@ impl DeltaData {
         Ok(())
     }
 
-    pub(crate) unsafe fn new_unchecked(_bases: ArrayRef, _deltas: ArrayRef, offset: usize) -> Self {
+    pub(crate) unsafe fn new_unchecked(offset: usize) -> Self {
         Self { offset }
     }
 }

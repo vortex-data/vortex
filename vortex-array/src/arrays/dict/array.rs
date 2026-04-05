@@ -58,7 +58,7 @@ impl DictData {
     /// This should be called only when you can guarantee the invariants checked
     /// by the safe `DictArray::try_new` constructor are valid, for example when
     /// you are filtering or slicing an existing valid `DictArray`.
-    pub unsafe fn new_unchecked(_codes: ArrayRef, _values: ArrayRef) -> Self {
+    pub unsafe fn new_unchecked() -> Self {
         Self {
             all_values_referenced: false,
         }
@@ -97,12 +97,12 @@ impl DictData {
     /// of the `values` array. Otherwise, this constructor returns an error.
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
-    pub(crate) fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
+    pub(crate) fn try_new(codes: ArrayRef, _values: ArrayRef) -> VortexResult<Self> {
         if !codes.dtype().is_int() {
             vortex_bail!(MismatchedTypes: "int", codes.dtype());
         }
 
-        Ok(unsafe { Self::new_unchecked(codes, values) })
+        Ok(unsafe { Self::new_unchecked() })
     }
 }
 
@@ -249,7 +249,7 @@ impl Array<Dict> {
             .dtype()
             .union_nullability(codes.dtype().nullability());
         let len = codes.len();
-        let data = unsafe { DictData::new_unchecked(codes.clone(), values.clone()) };
+        let data = unsafe { DictData::new_unchecked() };
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),

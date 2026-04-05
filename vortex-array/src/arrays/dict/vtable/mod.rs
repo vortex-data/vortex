@@ -159,8 +159,7 @@ impl VTable for Dict {
 
         Ok(
             crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, unsafe {
-                DictData::new_unchecked(codes.clone(), values.clone())
-                    .set_all_values_referenced(all_values_referenced)
+                DictData::new_unchecked().set_all_values_referenced(all_values_referenced)
             })
             .with_slots(vec![Some(codes), Some(values)]),
         )

@@ -1082,10 +1082,6 @@ pub struct vortex_array::arrays::chunked::ChunkedData
 
 impl vortex_array::arrays::chunked::ChunkedData
 
-pub unsafe fn vortex_array::arrays::chunked::ChunkedData::new_unchecked(_chunks: alloc::vec::Vec<vortex_array::ArrayRef>, _dtype: vortex_array::dtype::DType) -> Self
-
-pub fn vortex_array::arrays::chunked::ChunkedData::try_new(chunks: alloc::vec::Vec<vortex_array::ArrayRef>, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
-
 pub fn vortex_array::arrays::chunked::ChunkedData::validate(chunks: &[vortex_array::ArrayRef], dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_array::arrays::chunked::ChunkedData
@@ -1760,7 +1756,7 @@ impl vortex_array::arrays::dict::DictData
 
 pub fn vortex_array::arrays::dict::DictData::new(codes: vortex_array::ArrayRef, values: vortex_array::ArrayRef) -> Self
 
-pub unsafe fn vortex_array::arrays::dict::DictData::new_unchecked(_codes: vortex_array::ArrayRef, _values: vortex_array::ArrayRef) -> Self
+pub unsafe fn vortex_array::arrays::dict::DictData::new_unchecked() -> Self
 
 pub unsafe fn vortex_array::arrays::dict::DictData::set_all_values_referenced(self, all_values_referenced: bool) -> Self
 

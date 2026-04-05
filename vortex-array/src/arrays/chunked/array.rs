@@ -198,34 +198,6 @@ impl ChunkedData {
         slots
     }
 
-    /// Constructs a new `ChunkedArray`.
-    ///
-    /// See `ChunkedArray::new_unchecked` for more information.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// `ChunkedArray::new_unchecked`.
-    pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
-        Self::validate(&chunks, &dtype)?;
-        Ok(Self)
-    }
-
-    /// Creates a new `ChunkedArray` without validation from these components:
-    ///
-    /// * `chunks` is a vector of arrays to be concatenated logically.
-    /// * `dtype` is the common data type of all chunks.
-    ///
-    /// # Safety
-    ///
-    /// All chunks must have exactly the same [`DType`] as the provided `dtype`.
-    pub unsafe fn new_unchecked(_chunks: Vec<ArrayRef>, _dtype: DType) -> Self {
-        #[cfg(debug_assertions)]
-        Self::validate(&_chunks, &_dtype)
-            .vortex_expect("[Debug Assertion]: Invalid `ChunkedArray` parameters");
-        Self
-    }
-
     /// Validates the components that would be used to create a `ChunkedArray`.
     ///
     /// This function checks all the invariants required by `ChunkedArray::new_unchecked`.
@@ -302,10 +274,6 @@ impl Array<Chunked> {
     }
 
     /// Creates a new `ChunkedArray` without validation.
-    ///
-    /// # Safety
-    ///
-    /// See [`ChunkedData::new_unchecked`].
     pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         let len = chunks.iter().map(|chunk| chunk.len()).sum();
         unsafe {

@@ -373,22 +373,12 @@ impl ALPRD {
         left_parts_patches: Option<Patches>,
     ) -> ALPRDArray {
         let len = left_parts.len();
-        let logical_dtype = dtype.clone();
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
         let data = unsafe {
-            ALPRDData::new_unchecked(
-                dtype,
-                left_parts,
-                left_parts_dictionary,
-                right_parts,
-                right_bit_width,
-                left_parts_patches,
-            )
+            ALPRDData::new_unchecked(left_parts_dictionary, right_bit_width, left_parts_patches)
         };
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ALPRD, logical_dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
         }
     }
 }
@@ -535,10 +525,7 @@ impl ALPRDData {
     /// Build a new `ALPRDArray` from components. This does not perform any validation, and instead
     /// it constructs it from parts.
     pub(crate) unsafe fn new_unchecked(
-        _dtype: DType,
-        _left_parts: ArrayRef,
         left_parts_dictionary: Buffer<u16>,
-        _right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> Self {

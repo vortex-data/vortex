@@ -432,11 +432,7 @@ impl ALPData {
     ///
     /// See [`ALPData::try_new`] for information about the preconditions that should be checked
     /// **before** calling this method.
-    pub(crate) unsafe fn new_unchecked(
-        _encoded: ArrayRef,
-        exponents: Exponents,
-        patches: Option<Patches>,
-    ) -> Self {
+    pub(crate) unsafe fn new_unchecked(exponents: Exponents, patches: Option<Patches>) -> Self {
         let (patch_offset, patch_offset_within_chunk) = match &patches {
             Some(p) => (Some(p.offset()), p.offset_within_chunk()),
             None => (None, None),
@@ -488,7 +484,7 @@ impl ALP {
         let dtype = ALPData::logical_dtype(&encoded).vortex_expect("ALP encoded dtype");
         let len = encoded.len();
         let slots = ALPData::make_slots(&encoded, &patches);
-        let data = unsafe { ALPData::new_unchecked(encoded, exponents, patches) };
+        let data = unsafe { ALPData::new_unchecked(exponents, patches) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
         }
