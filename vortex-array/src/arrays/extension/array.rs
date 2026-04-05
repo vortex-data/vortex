@@ -120,7 +120,7 @@ impl ExtensionData {
 
 pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
     fn storage_array(&self) -> &ArrayRef {
-        self.slots_ref()[STORAGE_SLOT]
+        self.as_ref().slots()[STORAGE_SLOT]
             .as_ref()
             .vortex_expect("ExtensionArray storage slot")
     }

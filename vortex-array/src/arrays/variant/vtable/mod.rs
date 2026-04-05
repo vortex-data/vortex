@@ -11,6 +11,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -33,6 +35,16 @@ pub struct Variant;
 
 impl Variant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.variant");
+}
+
+impl ArrayHash for VariantData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for VariantData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
 }
 
 impl VTable for Variant {
@@ -77,12 +89,6 @@ impl VTable for Variant {
             len
         );
         Ok(())
-    }
-
-    fn array_hash<H: Hasher>(_data: &VariantData, _state: &mut H, _precision: Precision) {}
-
-    fn array_eq(_data: &VariantData, _other: &VariantData, _precision: Precision) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

@@ -128,11 +128,31 @@ pub trait DecimalArrayExt: TypedArrayRef<Decimal> {
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.slots_ref()[VALIDITY_SLOT].as_ref()
+        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
     }
 
     fn validity(&self) -> Validity {
-        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
+    }
+
+    fn values_type(&self) -> DecimalType {
+        self.values_type
+    }
+
+    fn precision(&self) -> u8 {
+        self.decimal_dtype().precision()
+    }
+
+    fn scale(&self) -> i8 {
+        self.decimal_dtype().scale()
+    }
+
+    fn buffer_handle(&self) -> &BufferHandle {
+        &self.values
+    }
+
+    fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
+        DecimalData::buffer::<T>(self)
     }
 }
 impl<T: TypedArrayRef<Decimal>> DecimalArrayExt for T {}
@@ -325,12 +345,6 @@ impl DecimalData {
     /// Returns `true` if this array is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    pub fn into_parts(self) -> DecimalDataParts {
-        vortex_panic!(
-            "DecimalData::into_parts requires outer dtype; use Array<Decimal>::into_data_parts"
-        )
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.
@@ -617,23 +631,23 @@ impl Array<Decimal> {
     }
 
     pub fn values_type(&self) -> DecimalType {
-        self.data().values_type
+        DecimalArrayExt::values_type(self)
     }
 
     pub fn precision(&self) -> u8 {
-        self.decimal_dtype().precision()
+        DecimalArrayExt::precision(self)
     }
 
     pub fn scale(&self) -> i8 {
-        self.decimal_dtype().scale()
+        DecimalArrayExt::scale(self)
     }
 
     pub fn buffer_handle(&self) -> &BufferHandle {
-        &self.data().values
+        DecimalArrayExt::buffer_handle(self)
     }
 
     pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
-        self.data().buffer::<T>()
+        DecimalArrayExt::buffer(self)
     }
 }
 
@@ -643,23 +657,23 @@ impl ArrayView<'_, Decimal> {
     }
 
     pub fn values_type(&self) -> DecimalType {
-        self.data().values_type
+        DecimalArrayExt::values_type(self)
     }
 
     pub fn precision(&self) -> u8 {
-        self.decimal_dtype().precision()
+        DecimalArrayExt::precision(self)
     }
 
     pub fn scale(&self) -> i8 {
-        self.decimal_dtype().scale()
+        DecimalArrayExt::scale(self)
     }
 
     pub fn buffer_handle(&self) -> &BufferHandle {
-        &self.data().values
+        DecimalArrayExt::buffer_handle(self)
     }
 
     pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
-        self.data().buffer::<T>()
+        DecimalArrayExt::buffer(self)
     }
 }
 

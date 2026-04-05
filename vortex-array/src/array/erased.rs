@@ -113,14 +113,13 @@ impl Debug for ArrayRef {
 
 impl ArrayHash for ArrayRef {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
-        self.0
-            .dyn_array_hash(self, state as &mut dyn Hasher, precision);
+        self.0.dyn_array_hash(state as &mut dyn Hasher, precision);
     }
 }
 
 impl ArrayEq for ArrayRef {
     fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
-        self.0.dyn_array_eq(self, other, precision)
+        self.0.dyn_array_eq(other, precision)
     }
 }
 

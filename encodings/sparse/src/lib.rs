@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
@@ -64,6 +65,19 @@ pub struct SparseMetadata {
     patches: PatchesMetadata,
 }
 
+impl ArrayHash for SparseData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.patches.array_hash(state, precision);
+        self.fill_value.hash(state);
+    }
+}
+
+impl ArrayEq for SparseData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.patches.array_eq(&other.patches, precision) && self.fill_value == other.fill_value
+    }
+}
+
 impl VTable for Sparse {
     type ArrayData = SparseData;
 
@@ -82,15 +96,6 @@ impl VTable for Sparse {
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         SparseData::validate(data.patches(), data.fill_scalar(), dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &SparseData, state: &mut H, precision: Precision) {
-        data.patches.array_hash(state, precision);
-        data.fill_value.hash(state);
-    }
-
-    fn array_eq(data: &SparseData, other: &SparseData, precision: Precision) -> bool {
-        data.patches.array_eq(&other.patches, precision) && data.fill_value == other.fill_value
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

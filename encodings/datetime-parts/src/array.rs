@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -39,6 +42,16 @@ use crate::compute::rules::PARENT_RULES;
 use crate::split_temporal;
 
 vtable!(DateTimeParts, DateTimeParts, DateTimePartsData);
+
+impl ArrayHash for DateTimePartsData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for DateTimePartsData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]
@@ -97,21 +110,6 @@ impl VTable for DateTimeParts {
             .as_ref()
             .vortex_expect("DateTimePartsArray subseconds slot");
         DateTimePartsData::validate(dtype, days, seconds, subseconds, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        _data: &DateTimePartsData,
-        _state: &mut H,
-        _precision: Precision,
-    ) {
-    }
-
-    fn array_eq(
-        _data: &DateTimePartsData,
-        _other: &DateTimePartsData,
-        _precision: Precision,
-    ) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -221,19 +219,19 @@ pub struct DateTimePartsData {}
 
 pub trait DateTimePartsArrayExt: TypedArrayRef<DateTimeParts> {
     fn days(&self) -> &ArrayRef {
-        self.slots_ref()[DAYS_SLOT]
+        self.as_ref().slots()[DAYS_SLOT]
             .as_ref()
             .vortex_expect("DateTimePartsArray days slot")
     }
 
     fn seconds(&self) -> &ArrayRef {
-        self.slots_ref()[SECONDS_SLOT]
+        self.as_ref().slots()[SECONDS_SLOT]
             .as_ref()
             .vortex_expect("DateTimePartsArray seconds slot")
     }
 
     fn subseconds(&self) -> &ArrayRef {
-        self.slots_ref()[SUBSECONDS_SLOT]
+        self.as_ref().slots()[SUBSECONDS_SLOT]
             .as_ref()
             .vortex_expect("DateTimePartsArray subseconds slot")
     }

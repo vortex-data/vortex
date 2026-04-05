@@ -44,22 +44,6 @@ impl PrimitiveData {
         // SAFETY: alignment of Buffer is checked on construction
         unsafe { std::slice::from_raw_parts(raw_slice.cast(), byte_buffer.len() / size_of::<T>()) }
     }
-
-    pub fn reinterpret_cast(&self, ptype: PType) -> Self {
-        if self.ptype() == ptype {
-            return self.clone();
-        }
-
-        assert_eq!(
-            self.ptype().byte_width(),
-            ptype.byte_width(),
-            "can't reinterpret cast between integers of two different widths"
-        );
-
-        vortex_panic!(
-            "PrimitiveData::reinterpret_cast requires outer validity; use PrimitiveArray::reinterpret_cast"
-        )
-    }
 }
 
 impl PrimitiveArray {

@@ -5,6 +5,8 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex::array::Array;
+use vortex::array::ArrayEq;
+use vortex::array::ArrayHash;
 use vortex::array::ArrayId;
 use vortex::array::ArrayParts;
 use vortex::array::ArrayRef;
@@ -36,6 +38,18 @@ pub struct PythonVTable {
     pub id: ArrayId,
 }
 
+impl ArrayHash for PythonArray {
+    fn array_hash<H: std::hash::Hasher>(&self, state: &mut H, _precision: Precision) {
+        Arc::as_ptr(&self.object).hash(state);
+    }
+}
+
+impl ArrayEq for PythonArray {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        Arc::ptr_eq(&self.object, &other.object)
+    }
+}
+
 impl VTable for PythonVTable {
     type ArrayData = PythonArray;
 
@@ -57,14 +71,6 @@ impl VTable for PythonVTable {
         vortex_ensure!(&data.dtype == dtype, "PythonArray dtype mismatch");
         vortex_ensure!(data.len == len, "PythonArray len mismatch");
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &PythonArray, state: &mut H, _precision: Precision) {
-        Arc::as_ptr(&data.object).hash(state);
-    }
-
-    fn array_eq(data: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
-        Arc::ptr_eq(&data.object, &other.object)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

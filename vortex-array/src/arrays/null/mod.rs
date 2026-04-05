@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -29,6 +33,19 @@ pub(crate) mod compute;
 
 vtable!(Null, Null, NullData);
 
+impl ArrayHash for NullData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {
+        // len and dtype are hashed by ArrayInner; NullData has no additional fields.
+    }
+}
+
+impl ArrayEq for NullData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        // len, dtype, and slots are compared by ArrayInner; NullData has no additional fields.
+        true
+    }
+}
+
 impl VTable for Null {
     type ArrayData = NullData;
 
@@ -48,15 +65,6 @@ impl VTable for Null {
     ) -> VortexResult<()> {
         vortex_ensure!(*dtype == DType::Null, "NullArray dtype must be DType::Null");
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(_data: &NullData, _state: &mut H, _precision: Precision) {
-        // len and dtype are hashed by ArrayInner; NullData has no additional fields.
-    }
-
-    fn array_eq(_data: &NullData, _other: &NullData, _precision: Precision) -> bool {
-        // len, dtype, and slots are compared by ArrayInner; NullData has no additional fields.
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

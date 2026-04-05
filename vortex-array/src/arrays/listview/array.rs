@@ -319,25 +319,25 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     }
 
     fn elements(&self) -> &ArrayRef {
-        self.slots_ref()[ELEMENTS_SLOT]
+        self.as_ref().slots()[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray elements slot")
     }
 
     fn offsets(&self) -> &ArrayRef {
-        self.slots_ref()[OFFSETS_SLOT]
+        self.as_ref().slots()[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray offsets slot")
     }
 
     fn sizes(&self) -> &ArrayRef {
-        self.slots_ref()[SIZES_SLOT]
+        self.as_ref().slots()[SIZES_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray sizes slot")
     }
 
     fn listview_validity(&self) -> Validity {
-        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
     }
 
     fn listview_validity_mask(&self) -> vortex_mask::Mask {

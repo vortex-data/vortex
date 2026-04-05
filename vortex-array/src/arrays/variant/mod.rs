@@ -30,7 +30,7 @@ pub struct VariantData;
 
 pub trait VariantArrayExt: TypedArrayRef<Variant> {
     fn child(&self) -> &ArrayRef {
-        self.slots_ref()[0]
+        self.as_ref().slots()[0]
             .as_ref()
             .vortex_expect("validated variant child slot")
     }

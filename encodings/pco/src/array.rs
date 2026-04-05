@@ -4,6 +4,7 @@
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -80,6 +81,49 @@ const VALUES_PER_CHUNK: usize = pco::DEFAULT_MAX_PAGE_N;
 
 vtable!(Pco, Pco, PcoData);
 
+impl ArrayHash for PcoData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.unsliced_validity.array_hash(state, precision);
+        self.unsliced_n_rows.hash(state);
+        self.slice_start.hash(state);
+        self.slice_stop.hash(state);
+        // Hash chunk_metas and pages using pointer-based hashing
+        for chunk_meta in &self.chunk_metas {
+            chunk_meta.array_hash(state, precision);
+        }
+        for page in &self.pages {
+            page.array_hash(state, precision);
+        }
+    }
+}
+
+impl ArrayEq for PcoData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        if !self
+            .unsliced_validity
+            .array_eq(&other.unsliced_validity, precision)
+            || self.unsliced_n_rows != other.unsliced_n_rows
+            || self.slice_start != other.slice_start
+            || self.slice_stop != other.slice_stop
+            || self.chunk_metas.len() != other.chunk_metas.len()
+            || self.pages.len() != other.pages.len()
+        {
+            return false;
+        }
+        for (a, b) in self.chunk_metas.iter().zip(&other.chunk_metas) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        for (a, b) in self.pages.iter().zip(&other.pages) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 impl VTable for Pco {
     type ArrayData = PcoData;
 
@@ -98,45 +142,6 @@ impl VTable for Pco {
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         data.validate(dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &PcoData, state: &mut H, precision: Precision) {
-        data.unsliced_validity.array_hash(state, precision);
-        data.unsliced_n_rows.hash(state);
-        data.slice_start.hash(state);
-        data.slice_stop.hash(state);
-        // Hash chunk_metas and pages using pointer-based hashing
-        for chunk_meta in &data.chunk_metas {
-            chunk_meta.array_hash(state, precision);
-        }
-        for page in &data.pages {
-            page.array_hash(state, precision);
-        }
-    }
-
-    fn array_eq(data: &PcoData, other: &PcoData, precision: Precision) -> bool {
-        if !data
-            .unsliced_validity
-            .array_eq(&other.unsliced_validity, precision)
-            || data.unsliced_n_rows != other.unsliced_n_rows
-            || data.slice_start != other.slice_start
-            || data.slice_stop != other.slice_stop
-            || data.chunk_metas.len() != other.chunk_metas.len()
-            || data.pages.len() != other.pages.len()
-        {
-            return false;
-        }
-        for (a, b) in data.chunk_metas.iter().zip(&other.chunk_metas) {
-            if !a.array_eq(b, precision) {
-                return false;
-            }
-        }
-        for (a, b) in data.pages.iter().zip(&other.pages) {
-            if !a.array_eq(b, precision) {
-                return false;
-            }
-        }
-        true
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {

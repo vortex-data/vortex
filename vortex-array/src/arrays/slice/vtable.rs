@@ -15,6 +15,8 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
@@ -46,6 +48,19 @@ pub struct Slice;
 
 impl Slice {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.slice");
+}
+
+impl ArrayHash for SliceData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.range.start.hash(state);
+        self.range.end.hash(state);
+    }
+}
+
+impl ArrayEq for SliceData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.range == other.range
+    }
 }
 
 impl VTable for Slice {
@@ -90,15 +105,6 @@ impl VTable for Slice {
             child.len()
         );
         Ok(())
-    }
-
-    fn array_hash<H: Hasher>(data: &SliceData, state: &mut H, _precision: Precision) {
-        data.range.start.hash(state);
-        data.range.end.hash(state);
-    }
-
-    fn array_eq(data: &SliceData, other: &SliceData, _precision: Precision) -> bool {
-        data.range == other.range
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

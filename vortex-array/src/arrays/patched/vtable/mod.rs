@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use prost::Message;
+
+use crate::ArrayEq;
+use crate::ArrayHash;
 mod kernels;
 mod operations;
 mod slice;
@@ -73,6 +76,19 @@ pub struct PatchedMetadata {
     pub(crate) offset: u32,
 }
 
+impl ArrayHash for PatchedData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.offset.hash(state);
+        self.n_lanes.hash(state);
+    }
+}
+
+impl ArrayEq for PatchedData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.offset == other.offset && self.n_lanes == other.n_lanes
+    }
+}
+
 impl VTable for Patched {
     type ArrayData = PatchedData;
     type OperationsVTable = Self;
@@ -80,15 +96,6 @@ impl VTable for Patched {
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.patched")
-    }
-
-    fn array_hash<H: Hasher>(data: &PatchedData, state: &mut H, _precision: Precision) {
-        data.offset.hash(state);
-        data.n_lanes.hash(state);
-    }
-
-    fn array_eq(data: &PatchedData, other: &PatchedData, _precision: Precision) -> bool {
-        data.offset == other.offset && data.n_lanes == other.n_lanes
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

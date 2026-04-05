@@ -273,6 +273,6 @@ mod tests {
         let right =
             ChunkedArray::try_new(vec![buffer![10i32, 20, 30].into_array()], i32_dtype()).unwrap();
 
-        drop(left.paired_chunks(&right).collect::<Vec<_>>());
+        left.paired_chunks(&right).for_each(drop);
     }
 }

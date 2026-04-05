@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -48,6 +50,18 @@ pub struct VarBinMetadata {
     pub(crate) offsets_ptype: i32,
 }
 
+impl ArrayHash for VarBinData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.bytes().array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for VarBinData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.bytes().array_eq(other.bytes(), precision)
+    }
+}
+
 impl VTable for VarBin {
     type ArrayData = VarBinData;
 
@@ -56,14 +70,6 @@ impl VTable for VarBin {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &VarBinData, state: &mut H, precision: Precision) {
-        data.bytes().array_hash(state, precision);
-    }
-
-    fn array_eq(data: &VarBinData, other: &VarBinData, precision: Precision) -> bool {
-        data.bytes().array_eq(other.bytes(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

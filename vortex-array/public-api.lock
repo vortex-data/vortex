@@ -870,10 +870,6 @@ pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Bool::array_eq(data: &vortex_array::arrays::bool::BoolData, other: &vortex_array::arrays::bool::BoolData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Bool::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::bool::BoolData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Bool::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Bool::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -944,15 +940,7 @@ pub struct vortex_array::arrays::bool::BoolData
 
 impl vortex_array::arrays::bool::BoolData
 
-pub fn vortex_array::arrays::bool::BoolData::into_bit_buffer(self) -> vortex_buffer::bit::buf::BitBuffer
-
-pub fn vortex_array::arrays::bool::BoolData::into_parts(self) -> vortex_array::arrays::bool::BoolDataParts
-
-pub fn vortex_array::arrays::bool::BoolData::is_empty(&self) -> bool
-
-pub fn vortex_array::arrays::bool::BoolData::len(&self) -> usize
-
-pub fn vortex_array::arrays::bool::BoolData::to_bit_buffer(&self) -> vortex_buffer::bit::buf::BitBuffer
+pub fn vortex_array::arrays::bool::BoolData::into_parts(self, len: usize) -> vortex_array::arrays::bool::BoolDataParts
 
 impl core::clone::Clone for vortex_array::arrays::bool::BoolData
 
@@ -961,6 +949,14 @@ pub fn vortex_array::arrays::bool::BoolData::clone(&self) -> vortex_array::array
 impl core::fmt::Debug for vortex_array::arrays::bool::BoolData
 
 pub fn vortex_array::arrays::bool::BoolData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::bool::BoolData
+
+pub fn vortex_array::arrays::bool::BoolData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::bool::BoolData
+
+pub fn vortex_array::arrays::bool::BoolData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
 
 pub struct vortex_array::arrays::bool::BoolDataParts
 
@@ -1017,10 +1013,6 @@ pub type vortex_array::arrays::Chunked::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Chunked::ValidityVTable = vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Chunked::array_eq(_data: &vortex_array::arrays::chunked::ChunkedData, _other: &vortex_array::arrays::chunked::ChunkedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Chunked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::chunked::ChunkedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Chunked::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -1090,7 +1082,7 @@ pub struct vortex_array::arrays::chunked::ChunkedData
 
 impl vortex_array::arrays::chunked::ChunkedData
 
-pub unsafe fn vortex_array::arrays::chunked::ChunkedData::new_unchecked(chunks: alloc::vec::Vec<vortex_array::ArrayRef>, dtype: vortex_array::dtype::DType) -> Self
+pub unsafe fn vortex_array::arrays::chunked::ChunkedData::new_unchecked(_chunks: alloc::vec::Vec<vortex_array::ArrayRef>, _dtype: vortex_array::dtype::DType) -> Self
 
 pub fn vortex_array::arrays::chunked::ChunkedData::try_new(chunks: alloc::vec::Vec<vortex_array::ArrayRef>, dtype: vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
@@ -1103,6 +1095,14 @@ pub fn vortex_array::arrays::chunked::ChunkedData::clone(&self) -> vortex_array:
 impl core::fmt::Debug for vortex_array::arrays::chunked::ChunkedData
 
 pub fn vortex_array::arrays::chunked::ChunkedData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::chunked::ChunkedData
+
+pub fn vortex_array::arrays::chunked::ChunkedData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::chunked::ChunkedData
+
+pub fn vortex_array::arrays::chunked::ChunkedData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
 
 pub trait vortex_array::arrays::chunked::ChunkedArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Chunked>
 
@@ -1183,10 +1183,6 @@ pub type vortex_array::arrays::Constant::OperationsVTable = vortex_array::arrays
 pub type vortex_array::arrays::Constant::ValidityVTable = vortex_array::arrays::Constant
 
 pub fn vortex_array::arrays::Constant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Constant::array_eq(data: &vortex_array::arrays::constant::ConstantData, other: &vortex_array::arrays::constant::ConstantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Constant::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::constant::ConstantData, state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Constant::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -1269,6 +1265,14 @@ pub fn vortex_array::arrays::constant::ConstantData::clone(&self) -> vortex_arra
 impl core::fmt::Debug for vortex_array::arrays::constant::ConstantData
 
 pub fn vortex_array::arrays::constant::ConstantData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::constant::ConstantData
+
+pub fn vortex_array::arrays::constant::ConstantData::array_eq(&self, other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::constant::ConstantData
+
+pub fn vortex_array::arrays::constant::ConstantData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::Precision)
 
 pub type vortex_array::arrays::constant::ConstantArray = vortex_array::Array<vortex_array::arrays::Constant>
 
@@ -1362,10 +1366,6 @@ pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::arrays::D
 
 pub fn vortex_array::arrays::Decimal::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Decimal::array_eq(data: &vortex_array::arrays::decimal::DecimalData, other: &vortex_array::arrays::decimal::DecimalData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Decimal::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::decimal::DecimalData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Decimal::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Decimal::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -1446,8 +1446,6 @@ pub fn vortex_array::arrays::decimal::DecimalData::from_iter<T: vortex_array::dt
 
 pub fn vortex_array::arrays::decimal::DecimalData::from_option_iter<T: vortex_array::dtype::NativeDecimalType, I: core::iter::traits::collect::IntoIterator<Item = core::option::Option<T>>>(iter: I, decimal_dtype: vortex_array::dtype::DecimalDType) -> Self
 
-pub fn vortex_array::arrays::decimal::DecimalData::into_parts(self) -> vortex_array::arrays::decimal::DecimalDataParts
-
 pub fn vortex_array::arrays::decimal::DecimalData::is_empty(&self) -> bool
 
 pub fn vortex_array::arrays::decimal::DecimalData::len(&self) -> usize
@@ -1480,6 +1478,14 @@ impl core::fmt::Debug for vortex_array::arrays::decimal::DecimalData
 
 pub fn vortex_array::arrays::decimal::DecimalData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::ArrayEq for vortex_array::arrays::decimal::DecimalData
+
+pub fn vortex_array::arrays::decimal::DecimalData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::decimal::DecimalData
+
+pub fn vortex_array::arrays::decimal::DecimalData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
 pub struct vortex_array::arrays::decimal::DecimalDataParts
 
 pub vortex_array::arrays::decimal::DecimalDataParts::decimal_dtype: vortex_array::dtype::DecimalDType
@@ -1508,23 +1514,43 @@ pub fn vortex_array::arrays::decimal::DecimalMaskedValidityRule::reduce_parent(&
 
 pub trait vortex_array::arrays::decimal::DecimalArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Decimal>
 
+pub fn vortex_array::arrays::decimal::DecimalArrayExt::buffer<T: vortex_array::dtype::NativeDecimalType>(&self) -> vortex_buffer::buffer::Buffer<T>
+
+pub fn vortex_array::arrays::decimal::DecimalArrayExt::buffer_handle(&self) -> &vortex_array::buffer::BufferHandle
+
 pub fn vortex_array::arrays::decimal::DecimalArrayExt::decimal_dtype(&self) -> vortex_array::dtype::DecimalDType
 
 pub fn vortex_array::arrays::decimal::DecimalArrayExt::nullability(&self) -> vortex_array::dtype::Nullability
+
+pub fn vortex_array::arrays::decimal::DecimalArrayExt::precision(&self) -> u8
+
+pub fn vortex_array::arrays::decimal::DecimalArrayExt::scale(&self) -> i8
 
 pub fn vortex_array::arrays::decimal::DecimalArrayExt::validity(&self) -> vortex_array::validity::Validity
 
 pub fn vortex_array::arrays::decimal::DecimalArrayExt::validity_child(&self) -> core::option::Option<&vortex_array::ArrayRef>
 
+pub fn vortex_array::arrays::decimal::DecimalArrayExt::values_type(&self) -> vortex_array::dtype::DecimalType
+
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Decimal>> vortex_array::arrays::decimal::DecimalArrayExt for T
+
+pub fn T::buffer<T: vortex_array::dtype::NativeDecimalType>(&self) -> vortex_buffer::buffer::Buffer<T>
+
+pub fn T::buffer_handle(&self) -> &vortex_array::buffer::BufferHandle
 
 pub fn T::decimal_dtype(&self) -> vortex_array::dtype::DecimalDType
 
 pub fn T::nullability(&self) -> vortex_array::dtype::Nullability
 
+pub fn T::precision(&self) -> u8
+
+pub fn T::scale(&self) -> i8
+
 pub fn T::validity(&self) -> vortex_array::validity::Validity
 
 pub fn T::validity_child(&self) -> core::option::Option<&vortex_array::ArrayRef>
+
+pub fn T::values_type(&self) -> vortex_array::dtype::DecimalType
 
 pub fn vortex_array::arrays::decimal::narrowed_decimal(decimal_array: vortex_array::arrays::DecimalArray) -> vortex_array::arrays::DecimalArray
 
@@ -1561,10 +1587,6 @@ pub type vortex_array::arrays::dict::Dict::OperationsVTable = vortex_array::arra
 pub type vortex_array::arrays::dict::Dict::ValidityVTable = vortex_array::arrays::dict::Dict
 
 pub fn vortex_array::arrays::dict::Dict::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::dict::Dict::array_eq(_data: &vortex_array::arrays::dict::DictData, _other: &vortex_array::arrays::dict::DictData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::dict::Dict::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::dict::DictData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::dict::Dict::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -1664,10 +1686,6 @@ pub type vortex_array::arrays::dict::Dict::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::dict::Dict::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::dict::Dict::array_eq(_data: &vortex_array::arrays::dict::DictData, _other: &vortex_array::arrays::dict::DictData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::dict::Dict::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::dict::DictData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::dict::Dict::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::dict::Dict::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -1753,6 +1771,14 @@ pub fn vortex_array::arrays::dict::DictData::clone(&self) -> vortex_array::array
 impl core::fmt::Debug for vortex_array::arrays::dict::DictData
 
 pub fn vortex_array::arrays::dict::DictData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::dict::DictData
+
+pub fn vortex_array::arrays::dict::DictData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::dict::DictData
+
+pub fn vortex_array::arrays::dict::DictData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
 
 pub struct vortex_array::arrays::dict::DictMetadata
 
@@ -1946,10 +1972,6 @@ pub type vortex_array::arrays::Extension::ValidityVTable = vortex_array::Validit
 
 pub fn vortex_array::arrays::Extension::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Extension::array_eq(_data: &vortex_array::arrays::extension::ExtensionData, _other: &vortex_array::arrays::extension::ExtensionData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Extension::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::extension::ExtensionData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Extension::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Extension::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -2030,6 +2052,14 @@ impl core::fmt::Debug for vortex_array::arrays::extension::ExtensionData
 
 pub fn vortex_array::arrays::extension::ExtensionData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::ArrayEq for vortex_array::arrays::extension::ExtensionData
+
+pub fn vortex_array::arrays::extension::ExtensionData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::extension::ExtensionData
+
+pub fn vortex_array::arrays::extension::ExtensionData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
 pub trait vortex_array::arrays::extension::ExtensionArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Extension>
 
 pub fn vortex_array::arrays::extension::ExtensionArrayExt::storage_array(&self) -> &vortex_array::ArrayRef
@@ -2069,10 +2099,6 @@ pub type vortex_array::arrays::Filter::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Filter::ValidityVTable = vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Filter::array_eq(data: &vortex_array::arrays::filter::FilterData, other: &vortex_array::arrays::filter::FilterData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Filter::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::filter::FilterData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Filter::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -2131,6 +2157,14 @@ pub fn vortex_array::arrays::filter::FilterData::clone(&self) -> vortex_array::a
 impl core::fmt::Debug for vortex_array::arrays::filter::FilterData
 
 pub fn vortex_array::arrays::filter::FilterData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::filter::FilterData
+
+pub fn vortex_array::arrays::filter::FilterData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::filter::FilterData
+
+pub fn vortex_array::arrays::filter::FilterData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
 
 pub struct vortex_array::arrays::filter::FilterDataParts
 
@@ -2256,10 +2290,6 @@ pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::arr
 
 pub fn vortex_array::arrays::FixedSizeList::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::FixedSizeList::array_eq(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, other: &vortex_array::arrays::fixed_size_list::FixedSizeListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::FixedSizeList::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::FixedSizeList::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::FixedSizeList::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -2330,6 +2360,14 @@ impl core::fmt::Debug for vortex_array::arrays::fixed_size_list::FixedSizeListDa
 
 pub fn vortex_array::arrays::fixed_size_list::FixedSizeListData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::ArrayEq for vortex_array::arrays::fixed_size_list::FixedSizeListData
+
+pub fn vortex_array::arrays::fixed_size_list::FixedSizeListData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::fixed_size_list::FixedSizeListData
+
+pub fn vortex_array::arrays::fixed_size_list::FixedSizeListData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
 pub struct vortex_array::arrays::fixed_size_list::FixedSizeListDataParts
 
 pub vortex_array::arrays::fixed_size_list::FixedSizeListDataParts::dtype: vortex_array::dtype::DType
@@ -2394,10 +2432,6 @@ pub type vortex_array::arrays::List::ValidityVTable = vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::List::array_eq(_data: &vortex_array::arrays::list::ListData, _other: &vortex_array::arrays::list::ListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::List::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::list::ListData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::List::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::List::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -2460,7 +2494,7 @@ impl vortex_array::arrays::list::ListData
 
 pub fn vortex_array::arrays::list::ListData::new(elements: vortex_array::ArrayRef, offsets: vortex_array::ArrayRef, validity: vortex_array::validity::Validity) -> Self
 
-pub unsafe fn vortex_array::arrays::list::ListData::new_unchecked(elements: vortex_array::ArrayRef, offsets: vortex_array::ArrayRef, validity: vortex_array::validity::Validity) -> Self
+pub unsafe fn vortex_array::arrays::list::ListData::new_unchecked(elements: vortex_array::ArrayRef, offsets: vortex_array::ArrayRef, _validity: vortex_array::validity::Validity) -> Self
 
 pub fn vortex_array::arrays::list::ListData::validate(elements: &vortex_array::ArrayRef, offsets: &vortex_array::ArrayRef, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
@@ -2475,6 +2509,14 @@ pub fn vortex_array::arrays::list::ListData::default() -> vortex_array::arrays::
 impl core::fmt::Debug for vortex_array::arrays::list::ListData
 
 pub fn vortex_array::arrays::list::ListData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::list::ListData
+
+pub fn vortex_array::arrays::list::ListData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::list::ListData
+
+pub fn vortex_array::arrays::list::ListData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
 
 pub struct vortex_array::arrays::list::ListDataParts
 
@@ -2564,10 +2606,6 @@ pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::ListView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::ListView::array_eq(data: &vortex_array::arrays::listview::ListViewData, other: &vortex_array::arrays::listview::ListViewData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::ListView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::listview::ListViewData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::ListView::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::ListView::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -2643,6 +2681,14 @@ pub fn vortex_array::arrays::listview::ListViewData::clone(&self) -> vortex_arra
 impl core::fmt::Debug for vortex_array::arrays::listview::ListViewData
 
 pub fn vortex_array::arrays::listview::ListViewData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::listview::ListViewData
+
+pub fn vortex_array::arrays::listview::ListViewData::array_eq(&self, other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::listview::ListViewData
+
+pub fn vortex_array::arrays::listview::ListViewData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::Precision)
 
 pub struct vortex_array::arrays::listview::ListViewDataParts
 
@@ -2734,10 +2780,6 @@ pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::arrays::Ma
 
 pub fn vortex_array::arrays::Masked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Masked::array_eq(_data: &vortex_array::arrays::masked::MaskedData, _other: &vortex_array::arrays::masked::MaskedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Masked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::masked::MaskedData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Masked::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Masked::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -2800,6 +2842,14 @@ impl core::fmt::Debug for vortex_array::arrays::masked::MaskedData
 
 pub fn vortex_array::arrays::masked::MaskedData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::ArrayEq for vortex_array::arrays::masked::MaskedData
+
+pub fn vortex_array::arrays::masked::MaskedData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::masked::MaskedData
+
+pub fn vortex_array::arrays::masked::MaskedData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
 pub trait vortex_array::arrays::masked::MaskedArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Masked>
 
 pub fn vortex_array::arrays::masked::MaskedArrayExt::child(&self) -> &vortex_array::ArrayRef
@@ -2857,10 +2907,6 @@ pub type vortex_array::arrays::null::Null::OperationsVTable = vortex_array::arra
 pub type vortex_array::arrays::null::Null::ValidityVTable = vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::null::Null::array_eq(_data: &vortex_array::arrays::null::NullData, _other: &vortex_array::arrays::null::NullData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::null::Null::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::null::NullData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::null::Null::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -2936,6 +2982,14 @@ impl core::fmt::Debug for vortex_array::arrays::null::NullData
 
 pub fn vortex_array::arrays::null::NullData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::ArrayEq for vortex_array::arrays::null::NullData
+
+pub fn vortex_array::arrays::null::NullData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::null::NullData
+
+pub fn vortex_array::arrays::null::NullData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
 pub type vortex_array::arrays::null::NullArray = vortex_array::Array<vortex_array::arrays::null::Null>
 
 pub mod vortex_array::arrays::patched
@@ -2963,10 +3017,6 @@ pub type vortex_array::arrays::patched::Patched::OperationsVTable = vortex_array
 pub type vortex_array::arrays::patched::Patched::ValidityVTable = vortex_array::ValidityVTableFromChild
 
 pub fn vortex_array::arrays::patched::Patched::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::patched::Patched::array_eq(data: &vortex_array::arrays::patched::PatchedData, other: &vortex_array::arrays::patched::PatchedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::patched::Patched::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::patched::PatchedData, state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::patched::Patched::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -3029,6 +3079,14 @@ pub fn vortex_array::arrays::patched::PatchedData::clone(&self) -> vortex_array:
 impl core::fmt::Debug for vortex_array::arrays::patched::PatchedData
 
 pub fn vortex_array::arrays::patched::PatchedData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::patched::PatchedData
+
+pub fn vortex_array::arrays::patched::PatchedData::array_eq(&self, other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::patched::PatchedData
+
+pub fn vortex_array::arrays::patched::PatchedData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::Precision)
 
 pub struct vortex_array::arrays::patched::PatchedMetadata
 
@@ -3184,10 +3242,6 @@ pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::arrays:
 
 pub fn vortex_array::arrays::Primitive::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Primitive::array_eq(data: &vortex_array::arrays::primitive::PrimitiveData, other: &vortex_array::arrays::primitive::PrimitiveData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Primitive::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::primitive::PrimitiveData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Primitive::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Primitive::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -3260,13 +3314,11 @@ impl vortex_array::arrays::primitive::PrimitiveData
 
 pub fn vortex_array::arrays::primitive::PrimitiveData::as_slice<T: vortex_array::dtype::NativePType>(&self) -> &[T]
 
-pub fn vortex_array::arrays::primitive::PrimitiveData::reinterpret_cast(&self, ptype: vortex_array::dtype::PType) -> Self
-
 impl vortex_array::arrays::primitive::PrimitiveData
 
 pub fn vortex_array::arrays::primitive::PrimitiveData::buffer_handle(&self) -> &vortex_array::buffer::BufferHandle
 
-pub fn vortex_array::arrays::primitive::PrimitiveData::from_buffer_handle(handle: vortex_array::buffer::BufferHandle, ptype: vortex_array::dtype::PType, validity: vortex_array::validity::Validity) -> Self
+pub fn vortex_array::arrays::primitive::PrimitiveData::from_buffer_handle(handle: vortex_array::buffer::BufferHandle, ptype: vortex_array::dtype::PType, _validity: vortex_array::validity::Validity) -> Self
 
 pub fn vortex_array::arrays::primitive::PrimitiveData::from_byte_buffer(buffer: vortex_buffer::ByteBuffer, ptype: vortex_array::dtype::PType, validity: vortex_array::validity::Validity) -> Self
 
@@ -3280,10 +3332,6 @@ pub fn vortex_array::arrays::primitive::PrimitiveData::is_empty(&self) -> bool
 
 pub fn vortex_array::arrays::primitive::PrimitiveData::len(&self) -> usize
 
-pub fn vortex_array::arrays::primitive::PrimitiveData::map_each<T, R, F>(self, f: F) -> Self where T: vortex_array::dtype::NativePType, R: vortex_array::dtype::NativePType, F: core::ops::function::FnMut(T) -> R
-
-pub fn vortex_array::arrays::primitive::PrimitiveData::map_each_with_validity<T, R, F>(self, _f: F) -> vortex_error::VortexResult<Self> where T: vortex_array::dtype::NativePType, R: vortex_array::dtype::NativePType, F: core::ops::function::FnMut((T, bool)) -> R
-
 pub fn vortex_array::arrays::primitive::PrimitiveData::ptype(&self) -> vortex_array::dtype::PType
 
 pub fn vortex_array::arrays::primitive::PrimitiveData::to_buffer<T: vortex_array::dtype::NativePType>(&self) -> vortex_buffer::buffer::Buffer<T>
@@ -3296,17 +3344,13 @@ pub fn vortex_array::arrays::primitive::PrimitiveData::empty<T: vortex_array::dt
 
 pub fn vortex_array::arrays::primitive::PrimitiveData::new<T: vortex_array::dtype::NativePType>(buffer: impl core::convert::Into<vortex_buffer::buffer::Buffer<T>>, validity: vortex_array::validity::Validity) -> Self
 
-pub unsafe fn vortex_array::arrays::primitive::PrimitiveData::new_unchecked<T: vortex_array::dtype::NativePType>(buffer: vortex_buffer::buffer::Buffer<T>, validity: vortex_array::validity::Validity) -> Self
+pub unsafe fn vortex_array::arrays::primitive::PrimitiveData::new_unchecked<T: vortex_array::dtype::NativePType>(buffer: vortex_buffer::buffer::Buffer<T>, _validity: vortex_array::validity::Validity) -> Self
 
 pub unsafe fn vortex_array::arrays::primitive::PrimitiveData::new_unchecked_from_handle(handle: vortex_array::buffer::BufferHandle, ptype: vortex_array::dtype::PType, _validity: vortex_array::validity::Validity) -> Self
 
 pub fn vortex_array::arrays::primitive::PrimitiveData::try_new<T: vortex_array::dtype::NativePType>(buffer: vortex_buffer::buffer::Buffer<T>, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::primitive::PrimitiveData::validate<T: vortex_array::dtype::NativePType>(buffer: &vortex_buffer::buffer::Buffer<T>, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
-
-impl vortex_array::arrays::primitive::PrimitiveData
-
-pub fn vortex_array::arrays::primitive::PrimitiveData::into_parts(self) -> vortex_array::arrays::primitive::PrimitiveDataParts
 
 impl core::clone::Clone for vortex_array::arrays::primitive::PrimitiveData
 
@@ -3315,6 +3359,14 @@ pub fn vortex_array::arrays::primitive::PrimitiveData::clone(&self) -> vortex_ar
 impl core::fmt::Debug for vortex_array::arrays::primitive::PrimitiveData
 
 pub fn vortex_array::arrays::primitive::PrimitiveData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::primitive::PrimitiveData
+
+pub fn vortex_array::arrays::primitive::PrimitiveData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::primitive::PrimitiveData
+
+pub fn vortex_array::arrays::primitive::PrimitiveData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
 
 pub struct vortex_array::arrays::primitive::PrimitiveDataParts
 
@@ -3342,6 +3394,8 @@ pub fn vortex_array::arrays::primitive::PrimitiveMaskedValidityRule::reduce_pare
 
 pub trait vortex_array::arrays::primitive::PrimitiveArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Primitive>
 
+pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::buffer_handle(&self) -> &vortex_array::buffer::BufferHandle
+
 pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::ptype(&self) -> vortex_array::dtype::PType
@@ -3353,6 +3407,8 @@ pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::validity_child(&self)
 pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::validity_mask(&self) -> vortex_mask::Mask
 
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Primitive>> vortex_array::arrays::primitive::PrimitiveArrayExt for T
+
+pub fn T::buffer_handle(&self) -> &vortex_array::buffer::BufferHandle
 
 pub fn T::nullability(&self) -> vortex_array::dtype::Nullability
 
@@ -3432,6 +3488,14 @@ impl core::fmt::Debug for vortex_array::arrays::scalar_fn::ScalarFnData
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::ArrayEq for vortex_array::arrays::scalar_fn::ScalarFnData
+
+pub fn vortex_array::arrays::scalar_fn::ScalarFnData::array_eq(&self, other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::scalar_fn::ScalarFnData
+
+pub fn vortex_array::arrays::scalar_fn::ScalarFnData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::Precision)
+
 pub struct vortex_array::arrays::scalar_fn::ScalarFnVTable
 
 impl core::clone::Clone for vortex_array::arrays::scalar_fn::ScalarFnVTable
@@ -3455,10 +3519,6 @@ pub type vortex_array::arrays::scalar_fn::ScalarFnVTable::OperationsVTable = vor
 pub type vortex_array::arrays::scalar_fn::ScalarFnVTable::ValidityVTable = vortex_array::arrays::scalar_fn::ScalarFnVTable
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_eq(data: &vortex_array::arrays::scalar_fn::ScalarFnData, other: &vortex_array::arrays::scalar_fn::ScalarFnData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::scalar_fn::ScalarFnData, state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -3536,10 +3596,6 @@ pub type vortex_array::arrays::Shared::ValidityVTable = vortex_array::arrays::Sh
 
 pub fn vortex_array::arrays::Shared::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Shared::array_eq(_data: &vortex_array::arrays::shared::SharedData, _other: &vortex_array::arrays::shared::SharedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Shared::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::shared::SharedData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Shared::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Shared::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -3594,6 +3650,14 @@ impl core::fmt::Debug for vortex_array::arrays::shared::SharedData
 
 pub fn vortex_array::arrays::shared::SharedData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::ArrayEq for vortex_array::arrays::shared::SharedData
+
+pub fn vortex_array::arrays::shared::SharedData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::shared::SharedData
+
+pub fn vortex_array::arrays::shared::SharedData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
 pub trait vortex_array::arrays::shared::SharedArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Shared>
 
 pub fn vortex_array::arrays::shared::SharedArrayExt::current_array_ref(&self) -> &vortex_array::ArrayRef
@@ -3645,10 +3709,6 @@ pub type vortex_array::arrays::slice::Slice::OperationsVTable = vortex_array::ar
 pub type vortex_array::arrays::slice::Slice::ValidityVTable = vortex_array::arrays::slice::Slice
 
 pub fn vortex_array::arrays::slice::Slice::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::slice::Slice::array_eq(data: &vortex_array::arrays::slice::SliceData, other: &vortex_array::arrays::slice::SliceData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::slice::Slice::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::slice::SliceData, state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::slice::Slice::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -3711,6 +3771,14 @@ pub fn vortex_array::arrays::slice::SliceData::clone(&self) -> vortex_array::arr
 impl core::fmt::Debug for vortex_array::arrays::slice::SliceData
 
 pub fn vortex_array::arrays::slice::SliceData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::slice::SliceData
+
+pub fn vortex_array::arrays::slice::SliceData::array_eq(&self, other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::slice::SliceData
+
+pub fn vortex_array::arrays::slice::SliceData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::Precision)
 
 pub struct vortex_array::arrays::slice::SliceDataParts
 
@@ -3870,10 +3938,6 @@ pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::arrays::St
 
 pub fn vortex_array::arrays::Struct::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Struct::array_eq(_data: &vortex_array::arrays::struct_::StructData, _other: &vortex_array::arrays::struct_::StructData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Struct::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::struct_::StructData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Struct::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Struct::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -3951,6 +4015,14 @@ pub fn vortex_array::arrays::struct_::StructData::clone(&self) -> vortex_array::
 impl core::fmt::Debug for vortex_array::arrays::struct_::StructData
 
 pub fn vortex_array::arrays::struct_::StructData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::struct_::StructData
+
+pub fn vortex_array::arrays::struct_::StructData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::struct_::StructData
+
+pub fn vortex_array::arrays::struct_::StructData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
 
 pub struct vortex_array::arrays::struct_::StructDataParts
 
@@ -4062,10 +4134,6 @@ pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::arrays::Va
 
 pub fn vortex_array::arrays::VarBin::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::VarBin::array_eq(data: &vortex_array::arrays::varbin::VarBinData, other: &vortex_array::arrays::varbin::VarBinData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBin::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbin::VarBinData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::VarBin::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::VarBin::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -4155,6 +4223,14 @@ pub fn vortex_array::arrays::varbin::VarBinData::clone(&self) -> vortex_array::a
 impl core::fmt::Debug for vortex_array::arrays::varbin::VarBinData
 
 pub fn vortex_array::arrays::varbin::VarBinData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::ArrayEq for vortex_array::arrays::varbin::VarBinData
+
+pub fn vortex_array::arrays::varbin::VarBinData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::varbin::VarBinData
+
+pub fn vortex_array::arrays::varbin::VarBinData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
 
 pub struct vortex_array::arrays::varbin::VarBinDataParts
 
@@ -4426,10 +4502,6 @@ pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::VarBinView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::VarBinView::array_eq(data: &vortex_array::arrays::varbinview::VarBinViewData, other: &vortex_array::arrays::varbinview::VarBinViewData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBinView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbinview::VarBinViewData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::VarBinView::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::VarBinView::buffer_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -4544,6 +4616,14 @@ impl core::iter::traits::collect::FromIterator<core::option::Option<alloc::vec::
 
 pub fn vortex_array::arrays::varbinview::VarBinViewData::from_iter<T: core::iter::traits::collect::IntoIterator<Item = core::option::Option<alloc::vec::Vec<u8>>>>(iter: T) -> Self
 
+impl vortex_array::ArrayEq for vortex_array::arrays::varbinview::VarBinViewData
+
+pub fn vortex_array::arrays::varbinview::VarBinViewData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::varbinview::VarBinViewData
+
+pub fn vortex_array::arrays::varbinview::VarBinViewData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
 impl<'a> core::iter::traits::collect::FromIterator<core::option::Option<&'a [u8]>> for vortex_array::arrays::varbinview::VarBinViewData
 
 pub fn vortex_array::arrays::varbinview::VarBinViewData::from_iter<T: core::iter::traits::collect::IntoIterator<Item = core::option::Option<&'a [u8]>>>(iter: T) -> Self
@@ -4610,10 +4690,6 @@ pub type vortex_array::arrays::Variant::ValidityVTable = vortex_array::arrays::V
 
 pub fn vortex_array::arrays::Variant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Variant::array_eq(_data: &vortex_array::arrays::variant::VariantData, _other: &vortex_array::arrays::variant::VariantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Variant::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::variant::VariantData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Variant::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Variant::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -4660,6 +4736,14 @@ impl core::fmt::Debug for vortex_array::arrays::variant::VariantData
 
 pub fn vortex_array::arrays::variant::VariantData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::ArrayEq for vortex_array::arrays::variant::VariantData
+
+pub fn vortex_array::arrays::variant::VariantData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayHash for vortex_array::arrays::variant::VariantData
+
+pub fn vortex_array::arrays::variant::VariantData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
 pub trait vortex_array::arrays::variant::VariantArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Variant>
 
 pub fn vortex_array::arrays::variant::VariantArrayExt::child(&self) -> &vortex_array::ArrayRef
@@ -4697,10 +4781,6 @@ pub type vortex_array::arrays::Bool::OperationsVTable = vortex_array::arrays::Bo
 pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Bool::array_eq(data: &vortex_array::arrays::bool::BoolData, other: &vortex_array::arrays::bool::BoolData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Bool::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::bool::BoolData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Bool::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -4795,10 +4875,6 @@ pub type vortex_array::arrays::Chunked::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Chunked::ValidityVTable = vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Chunked::array_eq(_data: &vortex_array::arrays::chunked::ChunkedData, _other: &vortex_array::arrays::chunked::ChunkedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Chunked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::chunked::ChunkedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Chunked::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -4896,10 +4972,6 @@ pub type vortex_array::arrays::Constant::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::Constant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Constant::array_eq(data: &vortex_array::arrays::constant::ConstantData, other: &vortex_array::arrays::constant::ConstantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Constant::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::constant::ConstantData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Constant::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Constant::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -4991,10 +5063,6 @@ pub type vortex_array::arrays::Decimal::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Decimal::array_eq(data: &vortex_array::arrays::decimal::DecimalData, other: &vortex_array::arrays::decimal::DecimalData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Decimal::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::decimal::DecimalData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Decimal::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -5089,10 +5157,6 @@ pub type vortex_array::arrays::dict::Dict::OperationsVTable = vortex_array::arra
 pub type vortex_array::arrays::dict::Dict::ValidityVTable = vortex_array::arrays::dict::Dict
 
 pub fn vortex_array::arrays::dict::Dict::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::dict::Dict::array_eq(_data: &vortex_array::arrays::dict::DictData, _other: &vortex_array::arrays::dict::DictData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::dict::Dict::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::dict::DictData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::dict::Dict::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -5190,10 +5254,6 @@ pub type vortex_array::arrays::Extension::ValidityVTable = vortex_array::Validit
 
 pub fn vortex_array::arrays::Extension::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Extension::array_eq(_data: &vortex_array::arrays::extension::ExtensionData, _other: &vortex_array::arrays::extension::ExtensionData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Extension::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::extension::ExtensionData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Extension::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Extension::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -5282,10 +5342,6 @@ pub type vortex_array::arrays::Filter::ValidityVTable = vortex_array::arrays::Fi
 
 pub fn vortex_array::arrays::Filter::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Filter::array_eq(data: &vortex_array::arrays::filter::FilterData, other: &vortex_array::arrays::filter::FilterData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Filter::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::filter::FilterData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Filter::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Filter::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -5349,10 +5405,6 @@ pub type vortex_array::arrays::FixedSizeList::OperationsVTable = vortex_array::a
 pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::arrays::FixedSizeList
 
 pub fn vortex_array::arrays::FixedSizeList::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::FixedSizeList::array_eq(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, other: &vortex_array::arrays::fixed_size_list::FixedSizeListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::FixedSizeList::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::FixedSizeList::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -5433,10 +5485,6 @@ pub type vortex_array::arrays::List::OperationsVTable = vortex_array::arrays::Li
 pub type vortex_array::arrays::List::ValidityVTable = vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::List::array_eq(_data: &vortex_array::arrays::list::ListData, _other: &vortex_array::arrays::list::ListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::List::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::list::ListData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::List::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -5522,10 +5570,6 @@ pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::ListView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::ListView::array_eq(data: &vortex_array::arrays::listview::ListViewData, other: &vortex_array::arrays::listview::ListViewData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::ListView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::listview::ListViewData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::ListView::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::ListView::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -5605,10 +5649,6 @@ pub type vortex_array::arrays::Masked::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Masked::array_eq(_data: &vortex_array::arrays::masked::MaskedData, _other: &vortex_array::arrays::masked::MaskedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Masked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::masked::MaskedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Masked::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -5694,10 +5734,6 @@ pub type vortex_array::arrays::null::Null::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::null::Null::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::null::Null::array_eq(_data: &vortex_array::arrays::null::NullData, _other: &vortex_array::arrays::null::NullData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::null::Null::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::null::NullData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::null::Null::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::null::Null::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -5778,10 +5814,6 @@ pub type vortex_array::arrays::patched::Patched::ValidityVTable = vortex_array::
 
 pub fn vortex_array::arrays::patched::Patched::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::patched::Patched::array_eq(data: &vortex_array::arrays::patched::PatchedData, other: &vortex_array::arrays::patched::PatchedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::patched::Patched::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::patched::PatchedData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::patched::Patched::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::patched::Patched::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -5861,10 +5893,6 @@ pub type vortex_array::arrays::Primitive::OperationsVTable = vortex_array::array
 pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Primitive::array_eq(data: &vortex_array::arrays::primitive::PrimitiveData, other: &vortex_array::arrays::primitive::PrimitiveData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Primitive::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::primitive::PrimitiveData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Primitive::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -5956,10 +5984,6 @@ pub type vortex_array::arrays::scalar_fn::ScalarFnVTable::ValidityVTable = vorte
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_eq(data: &vortex_array::arrays::scalar_fn::ScalarFnData, other: &vortex_array::arrays::scalar_fn::ScalarFnData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::scalar_fn::ScalarFnData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -6024,10 +6048,6 @@ pub type vortex_array::arrays::Shared::ValidityVTable = vortex_array::arrays::Sh
 
 pub fn vortex_array::arrays::Shared::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Shared::array_eq(_data: &vortex_array::arrays::shared::SharedData, _other: &vortex_array::arrays::shared::SharedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Shared::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::shared::SharedData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Shared::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Shared::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -6091,10 +6111,6 @@ pub type vortex_array::arrays::slice::Slice::OperationsVTable = vortex_array::ar
 pub type vortex_array::arrays::slice::Slice::ValidityVTable = vortex_array::arrays::slice::Slice
 
 pub fn vortex_array::arrays::slice::Slice::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::slice::Slice::array_eq(data: &vortex_array::arrays::slice::SliceData, other: &vortex_array::arrays::slice::SliceData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::slice::Slice::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::slice::SliceData, state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::slice::Slice::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -6163,10 +6179,6 @@ pub type vortex_array::arrays::Struct::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Struct::array_eq(_data: &vortex_array::arrays::struct_::StructData, _other: &vortex_array::arrays::struct_::StructData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Struct::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::struct_::StructData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Struct::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -6256,10 +6268,6 @@ pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::arrays::Va
 
 pub fn vortex_array::arrays::VarBin::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::VarBin::array_eq(data: &vortex_array::arrays::varbin::VarBinData, other: &vortex_array::arrays::varbin::VarBinData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBin::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbin::VarBinData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::VarBin::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::VarBin::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -6348,10 +6356,6 @@ pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::VarBinView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::VarBinView::array_eq(data: &vortex_array::arrays::varbinview::VarBinViewData, other: &vortex_array::arrays::varbinview::VarBinViewData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBinView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbinview::VarBinViewData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::VarBinView::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::VarBinView::buffer_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -6435,10 +6439,6 @@ pub type vortex_array::arrays::Variant::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Variant::ValidityVTable = vortex_array::arrays::Variant
 
 pub fn vortex_array::arrays::Variant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Variant::array_eq(_data: &vortex_array::arrays::variant::VariantData, _other: &vortex_array::arrays::variant::VariantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Variant::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::variant::VariantData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Variant::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -18656,17 +18656,13 @@ pub fn vortex_array::ValidityVTableFromValiditySliceHelper::validity(array: vort
 
 pub trait vortex_array::vtable::ArrayVTable: 'static + core::clone::Clone + core::marker::Sized + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
-pub type vortex_array::vtable::ArrayVTable::ArrayData: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug
+pub type vortex_array::vtable::ArrayVTable::ArrayData: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + vortex_array::ArrayHash + vortex_array::ArrayEq
 
 pub type vortex_array::vtable::ArrayVTable::OperationsVTable: vortex_array::OperationsVTable<Self>
 
 pub type vortex_array::vtable::ArrayVTable::ValidityVTable: vortex_array::ValidityVTable<Self>
 
 pub fn vortex_array::vtable::ArrayVTable::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::vtable::ArrayVTable::array_eq(data: &Self::ArrayData, other: &Self::ArrayData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::vtable::ArrayVTable::array_hash<H: core::hash::Hasher>(data: &Self::ArrayData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::vtable::ArrayVTable::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -18710,10 +18706,6 @@ pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Bool::array_eq(data: &vortex_array::arrays::bool::BoolData, other: &vortex_array::arrays::bool::BoolData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Bool::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::bool::BoolData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Bool::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Bool::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -18755,10 +18747,6 @@ pub type vortex_array::arrays::Chunked::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Chunked::ValidityVTable = vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Chunked::array_eq(_data: &vortex_array::arrays::chunked::ChunkedData, _other: &vortex_array::arrays::chunked::ChunkedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Chunked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::chunked::ChunkedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Chunked::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -18802,10 +18790,6 @@ pub type vortex_array::arrays::Constant::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::Constant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Constant::array_eq(data: &vortex_array::arrays::constant::ConstantData, other: &vortex_array::arrays::constant::ConstantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Constant::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::constant::ConstantData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Constant::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Constant::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -18847,10 +18831,6 @@ pub type vortex_array::arrays::Decimal::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Decimal::array_eq(data: &vortex_array::arrays::decimal::DecimalData, other: &vortex_array::arrays::decimal::DecimalData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Decimal::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::decimal::DecimalData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Decimal::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -18894,10 +18874,6 @@ pub type vortex_array::arrays::Extension::ValidityVTable = vortex_array::Validit
 
 pub fn vortex_array::arrays::Extension::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Extension::array_eq(_data: &vortex_array::arrays::extension::ExtensionData, _other: &vortex_array::arrays::extension::ExtensionData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Extension::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::extension::ExtensionData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Extension::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Extension::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -18939,10 +18915,6 @@ pub type vortex_array::arrays::Filter::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Filter::ValidityVTable = vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Filter::array_eq(data: &vortex_array::arrays::filter::FilterData, other: &vortex_array::arrays::filter::FilterData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Filter::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::filter::FilterData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Filter::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -18986,10 +18958,6 @@ pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::arr
 
 pub fn vortex_array::arrays::FixedSizeList::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::FixedSizeList::array_eq(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, other: &vortex_array::arrays::fixed_size_list::FixedSizeListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::FixedSizeList::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::FixedSizeList::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::FixedSizeList::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -19031,10 +18999,6 @@ pub type vortex_array::arrays::List::OperationsVTable = vortex_array::arrays::Li
 pub type vortex_array::arrays::List::ValidityVTable = vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::List::array_eq(_data: &vortex_array::arrays::list::ListData, _other: &vortex_array::arrays::list::ListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::List::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::list::ListData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::List::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -19078,10 +19042,6 @@ pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::ListView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::ListView::array_eq(data: &vortex_array::arrays::listview::ListViewData, other: &vortex_array::arrays::listview::ListViewData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::ListView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::listview::ListViewData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::ListView::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::ListView::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -19123,10 +19083,6 @@ pub type vortex_array::arrays::Masked::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Masked::array_eq(_data: &vortex_array::arrays::masked::MaskedData, _other: &vortex_array::arrays::masked::MaskedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Masked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::masked::MaskedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Masked::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -19170,10 +19126,6 @@ pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::arrays:
 
 pub fn vortex_array::arrays::Primitive::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Primitive::array_eq(data: &vortex_array::arrays::primitive::PrimitiveData, other: &vortex_array::arrays::primitive::PrimitiveData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Primitive::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::primitive::PrimitiveData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Primitive::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Primitive::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -19215,10 +19167,6 @@ pub type vortex_array::arrays::Shared::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Shared::ValidityVTable = vortex_array::arrays::Shared
 
 pub fn vortex_array::arrays::Shared::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Shared::array_eq(_data: &vortex_array::arrays::shared::SharedData, _other: &vortex_array::arrays::shared::SharedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Shared::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::shared::SharedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Shared::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -19262,10 +19210,6 @@ pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::arrays::St
 
 pub fn vortex_array::arrays::Struct::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Struct::array_eq(_data: &vortex_array::arrays::struct_::StructData, _other: &vortex_array::arrays::struct_::StructData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Struct::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::struct_::StructData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Struct::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Struct::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -19307,10 +19251,6 @@ pub type vortex_array::arrays::VarBin::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::VarBin::array_eq(data: &vortex_array::arrays::varbin::VarBinData, other: &vortex_array::arrays::varbin::VarBinData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBin::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbin::VarBinData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::VarBin::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -19354,10 +19294,6 @@ pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::VarBinView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::VarBinView::array_eq(data: &vortex_array::arrays::varbinview::VarBinViewData, other: &vortex_array::arrays::varbinview::VarBinViewData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBinView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbinview::VarBinViewData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::VarBinView::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::VarBinView::buffer_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -19399,10 +19335,6 @@ pub type vortex_array::arrays::Variant::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Variant::ValidityVTable = vortex_array::arrays::Variant
 
 pub fn vortex_array::arrays::Variant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Variant::array_eq(_data: &vortex_array::arrays::variant::VariantData, _other: &vortex_array::arrays::variant::VariantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Variant::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::variant::VariantData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Variant::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -19446,10 +19378,6 @@ pub type vortex_array::arrays::dict::Dict::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::dict::Dict::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::dict::Dict::array_eq(_data: &vortex_array::arrays::dict::DictData, _other: &vortex_array::arrays::dict::DictData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::dict::Dict::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::dict::DictData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::dict::Dict::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::dict::Dict::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -19491,10 +19419,6 @@ pub type vortex_array::arrays::null::Null::OperationsVTable = vortex_array::arra
 pub type vortex_array::arrays::null::Null::ValidityVTable = vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::null::Null::array_eq(_data: &vortex_array::arrays::null::NullData, _other: &vortex_array::arrays::null::NullData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::null::Null::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::null::NullData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::null::Null::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -19538,10 +19462,6 @@ pub type vortex_array::arrays::patched::Patched::ValidityVTable = vortex_array::
 
 pub fn vortex_array::arrays::patched::Patched::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::patched::Patched::array_eq(data: &vortex_array::arrays::patched::PatchedData, other: &vortex_array::arrays::patched::PatchedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::patched::Patched::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::patched::PatchedData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::patched::Patched::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::patched::Patched::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -19584,10 +19504,6 @@ pub type vortex_array::arrays::scalar_fn::ScalarFnVTable::ValidityVTable = vorte
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_eq(data: &vortex_array::arrays::scalar_fn::ScalarFnData, other: &vortex_array::arrays::scalar_fn::ScalarFnData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::scalar_fn::ScalarFnData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -19629,10 +19545,6 @@ pub type vortex_array::arrays::slice::Slice::OperationsVTable = vortex_array::ar
 pub type vortex_array::arrays::slice::Slice::ValidityVTable = vortex_array::arrays::slice::Slice
 
 pub fn vortex_array::arrays::slice::Slice::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::slice::Slice::array_eq(data: &vortex_array::arrays::slice::SliceData, other: &vortex_array::arrays::slice::SliceData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::slice::Slice::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::slice::SliceData, state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::slice::Slice::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -19792,17 +19704,13 @@ pub fn vortex_array::NotSupported::scalar_at(array: vortex_array::ArrayView<'_, 
 
 pub trait vortex_array::vtable::VTable: 'static + core::clone::Clone + core::marker::Sized + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
-pub type vortex_array::vtable::VTable::ArrayData: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug
+pub type vortex_array::vtable::VTable::ArrayData: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + vortex_array::ArrayHash + vortex_array::ArrayEq
 
 pub type vortex_array::vtable::VTable::OperationsVTable: vortex_array::OperationsVTable<Self>
 
 pub type vortex_array::vtable::VTable::ValidityVTable: vortex_array::ValidityVTable<Self>
 
 pub fn vortex_array::vtable::VTable::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::vtable::VTable::array_eq(data: &Self::ArrayData, other: &Self::ArrayData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::vtable::VTable::array_hash<H: core::hash::Hasher>(data: &Self::ArrayData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::vtable::VTable::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -19846,10 +19754,6 @@ pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Bool::array_eq(data: &vortex_array::arrays::bool::BoolData, other: &vortex_array::arrays::bool::BoolData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Bool::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::bool::BoolData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Bool::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Bool::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -19891,10 +19795,6 @@ pub type vortex_array::arrays::Chunked::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Chunked::ValidityVTable = vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Chunked::array_eq(_data: &vortex_array::arrays::chunked::ChunkedData, _other: &vortex_array::arrays::chunked::ChunkedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Chunked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::chunked::ChunkedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Chunked::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -19938,10 +19838,6 @@ pub type vortex_array::arrays::Constant::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::Constant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Constant::array_eq(data: &vortex_array::arrays::constant::ConstantData, other: &vortex_array::arrays::constant::ConstantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Constant::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::constant::ConstantData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Constant::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Constant::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -19983,10 +19879,6 @@ pub type vortex_array::arrays::Decimal::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Decimal::array_eq(data: &vortex_array::arrays::decimal::DecimalData, other: &vortex_array::arrays::decimal::DecimalData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Decimal::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::decimal::DecimalData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Decimal::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -20030,10 +19922,6 @@ pub type vortex_array::arrays::Extension::ValidityVTable = vortex_array::Validit
 
 pub fn vortex_array::arrays::Extension::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Extension::array_eq(_data: &vortex_array::arrays::extension::ExtensionData, _other: &vortex_array::arrays::extension::ExtensionData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Extension::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::extension::ExtensionData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Extension::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Extension::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -20075,10 +19963,6 @@ pub type vortex_array::arrays::Filter::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Filter::ValidityVTable = vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Filter::array_eq(data: &vortex_array::arrays::filter::FilterData, other: &vortex_array::arrays::filter::FilterData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Filter::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::filter::FilterData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Filter::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -20122,10 +20006,6 @@ pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::arr
 
 pub fn vortex_array::arrays::FixedSizeList::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::FixedSizeList::array_eq(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, other: &vortex_array::arrays::fixed_size_list::FixedSizeListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::FixedSizeList::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::FixedSizeList::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::FixedSizeList::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -20167,10 +20047,6 @@ pub type vortex_array::arrays::List::OperationsVTable = vortex_array::arrays::Li
 pub type vortex_array::arrays::List::ValidityVTable = vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::List::array_eq(_data: &vortex_array::arrays::list::ListData, _other: &vortex_array::arrays::list::ListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::List::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::list::ListData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::List::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -20214,10 +20090,6 @@ pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::ListView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::ListView::array_eq(data: &vortex_array::arrays::listview::ListViewData, other: &vortex_array::arrays::listview::ListViewData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::ListView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::listview::ListViewData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::ListView::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::ListView::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -20259,10 +20131,6 @@ pub type vortex_array::arrays::Masked::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Masked::array_eq(_data: &vortex_array::arrays::masked::MaskedData, _other: &vortex_array::arrays::masked::MaskedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Masked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::masked::MaskedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Masked::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -20306,10 +20174,6 @@ pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::arrays:
 
 pub fn vortex_array::arrays::Primitive::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Primitive::array_eq(data: &vortex_array::arrays::primitive::PrimitiveData, other: &vortex_array::arrays::primitive::PrimitiveData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Primitive::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::primitive::PrimitiveData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Primitive::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Primitive::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -20351,10 +20215,6 @@ pub type vortex_array::arrays::Shared::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Shared::ValidityVTable = vortex_array::arrays::Shared
 
 pub fn vortex_array::arrays::Shared::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Shared::array_eq(_data: &vortex_array::arrays::shared::SharedData, _other: &vortex_array::arrays::shared::SharedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Shared::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::shared::SharedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Shared::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -20398,10 +20258,6 @@ pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::arrays::St
 
 pub fn vortex_array::arrays::Struct::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Struct::array_eq(_data: &vortex_array::arrays::struct_::StructData, _other: &vortex_array::arrays::struct_::StructData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Struct::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::struct_::StructData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Struct::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Struct::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -20443,10 +20299,6 @@ pub type vortex_array::arrays::VarBin::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::VarBin::array_eq(data: &vortex_array::arrays::varbin::VarBinData, other: &vortex_array::arrays::varbin::VarBinData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBin::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbin::VarBinData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::VarBin::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -20490,10 +20342,6 @@ pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::VarBinView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::VarBinView::array_eq(data: &vortex_array::arrays::varbinview::VarBinViewData, other: &vortex_array::arrays::varbinview::VarBinViewData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBinView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbinview::VarBinViewData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::VarBinView::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::VarBinView::buffer_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -20535,10 +20383,6 @@ pub type vortex_array::arrays::Variant::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Variant::ValidityVTable = vortex_array::arrays::Variant
 
 pub fn vortex_array::arrays::Variant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Variant::array_eq(_data: &vortex_array::arrays::variant::VariantData, _other: &vortex_array::arrays::variant::VariantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Variant::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::variant::VariantData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Variant::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -20582,10 +20426,6 @@ pub type vortex_array::arrays::dict::Dict::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::dict::Dict::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::dict::Dict::array_eq(_data: &vortex_array::arrays::dict::DictData, _other: &vortex_array::arrays::dict::DictData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::dict::Dict::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::dict::DictData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::dict::Dict::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::dict::Dict::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -20627,10 +20467,6 @@ pub type vortex_array::arrays::null::Null::OperationsVTable = vortex_array::arra
 pub type vortex_array::arrays::null::Null::ValidityVTable = vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::null::Null::array_eq(_data: &vortex_array::arrays::null::NullData, _other: &vortex_array::arrays::null::NullData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::null::Null::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::null::NullData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::null::Null::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -20674,10 +20510,6 @@ pub type vortex_array::arrays::patched::Patched::ValidityVTable = vortex_array::
 
 pub fn vortex_array::arrays::patched::Patched::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::patched::Patched::array_eq(data: &vortex_array::arrays::patched::PatchedData, other: &vortex_array::arrays::patched::PatchedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::patched::Patched::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::patched::PatchedData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::patched::Patched::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::patched::Patched::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -20720,10 +20552,6 @@ pub type vortex_array::arrays::scalar_fn::ScalarFnVTable::ValidityVTable = vorte
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_eq(data: &vortex_array::arrays::scalar_fn::ScalarFnData, other: &vortex_array::arrays::scalar_fn::ScalarFnData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::scalar_fn::ScalarFnData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -20765,10 +20593,6 @@ pub type vortex_array::arrays::slice::Slice::OperationsVTable = vortex_array::ar
 pub type vortex_array::arrays::slice::Slice::ValidityVTable = vortex_array::arrays::slice::Slice
 
 pub fn vortex_array::arrays::slice::Slice::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::slice::Slice::array_eq(data: &vortex_array::arrays::slice::SliceData, other: &vortex_array::arrays::slice::SliceData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::slice::Slice::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::slice::SliceData, state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::slice::Slice::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -21193,6 +21017,8 @@ pub fn vortex_array::Array<vortex_array::arrays::Bool>::new(bits: vortex_buffer:
 pub fn vortex_array::Array<vortex_array::arrays::Bool>::new_handle(handle: vortex_array::buffer::BufferHandle, offset: usize, len: usize, validity: vortex_array::validity::Validity) -> Self
 
 pub unsafe fn vortex_array::Array<vortex_array::arrays::Bool>::new_unchecked(bits: vortex_buffer::bit::buf::BitBuffer, validity: vortex_array::validity::Validity) -> Self
+
+pub fn vortex_array::Array<vortex_array::arrays::Bool>::to_bit_buffer(&self) -> vortex_buffer::bit::buf::BitBuffer
 
 pub fn vortex_array::Array<vortex_array::arrays::Bool>::to_mask(&self) -> vortex_mask::Mask
 
@@ -21770,8 +21596,6 @@ pub fn vortex_array::Array<V>::into_array(self) -> vortex_array::ArrayRef
 
 impl<V: vortex_array::VTable> vortex_array::TypedArrayRef<V> for vortex_array::Array<V>
 
-pub fn vortex_array::Array<V>::slots_ref(&self) -> &[core::option::Option<vortex_array::ArrayRef>]
-
 pub struct vortex_array::ArrayParts<V: vortex_array::VTable>
 
 pub vortex_array::ArrayParts::data: <V as vortex_array::VTable>::ArrayData
@@ -22256,6 +22080,10 @@ pub fn vortex_array::ArrayRef::from(value: vortex_array::Array<V>) -> vortex_arr
 
 pub struct vortex_array::ArrayView<'a, V: vortex_array::VTable>
 
+impl vortex_array::ArrayView<'_, vortex_array::arrays::Bool>
+
+pub fn vortex_array::ArrayView<'_, vortex_array::arrays::Bool>::to_bit_buffer(&self) -> vortex_buffer::bit::buf::BitBuffer
+
 impl vortex_array::ArrayView<'_, vortex_array::arrays::Chunked>
 
 pub fn vortex_array::ArrayView<'_, vortex_array::arrays::Chunked>::chunk(&self, idx: usize) -> &vortex_array::ArrayRef
@@ -22412,6 +22240,8 @@ pub fn vortex_array::ArrayView<'_, vortex_array::arrays::scalar_fn::ScalarFnVTab
 
 pub fn vortex_array::ArrayView<'_, vortex_array::arrays::scalar_fn::ScalarFnVTable>::nchildren(&self) -> usize
 
+pub fn vortex_array::ArrayView<'_, vortex_array::arrays::scalar_fn::ScalarFnVTable>::scalar_fn(&self) -> &vortex_array::scalar_fn::ScalarFnRef
+
 impl<'a, V: vortex_array::VTable> vortex_array::ArrayView<'a, V>
 
 pub fn vortex_array::ArrayView<'a, V>::array(&self) -> &'a vortex_array::ArrayRef
@@ -22455,8 +22285,6 @@ pub type vortex_array::ArrayView<'_, V>::Target = <V as vortex_array::VTable>::A
 pub fn vortex_array::ArrayView<'_, V>::deref(&self) -> &<V as vortex_array::VTable>::ArrayData
 
 impl<V: vortex_array::VTable> vortex_array::TypedArrayRef<V> for vortex_array::ArrayView<'_, V>
-
-pub fn vortex_array::ArrayView<'_, V>::slots_ref(&self) -> &[core::option::Option<vortex_array::ArrayRef>]
 
 pub struct vortex_array::CanonicalValidity(pub vortex_array::Canonical)
 
@@ -22638,6 +22466,90 @@ impl vortex_array::ArrayEq for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
 
+impl vortex_array::ArrayEq for vortex_array::arrays::bool::BoolData
+
+pub fn vortex_array::arrays::bool::BoolData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::chunked::ChunkedData
+
+pub fn vortex_array::arrays::chunked::ChunkedData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::constant::ConstantData
+
+pub fn vortex_array::arrays::constant::ConstantData::array_eq(&self, other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::decimal::DecimalData
+
+pub fn vortex_array::arrays::decimal::DecimalData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::dict::DictData
+
+pub fn vortex_array::arrays::dict::DictData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::extension::ExtensionData
+
+pub fn vortex_array::arrays::extension::ExtensionData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::filter::FilterData
+
+pub fn vortex_array::arrays::filter::FilterData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::fixed_size_list::FixedSizeListData
+
+pub fn vortex_array::arrays::fixed_size_list::FixedSizeListData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::list::ListData
+
+pub fn vortex_array::arrays::list::ListData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::listview::ListViewData
+
+pub fn vortex_array::arrays::listview::ListViewData::array_eq(&self, other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::masked::MaskedData
+
+pub fn vortex_array::arrays::masked::MaskedData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::null::NullData
+
+pub fn vortex_array::arrays::null::NullData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::patched::PatchedData
+
+pub fn vortex_array::arrays::patched::PatchedData::array_eq(&self, other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::primitive::PrimitiveData
+
+pub fn vortex_array::arrays::primitive::PrimitiveData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::scalar_fn::ScalarFnData
+
+pub fn vortex_array::arrays::scalar_fn::ScalarFnData::array_eq(&self, other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::shared::SharedData
+
+pub fn vortex_array::arrays::shared::SharedData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::slice::SliceData
+
+pub fn vortex_array::arrays::slice::SliceData::array_eq(&self, other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::struct_::StructData
+
+pub fn vortex_array::arrays::struct_::StructData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::varbin::VarBinData
+
+pub fn vortex_array::arrays::varbin::VarBinData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::varbinview::VarBinViewData
+
+pub fn vortex_array::arrays::varbinview::VarBinViewData::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
+
+impl vortex_array::ArrayEq for vortex_array::arrays::variant::VariantData
+
+pub fn vortex_array::arrays::variant::VariantData::array_eq(&self, _other: &Self, _precision: vortex_array::Precision) -> bool
+
 impl vortex_array::ArrayEq for vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::buffer::BufferHandle::array_eq(&self, other: &Self, precision: vortex_array::Precision) -> bool
@@ -22674,6 +22586,90 @@ impl vortex_array::ArrayHash for vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
 
+impl vortex_array::ArrayHash for vortex_array::arrays::bool::BoolData
+
+pub fn vortex_array::arrays::bool::BoolData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::chunked::ChunkedData
+
+pub fn vortex_array::arrays::chunked::ChunkedData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::constant::ConstantData
+
+pub fn vortex_array::arrays::constant::ConstantData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::decimal::DecimalData
+
+pub fn vortex_array::arrays::decimal::DecimalData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::dict::DictData
+
+pub fn vortex_array::arrays::dict::DictData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::extension::ExtensionData
+
+pub fn vortex_array::arrays::extension::ExtensionData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::filter::FilterData
+
+pub fn vortex_array::arrays::filter::FilterData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::fixed_size_list::FixedSizeListData
+
+pub fn vortex_array::arrays::fixed_size_list::FixedSizeListData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::list::ListData
+
+pub fn vortex_array::arrays::list::ListData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::listview::ListViewData
+
+pub fn vortex_array::arrays::listview::ListViewData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::masked::MaskedData
+
+pub fn vortex_array::arrays::masked::MaskedData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::null::NullData
+
+pub fn vortex_array::arrays::null::NullData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::patched::PatchedData
+
+pub fn vortex_array::arrays::patched::PatchedData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::primitive::PrimitiveData
+
+pub fn vortex_array::arrays::primitive::PrimitiveData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::scalar_fn::ScalarFnData
+
+pub fn vortex_array::arrays::scalar_fn::ScalarFnData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::shared::SharedData
+
+pub fn vortex_array::arrays::shared::SharedData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::slice::SliceData
+
+pub fn vortex_array::arrays::slice::SliceData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::struct_::StructData
+
+pub fn vortex_array::arrays::struct_::StructData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::varbin::VarBinData
+
+pub fn vortex_array::arrays::varbin::VarBinData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::varbinview::VarBinViewData
+
+pub fn vortex_array::arrays::varbinview::VarBinViewData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
+impl vortex_array::ArrayHash for vortex_array::arrays::variant::VariantData
+
+pub fn vortex_array::arrays::variant::VariantData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::Precision)
+
 impl vortex_array::ArrayHash for vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::buffer::BufferHandle::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
@@ -22704,17 +22700,13 @@ pub fn core::option::Option<T>::array_hash<H: core::hash::Hasher>(&self, state: 
 
 pub trait vortex_array::ArrayVTable: 'static + core::clone::Clone + core::marker::Sized + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
-pub type vortex_array::ArrayVTable::ArrayData: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug
+pub type vortex_array::ArrayVTable::ArrayData: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + vortex_array::ArrayHash + vortex_array::ArrayEq
 
 pub type vortex_array::ArrayVTable::OperationsVTable: vortex_array::OperationsVTable<Self>
 
 pub type vortex_array::ArrayVTable::ValidityVTable: vortex_array::ValidityVTable<Self>
 
 pub fn vortex_array::ArrayVTable::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::ArrayVTable::array_eq(data: &Self::ArrayData, other: &Self::ArrayData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::ArrayVTable::array_hash<H: core::hash::Hasher>(data: &Self::ArrayData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::ArrayVTable::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -22758,10 +22750,6 @@ pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Bool::array_eq(data: &vortex_array::arrays::bool::BoolData, other: &vortex_array::arrays::bool::BoolData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Bool::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::bool::BoolData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Bool::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Bool::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -22803,10 +22791,6 @@ pub type vortex_array::arrays::Chunked::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Chunked::ValidityVTable = vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Chunked::array_eq(_data: &vortex_array::arrays::chunked::ChunkedData, _other: &vortex_array::arrays::chunked::ChunkedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Chunked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::chunked::ChunkedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Chunked::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -22850,10 +22834,6 @@ pub type vortex_array::arrays::Constant::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::Constant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Constant::array_eq(data: &vortex_array::arrays::constant::ConstantData, other: &vortex_array::arrays::constant::ConstantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Constant::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::constant::ConstantData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Constant::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Constant::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -22895,10 +22875,6 @@ pub type vortex_array::arrays::Decimal::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Decimal::array_eq(data: &vortex_array::arrays::decimal::DecimalData, other: &vortex_array::arrays::decimal::DecimalData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Decimal::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::decimal::DecimalData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Decimal::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -22942,10 +22918,6 @@ pub type vortex_array::arrays::Extension::ValidityVTable = vortex_array::Validit
 
 pub fn vortex_array::arrays::Extension::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Extension::array_eq(_data: &vortex_array::arrays::extension::ExtensionData, _other: &vortex_array::arrays::extension::ExtensionData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Extension::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::extension::ExtensionData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Extension::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Extension::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -22987,10 +22959,6 @@ pub type vortex_array::arrays::Filter::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Filter::ValidityVTable = vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Filter::array_eq(data: &vortex_array::arrays::filter::FilterData, other: &vortex_array::arrays::filter::FilterData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Filter::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::filter::FilterData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Filter::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -23034,10 +23002,6 @@ pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::arr
 
 pub fn vortex_array::arrays::FixedSizeList::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::FixedSizeList::array_eq(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, other: &vortex_array::arrays::fixed_size_list::FixedSizeListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::FixedSizeList::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::FixedSizeList::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::FixedSizeList::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -23079,10 +23043,6 @@ pub type vortex_array::arrays::List::OperationsVTable = vortex_array::arrays::Li
 pub type vortex_array::arrays::List::ValidityVTable = vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::List::array_eq(_data: &vortex_array::arrays::list::ListData, _other: &vortex_array::arrays::list::ListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::List::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::list::ListData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::List::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -23126,10 +23086,6 @@ pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::ListView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::ListView::array_eq(data: &vortex_array::arrays::listview::ListViewData, other: &vortex_array::arrays::listview::ListViewData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::ListView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::listview::ListViewData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::ListView::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::ListView::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -23171,10 +23127,6 @@ pub type vortex_array::arrays::Masked::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Masked::array_eq(_data: &vortex_array::arrays::masked::MaskedData, _other: &vortex_array::arrays::masked::MaskedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Masked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::masked::MaskedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Masked::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -23218,10 +23170,6 @@ pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::arrays:
 
 pub fn vortex_array::arrays::Primitive::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Primitive::array_eq(data: &vortex_array::arrays::primitive::PrimitiveData, other: &vortex_array::arrays::primitive::PrimitiveData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Primitive::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::primitive::PrimitiveData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Primitive::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Primitive::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -23263,10 +23211,6 @@ pub type vortex_array::arrays::Shared::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Shared::ValidityVTable = vortex_array::arrays::Shared
 
 pub fn vortex_array::arrays::Shared::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Shared::array_eq(_data: &vortex_array::arrays::shared::SharedData, _other: &vortex_array::arrays::shared::SharedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Shared::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::shared::SharedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Shared::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -23310,10 +23254,6 @@ pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::arrays::St
 
 pub fn vortex_array::arrays::Struct::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Struct::array_eq(_data: &vortex_array::arrays::struct_::StructData, _other: &vortex_array::arrays::struct_::StructData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Struct::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::struct_::StructData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Struct::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Struct::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -23355,10 +23295,6 @@ pub type vortex_array::arrays::VarBin::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::VarBin::array_eq(data: &vortex_array::arrays::varbin::VarBinData, other: &vortex_array::arrays::varbin::VarBinData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBin::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbin::VarBinData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::VarBin::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -23402,10 +23338,6 @@ pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::VarBinView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::VarBinView::array_eq(data: &vortex_array::arrays::varbinview::VarBinViewData, other: &vortex_array::arrays::varbinview::VarBinViewData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBinView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbinview::VarBinViewData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::VarBinView::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::VarBinView::buffer_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -23447,10 +23379,6 @@ pub type vortex_array::arrays::Variant::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Variant::ValidityVTable = vortex_array::arrays::Variant
 
 pub fn vortex_array::arrays::Variant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Variant::array_eq(_data: &vortex_array::arrays::variant::VariantData, _other: &vortex_array::arrays::variant::VariantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Variant::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::variant::VariantData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Variant::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -23494,10 +23422,6 @@ pub type vortex_array::arrays::dict::Dict::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::dict::Dict::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::dict::Dict::array_eq(_data: &vortex_array::arrays::dict::DictData, _other: &vortex_array::arrays::dict::DictData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::dict::Dict::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::dict::DictData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::dict::Dict::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::dict::Dict::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -23539,10 +23463,6 @@ pub type vortex_array::arrays::null::Null::OperationsVTable = vortex_array::arra
 pub type vortex_array::arrays::null::Null::ValidityVTable = vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::null::Null::array_eq(_data: &vortex_array::arrays::null::NullData, _other: &vortex_array::arrays::null::NullData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::null::Null::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::null::NullData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::null::Null::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -23586,10 +23506,6 @@ pub type vortex_array::arrays::patched::Patched::ValidityVTable = vortex_array::
 
 pub fn vortex_array::arrays::patched::Patched::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::patched::Patched::array_eq(data: &vortex_array::arrays::patched::PatchedData, other: &vortex_array::arrays::patched::PatchedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::patched::Patched::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::patched::PatchedData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::patched::Patched::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::patched::Patched::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -23632,10 +23548,6 @@ pub type vortex_array::arrays::scalar_fn::ScalarFnVTable::ValidityVTable = vorte
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_eq(data: &vortex_array::arrays::scalar_fn::ScalarFnData, other: &vortex_array::arrays::scalar_fn::ScalarFnData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::scalar_fn::ScalarFnData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -23677,10 +23589,6 @@ pub type vortex_array::arrays::slice::Slice::OperationsVTable = vortex_array::ar
 pub type vortex_array::arrays::slice::Slice::ValidityVTable = vortex_array::arrays::slice::Slice
 
 pub fn vortex_array::arrays::slice::Slice::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::slice::Slice::array_eq(data: &vortex_array::arrays::slice::SliceData, other: &vortex_array::arrays::slice::SliceData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::slice::Slice::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::slice::SliceData, state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::slice::Slice::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24076,29 +23984,19 @@ pub fn vortex_array::ArrayRef::to_varbinview(&self) -> vortex_array::arrays::Var
 
 pub trait vortex_array::TypedArrayRef<V: vortex_array::VTable>: core::convert::AsRef<vortex_array::ArrayRef> + core::ops::deref::Deref<Target = <V as vortex_array::VTable>::ArrayData>
 
-pub fn vortex_array::TypedArrayRef::slots_ref(&self) -> &[core::option::Option<vortex_array::ArrayRef>]
-
 impl<V: vortex_array::VTable> vortex_array::TypedArrayRef<V> for vortex_array::Array<V>
-
-pub fn vortex_array::Array<V>::slots_ref(&self) -> &[core::option::Option<vortex_array::ArrayRef>]
 
 impl<V: vortex_array::VTable> vortex_array::TypedArrayRef<V> for vortex_array::ArrayView<'_, V>
 
-pub fn vortex_array::ArrayView<'_, V>::slots_ref(&self) -> &[core::option::Option<vortex_array::ArrayRef>]
-
 pub trait vortex_array::VTable: 'static + core::clone::Clone + core::marker::Sized + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
-pub type vortex_array::VTable::ArrayData: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug
+pub type vortex_array::VTable::ArrayData: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone + core::fmt::Debug + vortex_array::ArrayHash + vortex_array::ArrayEq
 
 pub type vortex_array::VTable::OperationsVTable: vortex_array::OperationsVTable<Self>
 
 pub type vortex_array::VTable::ValidityVTable: vortex_array::ValidityVTable<Self>
 
 pub fn vortex_array::VTable::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::VTable::array_eq(data: &Self::ArrayData, other: &Self::ArrayData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::VTable::array_hash<H: core::hash::Hasher>(data: &Self::ArrayData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::VTable::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24142,10 +24040,6 @@ pub type vortex_array::arrays::Bool::ValidityVTable = vortex_array::arrays::Bool
 
 pub fn vortex_array::arrays::Bool::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Bool::array_eq(data: &vortex_array::arrays::bool::BoolData, other: &vortex_array::arrays::bool::BoolData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Bool::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::bool::BoolData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Bool::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Bool::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -24187,10 +24081,6 @@ pub type vortex_array::arrays::Chunked::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Chunked::ValidityVTable = vortex_array::arrays::Chunked
 
 pub fn vortex_array::arrays::Chunked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Chunked::array_eq(_data: &vortex_array::arrays::chunked::ChunkedData, _other: &vortex_array::arrays::chunked::ChunkedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Chunked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::chunked::ChunkedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Chunked::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24234,10 +24124,6 @@ pub type vortex_array::arrays::Constant::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::Constant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Constant::array_eq(data: &vortex_array::arrays::constant::ConstantData, other: &vortex_array::arrays::constant::ConstantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Constant::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::constant::ConstantData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Constant::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Constant::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -24279,10 +24165,6 @@ pub type vortex_array::arrays::Decimal::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Decimal::ValidityVTable = vortex_array::arrays::Decimal
 
 pub fn vortex_array::arrays::Decimal::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Decimal::array_eq(data: &vortex_array::arrays::decimal::DecimalData, other: &vortex_array::arrays::decimal::DecimalData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Decimal::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::decimal::DecimalData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Decimal::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24326,10 +24208,6 @@ pub type vortex_array::arrays::Extension::ValidityVTable = vortex_array::Validit
 
 pub fn vortex_array::arrays::Extension::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Extension::array_eq(_data: &vortex_array::arrays::extension::ExtensionData, _other: &vortex_array::arrays::extension::ExtensionData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Extension::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::extension::ExtensionData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Extension::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Extension::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -24371,10 +24249,6 @@ pub type vortex_array::arrays::Filter::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Filter::ValidityVTable = vortex_array::arrays::Filter
 
 pub fn vortex_array::arrays::Filter::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Filter::array_eq(data: &vortex_array::arrays::filter::FilterData, other: &vortex_array::arrays::filter::FilterData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Filter::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::filter::FilterData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Filter::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24418,10 +24292,6 @@ pub type vortex_array::arrays::FixedSizeList::ValidityVTable = vortex_array::arr
 
 pub fn vortex_array::arrays::FixedSizeList::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::FixedSizeList::array_eq(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, other: &vortex_array::arrays::fixed_size_list::FixedSizeListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::FixedSizeList::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::fixed_size_list::FixedSizeListData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::FixedSizeList::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::FixedSizeList::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -24463,10 +24333,6 @@ pub type vortex_array::arrays::List::OperationsVTable = vortex_array::arrays::Li
 pub type vortex_array::arrays::List::ValidityVTable = vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::List::array_eq(_data: &vortex_array::arrays::list::ListData, _other: &vortex_array::arrays::list::ListData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::List::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::list::ListData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::List::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24510,10 +24376,6 @@ pub type vortex_array::arrays::ListView::ValidityVTable = vortex_array::arrays::
 
 pub fn vortex_array::arrays::ListView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::ListView::array_eq(data: &vortex_array::arrays::listview::ListViewData, other: &vortex_array::arrays::listview::ListViewData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::ListView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::listview::ListViewData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::ListView::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::ListView::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -24555,10 +24417,6 @@ pub type vortex_array::arrays::Masked::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Masked::ValidityVTable = vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Masked::array_eq(_data: &vortex_array::arrays::masked::MaskedData, _other: &vortex_array::arrays::masked::MaskedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Masked::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::masked::MaskedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Masked::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24602,10 +24460,6 @@ pub type vortex_array::arrays::Primitive::ValidityVTable = vortex_array::arrays:
 
 pub fn vortex_array::arrays::Primitive::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Primitive::array_eq(data: &vortex_array::arrays::primitive::PrimitiveData, other: &vortex_array::arrays::primitive::PrimitiveData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Primitive::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::primitive::PrimitiveData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Primitive::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Primitive::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -24647,10 +24501,6 @@ pub type vortex_array::arrays::Shared::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::Shared::ValidityVTable = vortex_array::arrays::Shared
 
 pub fn vortex_array::arrays::Shared::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Shared::array_eq(_data: &vortex_array::arrays::shared::SharedData, _other: &vortex_array::arrays::shared::SharedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Shared::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::shared::SharedData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Shared::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24694,10 +24544,6 @@ pub type vortex_array::arrays::Struct::ValidityVTable = vortex_array::arrays::St
 
 pub fn vortex_array::arrays::Struct::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::Struct::array_eq(_data: &vortex_array::arrays::struct_::StructData, _other: &vortex_array::arrays::struct_::StructData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Struct::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::struct_::StructData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::Struct::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::Struct::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -24739,10 +24585,6 @@ pub type vortex_array::arrays::VarBin::OperationsVTable = vortex_array::arrays::
 pub type vortex_array::arrays::VarBin::ValidityVTable = vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::VarBin::array_eq(data: &vortex_array::arrays::varbin::VarBinData, other: &vortex_array::arrays::varbin::VarBinData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBin::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbin::VarBinData, state: &mut H, precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::VarBin::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24786,10 +24628,6 @@ pub type vortex_array::arrays::VarBinView::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::VarBinView::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::VarBinView::array_eq(data: &vortex_array::arrays::varbinview::VarBinViewData, other: &vortex_array::arrays::varbinview::VarBinViewData, precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::VarBinView::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::varbinview::VarBinViewData, state: &mut H, precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::VarBinView::buffer(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::VarBinView::buffer_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -24831,10 +24669,6 @@ pub type vortex_array::arrays::Variant::OperationsVTable = vortex_array::arrays:
 pub type vortex_array::arrays::Variant::ValidityVTable = vortex_array::arrays::Variant
 
 pub fn vortex_array::arrays::Variant::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::Variant::array_eq(_data: &vortex_array::arrays::variant::VariantData, _other: &vortex_array::arrays::variant::VariantData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::Variant::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::variant::VariantData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::Variant::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24878,10 +24712,6 @@ pub type vortex_array::arrays::dict::Dict::ValidityVTable = vortex_array::arrays
 
 pub fn vortex_array::arrays::dict::Dict::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::dict::Dict::array_eq(_data: &vortex_array::arrays::dict::DictData, _other: &vortex_array::arrays::dict::DictData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::dict::Dict::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::dict::DictData, _state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::dict::Dict::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::dict::Dict::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -24923,10 +24753,6 @@ pub type vortex_array::arrays::null::Null::OperationsVTable = vortex_array::arra
 pub type vortex_array::arrays::null::Null::ValidityVTable = vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::null::Null::array_eq(_data: &vortex_array::arrays::null::NullData, _other: &vortex_array::arrays::null::NullData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::null::Null::array_hash<H: core::hash::Hasher>(_data: &vortex_array::arrays::null::NullData, _state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::null::Null::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -24970,10 +24796,6 @@ pub type vortex_array::arrays::patched::Patched::ValidityVTable = vortex_array::
 
 pub fn vortex_array::arrays::patched::Patched::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::patched::Patched::array_eq(data: &vortex_array::arrays::patched::PatchedData, other: &vortex_array::arrays::patched::PatchedData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::patched::Patched::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::patched::PatchedData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::patched::Patched::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::patched::Patched::buffer_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -25016,10 +24838,6 @@ pub type vortex_array::arrays::scalar_fn::ScalarFnVTable::ValidityVTable = vorte
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_eq(data: &vortex_array::arrays::scalar_fn::ScalarFnData, other: &vortex_array::arrays::scalar_fn::ScalarFnData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::scalar_fn::ScalarFnData, state: &mut H, _precision: vortex_array::Precision)
-
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_array::arrays::scalar_fn::ScalarFnVTable::buffer_name(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -25061,10 +24879,6 @@ pub type vortex_array::arrays::slice::Slice::OperationsVTable = vortex_array::ar
 pub type vortex_array::arrays::slice::Slice::ValidityVTable = vortex_array::arrays::slice::Slice
 
 pub fn vortex_array::arrays::slice::Slice::append_to_builder(array: vortex_array::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::arrays::slice::Slice::array_eq(data: &vortex_array::arrays::slice::SliceData, other: &vortex_array::arrays::slice::SliceData, _precision: vortex_array::Precision) -> bool
-
-pub fn vortex_array::arrays::slice::Slice::array_hash<H: core::hash::Hasher>(data: &vortex_array::arrays::slice::SliceData, state: &mut H, _precision: vortex_array::Precision)
 
 pub fn vortex_array::arrays::slice::Slice::buffer(_array: vortex_array::ArrayView<'_, Self>, _idx: usize) -> vortex_array::buffer::BufferHandle
 

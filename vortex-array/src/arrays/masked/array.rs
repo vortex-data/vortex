@@ -26,18 +26,18 @@ pub struct MaskedData;
 
 pub trait MaskedArrayExt: TypedArrayRef<Masked> {
     fn child(&self) -> &ArrayRef {
-        self.slots_ref()[CHILD_SLOT]
+        self.as_ref().slots()[CHILD_SLOT]
             .as_ref()
             .vortex_expect("validated masked child slot")
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.slots_ref()[VALIDITY_SLOT].as_ref()
+        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
     }
 
     fn masked_validity(&self) -> Validity {
         child_to_validity(
-            &self.slots_ref()[VALIDITY_SLOT],
+            &self.as_ref().slots()[VALIDITY_SLOT],
             self.as_ref().dtype().nullability(),
         )
     }

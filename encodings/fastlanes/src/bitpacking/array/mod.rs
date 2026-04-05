@@ -89,13 +89,12 @@ impl BitPackedData {
     /// bit-packed array.
     pub(crate) unsafe fn new_unchecked(
         packed: BufferHandle,
-        validity: Validity,
+        _validity: Validity,
         patches: Option<Patches>,
         bit_width: u8,
-        len: usize,
+        _len: usize,
         offset: u16,
     ) -> Self {
-        drop((validity, len));
         let (patch_offset, patch_offset_within_chunk) = match &patches {
             Some(p) => (Some(p.offset()), p.offset_within_chunk()),
             None => (None, None),
@@ -343,22 +342,22 @@ pub trait BitPackedArrayExt: TypedArrayRef<crate::BitPacked> {
 
     #[inline]
     fn patch_indices(&self) -> Option<&ArrayRef> {
-        self.slots_ref()[PATCH_INDICES_SLOT].as_ref()
+        self.as_ref().slots()[PATCH_INDICES_SLOT].as_ref()
     }
 
     #[inline]
     fn patch_values(&self) -> Option<&ArrayRef> {
-        self.slots_ref()[PATCH_VALUES_SLOT].as_ref()
+        self.as_ref().slots()[PATCH_VALUES_SLOT].as_ref()
     }
 
     #[inline]
     fn patch_chunk_offsets(&self) -> Option<&ArrayRef> {
-        self.slots_ref()[PATCH_CHUNK_OFFSETS_SLOT].as_ref()
+        self.as_ref().slots()[PATCH_CHUNK_OFFSETS_SLOT].as_ref()
     }
 
     #[inline]
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.slots_ref()[VALIDITY_SLOT].as_ref()
+        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
     }
 
     #[inline]

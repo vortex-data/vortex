@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use kernel::PARENT_KERNELS;
 use prost::Message;
 use vortex_buffer::Alignment;
@@ -46,6 +48,19 @@ pub struct DecimalMetadata {
     pub(super) values_type: i32,
 }
 
+impl ArrayHash for DecimalData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.values.array_hash(state, precision);
+        std::mem::discriminant(&self.values_type).hash(state);
+    }
+}
+
+impl ArrayEq for DecimalData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.values.array_eq(&other.values, precision) && self.values_type == other.values_type
+    }
+}
+
 impl VTable for Decimal {
     type ArrayData = DecimalData;
 
@@ -54,15 +69,6 @@ impl VTable for Decimal {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &DecimalData, state: &mut H, precision: Precision) {
-        data.values.array_hash(state, precision);
-        std::mem::discriminant(&data.values_type).hash(state);
-    }
-
-    fn array_eq(data: &DecimalData, other: &DecimalData, precision: Precision) -> bool {
-        data.values.array_eq(&other.values, precision) && data.values_type == other.values_type
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

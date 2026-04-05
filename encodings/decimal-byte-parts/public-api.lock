@@ -24,10 +24,6 @@ pub type vortex_decimal_byte_parts::DecimalByteParts::OperationsVTable = vortex_
 
 pub type vortex_decimal_byte_parts::DecimalByteParts::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::array_eq(_data: &vortex_decimal_byte_parts::DecimalBytePartsData, _other: &vortex_decimal_byte_parts::DecimalBytePartsData, _precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_decimal_byte_parts::DecimalByteParts::array_hash<H: core::hash::Hasher>(_data: &vortex_decimal_byte_parts::DecimalBytePartsData, _state: &mut H, _precision: vortex_array::hash::Precision)
-
 pub fn vortex_decimal_byte_parts::DecimalByteParts::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -95,6 +91,14 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsData::clone(&self) -> vortex_d
 impl core::fmt::Debug for vortex_decimal_byte_parts::DecimalBytePartsData
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_decimal_byte_parts::DecimalBytePartsData
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsData::array_eq(&self, _other: &Self, _precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_decimal_byte_parts::DecimalBytePartsData
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::hash::Precision)
 
 pub struct vortex_decimal_byte_parts::DecimalBytePartsDataParts
 

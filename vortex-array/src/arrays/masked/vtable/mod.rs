@@ -4,6 +4,8 @@ mod canonical;
 mod operations;
 mod validity;
 
+use std::hash::Hasher;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -11,6 +13,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
@@ -44,6 +48,16 @@ impl Masked {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
 }
 
+impl ArrayHash for MaskedData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for MaskedData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 impl VTable for Masked {
     type ArrayData = MaskedData;
 
@@ -74,13 +88,6 @@ impl VTable for Masked {
             "MaskedArray dtype does not match child and validity"
         );
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(_data: &MaskedData, _state: &mut H, _precision: Precision) {
-    }
-
-    fn array_eq(_data: &MaskedData, _other: &MaskedData, _precision: Precision) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

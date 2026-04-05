@@ -29,7 +29,7 @@ pub struct SliceDataParts {
 
 pub trait SliceArrayExt: TypedArrayRef<Slice> {
     fn child(&self) -> &ArrayRef {
-        self.slots_ref()[CHILD_SLOT]
+        self.as_ref().slots()[CHILD_SLOT]
             .as_ref()
             .vortex_expect("validated slice child slot")
     }

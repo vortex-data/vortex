@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -81,6 +82,52 @@ type ViewLen = u32;
 
 vtable!(Zstd, Zstd, ZstdData);
 
+impl ArrayHash for ZstdData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        match &self.dictionary {
+            Some(dict) => {
+                true.hash(state);
+                dict.array_hash(state, precision);
+            }
+            None => {
+                false.hash(state);
+            }
+        }
+        for frame in &self.frames {
+            frame.array_hash(state, precision);
+        }
+        self.unsliced_validity.array_hash(state, precision);
+        self.unsliced_n_rows.hash(state);
+        self.slice_start.hash(state);
+        self.slice_stop.hash(state);
+    }
+}
+
+impl ArrayEq for ZstdData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        if !match (&self.dictionary, &other.dictionary) {
+            (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
+            (None, None) => true,
+            _ => false,
+        } {
+            return false;
+        }
+        if self.frames.len() != other.frames.len() {
+            return false;
+        }
+        for (a, b) in self.frames.iter().zip(&other.frames) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        self.unsliced_validity
+            .array_eq(&other.unsliced_validity, precision)
+            && self.unsliced_n_rows == other.unsliced_n_rows
+            && self.slice_start == other.slice_start
+            && self.slice_stop == other.slice_stop
+    }
+}
+
 impl VTable for Zstd {
     type ArrayData = ZstdData;
 
@@ -99,48 +146,6 @@ impl VTable for Zstd {
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         data.validate(dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &ZstdData, state: &mut H, precision: Precision) {
-        match &data.dictionary {
-            Some(dict) => {
-                true.hash(state);
-                dict.array_hash(state, precision);
-            }
-            None => {
-                false.hash(state);
-            }
-        }
-        for frame in &data.frames {
-            frame.array_hash(state, precision);
-        }
-        data.unsliced_validity.array_hash(state, precision);
-        data.unsliced_n_rows.hash(state);
-        data.slice_start.hash(state);
-        data.slice_stop.hash(state);
-    }
-
-    fn array_eq(data: &ZstdData, other: &ZstdData, precision: Precision) -> bool {
-        if !match (&data.dictionary, &other.dictionary) {
-            (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
-            (None, None) => true,
-            _ => false,
-        } {
-            return false;
-        }
-        if data.frames.len() != other.frames.len() {
-            return false;
-        }
-        for (a, b) in data.frames.iter().zip(&other.frames) {
-            if !a.array_eq(b, precision) {
-                return false;
-            }
-        }
-        data.unsliced_validity
-            .array_eq(&other.unsliced_validity, precision)
-            && data.unsliced_n_rows == other.unsliced_n_rows
-            && data.slice_start == other.slice_start
-            && data.slice_stop == other.slice_stop
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {

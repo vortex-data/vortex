@@ -16,6 +16,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::Precision;
@@ -49,6 +51,18 @@ vtable!(ScalarFn, ScalarFnVTable, ScalarFnData);
 #[derive(Clone, Debug)]
 pub struct ScalarFnVTable {
     pub(super) scalar_fn: ScalarFnRef,
+}
+
+impl ArrayHash for ScalarFnData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.scalar_fn().hash(state);
+    }
+}
+
+impl ArrayEq for ScalarFnData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.scalar_fn() == other.scalar_fn()
+    }
 }
 
 impl VTable for ScalarFnVTable {
@@ -86,14 +100,6 @@ impl VTable for ScalarFnVTable {
             "ScalarFnArray dtype does not match scalar function return dtype"
         );
         Ok(())
-    }
-
-    fn array_hash<H: Hasher>(data: &ScalarFnData, state: &mut H, _precision: Precision) {
-        data.scalar_fn().hash(state);
-    }
-
-    fn array_eq(data: &ScalarFnData, other: &ScalarFnData, _precision: Precision) -> bool {
-        data.scalar_fn() == other.scalar_fn()
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

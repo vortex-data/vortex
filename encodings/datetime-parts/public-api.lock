@@ -26,10 +26,6 @@ pub type vortex_datetime_parts::DateTimeParts::OperationsVTable = vortex_datetim
 
 pub type vortex_datetime_parts::DateTimeParts::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_datetime_parts::DateTimeParts::array_eq(_data: &vortex_datetime_parts::DateTimePartsData, _other: &vortex_datetime_parts::DateTimePartsData, _precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_datetime_parts::DateTimeParts::array_hash<H: core::hash::Hasher>(_data: &vortex_datetime_parts::DateTimePartsData, _state: &mut H, _precision: vortex_array::hash::Precision)
-
 pub fn vortex_datetime_parts::DateTimeParts::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_datetime_parts::DateTimeParts::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -103,6 +99,14 @@ pub fn vortex_datetime_parts::DateTimePartsData::try_from(array: vortex_array::a
 impl core::fmt::Debug for vortex_datetime_parts::DateTimePartsData
 
 pub fn vortex_datetime_parts::DateTimePartsData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_datetime_parts::DateTimePartsData
+
+pub fn vortex_datetime_parts::DateTimePartsData::array_eq(&self, _other: &Self, _precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_datetime_parts::DateTimePartsData
+
+pub fn vortex_datetime_parts::DateTimePartsData::array_hash<H: core::hash::Hasher>(&self, _state: &mut H, _precision: vortex_array::hash::Precision)
 
 #[repr(C)] pub struct vortex_datetime_parts::DateTimePartsMetadata
 

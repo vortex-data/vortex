@@ -111,12 +111,12 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
         buffer: values_buffer,
         validity: values_validity,
         ..
-    } = values.into_data().into_parts();
+    } = values.into_data_parts();
 
     let PrimitiveDataParts {
         buffer: ends_buffer,
         ..
-    } = ends.into_data().into_parts();
+    } = ends.into_data_parts();
 
     // Set up device buffers.
     let ends_device = ctx.ensure_on_device(ends_buffer).await?;

@@ -32,10 +32,6 @@ pub type vortex_alp::ALP::OperationsVTable = vortex_alp::ALP
 
 pub type vortex_alp::ALP::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_alp::ALP::array_eq(data: &vortex_alp::ALPData, other: &vortex_alp::ALPData, _precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_alp::ALP::array_hash<H: core::hash::Hasher>(data: &vortex_alp::ALPData, state: &mut H, _precision: vortex_array::hash::Precision)
-
 pub fn vortex_alp::ALP::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_alp::ALP::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, _idx: usize) -> core::option::Option<alloc::string::String>
@@ -118,6 +114,14 @@ impl core::fmt::Debug for vortex_alp::ALPData
 
 pub fn vortex_alp::ALPData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::hash::ArrayEq for vortex_alp::ALPData
+
+pub fn vortex_alp::ALPData::array_eq(&self, other: &Self, _precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_alp::ALPData
+
+pub fn vortex_alp::ALPData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::hash::Precision)
+
 pub struct vortex_alp::ALPMetadata
 
 impl core::clone::Clone for vortex_alp::ALPMetadata
@@ -163,10 +167,6 @@ pub type vortex_alp::ALPRD::ArrayData = vortex_alp::ALPRDData
 pub type vortex_alp::ALPRD::OperationsVTable = vortex_alp::ALPRD
 
 pub type vortex_alp::ALPRD::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
-
-pub fn vortex_alp::ALPRD::array_eq(data: &vortex_alp::ALPRDData, other: &vortex_alp::ALPRDData, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_alp::ALPRD::array_hash<H: core::hash::Hasher>(data: &vortex_alp::ALPRDData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_alp::ALPRD::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -237,6 +237,14 @@ pub fn vortex_alp::ALPRDData::clone(&self) -> vortex_alp::ALPRDData
 impl core::fmt::Debug for vortex_alp::ALPRDData
 
 pub fn vortex_alp::ALPRDData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_alp::ALPRDData
+
+pub fn vortex_alp::ALPRDData::array_eq(&self, other: &Self, precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_alp::ALPRDData
+
+pub fn vortex_alp::ALPRDData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub struct vortex_alp::ALPRDDataParts
 

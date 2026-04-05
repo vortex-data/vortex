@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use prost::Message;
@@ -12,6 +13,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -52,6 +55,18 @@ pub struct ListViewMetadata {
     size_ptype: i32,
 }
 
+impl ArrayHash for ListViewData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.is_zero_copy_to_list().hash(state);
+    }
+}
+
+impl ArrayEq for ListViewData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.is_zero_copy_to_list() == other.is_zero_copy_to_list()
+    }
+}
+
 impl VTable for ListView {
     type ArrayData = ListViewData;
 
@@ -60,14 +75,6 @@ impl VTable for ListView {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &ListViewData, state: &mut H, _precision: Precision) {
-        data.is_zero_copy_to_list().hash(state);
-    }
-
-    fn array_eq(data: &ListViewData, other: &ListViewData, _precision: Precision) -> bool {
-        data.is_zero_copy_to_list() == other.is_zero_copy_to_list()
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

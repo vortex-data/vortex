@@ -51,21 +51,16 @@ impl<V: VTable> ArrayParts<V> {
     }
 }
 
-pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::ArrayData> {
-    fn slots_ref(&self) -> &[Option<ArrayRef>];
-}
+/// Shared bound for helpers that should work over both owned [`Array<V>`] and borrowed
+/// [`ArrayView<V>`].
+///
+/// Extension traits use this to share typed array logic while still exposing the backing
+/// [`ArrayRef`] and the encoding-specific [`VTable::ArrayData`].
+pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::ArrayData> {}
 
-impl<V: VTable> TypedArrayRef<V> for Array<V> {
-    fn slots_ref(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<V: VTable> TypedArrayRef<V> for Array<V> {}
 
-impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {
-    fn slots_ref(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {}
 // =============================================================================
 // ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
 // =============================================================================

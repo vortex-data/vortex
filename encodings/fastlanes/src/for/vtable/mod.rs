@@ -3,8 +3,11 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -44,6 +47,18 @@ mod validity;
 
 vtable!(FoR, FoR, FoRData);
 
+impl ArrayHash for FoRData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.reference.hash(state);
+    }
+}
+
+impl ArrayEq for FoRData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.reference == other.reference
+    }
+}
+
 impl VTable for FoR {
     type ArrayData = FoRData;
 
@@ -63,14 +78,6 @@ impl VTable for FoR {
     ) -> VortexResult<()> {
         let encoded = slots[0].as_ref().vortex_expect("FoRArray encoded slot");
         FoRData::validate_parts(encoded, &data.reference, dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &FoRData, state: &mut H, _precision: Precision) {
-        data.reference.hash(state);
-    }
-
-    fn array_eq(data: &FoRData, other: &FoRData, _precision: Precision) -> bool {
-        data.reference == other.reference
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

@@ -36,7 +36,7 @@ pub struct SharedData {
 #[allow(async_fn_in_trait)]
 pub trait SharedArrayExt: TypedArrayRef<Shared> {
     fn source(&self) -> &ArrayRef {
-        self.slots_ref()[SOURCE_SLOT]
+        self.as_ref().slots()[SOURCE_SLOT]
             .as_ref()
             .vortex_expect("validated shared source slot")
     }

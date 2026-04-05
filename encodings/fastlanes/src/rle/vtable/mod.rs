@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -58,6 +61,18 @@ pub struct RLEMetadata {
     pub offset: u64,
 }
 
+impl ArrayHash for RLEData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.offset.hash(state);
+    }
+}
+
+impl ArrayEq for RLEData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.offset == other.offset
+    }
+}
+
 impl VTable for RLE {
     type ArrayData = RLEData;
 
@@ -88,14 +103,6 @@ impl VTable for RLE {
             dtype,
             len,
         )
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &RLEData, state: &mut H, _precision: Precision) {
-        data.offset.hash(state);
-    }
-
-    fn array_eq(data: &RLEData, other: &RLEData, _precision: Precision) -> bool {
-        data.offset == other.offset
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

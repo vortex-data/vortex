@@ -100,7 +100,7 @@ where
     let primitive = canonical.into_primitive();
     let PrimitiveDataParts {
         buffer, validity, ..
-    } = primitive.into_data().into_parts();
+    } = primitive.into_data_parts();
 
     let device_buffer = ctx.ensure_on_device(buffer).await?;
 

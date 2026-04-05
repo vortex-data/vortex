@@ -42,24 +42,24 @@ pub struct ChunkedData;
 
 pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
     fn chunk_offsets_array(&self) -> &ArrayRef {
-        self.slots_ref()[CHUNK_OFFSETS_SLOT]
+        self.as_ref().slots()[CHUNK_OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("validated chunk offsets slot")
     }
 
     fn nchunks(&self) -> usize {
-        self.slots_ref().len().saturating_sub(CHUNKS_OFFSET)
+        self.as_ref().slots().len().saturating_sub(CHUNKS_OFFSET)
     }
 
     fn chunk(&self, idx: usize) -> &ArrayRef {
-        self.slots_ref()[CHUNKS_OFFSET + idx]
+        self.as_ref().slots()[CHUNKS_OFFSET + idx]
             .as_ref()
             .vortex_expect("validated chunk slot")
     }
 
     fn iter_chunks<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ArrayRef> + 'a> {
         Box::new(
-            self.slots_ref()[CHUNKS_OFFSET..]
+            self.as_ref().slots()[CHUNKS_OFFSET..]
                 .iter()
                 .map(|slot| slot.as_ref().vortex_expect("validated chunk slot")),
         )
@@ -219,12 +219,10 @@ impl ChunkedData {
     /// # Safety
     ///
     /// All chunks must have exactly the same [`DType`] as the provided `dtype`.
-    pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
+    pub unsafe fn new_unchecked(_chunks: Vec<ArrayRef>, _dtype: DType) -> Self {
         #[cfg(debug_assertions)]
-        Self::validate(&chunks, &dtype)
+        Self::validate(&_chunks, &_dtype)
             .vortex_expect("[Debug Assertion]: Invalid `ChunkedArray` parameters");
-        drop(chunks);
-        drop(dtype);
         Self
     }
 

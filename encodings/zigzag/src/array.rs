@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -68,13 +72,6 @@ impl VTable for ZigZag {
             encoded.len()
         );
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(_data: &ZigZagData, _state: &mut H, _precision: Precision) {
-    }
-
-    fn array_eq(_data: &ZigZagData, _other: &ZigZagData, _precision: Precision) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -149,6 +146,16 @@ impl VTable for ZigZag {
     }
 }
 
+impl ArrayHash for ZigZagData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for ZigZagData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 /// The zigzag-encoded values (signed integers mapped to unsigned).
 pub(super) const ENCODED_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
@@ -159,7 +166,7 @@ pub struct ZigZagData {}
 
 pub trait ZigZagArrayExt: TypedArrayRef<ZigZag> {
     fn encoded(&self) -> &ArrayRef {
-        self.slots_ref()[ENCODED_SLOT]
+        self.as_ref().slots()[ENCODED_SLOT]
             .as_ref()
             .vortex_expect("ZigZagArray encoded slot")
     }

@@ -34,7 +34,7 @@ pub struct FilterDataParts {
 
 pub trait FilterArrayExt: TypedArrayRef<Filter> {
     fn child(&self) -> &ArrayRef {
-        self.slots_ref()[CHILD_SLOT]
+        self.as_ref().slots()[CHILD_SLOT]
             .as_ref()
             .vortex_expect("validated filter child slot")
     }

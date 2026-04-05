@@ -13,6 +13,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -63,7 +64,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 pub struct BoolData {
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
-    pub(super) len: usize,
 }
 
 pub struct BoolDataParts {
@@ -81,11 +81,16 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
     }
 
     fn validity(&self) -> Validity {
-        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
     }
 
     fn bool_validity_mask(&self) -> Mask {
-        self.validity().to_mask(self.len)
+        self.validity().to_mask(self.as_ref().len())
+    }
+
+    fn to_bit_buffer(&self) -> BitBuffer {
+        let buffer = self.bits.as_host().clone();
+        BitBuffer::new_with_offset(buffer, self.as_ref().len(), self.offset)
     }
 
     fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
@@ -107,7 +112,7 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
         let validity_mask = self.bool_validity_mask();
         let buffer = match validity_mask {
             Mask::AllTrue(_) => self.to_bit_buffer(),
-            Mask::AllFalse(_) => return Mask::new_false(self.len),
+            Mask::AllFalse(_) => return Mask::new_false(self.as_ref().len()),
             Mask::Values(validity) => validity.bit_buffer() & self.to_bit_buffer(),
         };
         Mask::from_buffer(buffer)
@@ -117,35 +122,13 @@ impl<T: TypedArrayRef<Bool>> BoolArrayExt for T {}
 
 /// Field accessors and non-consuming methods on the inner bool data.
 impl BoolData {
-    /// Returns the length of this array.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Returns `true` if this array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns the underlying [`BitBuffer`] of the array.
-    pub fn to_bit_buffer(&self) -> BitBuffer {
-        let buffer = self.bits.as_host().clone();
-        BitBuffer::new_with_offset(buffer, self.len, self.offset)
-    }
-
-    /// Returns the underlying [`BitBuffer`] of the array
-    pub fn into_bit_buffer(self) -> BitBuffer {
-        let buffer = self.bits.unwrap_host();
-        BitBuffer::new_with_offset(buffer, self.len, self.offset)
-    }
-
     /// Splits into owned parts
     #[inline]
-    pub fn into_parts(self) -> BoolDataParts {
+    pub fn into_parts(self, len: usize) -> BoolDataParts {
         BoolDataParts {
             bits: self.bits,
             offset: self.offset,
-            len: self.len,
+            len,
         }
     }
 
@@ -241,8 +224,16 @@ impl Array<Bool> {
     }
 
     /// Returns the underlying [`BitBuffer`] of the array, consuming self.
+    pub fn to_bit_buffer(&self) -> BitBuffer {
+        BoolArrayExt::to_bit_buffer(self)
+    }
+
+    /// Returns the underlying [`BitBuffer`] of the array, consuming self.
     pub fn into_bit_buffer(self) -> BitBuffer {
-        self.into_data().into_bit_buffer()
+        let len = self.len();
+        let data = self.into_data();
+        let buffer = data.bits.unwrap_host();
+        BitBuffer::new_with_offset(buffer, len, data.offset)
     }
     pub fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
         BoolArrayExt::maybe_to_mask(self)
@@ -257,18 +248,23 @@ impl Array<Bool> {
     }
 }
 
+impl ArrayView<'_, Bool> {
+    pub fn to_bit_buffer(&self) -> BitBuffer {
+        BoolArrayExt::to_bit_buffer(self)
+    }
+}
+
 /// Internal constructors on BoolData (used by Array<Bool> constructors and VTable::build).
 impl BoolData {
     pub(super) fn try_new(bits: BitBuffer, validity: Validity) -> VortexResult<Self> {
         let bits = bits.shrink_offset();
         Self::validate(&bits, &validity)?;
 
-        let (offset, len, buffer) = bits.into_inner();
+        let (offset, _len, buffer) = bits.into_inner();
 
         Ok(Self {
             bits: BufferHandle::new_host(buffer),
             offset,
-            len,
         })
     }
 
@@ -293,19 +289,18 @@ impl BoolData {
             bits.len() * 8,
         );
 
-        Ok(Self { bits, offset, len })
+        Ok(Self { bits, offset })
     }
 
     pub(super) unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {
         if cfg!(debug_assertions) {
             Self::try_new(bits, validity).vortex_expect("Failed to create BoolData")
         } else {
-            let (offset, len, buffer) = bits.into_inner();
+            let (offset, _len, buffer) = bits.into_inner();
 
             Self {
                 bits: BufferHandle::new_host(buffer),
                 offset,
-                len,
             }
         }
     }

@@ -5,6 +5,8 @@ mod kernel;
 mod operations;
 mod validity;
 
+use std::hash::Hasher;
+
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -13,6 +15,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -33,6 +37,16 @@ use crate::vtable;
 
 vtable!(Extension, Extension, ExtensionData);
 
+impl ArrayHash for ExtensionData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for ExtensionData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 impl VTable for Extension {
     type ArrayData = ExtensionData;
 
@@ -41,17 +55,6 @@ impl VTable for Extension {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        _data: &ExtensionData,
-        _state: &mut H,
-        _precision: Precision,
-    ) {
-    }
-
-    fn array_eq(_data: &ExtensionData, _other: &ExtensionData, _precision: Precision) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

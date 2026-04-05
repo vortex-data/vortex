@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use itertools::Itertools;
 use prost::Message;
@@ -63,6 +64,25 @@ pub struct ALPRDMetadata {
     patches: Option<PatchesMetadata>,
 }
 
+impl ArrayHash for ALPRDData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.left_parts_dictionary.array_hash(state, precision);
+        self.right_bit_width.hash(state);
+        self.patch_offset.hash(state);
+        self.patch_offset_within_chunk.hash(state);
+    }
+}
+
+impl ArrayEq for ALPRDData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.left_parts_dictionary
+            .array_eq(&other.left_parts_dictionary, precision)
+            && self.right_bit_width == other.right_bit_width
+            && self.patch_offset == other.patch_offset
+            && self.patch_offset_within_chunk == other.patch_offset_within_chunk
+    }
+}
+
 impl VTable for ALPRD {
     type ArrayData = ALPRDData;
 
@@ -81,21 +101,6 @@ impl VTable for ALPRD {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         data.validate_against_outer(dtype, len, slots)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &ALPRDData, state: &mut H, precision: Precision) {
-        data.left_parts_dictionary.array_hash(state, precision);
-        data.right_bit_width.hash(state);
-        data.patch_offset.hash(state);
-        data.patch_offset_within_chunk.hash(state);
-    }
-
-    fn array_eq(data: &ALPRDData, other: &ALPRDData, precision: Precision) -> bool {
-        data.left_parts_dictionary
-            .array_eq(&other.left_parts_dictionary, precision)
-            && data.right_bit_width == other.right_bit_width
-            && data.patch_offset == other.patch_offset
-            && data.patch_offset_within_chunk == other.patch_offset_within_chunk
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -531,14 +536,12 @@ impl ALPRDData {
     /// it constructs it from parts.
     pub(crate) unsafe fn new_unchecked(
         _dtype: DType,
-        left_parts: ArrayRef,
+        _left_parts: ArrayRef,
         left_parts_dictionary: Buffer<u16>,
-        right_parts: ArrayRef,
+        _right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> Self {
-        drop(left_parts);
-        drop(right_parts);
         Self {
             patch_offset: left_parts_patches.as_ref().map(Patches::offset),
             patch_offset_within_chunk: left_parts_patches
@@ -631,11 +634,11 @@ fn patches_from_slots(
 
 pub trait ALPRDArrayExt: TypedArrayRef<ALPRD> {
     fn left_parts(&self) -> &ArrayRef {
-        left_parts_from_slots(self.slots_ref())
+        left_parts_from_slots(self.as_ref().slots())
     }
 
     fn right_parts(&self) -> &ArrayRef {
-        right_parts_from_slots(self.slots_ref())
+        right_parts_from_slots(self.as_ref().slots())
     }
 
     fn right_bit_width(&self) -> u8 {
@@ -644,7 +647,7 @@ pub trait ALPRDArrayExt: TypedArrayRef<ALPRD> {
 
     fn left_parts_patches(&self) -> Option<Patches> {
         patches_from_slots(
-            self.slots_ref(),
+            self.as_ref().slots(),
             self.patch_offset,
             self.patch_offset_within_chunk,
             self.as_ref().len(),

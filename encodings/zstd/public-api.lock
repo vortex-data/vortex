@@ -32,10 +32,6 @@ pub type vortex_zstd::Zstd::OperationsVTable = vortex_zstd::Zstd
 
 pub type vortex_zstd::Zstd::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromValiditySliceHelper
 
-pub fn vortex_zstd::Zstd::array_eq(data: &vortex_zstd::ZstdData, other: &vortex_zstd::ZstdData, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_zstd::Zstd::array_hash<H: core::hash::Hasher>(data: &vortex_zstd::ZstdData, state: &mut H, precision: vortex_array::hash::Precision)
-
 pub fn vortex_zstd::Zstd::buffer(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_zstd::Zstd::buffer_name(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -133,6 +129,14 @@ pub fn vortex_zstd::ZstdData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> co
 impl vortex_array::array::vtable::validity::ValiditySliceHelper for vortex_zstd::ZstdData
 
 pub fn vortex_zstd::ZstdData::unsliced_validity_and_slice(&self) -> (&vortex_array::validity::Validity, usize, usize)
+
+impl vortex_array::hash::ArrayEq for vortex_zstd::ZstdData
+
+pub fn vortex_zstd::ZstdData::array_eq(&self, other: &Self, precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_zstd::ZstdData
+
+pub fn vortex_zstd::ZstdData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub struct vortex_zstd::ZstdDataParts
 

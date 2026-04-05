@@ -132,10 +132,10 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result;
 
     /// Hashes the array contents including len, dtype, and encoding id.
-    fn dyn_array_hash(&self, this: &ArrayRef, state: &mut dyn Hasher, precision: crate::Precision);
+    fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision);
 
     /// Compares two arrays of the same concrete type for equality.
-    fn dyn_array_eq(&self, this: &ArrayRef, other: &ArrayRef, precision: crate::Precision) -> bool;
+    fn dyn_array_eq(&self, other: &ArrayRef, precision: crate::Precision) -> bool;
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -321,12 +321,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         V::fmt_metadata(view, f)
     }
 
-    fn dyn_array_hash(
-        &self,
-        _this: &ArrayRef,
-        state: &mut dyn Hasher,
-        precision: crate::Precision,
-    ) {
+    fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision) {
         let mut wrapper = HasherWrapper(state);
         self.len.hash(&mut wrapper);
         self.dtype.hash(&mut wrapper);
@@ -335,15 +330,10 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         for slot in &self.slots {
             slot.array_hash(&mut wrapper, precision);
         }
-        V::array_hash(&self.data, &mut wrapper, precision);
+        self.data.array_hash(&mut wrapper, precision);
     }
 
-    fn dyn_array_eq(
-        &self,
-        _this: &ArrayRef,
-        other: &ArrayRef,
-        precision: crate::Precision,
-    ) -> bool {
+    fn dyn_array_eq(&self, other: &ArrayRef, precision: crate::Precision) -> bool {
         other
             .inner()
             .as_any()
@@ -358,7 +348,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
                         .iter()
                         .zip(other_inner.slots.iter())
                         .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
-                    && V::array_eq(&self.data, &other_inner.data, precision)
+                    && self.data.array_eq(&other_inner.data, precision)
             })
     }
 }

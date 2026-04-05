@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -37,6 +41,16 @@ impl Shared {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.shared");
 }
 
+impl ArrayHash for SharedData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for SharedData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 impl VTable for Shared {
     type ArrayData = SharedData;
     type OperationsVTable = Self;
@@ -59,13 +73,6 @@ impl VTable for Shared {
         vortex_error::vortex_ensure!(source.dtype() == dtype, "SharedArray dtype mismatch");
         vortex_error::vortex_ensure!(source.len() == len, "SharedArray len mismatch");
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(_data: &SharedData, _state: &mut H, _precision: Precision) {
-    }
-
-    fn array_eq(_data: &SharedData, _other: &SharedData, _precision: Precision) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

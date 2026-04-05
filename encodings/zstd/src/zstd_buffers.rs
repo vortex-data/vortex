@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use prost::Message as _;
@@ -324,6 +325,33 @@ fn array_id_from_string(s: &str) -> ArrayId {
     ArrayId::new_arc(Arc::from(s))
 }
 
+impl ArrayHash for ZstdBuffersData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.inner_encoding_id.hash(state);
+        self.inner_metadata.hash(state);
+        for buf in &self.compressed_buffers {
+            buf.array_hash(state, precision);
+        }
+        self.uncompressed_sizes.hash(state);
+        self.buffer_alignments.hash(state);
+    }
+}
+
+impl ArrayEq for ZstdBuffersData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.inner_encoding_id == other.inner_encoding_id
+            && self.inner_metadata == other.inner_metadata
+            && self.compressed_buffers.len() == other.compressed_buffers.len()
+            && self
+                .compressed_buffers
+                .iter()
+                .zip(&other.compressed_buffers)
+                .all(|(a, b)| a.array_eq(b, precision))
+            && self.uncompressed_sizes == other.uncompressed_sizes
+            && self.buffer_alignments == other.buffer_alignments
+    }
+}
+
 impl VTable for ZstdBuffers {
     type ArrayData = ZstdBuffersData;
     type OperationsVTable = Self;
@@ -341,33 +369,6 @@ impl VTable for ZstdBuffers {
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         data.validate()
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        data: &ZstdBuffersData,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        data.inner_encoding_id.hash(state);
-        data.inner_metadata.hash(state);
-        for buf in &data.compressed_buffers {
-            buf.array_hash(state, precision);
-        }
-        data.uncompressed_sizes.hash(state);
-        data.buffer_alignments.hash(state);
-    }
-
-    fn array_eq(data: &ZstdBuffersData, other: &ZstdBuffersData, precision: Precision) -> bool {
-        data.inner_encoding_id == other.inner_encoding_id
-            && data.inner_metadata == other.inner_metadata
-            && data.compressed_buffers.len() == other.compressed_buffers.len()
-            && data
-                .compressed_buffers
-                .iter()
-                .zip(&other.compressed_buffers)
-                .all(|(a, b)| a.array_eq(b, precision))
-            && data.uncompressed_sizes == other.uncompressed_sizes
-            && data.buffer_alignments == other.buffer_alignments
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {

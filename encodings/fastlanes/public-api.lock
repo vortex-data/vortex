@@ -146,10 +146,6 @@ pub type vortex_fastlanes::BitPacked::ValidityVTable = vortex_fastlanes::BitPack
 
 pub fn vortex_fastlanes::BitPacked::append_to_builder(array: vortex_array::array::view::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_fastlanes::BitPacked::array_eq(data: &vortex_fastlanes::BitPackedData, other: &vortex_fastlanes::BitPackedData, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_fastlanes::BitPacked::array_hash<H: core::hash::Hasher>(data: &vortex_fastlanes::BitPackedData, state: &mut H, precision: vortex_array::hash::Precision)
-
 pub fn vortex_fastlanes::BitPacked::buffer(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_fastlanes::BitPacked::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -228,6 +224,14 @@ impl core::fmt::Debug for vortex_fastlanes::BitPackedData
 
 pub fn vortex_fastlanes::BitPackedData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::hash::ArrayEq for vortex_fastlanes::BitPackedData
+
+pub fn vortex_fastlanes::BitPackedData::array_eq(&self, other: &Self, precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_fastlanes::BitPackedData
+
+pub fn vortex_fastlanes::BitPackedData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::hash::Precision)
+
 pub struct vortex_fastlanes::BitPackedDataParts
 
 pub vortex_fastlanes::BitPackedDataParts::bit_width: u8
@@ -267,10 +271,6 @@ pub type vortex_fastlanes::Delta::ArrayData = vortex_fastlanes::DeltaData
 pub type vortex_fastlanes::Delta::OperationsVTable = vortex_fastlanes::Delta
 
 pub type vortex_fastlanes::Delta::ValidityVTable = vortex_fastlanes::Delta
-
-pub fn vortex_fastlanes::Delta::array_eq(data: &vortex_fastlanes::DeltaData, other: &vortex_fastlanes::DeltaData, _precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_fastlanes::Delta::array_hash<H: core::hash::Hasher>(data: &vortex_fastlanes::DeltaData, state: &mut H, _precision: vortex_array::hash::Precision)
 
 pub fn vortex_fastlanes::Delta::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -322,6 +322,14 @@ impl core::fmt::Debug for vortex_fastlanes::DeltaData
 
 pub fn vortex_fastlanes::DeltaData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::hash::ArrayEq for vortex_fastlanes::DeltaData
+
+pub fn vortex_fastlanes::DeltaData::array_eq(&self, other: &Self, _precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_fastlanes::DeltaData
+
+pub fn vortex_fastlanes::DeltaData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::hash::Precision)
+
 pub struct vortex_fastlanes::FoR
 
 impl vortex_fastlanes::FoR
@@ -347,10 +355,6 @@ pub type vortex_fastlanes::FoR::ArrayData = vortex_fastlanes::FoRData
 pub type vortex_fastlanes::FoR::OperationsVTable = vortex_fastlanes::FoR
 
 pub type vortex_fastlanes::FoR::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
-
-pub fn vortex_fastlanes::FoR::array_eq(data: &vortex_fastlanes::FoRData, other: &vortex_fastlanes::FoRData, _precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_fastlanes::FoR::array_hash<H: core::hash::Hasher>(data: &vortex_fastlanes::FoRData, state: &mut H, _precision: vortex_array::hash::Precision)
 
 pub fn vortex_fastlanes::FoR::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -420,6 +424,14 @@ impl core::fmt::Debug for vortex_fastlanes::FoRData
 
 pub fn vortex_fastlanes::FoRData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl vortex_array::hash::ArrayEq for vortex_fastlanes::FoRData
+
+pub fn vortex_fastlanes::FoRData::array_eq(&self, other: &Self, _precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_fastlanes::FoRData
+
+pub fn vortex_fastlanes::FoRData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::hash::Precision)
+
 pub struct vortex_fastlanes::RLE
 
 impl vortex_fastlanes::RLE
@@ -447,10 +459,6 @@ pub type vortex_fastlanes::RLE::ArrayData = vortex_fastlanes::RLEData
 pub type vortex_fastlanes::RLE::OperationsVTable = vortex_fastlanes::RLE
 
 pub type vortex_fastlanes::RLE::ValidityVTable = vortex_fastlanes::RLE
-
-pub fn vortex_fastlanes::RLE::array_eq(data: &vortex_fastlanes::RLEData, other: &vortex_fastlanes::RLEData, _precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_fastlanes::RLE::array_hash<H: core::hash::Hasher>(data: &vortex_fastlanes::RLEData, state: &mut H, _precision: vortex_array::hash::Precision)
 
 pub fn vortex_fastlanes::RLE::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -498,7 +506,7 @@ pub fn vortex_fastlanes::RLEData::encode(array: &vortex_array::arrays::primitive
 
 impl vortex_fastlanes::RLEData
 
-pub unsafe fn vortex_fastlanes::RLEData::new_unchecked(values: vortex_array::array::erased::ArrayRef, indices: vortex_array::array::erased::ArrayRef, values_idx_offsets: vortex_array::array::erased::ArrayRef, offset: usize) -> Self
+pub unsafe fn vortex_fastlanes::RLEData::new_unchecked(_values: vortex_array::array::erased::ArrayRef, _indices: vortex_array::array::erased::ArrayRef, _values_idx_offsets: vortex_array::array::erased::ArrayRef, offset: usize) -> Self
 
 pub fn vortex_fastlanes::RLEData::offset(&self) -> usize
 
@@ -511,6 +519,14 @@ pub fn vortex_fastlanes::RLEData::clone(&self) -> vortex_fastlanes::RLEData
 impl core::fmt::Debug for vortex_fastlanes::RLEData
 
 pub fn vortex_fastlanes::RLEData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_fastlanes::RLEData
+
+pub fn vortex_fastlanes::RLEData::array_eq(&self, other: &Self, _precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_fastlanes::RLEData
+
+pub fn vortex_fastlanes::RLEData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::hash::Precision)
 
 pub trait vortex_fastlanes::BitPackedArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::BitPacked>
 

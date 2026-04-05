@@ -67,13 +67,13 @@ pub struct DeltaData {
 
 pub trait DeltaArrayExt: TypedArrayRef<crate::Delta> {
     fn bases(&self) -> &ArrayRef {
-        self.slots_ref()[BASES_SLOT]
+        self.as_ref().slots()[BASES_SLOT]
             .as_ref()
             .vortex_expect("DeltaArray bases slot")
     }
 
     fn deltas(&self) -> &ArrayRef {
-        self.slots_ref()[DELTAS_SLOT]
+        self.as_ref().slots()[DELTAS_SLOT]
             .as_ref()
             .vortex_expect("DeltaArray deltas slot")
     }
@@ -156,8 +156,7 @@ impl DeltaData {
         Ok(())
     }
 
-    pub(crate) unsafe fn new_unchecked(bases: ArrayRef, deltas: ArrayRef, offset: usize) -> Self {
-        drop((bases, deltas));
+    pub(crate) unsafe fn new_unchecked(_bases: ArrayRef, _deltas: ArrayRef, offset: usize) -> Self {
         Self { offset }
     }
 }

@@ -118,22 +118,22 @@ fn patch_values_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
 pub trait PatchedArrayExt: TypedArrayRef<Patched> {
     #[inline]
     fn base_array(&self) -> &ArrayRef {
-        base_array_from_slots(self.slots_ref())
+        base_array_from_slots(self.as_ref().slots())
     }
 
     #[inline]
     fn lane_offsets(&self) -> &ArrayRef {
-        lane_offsets_from_slots(self.slots_ref())
+        lane_offsets_from_slots(self.as_ref().slots())
     }
 
     #[inline]
     fn patch_indices(&self) -> &ArrayRef {
-        patch_indices_from_slots(self.slots_ref())
+        patch_indices_from_slots(self.as_ref().slots())
     }
 
     #[inline]
     fn patch_values(&self) -> &ArrayRef {
-        patch_values_from_slots(self.slots_ref())
+        patch_values_from_slots(self.as_ref().slots())
     }
 
     #[inline]
@@ -327,6 +327,7 @@ fn transpose<I: IntegerPType, V: NativePType>(
     offset: usize,
     array_len: usize,
 ) -> TransposedPatches {
+    // Total number of slots is number of chunks times number of lanes.
     let n_chunks = array_len.div_ceil(1024);
     assert!(
         n_chunks <= u32::MAX as usize,
@@ -335,10 +336,14 @@ fn transpose<I: IntegerPType, V: NativePType>(
 
     let n_lanes = patch_lanes::<V>();
 
+    // We know upfront how many indices and values we'll have.
     let mut indices_buffer = BufferMut::with_capacity(indices_in.len());
     let mut values_buffer = BufferMut::with_capacity(values_in.len());
+
+    // Number of patches in each chunk/lane.
     let mut lane_offsets: BufferMut<u32> = BufferMut::zeroed(n_chunks * n_lanes + 1);
 
+    // Scan the index/value pairs once to get chunk/lane counts.
     for index in indices_in {
         let index = index.as_() - offset;
         let chunk = index / 1024;
@@ -351,6 +356,7 @@ fn transpose<I: IntegerPType, V: NativePType>(
         lane_offsets[index] += lane_offsets[index - 1];
     }
 
+    // Loop over patches, writing them to final positions.
     let indices_out = indices_buffer.spare_capacity_mut();
     let values_out = values_buffer.spare_capacity_mut();
     for (index, &value) in std::iter::zip(indices_in, values_in) {

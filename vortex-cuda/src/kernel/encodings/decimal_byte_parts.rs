@@ -49,8 +49,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
             .execute_cuda(ctx)
             .await?
             .into_primitive()
-            .into_data()
-            .into_parts();
+            .into_data_parts();
 
         // SAFETY: The primitive array's buffer is already validated with correct type.
         // The decimal dtype matches the array's dtype, and validity is preserved.

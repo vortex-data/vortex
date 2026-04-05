@@ -350,11 +350,11 @@ pub trait StructArrayExt: TypedArrayRef<Struct> {
     }
 
     fn struct_validity(&self) -> Validity {
-        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
     }
 
     fn iter_unmasked_fields(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        self.slots_ref()[FIELDS_OFFSET..]
+        self.as_ref().slots()[FIELDS_OFFSET..]
             .iter()
             .map(|s| s.as_ref().vortex_expect("StructArray field slot"))
     }
@@ -364,7 +364,7 @@ pub trait StructArrayExt: TypedArrayRef<Struct> {
     }
 
     fn unmasked_field(&self, idx: usize) -> &ArrayRef {
-        self.slots_ref()[FIELDS_OFFSET + idx]
+        self.as_ref().slots()[FIELDS_OFFSET + idx]
             .as_ref()
             .vortex_expect("StructArray field slot")
     }

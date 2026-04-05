@@ -9,6 +9,7 @@ use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::arrays::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnRef;
 
@@ -30,7 +31,6 @@ impl ScalarFnData {
             children.iter().all(|c| c.len() == len),
             "ScalarFnArray must have children equal to the array length"
         );
-        drop(children);
         Ok(Self { scalar_fn })
     }
 
@@ -42,9 +42,20 @@ impl ScalarFnData {
     }
 }
 
-pub trait ScalarFnArrayDataExt {
-    fn child_at(&self, idx: usize) -> &ArrayRef;
-    fn child_count(&self) -> usize;
+pub trait ScalarFnArrayExt: TypedArrayRef<ScalarFnVTable> {
+    fn scalar_fn(&self) -> &ScalarFnRef {
+        &self.scalar_fn
+    }
+
+    fn child_at(&self, idx: usize) -> &ArrayRef {
+        self.as_ref().slots()[idx]
+            .as_ref()
+            .vortex_expect("ScalarFnArray child slot")
+    }
+
+    fn child_count(&self) -> usize {
+        self.as_ref().slots().len()
+    }
 
     fn iter_children(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
         (0..self.child_count()).map(|idx| self.child_at(idx))
@@ -54,58 +65,35 @@ pub trait ScalarFnArrayDataExt {
         self.iter_children().cloned().collect()
     }
 }
-
-impl ScalarFnArrayDataExt for Array<ScalarFnVTable> {
-    fn child_at(&self, idx: usize) -> &ArrayRef {
-        self.slots()[idx]
-            .as_ref()
-            .vortex_expect("ScalarFnArray child slot")
-    }
-
-    fn child_count(&self) -> usize {
-        self.slots().len()
-    }
-}
-
-impl ScalarFnArrayDataExt for ArrayView<'_, ScalarFnVTable> {
-    fn child_at(&self, idx: usize) -> &ArrayRef {
-        self.slots()[idx]
-            .as_ref()
-            .vortex_expect("ScalarFnArray child slot")
-    }
-
-    fn child_count(&self) -> usize {
-        self.slots().len()
-    }
-}
+impl<T: TypedArrayRef<ScalarFnVTable>> ScalarFnArrayExt for T {}
 
 impl Array<ScalarFnVTable> {
     /// Get the scalar function bound to this array.
     #[allow(clippy::same_name_method)]
     #[inline(always)]
     pub fn scalar_fn(&self) -> &ScalarFnRef {
-        self.data().scalar_fn()
+        ScalarFnArrayExt::scalar_fn(self)
     }
 
     /// Get the children arrays of this scalar function array.
     #[allow(clippy::same_name_method)]
     pub fn children(&self) -> Vec<ArrayRef> {
-        ScalarFnArrayDataExt::children(self)
+        ScalarFnArrayExt::children(self)
     }
 
     #[allow(clippy::same_name_method)]
     pub fn get_child(&self, idx: usize) -> &ArrayRef {
-        ScalarFnArrayDataExt::child_at(self, idx)
+        ScalarFnArrayExt::child_at(self, idx)
     }
 
     #[allow(clippy::same_name_method)]
     pub fn nchildren(&self) -> usize {
-        ScalarFnArrayDataExt::child_count(self)
+        ScalarFnArrayExt::child_count(self)
     }
 
     #[allow(clippy::same_name_method)]
     pub fn iter_children(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        (0..self.nchildren()).map(|idx| self.get_child(idx))
+        ScalarFnArrayExt::iter_children(self)
     }
 
     /// Create a new ScalarFnArray from a scalar function and its children.
@@ -129,22 +117,27 @@ impl Array<ScalarFnVTable> {
 
 impl ArrayView<'_, ScalarFnVTable> {
     #[allow(clippy::same_name_method)]
+    pub fn scalar_fn(&self) -> &ScalarFnRef {
+        ScalarFnArrayExt::scalar_fn(self)
+    }
+
+    #[allow(clippy::same_name_method)]
     pub fn children(&self) -> Vec<ArrayRef> {
-        ScalarFnArrayDataExt::children(self)
+        ScalarFnArrayExt::children(self)
     }
 
     #[allow(clippy::same_name_method)]
     pub fn get_child(&self, idx: usize) -> &ArrayRef {
-        ScalarFnArrayDataExt::child_at(self, idx)
+        ScalarFnArrayExt::child_at(self, idx)
     }
 
     #[allow(clippy::same_name_method)]
     pub fn nchildren(&self) -> usize {
-        ScalarFnArrayDataExt::child_count(self)
+        ScalarFnArrayExt::child_count(self)
     }
 
     #[allow(clippy::same_name_method)]
     pub fn iter_children(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        (0..self.nchildren()).map(|idx| self.get_child(idx))
+        ScalarFnArrayExt::iter_children(self)
     }
 }

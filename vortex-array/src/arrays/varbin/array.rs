@@ -307,13 +307,13 @@ impl VarBinData {
 
 pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
     fn offsets(&self) -> &ArrayRef {
-        self.slots_ref()[OFFSETS_SLOT]
+        self.as_ref().slots()[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("VarBinArray offsets slot")
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.slots_ref()[VALIDITY_SLOT].as_ref()
+        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
     }
 
     fn dtype_parts(&self) -> (bool, Nullability) {
@@ -333,7 +333,7 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
     }
 
     fn varbin_validity(&self) -> Validity {
-        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
     }
 
     fn varbin_validity_mask(&self) -> Mask {

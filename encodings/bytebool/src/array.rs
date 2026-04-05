@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hasher;
 
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -40,6 +41,18 @@ use crate::kernel::PARENT_KERNELS;
 
 vtable!(ByteBool, ByteBool, ByteBoolData);
 
+impl ArrayHash for ByteBoolData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.buffer.array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for ByteBoolData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.buffer.array_eq(&other.buffer, precision)
+    }
+}
+
 impl VTable for ByteBool {
     type ArrayData = ByteBoolData;
 
@@ -59,14 +72,6 @@ impl VTable for ByteBool {
     ) -> VortexResult<()> {
         let validity = child_to_validity(&slots[VALIDITY_SLOT], dtype.nullability());
         ByteBoolData::validate(data.buffer(), &validity, dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &ByteBoolData, state: &mut H, precision: Precision) {
-        data.buffer.array_hash(state, precision);
-    }
-
-    fn array_eq(data: &ByteBoolData, other: &ByteBoolData, precision: Precision) -> bool {
-        data.buffer.array_eq(&other.buffer, precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -168,7 +173,7 @@ pub struct ByteBoolData {
 pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
     fn validity(&self) -> Validity {
         child_to_validity(
-            &self.slots_ref()[VALIDITY_SLOT],
+            &self.as_ref().slots()[VALIDITY_SLOT],
             self.as_ref().dtype().nullability(),
         )
     }

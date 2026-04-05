@@ -108,13 +108,13 @@ impl DictData {
 
 pub trait DictArrayExt: TypedArrayRef<Dict> {
     fn codes(&self) -> &ArrayRef {
-        self.slots_ref()[CODES_SLOT]
+        self.as_ref().slots()[CODES_SLOT]
             .as_ref()
             .vortex_expect("DictArray codes slot")
     }
 
     fn values(&self) -> &ArrayRef {
-        self.slots_ref()[VALUES_SLOT]
+        self.as_ref().slots()[VALUES_SLOT]
             .as_ref()
             .vortex_expect("DictArray values slot")
     }

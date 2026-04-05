@@ -128,10 +128,11 @@ fn export_canonical(
                 export_fixed_size(buffer, len, 0, ctx)
             }
             Canonical::Bool(bool_array) => {
+                let len = bool_array.len();
                 let validity = bool_array.validity()?;
                 let BoolDataParts {
                     bits, offset, len, ..
-                } = bool_array.into_data().into_parts();
+                } = bool_array.into_data().into_parts(len);
 
                 check_validity_empty(&validity)?;
 
@@ -262,7 +263,6 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
             for child in children {
                 release_array(child);
             }
-            drop(private_data);
         }
 
         // update the release function to NULL to avoid any possibility of double-frees.

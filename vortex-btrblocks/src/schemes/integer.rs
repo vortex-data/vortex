@@ -854,7 +854,7 @@ mod tests {
             .into_array();
 
         let btr = BtrBlocksCompressor::default();
-        drop(btr.compress(&prim)?);
+        btr.compress(&prim)?;
 
         Ok(())
     }

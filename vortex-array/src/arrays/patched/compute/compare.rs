@@ -53,7 +53,8 @@ impl CompareKernel for Patched {
             .into_bool();
 
         let validity = child_to_validity(&result.slots()[0], result.dtype().nullability());
-        let BoolDataParts { bits, offset, len } = result.into_data().into_parts();
+        let len = result.len();
+        let BoolDataParts { bits, offset, len } = result.into_data().into_parts(len);
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 

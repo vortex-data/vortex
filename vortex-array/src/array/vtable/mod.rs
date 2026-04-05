@@ -9,7 +9,6 @@ mod validity;
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::hash::Hasher;
 
 pub use dyn_::*;
 pub use operations::*;
@@ -25,7 +24,6 @@ use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::Precision;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::Constant;
 use crate::buffer::BufferHandle;
@@ -33,6 +31,8 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::patches::Patches;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
@@ -52,7 +52,7 @@ use crate::validity::Validity;
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
-    type ArrayData: 'static + Send + Sync + Clone + Debug;
+    type ArrayData: 'static + Send + Sync + Clone + Debug + ArrayHash + ArrayEq;
 
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
@@ -68,12 +68,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()>;
-
-    /// Hashes the array contents.
-    fn array_hash<H: Hasher>(data: &Self::ArrayData, state: &mut H, precision: Precision);
-
-    /// Compares two arrays of the same type for equality.
-    fn array_eq(data: &Self::ArrayData, other: &Self::ArrayData, precision: Precision) -> bool;
 
     /// Returns the number of buffers in the array.
     fn nbuffers(array: ArrayView<'_, Self>) -> usize;

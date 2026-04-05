@@ -48,6 +48,18 @@ impl Filter {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.filter");
 }
 
+impl ArrayHash for FilterData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.mask.array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for FilterData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.mask.array_eq(&other.mask, precision)
+    }
+}
+
 impl VTable for Filter {
     type ArrayData = FilterData;
     type OperationsVTable = Self;
@@ -90,14 +102,6 @@ impl VTable for Filter {
             data.mask.len()
         );
         Ok(())
-    }
-
-    fn array_hash<H: Hasher>(data: &FilterData, state: &mut H, precision: Precision) {
-        data.mask.array_hash(state, precision);
-    }
-
-    fn array_eq(data: &FilterData, other: &FilterData, precision: Precision) -> bool {
-        data.mask.array_eq(&other.mask, precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

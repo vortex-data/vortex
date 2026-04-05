@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use kernel::PARENT_KERNELS;
 use prost::Message;
 use vortex_error::VortexExpect;
@@ -18,6 +20,8 @@ use super::array::SLOT_NAMES;
 use super::array::VALUES_SLOT;
 use super::take_canonical;
 use crate::AnyCanonical;
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Precision;
@@ -49,6 +53,16 @@ pub struct Dict;
 
 impl Dict {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.dict");
+}
+
+impl ArrayHash for DictData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for DictData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
 }
 
 impl VTable for Dict {
@@ -84,12 +98,6 @@ impl VTable for Dict {
             "DictArray dtype does not match codes/values dtype"
         );
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(_data: &DictData, _state: &mut H, _precision: Precision) {}
-
-    fn array_eq(_data: &DictData, _other: &DictData, _precision: Precision) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

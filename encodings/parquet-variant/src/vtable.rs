@@ -5,6 +5,8 @@ use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -75,16 +77,6 @@ impl VTable for ParquetVariant {
     ) -> VortexResult<()> {
         let _ = data;
         ParquetVariantData::validate_slots(dtype, len, slots)
-    }
-
-    fn array_hash<H: Hasher>(_data: &ParquetVariantData, _state: &mut H, _precision: Precision) {}
-
-    fn array_eq(
-        _data: &ParquetVariantData,
-        _other: &ParquetVariantData,
-        _precision: Precision,
-    ) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -205,6 +197,16 @@ impl VTable for ParquetVariant {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+}
+
+impl ArrayHash for ParquetVariantData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for ParquetVariantData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
     }
 }
 

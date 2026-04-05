@@ -112,7 +112,6 @@ impl ParquetVariantData {
             &dtype,
             len,
         )?;
-        drop((validity, metadata, value, typed_value));
         Ok(Self)
     }
 
@@ -230,24 +229,24 @@ impl ParquetVariantData {
 
 pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     fn metadata_array(&self) -> &ArrayRef {
-        self.slots_ref()[METADATA_SLOT]
+        self.as_ref().slots()[METADATA_SLOT]
             .as_ref()
             .vortex_expect("ParquetVariantArray metadata slot")
     }
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            &self.slots_ref()[VALIDITY_SLOT],
+            &self.as_ref().slots()[VALIDITY_SLOT],
             self.as_ref().dtype().nullability(),
         )
     }
 
     fn value_array(&self) -> Option<&ArrayRef> {
-        self.slots_ref()[VALUE_SLOT].as_ref()
+        self.as_ref().slots()[VALUE_SLOT].as_ref()
     }
 
     fn typed_value_array(&self) -> Option<&ArrayRef> {
-        self.slots_ref()[TYPED_VALUE_SLOT].as_ref()
+        self.as_ref().slots()[TYPED_VALUE_SLOT].as_ref()
     }
 
     fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {

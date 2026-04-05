@@ -24,10 +24,6 @@ pub type vortex_pco::Pco::OperationsVTable = vortex_pco::Pco
 
 pub type vortex_pco::Pco::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromValiditySliceHelper
 
-pub fn vortex_pco::Pco::array_eq(data: &vortex_pco::PcoData, other: &vortex_pco::PcoData, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_pco::Pco::array_hash<H: core::hash::Hasher>(data: &vortex_pco::PcoData, state: &mut H, precision: vortex_array::hash::Precision)
-
 pub fn vortex_pco::Pco::buffer(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_pco::Pco::buffer_name(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -111,6 +107,14 @@ pub fn vortex_pco::PcoData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core
 impl vortex_array::array::vtable::validity::ValiditySliceHelper for vortex_pco::PcoData
 
 pub fn vortex_pco::PcoData::unsliced_validity_and_slice(&self) -> (&vortex_array::validity::Validity, usize, usize)
+
+impl vortex_array::hash::ArrayEq for vortex_pco::PcoData
+
+pub fn vortex_pco::PcoData::array_eq(&self, other: &Self, precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_pco::PcoData
+
+pub fn vortex_pco::PcoData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub struct vortex_pco::PcoMetadata
 

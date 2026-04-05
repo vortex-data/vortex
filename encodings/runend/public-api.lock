@@ -48,10 +48,6 @@ pub type vortex_runend::RunEnd::OperationsVTable = vortex_runend::RunEnd
 
 pub type vortex_runend::RunEnd::ValidityVTable = vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::array_eq(data: &vortex_runend::RunEndData, other: &vortex_runend::RunEndData, _precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_runend::RunEnd::array_hash<H: core::hash::Hasher>(data: &vortex_runend::RunEndData, state: &mut H, _precision: vortex_array::hash::Precision)
-
 pub fn vortex_runend::RunEnd::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_runend::RunEnd::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -112,7 +108,7 @@ pub fn vortex_runend::RunEndData::into_parts(self, ends: vortex_array::array::er
 
 pub fn vortex_runend::RunEndData::new(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef) -> Self
 
-pub unsafe fn vortex_runend::RunEndData::new_unchecked(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, offset: usize, _length: usize) -> Self
+pub unsafe fn vortex_runend::RunEndData::new_unchecked(_ends: vortex_array::array::erased::ArrayRef, _values: vortex_array::array::erased::ArrayRef, offset: usize, _length: usize) -> Self
 
 impl core::clone::Clone for vortex_runend::RunEndData
 
@@ -121,6 +117,14 @@ pub fn vortex_runend::RunEndData::clone(&self) -> vortex_runend::RunEndData
 impl core::fmt::Debug for vortex_runend::RunEndData
 
 pub fn vortex_runend::RunEndData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_runend::RunEndData
+
+pub fn vortex_runend::RunEndData::array_eq(&self, other: &Self, _precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_runend::RunEndData
+
+pub fn vortex_runend::RunEndData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::hash::Precision)
 
 impl<R: arrow_array::types::RunEndIndexType> vortex_array::arrow::FromArrowArray<&arrow_array::array::run_array::RunArray<R>> for vortex_runend::RunEndData where <R as arrow_array::types::ArrowPrimitiveType>::Native: vortex_array::dtype::ptype::NativePType
 

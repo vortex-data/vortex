@@ -162,12 +162,14 @@ impl ListData {
     /// - All offset values must be non-negative.
     /// - The maximum offset must not exceed `elements.len()`.
     /// - If validity is an array, its length must equal `offsets.len() - 1`.
-    pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+    pub unsafe fn new_unchecked(
+        elements: ArrayRef,
+        offsets: ArrayRef,
+        _validity: Validity,
+    ) -> Self {
         #[cfg(debug_assertions)]
-        Self::validate(&elements, &offsets, &validity)
+        Self::validate(&elements, &offsets, &_validity)
             .vortex_expect("[Debug Assertion]: Invalid `ListViewArray` parameters");
-
-        drop(validity);
         Self
     }
 
@@ -270,19 +272,19 @@ pub trait ListArrayExt: TypedArrayRef<List> {
     }
 
     fn elements(&self) -> &ArrayRef {
-        self.slots_ref()[ELEMENTS_SLOT]
+        self.as_ref().slots()[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListArray elements slot")
     }
 
     fn offsets(&self) -> &ArrayRef {
-        self.slots_ref()[OFFSETS_SLOT]
+        self.as_ref().slots()[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("ListArray offsets slot")
     }
 
     fn list_validity(&self) -> Validity {
-        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
     }
 
     fn list_validity_mask(&self) -> vortex_mask::Mask {

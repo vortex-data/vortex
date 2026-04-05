@@ -26,10 +26,6 @@ pub type vortex_fsst::FSST::ValidityVTable = vortex_array::array::vtable::validi
 
 pub fn vortex_fsst::FSST::append_to_builder(array: vortex_array::array::view::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_fsst::FSST::array_eq(data: &vortex_fsst::FSSTData, other: &vortex_fsst::FSSTData, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_fsst::FSST::array_hash<H: core::hash::Hasher>(data: &vortex_fsst::FSSTData, state: &mut H, precision: vortex_array::hash::Precision)
-
 pub fn vortex_fsst::FSST::buffer(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_fsst::FSST::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -115,6 +111,14 @@ pub fn vortex_fsst::FSSTData::clone(&self) -> vortex_fsst::FSSTData
 impl core::fmt::Debug for vortex_fsst::FSSTData
 
 pub fn vortex_fsst::FSSTData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_fsst::FSSTData
+
+pub fn vortex_fsst::FSSTData::array_eq(&self, other: &Self, precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_fsst::FSSTData
+
+pub fn vortex_fsst::FSSTData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub struct vortex_fsst::FSSTMetadata
 

@@ -3,9 +3,12 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -43,6 +46,22 @@ use crate::alp::rules::RULES;
 
 vtable!(ALP, ALP, ALPData);
 
+impl ArrayHash for ALPData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.exponents.hash(state);
+        self.patch_offset.hash(state);
+        self.patch_offset_within_chunk.hash(state);
+    }
+}
+
+impl ArrayEq for ALPData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.exponents == other.exponents
+            && self.patch_offset == other.patch_offset
+            && self.patch_offset_within_chunk == other.patch_offset_within_chunk
+    }
+}
+
 impl VTable for ALP {
     type ArrayData = ALPData;
 
@@ -73,18 +92,6 @@ impl VTable for ALP {
                 len,
             ),
         )
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &ALPData, state: &mut H, _precision: Precision) {
-        data.exponents.hash(state);
-        data.patch_offset.hash(state);
-        data.patch_offset_within_chunk.hash(state);
-    }
-
-    fn array_eq(data: &ALPData, other: &ALPData, _precision: Precision) -> bool {
-        data.exponents == other.exponents
-            && data.patch_offset == other.patch_offset
-            && data.patch_offset_within_chunk == other.patch_offset_within_chunk
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -413,7 +420,6 @@ impl ALPData {
             Some(p) => (Some(p.offset()), p.offset_within_chunk()),
             None => (None, None),
         };
-        drop((encoded, patches));
 
         Ok(Self {
             patch_offset,
@@ -427,7 +433,7 @@ impl ALPData {
     /// See [`ALPData::try_new`] for information about the preconditions that should be checked
     /// **before** calling this method.
     pub(crate) unsafe fn new_unchecked(
-        encoded: ArrayRef,
+        _encoded: ArrayRef,
         exponents: Exponents,
         patches: Option<Patches>,
     ) -> Self {
@@ -435,7 +441,6 @@ impl ALPData {
             Some(p) => (Some(p.offset()), p.offset_within_chunk()),
             None => (None, None),
         };
-        drop((encoded, patches));
 
         Self {
             patch_offset,
@@ -516,7 +521,7 @@ impl ALPData {
 
 pub trait ALPArrayExt: TypedArrayRef<ALP> {
     fn encoded(&self) -> &ArrayRef {
-        self.slots_ref()[ENCODED_SLOT]
+        self.as_ref().slots()[ENCODED_SLOT]
             .as_ref()
             .vortex_expect("ALPArray encoded slot")
     }
@@ -527,7 +532,7 @@ pub trait ALPArrayExt: TypedArrayRef<ALP> {
 
     fn patches(&self) -> Option<Patches> {
         patches_from_slots(
-            self.slots_ref(),
+            self.as_ref().slots(),
             self.patch_offset,
             self.patch_offset_within_chunk,
             self.as_ref().len(),

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use itertools::Itertools;
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
@@ -9,6 +11,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -34,6 +38,16 @@ use crate::array::ArrayId;
 
 vtable!(Struct, Struct, StructData);
 
+impl ArrayHash for StructData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for StructData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 impl VTable for Struct {
     type ArrayData = StructData;
 
@@ -42,13 +56,6 @@ impl VTable for Struct {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(_data: &StructData, _state: &mut H, _precision: Precision) {
-    }
-
-    fn array_eq(_data: &StructData, _other: &StructData, _precision: Precision) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

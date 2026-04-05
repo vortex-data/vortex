@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 
 use kernel::PARENT_KERNELS;
 use prost::Message;
@@ -45,6 +47,19 @@ pub struct BoolMetadata {
     pub offset: u32,
 }
 
+impl ArrayHash for BoolData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.bits.array_hash(state, precision);
+        self.offset.hash(state);
+    }
+}
+
+impl ArrayEq for BoolData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.offset == other.offset && self.bits.array_eq(&other.bits, precision)
+    }
+}
+
 impl VTable for Bool {
     type ArrayData = BoolData;
 
@@ -53,15 +68,6 @@ impl VTable for Bool {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &BoolData, state: &mut H, precision: Precision) {
-        data.to_bit_buffer().array_hash(state, precision);
-    }
-
-    fn array_eq(data: &BoolData, other: &BoolData, precision: Precision) -> bool {
-        data.to_bit_buffer()
-            .array_eq(&other.to_bit_buffer(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -107,10 +113,11 @@ impl VTable for Bool {
             vortex_bail!("Expected bool dtype, got {dtype:?}");
         };
         vortex_ensure!(
-            data.len() == len,
-            "BoolArray length {} does not match outer length {}",
-            data.len(),
-            len
+            data.bits.len() * 8 >= data.offset + len,
+            "BoolArray buffer with offset {} cannot back outer length {} (buffer bits = {})",
+            data.offset,
+            len,
+            data.bits.len() * 8
         );
 
         let validity = crate::array::child_to_validity(&slots[0], *nullability);

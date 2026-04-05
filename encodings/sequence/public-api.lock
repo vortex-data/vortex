@@ -26,10 +26,6 @@ pub type vortex_sequence::Sequence::OperationsVTable = vortex_sequence::Sequence
 
 pub type vortex_sequence::Sequence::ValidityVTable = vortex_sequence::Sequence
 
-pub fn vortex_sequence::Sequence::array_eq(data: &vortex_sequence::SequenceData, other: &vortex_sequence::SequenceData, _precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_sequence::Sequence::array_hash<H: core::hash::Hasher>(data: &vortex_sequence::SequenceData, state: &mut H, _precision: vortex_array::hash::Precision)
-
 pub fn vortex_sequence::Sequence::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_sequence::Sequence::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
@@ -105,6 +101,14 @@ pub fn vortex_sequence::SequenceData::clone(&self) -> vortex_sequence::SequenceD
 impl core::fmt::Debug for vortex_sequence::SequenceData
 
 pub fn vortex_sequence::SequenceData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_sequence::SequenceData
+
+pub fn vortex_sequence::SequenceData::array_eq(&self, other: &Self, _precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_sequence::SequenceData
+
+pub fn vortex_sequence::SequenceData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::hash::Precision)
 
 pub struct vortex_sequence::SequenceDataParts
 

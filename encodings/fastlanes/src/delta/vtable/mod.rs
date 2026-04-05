@@ -2,10 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -52,6 +55,18 @@ pub struct DeltaMetadata {
     offset: u32, // must be <1024
 }
 
+impl ArrayHash for DeltaData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.offset.hash(state);
+    }
+}
+
+impl ArrayEq for DeltaData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.offset == other.offset
+    }
+}
+
 impl VTable for Delta {
     type ArrayData = DeltaData;
 
@@ -79,14 +94,6 @@ impl VTable for Delta {
             dtype,
             len,
         )
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &DeltaData, state: &mut H, _precision: Precision) {
-        data.offset.hash(state);
-    }
-
-    fn array_eq(data: &DeltaData, other: &DeltaData, _precision: Precision) -> bool {
-        data.offset == other.offset
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

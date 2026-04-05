@@ -29,7 +29,7 @@ pub struct FoRData {
 
 pub trait FoRArrayExt: TypedArrayRef<crate::FoR> {
     fn encoded(&self) -> &ArrayRef {
-        self.slots_ref()[ENCODED_SLOT]
+        self.as_ref().slots()[ENCODED_SLOT]
             .as_ref()
             .vortex_expect("FoRArray encoded slot")
     }

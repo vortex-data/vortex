@@ -38,6 +38,18 @@ use crate::hash::ArrayHash;
 
 vtable!(Primitive, Primitive, PrimitiveData);
 
+impl ArrayHash for PrimitiveData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.buffer.array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for PrimitiveData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.buffer.array_eq(&other.buffer, precision)
+    }
+}
+
 impl VTable for Primitive {
     type ArrayData = PrimitiveData;
 
@@ -46,14 +58,6 @@ impl VTable for Primitive {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: Hasher>(data: &PrimitiveData, state: &mut H, precision: Precision) {
-        data.buffer.array_hash(state, precision);
-    }
-
-    fn array_eq(data: &PrimitiveData, other: &PrimitiveData, precision: Precision) -> bool {
-        data.buffer.array_eq(&other.buffer, precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

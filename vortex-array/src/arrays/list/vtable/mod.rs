@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use prost::Message;
@@ -11,6 +12,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -45,6 +48,16 @@ pub struct ListMetadata {
     offset_ptype: i32,
 }
 
+impl ArrayHash for ListData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for ListData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 impl VTable for List {
     type ArrayData = ListData;
 
@@ -53,12 +66,6 @@ impl VTable for List {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(_data: &ListData, _state: &mut H, _precision: Precision) {}
-
-    fn array_eq(_data: &ListData, _other: &ListData, _precision: Precision) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

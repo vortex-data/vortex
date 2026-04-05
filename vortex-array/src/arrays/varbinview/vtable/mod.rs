@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
 use std::mem::size_of;
 use std::sync::Arc;
 
@@ -45,6 +46,27 @@ impl VarBinView {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.varbinview");
 }
 
+impl ArrayHash for VarBinViewData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        for buffer in self.buffers.iter() {
+            buffer.array_hash(state, precision);
+        }
+        self.views.array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for VarBinViewData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.buffers.len() == other.buffers.len()
+            && self
+                .buffers
+                .iter()
+                .zip(other.buffers.iter())
+                .all(|(a, b)| a.array_eq(b, precision))
+            && self.views.array_eq(&other.views, precision)
+    }
+}
+
 impl VTable for VarBinView {
     type ArrayData = VarBinViewData;
 
@@ -53,27 +75,6 @@ impl VTable for VarBinView {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        data: &VarBinViewData,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        for buffer in data.buffers.iter() {
-            buffer.array_hash(state, precision);
-        }
-        data.views.array_hash(state, precision);
-    }
-
-    fn array_eq(data: &VarBinViewData, other: &VarBinViewData, precision: Precision) -> bool {
-        data.buffers.len() == other.buffers.len()
-            && data
-                .buffers
-                .iter()
-                .zip(other.buffers.iter())
-                .all(|(a, b)| a.array_eq(b, precision))
-            && data.views.array_eq(&other.views, precision)
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {

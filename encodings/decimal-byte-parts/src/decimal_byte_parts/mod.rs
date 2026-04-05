@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use vortex_array::Array;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayView;
@@ -9,6 +11,8 @@ mod rules;
 mod slice;
 
 use prost::Message as _;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -44,6 +48,16 @@ use crate::decimal_byte_parts::rules::PARENT_RULES;
 
 vtable!(DecimalByteParts, DecimalByteParts, DecimalBytePartsData);
 
+impl ArrayHash for DecimalBytePartsData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for DecimalBytePartsData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 #[derive(Clone, prost::Message)]
 pub struct DecimalBytesPartsMetadata {
     #[prost(enumeration = "PType", tag = "1")]
@@ -76,21 +90,6 @@ impl VTable for DecimalByteParts {
             .as_ref()
             .vortex_expect("DecimalBytePartsArray msp slot");
         DecimalBytePartsData::validate(msp, *decimal_dtype, dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        _data: &DecimalBytePartsData,
-        _state: &mut H,
-        _precision: Precision,
-    ) {
-    }
-
-    fn array_eq(
-        _data: &DecimalBytePartsData,
-        _other: &DecimalBytePartsData,
-        _precision: Precision,
-    ) -> bool {
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -193,7 +192,7 @@ pub struct DecimalBytePartsDataParts {
 
 pub trait DecimalBytePartsArrayExt: TypedArrayRef<DecimalByteParts> {
     fn msp(&self) -> &ArrayRef {
-        self.slots_ref()[MSP_SLOT]
+        self.as_ref().slots()[MSP_SLOT]
             .as_ref()
             .vortex_expect("DecimalBytePartsArray msp slot")
     }

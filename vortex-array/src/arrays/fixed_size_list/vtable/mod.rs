@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
@@ -11,6 +12,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -41,6 +44,20 @@ impl FixedSizeList {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.fixed_size_list");
 }
 
+impl ArrayHash for FixedSizeListData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        let _precision = precision;
+        self.degenerate_len.hash(state);
+    }
+}
+
+impl ArrayEq for FixedSizeListData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        let _precision = precision;
+        self.degenerate_len == other.degenerate_len
+    }
+}
+
 impl VTable for FixedSizeList {
     type ArrayData = FixedSizeListData;
 
@@ -49,22 +66,6 @@ impl VTable for FixedSizeList {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        data: &FixedSizeListData,
-        state: &mut H,
-        _precision: Precision,
-    ) {
-        data.degenerate_len.hash(state);
-    }
-
-    fn array_eq(
-        data: &FixedSizeListData,
-        other: &FixedSizeListData,
-        _precision: Precision,
-    ) -> bool {
-        data.degenerate_len == other.degenerate_len
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

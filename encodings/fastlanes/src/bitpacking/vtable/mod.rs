@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::AnyCanonical;
@@ -67,6 +68,26 @@ pub struct BitPackedMetadata {
     pub(crate) patches: Option<PatchesMetadata>,
 }
 
+impl ArrayHash for BitPackedData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.offset.hash(state);
+        self.bit_width.hash(state);
+        self.packed.array_hash(state, precision);
+        self.patch_offset.hash(state);
+        self.patch_offset_within_chunk.hash(state);
+    }
+}
+
+impl ArrayEq for BitPackedData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.offset == other.offset
+            && self.bit_width == other.bit_width
+            && self.packed.array_eq(&other.packed, precision)
+            && self.patch_offset == other.patch_offset
+            && self.patch_offset_within_chunk == other.patch_offset_within_chunk
+    }
+}
+
 impl VTable for BitPacked {
     type ArrayData = BitPackedData;
 
@@ -104,22 +125,6 @@ impl VTable for BitPacked {
             _ => None,
         };
         data.validate_against_slots(dtype, len, &validity, patches.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &BitPackedData, state: &mut H, precision: Precision) {
-        data.offset.hash(state);
-        data.bit_width.hash(state);
-        data.packed.array_hash(state, precision);
-        data.patch_offset.hash(state);
-        data.patch_offset_within_chunk.hash(state);
-    }
-
-    fn array_eq(data: &BitPackedData, other: &BitPackedData, precision: Precision) -> bool {
-        data.offset == other.offset
-            && data.bit_width == other.bit_width
-            && data.packed.array_eq(&other.packed, precision)
-            && data.patch_offset == other.patch_offset
-            && data.patch_offset_within_chunk == other.patch_offset_within_chunk
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -11,6 +12,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -52,6 +55,18 @@ impl Constant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.constant");
 }
 
+impl ArrayHash for ConstantData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.scalar.hash(state);
+    }
+}
+
+impl ArrayEq for ConstantData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.scalar == other.scalar
+    }
+}
+
 impl VTable for Constant {
     type ArrayData = ConstantData;
 
@@ -74,14 +89,6 @@ impl VTable for Constant {
             "ConstantArray scalar dtype does not match outer dtype"
         );
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &ConstantData, state: &mut H, _precision: Precision) {
-        data.scalar.hash(state);
-    }
-
-    fn array_eq(data: &ConstantData, other: &ConstantData, _precision: Precision) -> bool {
-        data.scalar == other.scalar
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

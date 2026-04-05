@@ -3,9 +3,12 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -55,6 +58,18 @@ pub struct RunEndMetadata {
     pub offset: u64,
 }
 
+impl ArrayHash for RunEndData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.offset.hash(state);
+    }
+}
+
+impl ArrayEq for RunEndData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.offset == other.offset
+    }
+}
+
 impl VTable for RunEnd {
     type ArrayData = RunEndData;
 
@@ -86,14 +101,6 @@ impl VTable for RunEnd {
             values.dtype()
         );
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &RunEndData, state: &mut H, _precision: Precision) {
-        data.offset.hash(state);
-    }
-
-    fn array_eq(data: &RunEndData, other: &RunEndData, _precision: Precision) -> bool {
-        data.offset == other.offset
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -196,13 +203,13 @@ pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
     }
 
     fn ends(&self) -> &ArrayRef {
-        self.slots_ref()[ENDS_SLOT]
+        self.as_ref().slots()[ENDS_SLOT]
             .as_ref()
             .vortex_expect("RunEndArray ends slot")
     }
 
     fn values(&self) -> &ArrayRef {
-        self.slots_ref()[VALUES_SLOT]
+        self.as_ref().slots()[VALUES_SLOT]
             .as_ref()
             .vortex_expect("RunEndArray values slot")
     }
@@ -447,12 +454,11 @@ impl RunEndData {
     ///
     /// See [`RunEnd::try_new_offset_length`] for the preconditions needed to build a new array.
     pub unsafe fn new_unchecked(
-        ends: ArrayRef,
-        values: ArrayRef,
+        _ends: ArrayRef,
+        _values: ArrayRef,
         offset: usize,
         _length: usize,
     ) -> Self {
-        drop((ends, values));
         Self { offset }
     }
 

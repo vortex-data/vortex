@@ -145,8 +145,6 @@ impl RLEData {
         length: usize,
     ) -> VortexResult<Self> {
         Self::validate(&values, &indices, &values_idx_offsets, offset, length)?;
-
-        drop((values, indices, values_idx_offsets));
         Ok(Self { offset })
     }
 
@@ -158,12 +156,11 @@ impl RLEData {
     /// - The `indices` array contains valid indices into chunks of the `values` array
     /// - The `values_idx_offsets` array contains valid chunk start offsets
     pub unsafe fn new_unchecked(
-        values: ArrayRef,
-        indices: ArrayRef,
-        values_idx_offsets: ArrayRef,
+        _values: ArrayRef,
+        _indices: ArrayRef,
+        _values_idx_offsets: ArrayRef,
         offset: usize,
     ) -> Self {
-        drop((values, indices, values_idx_offsets));
         Self { offset }
     }
 
@@ -176,21 +173,21 @@ impl RLEData {
 pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
     #[inline]
     fn values(&self) -> &ArrayRef {
-        self.slots_ref()[VALUES_SLOT]
+        self.as_ref().slots()[VALUES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values slot must be populated")
     }
 
     #[inline]
     fn indices(&self) -> &ArrayRef {
-        self.slots_ref()[INDICES_SLOT]
+        self.as_ref().slots()[INDICES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray indices slot must be populated")
     }
 
     #[inline]
     fn values_idx_offsets(&self) -> &ArrayRef {
-        self.slots_ref()[VALUES_IDX_OFFSETS_SLOT]
+        self.as_ref().slots()[VALUES_IDX_OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values_idx_offsets slot must be populated")
     }

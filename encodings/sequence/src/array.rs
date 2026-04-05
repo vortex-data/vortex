@@ -2,10 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use num_traits::cast::FromPrimitive;
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -200,6 +203,19 @@ impl SequenceData {
     }
 }
 
+impl ArrayHash for SequenceData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.base.hash(state);
+        self.multiplier.hash(state);
+    }
+}
+
+impl ArrayEq for SequenceData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.base == other.base && self.multiplier == other.multiplier
+    }
+}
+
 impl VTable for Sequence {
     type ArrayData = SequenceData;
 
@@ -218,15 +234,6 @@ impl VTable for Sequence {
         _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         SequenceData::validate(data.base, data.multiplier, dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &SequenceData, state: &mut H, _precision: Precision) {
-        data.base.hash(state);
-        data.multiplier.hash(state);
-    }
-
-    fn array_eq(data: &SequenceData, other: &SequenceData, _precision: Precision) -> bool {
-        data.base == other.base && data.multiplier == other.multiplier
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

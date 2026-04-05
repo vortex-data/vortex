@@ -127,9 +127,6 @@ impl CudaExecutionCtx {
 
         let events = launch_cuda_kernel_impl(&mut launcher, self.strategy.event_flags(), len)?;
         self.strategy.on_complete(&events, len)?;
-
-        drop(events);
-
         Ok(())
     }
 
@@ -151,9 +148,6 @@ impl CudaExecutionCtx {
         let events =
             launch_cuda_kernel_with_config(&mut launcher, cfg, self.strategy.event_flags())?;
         self.strategy.on_complete(&events, len)?;
-
-        drop(events);
-
         Ok(())
     }
 

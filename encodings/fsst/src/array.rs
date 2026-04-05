@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::hash::Hasher;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -71,6 +72,28 @@ impl FSSTMetadata {
     }
 }
 
+impl ArrayHash for FSSTData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.symbols.array_hash(state, precision);
+        self.symbol_lengths.array_hash(state, precision);
+        self.codes.clone().into_array().array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for FSSTData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.symbols.array_eq(&other.symbols, precision)
+            && self
+                .symbol_lengths
+                .array_eq(&other.symbol_lengths, precision)
+            && self
+                .codes
+                .clone()
+                .into_array()
+                .array_eq(&other.codes.clone().into_array(), precision)
+    }
+}
+
 impl VTable for FSST {
     type ArrayData = FSSTData;
     type OperationsVTable = Self;
@@ -88,24 +111,6 @@ impl VTable for FSST {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         data.validate(dtype, len, slots)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(data: &FSSTData, state: &mut H, precision: Precision) {
-        data.symbols.array_hash(state, precision);
-        data.symbol_lengths.array_hash(state, precision);
-        data.codes.clone().into_array().array_hash(state, precision);
-    }
-
-    fn array_eq(data: &FSSTData, other: &FSSTData, precision: Precision) -> bool {
-        data.symbols.array_eq(&other.symbols, precision)
-            && data
-                .symbol_lengths
-                .array_eq(&other.symbol_lengths, precision)
-            && data
-                .codes
-                .clone()
-                .into_array()
-                .array_eq(&other.codes.clone().into_array(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -489,9 +494,8 @@ impl FSSTData {
         symbols: Buffer<Symbol>,
         symbol_lengths: Buffer<u8>,
         codes: VarBinArray,
-        uncompressed_lengths: ArrayRef,
+        _uncompressed_lengths: ArrayRef,
     ) -> Self {
-        drop(uncompressed_lengths);
         let symbols2 = symbols.clone();
         let symbol_lengths2 = symbol_lengths.clone();
         let compressor = Arc::new(LazyLock::new(Box::new(move || {
@@ -560,7 +564,7 @@ fn uncompressed_lengths_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
 
 pub trait FSSTArrayExt: TypedArrayRef<FSST> {
     fn uncompressed_lengths(&self) -> &ArrayRef {
-        uncompressed_lengths_from_slots(self.slots_ref())
+        uncompressed_lengths_from_slots(self.as_ref().slots())
     }
 
     fn uncompressed_lengths_dtype(&self) -> &DType {

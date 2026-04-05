@@ -98,12 +98,12 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
         buffer: values_buffer,
         validity: values_validity,
         ..
-    } = values.into_data().into_parts();
+    } = values.into_data_parts();
     let output_validity = values_validity.take(&codes.clone().into_array())?;
     let PrimitiveDataParts {
         buffer: codes_buffer,
         ..
-    } = codes.into_data().into_parts();
+    } = codes.into_data_parts();
 
     // Get device buffers for values and codes
     let values_device = ctx.ensure_on_device(values_buffer).await?;
@@ -180,13 +180,13 @@ async fn execute_dict_decimal_typed<
         values: values_buffer,
         validity: values_validity,
         ..
-    } = values.into_data().into_parts();
+    } = values.into_data_parts();
     let output_validity = values_validity.take(&codes.clone().into_array())?;
 
     let PrimitiveDataParts {
         buffer: codes_buffer,
         ..
-    } = codes.into_data().into_parts();
+    } = codes.into_data_parts();
 
     // Copy buffers to device if needed
     let values_device = ctx.ensure_on_device(values_buffer).await?;
@@ -251,7 +251,7 @@ async fn execute_dict_varbinview(
     let PrimitiveDataParts {
         buffer: codes_buffer,
         ..
-    } = codes_prim.into_data().into_parts();
+    } = codes_prim.into_data_parts();
 
     // Move buffers to device if needed.
     let values_device = ctx.ensure_on_device(values_views_handle).await?;
