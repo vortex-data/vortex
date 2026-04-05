@@ -91,6 +91,7 @@
 //! ```
 
 mod array;
+pub use array::data::TurboQuantArrayExt;
 pub use array::data::TurboQuantData;
 pub use array::scheme::TurboQuantScheme;
 

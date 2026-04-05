@@ -30,6 +30,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::TurboQuantArrayExt;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extension_element_ptype;

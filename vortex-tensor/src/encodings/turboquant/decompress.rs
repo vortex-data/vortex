@@ -20,6 +20,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::TurboQuantArrayExt;
 use crate::encodings::turboquant::array::float_from_f32;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
 use crate::utils::extension_element_ptype;

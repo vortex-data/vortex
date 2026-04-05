@@ -9,6 +9,7 @@ use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::TurboQuantArrayExt;
 
 impl TakeExecute for TurboQuant {
     fn take(

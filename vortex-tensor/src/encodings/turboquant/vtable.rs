@@ -34,6 +34,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::encodings::turboquant::TurboQuantArrayExt;
 use crate::encodings::turboquant::TurboQuantData;
 use crate::encodings::turboquant::array::slots::Slot;
 use crate::encodings::turboquant::compute::rules::PARENT_KERNELS;
@@ -86,15 +87,36 @@ impl TurboQuant {
         centroids: ArrayRef,
         rotation_signs: ArrayRef,
     ) -> VortexResult<TurboQuantArray> {
-        let data = TurboQuantData::try_new(&dtype, codes, norms, centroids, rotation_signs)?;
-
-        let parts = ArrayParts::new(TurboQuant, dtype, data.norms().len(), data);
+        let len = norms.len();
+        let data = TurboQuantData::try_new(
+            &dtype,
+            codes.clone(),
+            norms.clone(),
+            centroids.clone(),
+            rotation_signs.clone(),
+        )?;
+        let parts = ArrayParts::new(TurboQuant, dtype, len, data).with_slots(
+            TurboQuantData::make_slots(codes, norms, centroids, rotation_signs),
+        );
 
         Array::try_from_parts(parts)
     }
 }
 
 vtable!(TurboQuant, TurboQuant, TurboQuantData);
+
+impl ArrayHash for TurboQuantData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.dimension.hash(state);
+        self.bit_width.hash(state);
+    }
+}
+
+impl ArrayEq for TurboQuantData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.dimension == other.dimension && self.bit_width == other.bit_width
+    }
+}
 
 impl VTable for TurboQuant {
     type ArrayData = TurboQuantData;
@@ -105,59 +127,14 @@ impl VTable for TurboQuant {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
-        let ext = dtype
-            .as_extension_opt()
-            .filter(|e| e.is::<Vector>())
-            .ok_or_else(|| {
-                vortex_err!("TurboQuant dtype must be a Vector extension type, got {dtype}")
-            })?;
-
-        let dimension = extension_list_size(ext)?;
-        vortex_ensure!(
-            dimension >= Self::MIN_DIMENSION,
-            "TurboQuant requires dimension >= {}, got {dimension}",
-            Self::MIN_DIMENSION
-        );
-
-        vortex_ensure_eq!(data.dimension(), dimension);
-
-        // TODO(connor): In the future, we may not need to validate `len` on the array data because
-        // the child arrays will be located somewhere else.
-        // bit_width == 0 is only valid for degenerate (empty) arrays. A non-empty array with
-        // bit_width == 0 would have zero centroids while codes reference centroid indices.
-        vortex_ensure!(
-            data.bit_width > 0 || len == 0,
-            "bit_width == 0 is only valid for empty arrays, got len={len}"
-        );
-
-        Ok(())
-    }
-
-    fn array_hash<H: Hasher>(array: &TurboQuantData, state: &mut H, precision: Precision) {
-        array.dimension.hash(state);
-        array.bit_width.hash(state);
-        for slot in &array.slots {
-            slot.is_some().hash(state);
-            if let Some(child) = slot {
-                child.array_hash(state, precision);
-            }
-        }
-    }
-
-    fn array_eq(array: &TurboQuantData, other: &TurboQuantData, precision: Precision) -> bool {
-        array.dimension == other.dimension
-            && array.bit_width == other.bit_width
-            && array.slots.len() == other.slots.len()
-            && array
-                .slots
-                .iter()
-                .zip(other.slots.iter())
-                .all(|(a, b)| match (a, b) {
-                    (Some(a), Some(b)) => a.array_eq(b, precision),
-                    (None, None) => true,
-                    _ => false,
-                })
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        data.validate_against_outer(dtype, len, slots)
     }
 
     fn nbuffers(_array: ArrayView<Self>) -> usize {
@@ -184,7 +161,7 @@ impl VTable for TurboQuant {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<Self::ArrayData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure_eq!(
             metadata.len(),
             1,
@@ -239,37 +216,26 @@ impl VTable for TurboQuant {
         let signs_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
         let rotation_signs = children.get(3, &signs_dtype, signs_len)?;
 
-        Ok(TurboQuantData {
-            slots: vec![
-                Some(codes_array),
-                Some(norms_array),
-                Some(centroids),
-                Some(rotation_signs),
-            ],
-            dimension,
-            bit_width,
-        })
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        Ok(ArrayParts::new(
+            TurboQuant,
+            dtype.clone(),
+            len,
+            TurboQuantData {
+                dimension,
+                bit_width,
+            },
+        )
+        .with_slots(TurboQuantData::make_slots(
+            codes_array,
+            norms_array,
+            centroids,
+            rotation_signs,
+        )))
     }
 
     fn slot_name(_array: ArrayView<Self>, idx: usize) -> String {
         Slot::from_index(idx).name().to_string()
     }
-
-    fn with_slots(array: &mut TurboQuantData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == Slot::COUNT,
-            "TurboQuantArray expects {} slots, got {}",
-            Slot::COUNT,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
-    }
-
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(execute_decompress(array, ctx)?))
     }
@@ -293,7 +259,7 @@ impl VTable for TurboQuant {
 }
 
 impl ValidityChild<TurboQuant> for TurboQuant {
-    fn validity_child(array: &TurboQuantData) -> &ArrayRef {
-        array.norms()
+    fn validity_child(array: ArrayView<'_, TurboQuant>) -> ArrayRef {
+        array.norms().clone()
     }
 }
