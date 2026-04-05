@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::RLEData;
 pub use array::RLEArrayExt;
+pub use array::RLEData;
 
 mod compute;
 mod kernel;

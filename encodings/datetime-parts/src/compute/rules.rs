@@ -25,8 +25,8 @@ use vortex_array::scalar_fn::fns::mask::MaskReduceAdaptor;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::array::DateTimePartsArrayExt;
 use crate::DateTimeParts;
+use crate::array::DateTimePartsArrayExt;
 use crate::timestamp;
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DTPFilterPushDownRule),

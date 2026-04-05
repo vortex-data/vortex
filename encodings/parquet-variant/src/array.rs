@@ -116,7 +116,11 @@ impl ParquetVariantData {
         Ok(Self)
     }
 
-    pub(crate) fn validate_slots(dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+    pub(crate) fn validate_slots(
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         let validity = child_to_validity(&slots[VALIDITY_SLOT], dtype.nullability());
         Self::validate_parts(
             &validity,

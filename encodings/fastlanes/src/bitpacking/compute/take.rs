@@ -174,9 +174,9 @@ mod test {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
 
-    use crate::bitpacking::array::BitPackedArrayExt;
     use crate::BitPackedArray;
     use crate::BitPackedData;
+    use crate::bitpacking::array::BitPackedArrayExt;
     use crate::bitpacking::compute::take::take_primitive;
 
     #[test]

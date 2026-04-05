@@ -58,7 +58,11 @@ impl VTable for Chunked {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(_data: &ChunkedData, _state: &mut H, _precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        _data: &ChunkedData,
+        _state: &mut H,
+        _precision: Precision,
+    ) {
     }
 
     fn array_eq(_data: &ChunkedData, _other: &ChunkedData, _precision: Precision) -> bool {
@@ -133,7 +137,8 @@ impl VTable for Chunked {
                 dtype
             );
             vortex_ensure!(
-                chunk.len() == usize::try_from(end - start).vortex_expect("chunk len must fit in usize"),
+                chunk.len()
+                    == usize::try_from(end - start).vortex_expect("chunk len must fit in usize"),
                 "ChunkedArray chunk {} len {} does not match offsets span {}",
                 idx,
                 chunk.len(),
@@ -171,7 +176,12 @@ impl VTable for Chunked {
         let chunk_offsets_buf = chunk_offsets.to_primitive().to_buffer::<u64>();
         let mut slots = Vec::with_capacity(children.len());
         slots.push(Some(chunk_offsets));
-        for (idx, (start, end)) in chunk_offsets_buf.iter().copied().tuple_windows().enumerate() {
+        for (idx, (start, end)) in chunk_offsets_buf
+            .iter()
+            .copied()
+            .tuple_windows()
+            .enumerate()
+        {
             let chunk_len = usize::try_from(end - start)
                 .map_err(|_| vortex_err!("chunk_len {} exceeds usize range", end - start))?;
             slots.push(Some(children.get(idx + CHUNKS_OFFSET, dtype, chunk_len)?));
@@ -186,7 +196,6 @@ impl VTable for Chunked {
             n => format!("chunks[{}]", n - CHUNKS_OFFSET),
         }
     }
-
 
     fn append_to_builder(
         array: ArrayView<'_, Self>,

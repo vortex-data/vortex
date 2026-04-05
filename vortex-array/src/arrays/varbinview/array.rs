@@ -18,8 +18,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::VarBinView;
@@ -270,10 +270,7 @@ impl VarBinViewData {
     ) -> Self {
         let _ =
             Self::dtype_parts(&dtype).vortex_expect("VarBinViewArray dtype must be utf8 or binary");
-        Self {
-            buffers,
-            views,
-        }
+        Self { buffers, views }
     }
 
     /// Validates the components that would be used to create a `VarBinViewArray`.
@@ -549,10 +546,16 @@ impl<T: TypedArrayRef<VarBinView>> VarBinViewArrayExt for T {}
 
 impl Array<VarBinView> {
     #[inline]
-    fn from_prevalidated_data(dtype: DType, data: VarBinViewData, slots: Vec<Option<ArrayRef>>) -> Self {
+    fn from_prevalidated_data(
+        dtype: DType,
+        data: VarBinViewData,
+        slots: Vec<Option<ArrayRef>>,
+    ) -> Self {
         let len = data.len();
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(VarBinView, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(VarBinView, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -578,8 +581,10 @@ impl Array<VarBinView> {
 
     pub fn from_iter_str<T: AsRef<str>, I: IntoIterator<Item = T>>(iter: I) -> Self {
         let iter = iter.into_iter();
-        let mut builder =
-            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), iter.size_hint().0);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::NonNullable),
+            iter.size_hint().0,
+        );
         for value in iter {
             builder.append_value(value.as_ref());
         }
@@ -590,8 +595,10 @@ impl Array<VarBinView> {
         iter: I,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder =
-            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), iter.size_hint().0);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Utf8(Nullability::Nullable),
+            iter.size_hint().0,
+        );
         for value in iter {
             match value {
                 Some(value) => builder.append_value(value.as_ref()),
@@ -603,8 +610,10 @@ impl Array<VarBinView> {
 
     pub fn from_iter_bin<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(iter: I) -> Self {
         let iter = iter.into_iter();
-        let mut builder =
-            VarBinViewBuilder::with_capacity(DType::Binary(Nullability::NonNullable), iter.size_hint().0);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Binary(Nullability::NonNullable),
+            iter.size_hint().0,
+        );
         for value in iter {
             builder.append_value(value.as_ref());
         }
@@ -615,8 +624,10 @@ impl Array<VarBinView> {
         iter: I,
     ) -> Self {
         let iter = iter.into_iter();
-        let mut builder =
-            VarBinViewBuilder::with_capacity(DType::Binary(Nullability::Nullable), iter.size_hint().0);
+        let mut builder = VarBinViewBuilder::with_capacity(
+            DType::Binary(Nullability::Nullable),
+            iter.size_hint().0,
+        );
         for value in iter {
             match value {
                 Some(value) => builder.append_value(value.as_ref()),
@@ -649,8 +660,9 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        let data =
-            unsafe { VarBinViewData::new_unchecked(views, buffers, dtype.clone(), validity.clone()) };
+        let data = unsafe {
+            VarBinViewData::new_unchecked(views, buffers, dtype.clone(), validity.clone())
+        };
         let slots = VarBinViewData::make_slots(&validity, data.len());
         Self::from_prevalidated_data(dtype, data, slots)
     }
@@ -678,8 +690,9 @@ impl Array<VarBinView> {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        let data =
-            unsafe { VarBinViewData::new_handle_unchecked(views, buffers, dtype.clone(), validity.clone()) };
+        let data = unsafe {
+            VarBinViewData::new_handle_unchecked(views, buffers, dtype.clone(), validity.clone())
+        };
         let slots = VarBinViewData::make_slots(&validity, data.len());
         Self::from_prevalidated_data(dtype, data, slots)
     }

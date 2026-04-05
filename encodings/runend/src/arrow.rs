@@ -135,12 +135,7 @@ mod tests {
             )
         };
 
-        RunEnd::try_new_offset_length(
-            ends_slice,
-            values_slice,
-            offset,
-            array.len(),
-        )
+        RunEnd::try_new_offset_length(ends_slice, values_slice, offset, array.len())
     }
 
     #[test]
@@ -286,10 +281,7 @@ mod tests {
         )
     }
 
-    fn execute(
-        array: ArrayRef,
-        dt: &DataType,
-    ) -> VortexResult<arrow_array::ArrayRef> {
+    fn execute(array: ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
         array.execute_arrow(Some(dt), &mut SESSION.create_execution_ctx())
     }
 

@@ -185,8 +185,8 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
-    use crate::bitpacking::array::BitPackedArrayExt;
     use crate::BitPackedData;
+    use crate::bitpacking::array::BitPackedArrayExt;
 
     #[test]
     fn take_indices() {

@@ -74,9 +74,7 @@ impl FilterData {
     }
 
     pub fn into_parts(self) -> FilterDataParts {
-        FilterDataParts {
-            mask: self.mask,
-        }
+        FilterDataParts { mask: self.mask }
     }
 }
 

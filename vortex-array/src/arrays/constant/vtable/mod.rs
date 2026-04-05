@@ -76,19 +76,11 @@ impl VTable for Constant {
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        data: &ConstantData,
-        state: &mut H,
-        _precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(data: &ConstantData, state: &mut H, _precision: Precision) {
         data.scalar.hash(state);
     }
 
-    fn array_eq(
-        data: &ConstantData,
-        other: &ConstantData,
-        _precision: Precision,
-    ) -> bool {
+    fn array_eq(data: &ConstantData, other: &ConstantData, _precision: Precision) -> bool {
         data.scalar == other.scalar
     }
 
@@ -115,7 +107,6 @@ impl VTable for Constant {
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
-
 
     fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         // HACK: Because the scalar is stored in the buffers, we do not need to serialize the

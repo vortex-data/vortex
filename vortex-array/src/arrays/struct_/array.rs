@@ -14,8 +14,8 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Struct;
@@ -405,10 +405,17 @@ impl Array<Struct> {
     ) -> Self {
         let fields = fields.into();
         let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype().clone()).collect();
-        let dtype = DType::Struct(StructFields::new(names.clone(), field_dtypes), validity.nullability());
+        let dtype = DType::Struct(
+            StructFields::new(names.clone(), field_dtypes),
+            validity.nullability(),
+        );
         let slots = StructData::make_slots(&fields, &validity, length);
         let data = StructData::new(names, fields, length, validity);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, length, data).with_slots(slots)) }
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Struct, dtype, length, data).with_slots(slots),
+            )
+        }
     }
 
     /// Constructs a new `StructArray`.
@@ -420,10 +427,17 @@ impl Array<Struct> {
     ) -> VortexResult<Self> {
         let fields = fields.into();
         let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype().clone()).collect();
-        let dtype = DType::Struct(StructFields::new(names.clone(), field_dtypes), validity.nullability());
+        let dtype = DType::Struct(
+            StructFields::new(names.clone(), field_dtypes),
+            validity.nullability(),
+        );
         let slots = StructData::make_slots(&fields, &validity, length);
         let data = StructData::try_new(names, fields, length, validity)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, length, data).with_slots(slots)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Struct, dtype, length, data).with_slots(slots),
+            )
+        })
     }
 
     /// Creates a new `StructArray` without validation.
@@ -441,7 +455,11 @@ impl Array<Struct> {
         let outer_dtype = DType::Struct(dtype.clone(), validity.nullability());
         let slots = StructData::make_slots(&fields, &validity, length);
         let data = unsafe { StructData::new_unchecked(fields, dtype, length, validity) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, outer_dtype, length, data).with_slots(slots)) }
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Struct, outer_dtype, length, data).with_slots(slots),
+            )
+        }
     }
 
     /// Constructs a new `StructArray` with an explicit dtype.
@@ -455,7 +473,11 @@ impl Array<Struct> {
         let outer_dtype = DType::Struct(dtype.clone(), validity.nullability());
         let slots = StructData::make_slots(&fields, &validity, length);
         let data = StructData::try_new_with_dtype(fields, dtype, length, validity)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, outer_dtype, length, data).with_slots(slots)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Struct, outer_dtype, length, data).with_slots(slots),
+            )
+        })
     }
 
     /// Construct a `StructArray` from named fields.
@@ -497,7 +519,12 @@ impl Array<Struct> {
             .map(ArrayRef::len)
             .ok_or_else(|| vortex_err!("StructArray cannot be constructed from an empty slice of arrays because the length is unspecified"))?;
 
-        Self::try_new(FieldNames::from_iter(names), fields, len, Validity::NonNullable)
+        Self::try_new(
+            FieldNames::from_iter(names),
+            fields,
+            len,
+            Validity::NonNullable,
+        )
     }
 
     // TODO(aduffy): Add equivalent function to support field masks for nested column access.
@@ -538,7 +565,9 @@ impl Array<Struct> {
             crate::dtype::Nullability::NonNullable,
         );
         let slots = StructData::make_slots(&[], &Validity::NonNullable, len);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data).with_slots(slots)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Struct, dtype, len, data).with_slots(slots))
+        }
     }
 
     pub fn into_data_parts(self) -> StructDataParts {
@@ -550,12 +579,13 @@ impl Array<Struct> {
         let validity = self.validity().vortex_expect("StructArray validity");
         let struct_fields = StructFields::new(
             names,
-            fields
-                .iter()
-                .map(|field| field.dtype().clone())
-                .collect(),
+            fields.iter().map(|field| field.dtype().clone()).collect(),
         );
-        StructDataParts { struct_fields, fields, validity }
+        StructDataParts {
+            struct_fields,
+            fields,
+            validity,
+        }
     }
 
     pub fn remove_column(&self, name: impl Into<FieldName>) -> Option<(Self, ArrayRef)> {

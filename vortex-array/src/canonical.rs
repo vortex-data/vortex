@@ -16,8 +16,8 @@ use crate::ArrayRef;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::array::child_to_validity;
 use crate::array::ArrayView;
+use crate::array::child_to_validity;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
@@ -546,11 +546,7 @@ impl Executable for CanonicalValidity {
             n @ Canonical::Null(_) => Ok(CanonicalValidity(n)),
             Canonical::Bool(b) => {
                 let validity = child_to_validity(&b.slots()[0], b.dtype().nullability());
-                let BoolDataParts {
-                    bits,
-                    offset,
-                    len,
-                } = b.into_data().into_parts();
+                let BoolDataParts { bits, offset, len } = b.into_data().into_parts();
                 Ok(CanonicalValidity(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))
@@ -668,11 +664,7 @@ impl Executable for RecursiveCanonical {
             n @ Canonical::Null(_) => Ok(RecursiveCanonical(n)),
             Canonical::Bool(b) => {
                 let validity = child_to_validity(&b.slots()[0], b.dtype().nullability());
-                let BoolDataParts {
-                    bits,
-                    offset,
-                    len,
-                } = b.into_data().into_parts();
+                let BoolDataParts { bits, offset, len } = b.into_data().into_parts();
                 Ok(RecursiveCanonical(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))

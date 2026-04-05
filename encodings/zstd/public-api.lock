@@ -54,9 +54,7 @@ pub fn vortex_zstd::Zstd::serialize(array: vortex_array::array::view::ArrayView<
 
 pub fn vortex_zstd::Zstd::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_zstd::Zstd::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_zstd::Zstd::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_zstd::Zstd::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, _slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_zstd::Zstd> for vortex_zstd::Zstd
 

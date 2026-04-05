@@ -32,11 +32,11 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::TemporalParts;
 use crate::canonical::decode_to_temporal;
 use crate::compute::kernel::PARENT_KERNELS;
 use crate::compute::rules::PARENT_RULES;
 use crate::split_temporal;
-use crate::TemporalParts;
 
 vtable!(DateTimeParts, DateTimeParts, DateTimePartsData);
 

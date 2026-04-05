@@ -50,19 +50,11 @@ impl VTable for Null {
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        _data: &NullData,
-        _state: &mut H,
-        _precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(_data: &NullData, _state: &mut H, _precision: Precision) {
         // len and dtype are hashed by ArrayInner; NullData has no additional fields.
     }
 
-    fn array_eq(
-        _data: &NullData,
-        _other: &NullData,
-        _precision: Precision,
-    ) -> bool {
+    fn array_eq(_data: &NullData, _other: &NullData, _precision: Precision) -> bool {
         // len, dtype, and slots are compared by ArrayInner; NullData has no additional fields.
         true
     }
@@ -82,7 +74,6 @@ impl VTable for Null {
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("NullArray slot_name index {idx} out of bounds")
     }
-
 
     fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))

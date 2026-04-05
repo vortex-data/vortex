@@ -46,9 +46,7 @@ pub fn vortex_pco::Pco::serialize(array: vortex_array::array::view::ArrayView<'_
 
 pub fn vortex_pco::Pco::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_pco::Pco::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_pco::Pco::validate(&self, data: &vortex_pco::PcoData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_pco::Pco::validate(&self, data: &vortex_pco::PcoData, dtype: &vortex_array::dtype::DType, len: usize, _slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_pco::Pco> for vortex_pco::Pco
 

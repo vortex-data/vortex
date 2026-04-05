@@ -36,7 +36,10 @@ pub trait MaskedArrayExt: TypedArrayRef<Masked> {
     }
 
     fn masked_validity(&self) -> Validity {
-        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.as_ref().dtype().nullability())
+        child_to_validity(
+            &self.slots_ref()[VALIDITY_SLOT],
+            self.as_ref().dtype().nullability(),
+        )
     }
 
     fn masked_validity_mask(&self) -> vortex_mask::Mask {

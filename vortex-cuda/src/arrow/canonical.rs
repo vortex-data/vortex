@@ -130,10 +130,7 @@ fn export_canonical(
             Canonical::Bool(bool_array) => {
                 let validity = bool_array.validity()?;
                 let BoolDataParts {
-                    bits,
-                    offset,
-                    len,
-                    ..
+                    bits, offset, len, ..
                 } = bool_array.into_data().into_parts();
 
                 check_validity_empty(&validity)?;

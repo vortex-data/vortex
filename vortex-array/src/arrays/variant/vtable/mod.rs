@@ -79,8 +79,7 @@ impl VTable for Variant {
         Ok(())
     }
 
-    fn array_hash<H: Hasher>(_data: &VariantData, _state: &mut H, _precision: Precision) {
-    }
+    fn array_hash<H: Hasher>(_data: &VariantData, _state: &mut H, _precision: Precision) {}
 
     fn array_eq(_data: &VariantData, _other: &VariantData, _precision: Precision) -> bool {
         true
@@ -138,12 +137,10 @@ impl VTable for Variant {
         }
     }
 
-
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 }
 
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

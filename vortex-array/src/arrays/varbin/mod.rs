@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::VarBinData;
 pub use array::VarBinArrayExt;
+pub use array::VarBinData;
 pub use array::VarBinDataParts;
 pub use vtable::VarBinArray;
 

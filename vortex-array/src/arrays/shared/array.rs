@@ -52,9 +52,9 @@ pub trait SharedArrayExt: TypedArrayRef<Shared> {
         &self,
         f: impl FnOnce(&ArrayRef) -> VortexResult<Canonical>,
     ) -> VortexResult<ArrayRef> {
-        let result = self.cached.get_or_init(|| {
-            f(self.source()).map(|c| c.into_array()).map_err(Arc::new)
-        });
+        let result = self
+            .cached
+            .get_or_init(|| f(self.source()).map(|c| c.into_array()).map_err(Arc::new));
         result.clone().map_err(Into::into)
     }
 

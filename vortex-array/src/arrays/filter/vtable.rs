@@ -22,10 +22,10 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
+use crate::arrays::filter::FilterArrayExt;
 use crate::arrays::filter::array::CHILD_SLOT;
 use crate::arrays::filter::array::FilterData;
 use crate::arrays::filter::array::SLOT_NAMES;
-use crate::arrays::filter::FilterArrayExt;
 use crate::arrays::filter::execute::execute_filter;
 use crate::arrays::filter::execute::execute_filter_fast_paths;
 use crate::arrays::filter::rules::PARENT_RULES;
@@ -64,8 +64,13 @@ impl VTable for Filter {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(slots[CHILD_SLOT].is_some(), "FilterArray child slot must be present");
-        let child = slots[CHILD_SLOT].as_ref().vortex_expect("validated child slot");
+        vortex_ensure!(
+            slots[CHILD_SLOT].is_some(),
+            "FilterArray child slot must be present"
+        );
+        let child = slots[CHILD_SLOT]
+            .as_ref()
+            .vortex_expect("validated child slot");
         vortex_ensure!(
             child.dtype() == dtype,
             "FilterArray dtype {} does not match outer dtype {}",
@@ -128,7 +133,6 @@ impl VTable for Filter {
     ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_bail!("Filter array is not serializable")
     }
-
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if let Some(canonical) = execute_filter_fast_paths(array.as_view(), ctx)? {

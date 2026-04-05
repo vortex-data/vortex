@@ -488,7 +488,7 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
     ) -> Self {
         Self::new(
-            BufferMut::from_iter(iter.into_iter()).freeze(),
+            BufferMut::from_iter(iter).freeze(),
             decimal_dtype,
             Validity::NonNullable,
         )

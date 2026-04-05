@@ -170,8 +170,6 @@ pub fn vortex_fastlanes::BitPacked::serialize(array: vortex_array::array::view::
 
 pub fn vortex_fastlanes::BitPacked::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_fastlanes::BitPacked::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
 pub fn vortex_fastlanes::BitPacked::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fastlanes::BitPacked> for vortex_fastlanes::BitPacked
@@ -292,8 +290,6 @@ pub fn vortex_fastlanes::Delta::serialize(array: vortex_array::array::view::Arra
 
 pub fn vortex_fastlanes::Delta::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_fastlanes::Delta::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
 pub fn vortex_fastlanes::Delta::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fastlanes::Delta> for vortex_fastlanes::Delta
@@ -375,8 +371,6 @@ pub fn vortex_fastlanes::FoR::reduce_parent(array: vortex_array::array::view::Ar
 pub fn vortex_fastlanes::FoR::serialize(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_fastlanes::FoR::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
-
-pub fn vortex_fastlanes::FoR::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
 
 pub fn vortex_fastlanes::FoR::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
@@ -477,8 +471,6 @@ pub fn vortex_fastlanes::RLE::reduce_parent(array: vortex_array::array::view::Ar
 pub fn vortex_fastlanes::RLE::serialize(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_fastlanes::RLE::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
-
-pub fn vortex_fastlanes::RLE::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
 
 pub fn vortex_fastlanes::RLE::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 

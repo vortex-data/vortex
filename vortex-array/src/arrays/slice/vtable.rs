@@ -25,10 +25,10 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
+use crate::arrays::slice::SliceArrayExt;
 use crate::arrays::slice::array::CHILD_SLOT;
 use crate::arrays::slice::array::SLOT_NAMES;
 use crate::arrays::slice::array::SliceData;
-use crate::arrays::slice::SliceArrayExt;
 use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -64,8 +64,13 @@ impl VTable for Slice {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(slots[CHILD_SLOT].is_some(), "SliceArray child slot must be present");
-        let child = slots[CHILD_SLOT].as_ref().vortex_expect("validated child slot");
+        vortex_ensure!(
+            slots[CHILD_SLOT].is_some(),
+            "SliceArray child slot must be present"
+        );
+        let child = slots[CHILD_SLOT]
+            .as_ref()
+            .vortex_expect("validated child slot");
         vortex_ensure!(
             child.dtype() == dtype,
             "SliceArray dtype {} does not match outer dtype {}",
@@ -129,7 +134,6 @@ impl VTable for Slice {
     ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_bail!("Slice array is not serializable")
     }
-
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         // Execute the child to get canonical form, then slice it

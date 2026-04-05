@@ -109,9 +109,7 @@ impl ExtensionData {
             "ExtensionArray: storage_dtype must match storage array DType",
         );
 
-        Self {
-            ext_dtype,
-        }
+        Self { ext_dtype }
     }
 
     /// The extension dtype of this array.
@@ -146,8 +144,7 @@ impl Array<Extension> {
         let data = ExtensionData::new(ext_dtype, storage_array.clone());
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Extension, dtype, len, data)
-                    .with_slots(vec![Some(storage_array)]),
+                ArrayParts::new(Extension, dtype, len, data).with_slots(vec![Some(storage_array)]),
             )
         }
     }
@@ -159,8 +156,7 @@ impl Array<Extension> {
         let data = ExtensionData::try_new(ext_dtype, storage_array.clone())?;
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Extension, dtype, len, data)
-                    .with_slots(vec![Some(storage_array)]),
+                ArrayParts::new(Extension, dtype, len, data).with_slots(vec![Some(storage_array)]),
             )
         })
     }

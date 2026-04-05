@@ -59,7 +59,8 @@ impl RLEData {
         length: usize,
     ) -> VortexResult<()> {
         Self::validate_parts(values, indices, value_idx_offsets, self.offset, length)?;
-        let expected_dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
+        let expected_dtype =
+            DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
         vortex_ensure!(
             dtype == &expected_dtype,
             "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
@@ -249,10 +250,10 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::registry::ReadContext;
 
-    use crate::rle::array::RLEArrayExt;
     use crate::FL_CHUNK_SIZE;
     use crate::RLE;
     use crate::RLEData;
+    use crate::rle::array::RLEArrayExt;
     use crate::test::SESSION;
 
     #[test]

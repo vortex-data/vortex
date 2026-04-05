@@ -14,8 +14,8 @@ use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::VarBin;
@@ -187,12 +187,9 @@ impl VarBinData {
         Self::validate(&offsets, &bytes, &dtype, &validity)
             .vortex_expect("[Debug Assertion]: Invalid `VarBinArray` parameters");
 
-        let _ =
-            Self::dtype_parts(&dtype).vortex_expect("VarBinArray dtype must be utf8 or binary");
+        let _ = Self::dtype_parts(&dtype).vortex_expect("VarBinArray dtype must be utf8 or binary");
 
-        Self {
-            bytes,
-        }
+        Self { bytes }
     }
 
     /// Validates the components that would be used to create a `VarBinArray`.
@@ -294,7 +291,7 @@ impl VarBinData {
     /// # Note
     ///
     /// Bytes child buffer is never sliced when the array is sliced so this can include values
-    /// that are not logically present in the array. Users should prefer [sliced_bytes][Self::sliced_bytes]
+    /// that are not logically present in the array. Users should prefer `sliced_bytes`
     /// unless they're resolving values via the offset child array.
     #[inline]
     pub fn bytes(&self) -> &ByteBuffer {

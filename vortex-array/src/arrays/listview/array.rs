@@ -14,8 +14,8 @@ use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::ListView;
@@ -396,11 +396,18 @@ impl Array<ListView> {
     pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
-        let slots =
-            ListViewData::make_slots(elements.clone(), offsets.clone(), sizes.clone(), &validity, len);
+        let slots = ListViewData::make_slots(
+            elements.clone(),
+            offsets.clone(),
+            sizes.clone(),
+            &validity,
+            len,
+        );
         let data = ListViewData::new(elements, offsets, sizes, validity);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -413,11 +420,18 @@ impl Array<ListView> {
     ) -> VortexResult<Self> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
-        let slots =
-            ListViewData::make_slots(elements.clone(), offsets.clone(), sizes.clone(), &validity, len);
+        let slots = ListViewData::make_slots(
+            elements.clone(),
+            offsets.clone(),
+            sizes.clone(),
+            &validity,
+            len,
+        );
         let data = ListViewData::try_new(elements, offsets, sizes, validity)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
+            )
         })
     }
 
@@ -434,11 +448,18 @@ impl Array<ListView> {
     ) -> Self {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
-        let slots =
-            ListViewData::make_slots(elements.clone(), offsets.clone(), sizes.clone(), &validity, len);
+        let slots = ListViewData::make_slots(
+            elements.clone(),
+            offsets.clone(),
+            sizes.clone(),
+            &validity,
+            len,
+        );
         let data = unsafe { ListViewData::new_unchecked(elements, offsets, sizes, validity) };
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -449,21 +470,31 @@ impl Array<ListView> {
     /// See [`ListViewData::with_zero_copy_to_list`].
     pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
         if cfg!(debug_assertions) && is_zctl {
-            validate_zctl(self.elements(), self.offsets().to_primitive(), self.sizes().to_primitive())
-                .vortex_expect("Failed to validate zero-copy to list flag");
+            validate_zctl(
+                self.elements(),
+                self.offsets().to_primitive(),
+                self.sizes().to_primitive(),
+            )
+            .vortex_expect("Failed to validate zero-copy to list flag");
         }
         let dtype = self.dtype().clone();
         let len = self.len();
         let slots = self.slots().to_vec();
         let data = unsafe { self.into_data().with_zero_copy_to_list(is_zctl) };
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ListView, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
     pub fn verify_is_zero_copy_to_list(&self) -> bool {
-        validate_zctl(self.elements(), self.offsets().to_primitive(), self.sizes().to_primitive())
-            .is_ok()
+        validate_zctl(
+            self.elements(),
+            self.offsets().to_primitive(),
+            self.sizes().to_primitive(),
+        )
+        .is_ok()
     }
 
     pub fn elements(&self) -> &ArrayRef {
@@ -499,16 +530,13 @@ impl Array<ListView> {
     }
 
     pub fn into_data_parts(self) -> ListViewDataParts {
-        let elements = self
-            .slots()[ELEMENTS_SLOT]
+        let elements = self.slots()[ELEMENTS_SLOT]
             .clone()
             .vortex_expect("ListViewArray elements slot");
-        let offsets = self
-            .slots()[OFFSETS_SLOT]
+        let offsets = self.slots()[OFFSETS_SLOT]
             .clone()
             .vortex_expect("ListViewArray offsets slot");
-        let sizes = self
-            .slots()[SIZES_SLOT]
+        let sizes = self.slots()[SIZES_SLOT]
             .clone()
             .vortex_expect("ListViewArray sizes slot");
         let validity = self.listview_validity();
@@ -556,8 +584,12 @@ impl ArrayView<'_, ListView> {
     }
 
     pub fn verify_is_zero_copy_to_list(&self) -> bool {
-        validate_zctl(self.elements(), self.offsets().to_primitive(), self.sizes().to_primitive())
-            .is_ok()
+        validate_zctl(
+            self.elements(),
+            self.offsets().to_primitive(),
+            self.sizes().to_primitive(),
+        )
+        .is_ok()
     }
 }
 

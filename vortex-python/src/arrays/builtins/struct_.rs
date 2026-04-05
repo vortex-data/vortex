@@ -6,8 +6,8 @@ use pyo3::PyRef;
 use pyo3::PyResult;
 use pyo3::pyclass;
 use pyo3::pymethods;
-use vortex::error::VortexExpect;
 use vortex::array::arrays::Struct;
+use vortex::error::VortexExpect;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::EncodingSubclass;

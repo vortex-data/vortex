@@ -21,10 +21,10 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::validity_to_child;
 use crate::arrays::ConstantArray;
-use crate::arrays::masked::array::CHILD_SLOT;
-use crate::arrays::masked::MaskedData;
-use crate::arrays::masked::array::SLOT_NAMES;
 use crate::arrays::masked::MaskedArrayExt;
+use crate::arrays::masked::MaskedData;
+use crate::arrays::masked::array::CHILD_SLOT;
+use crate::arrays::masked::array::SLOT_NAMES;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
@@ -61,12 +61,14 @@ impl VTable for Masked {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        vortex_ensure!(slots[CHILD_SLOT].is_some(), "MaskedArray child slot must be present");
-        let child = slots[CHILD_SLOT].as_ref().vortex_expect("validated child slot");
         vortex_ensure!(
-            child.len() == len,
-            "MaskedArray child length mismatch"
+            slots[CHILD_SLOT].is_some(),
+            "MaskedArray child slot must be present"
         );
+        let child = slots[CHILD_SLOT]
+            .as_ref()
+            .vortex_expect("validated child slot");
+        vortex_ensure!(child.len() == len, "MaskedArray child length mismatch");
         vortex_ensure!(
             child.dtype().as_nullable() == *dtype,
             "MaskedArray dtype does not match child and validity"

@@ -78,7 +78,10 @@ fn dict_to_dict(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let codes = array.codes().clone().execute_arrow(Some(codes_type), ctx)?;
-    let values = array.values().clone().execute_arrow(Some(values_type), ctx)?;
+    let values = array
+        .values()
+        .clone()
+        .execute_arrow(Some(values_type), ctx)?;
     make_dict_array(codes_type, codes, values)
 }
 

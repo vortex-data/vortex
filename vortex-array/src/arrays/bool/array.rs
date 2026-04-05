@@ -293,11 +293,7 @@ impl BoolData {
             bits.len() * 8,
         );
 
-        Ok(Self {
-            bits,
-            offset,
-            len,
-        })
+        Ok(Self { bits, offset, len })
     }
 
     pub(super) unsafe fn new_unchecked(bits: BitBuffer, validity: Validity) -> Self {

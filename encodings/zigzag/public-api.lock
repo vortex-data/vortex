@@ -48,8 +48,6 @@ pub fn vortex_zigzag::ZigZag::serialize(_array: vortex_array::array::view::Array
 
 pub fn vortex_zigzag::ZigZag::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_zigzag::ZigZag::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
 pub fn vortex_zigzag::ZigZag::validate(&self, _data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag

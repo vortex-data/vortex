@@ -7,8 +7,8 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayView;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
 use crate::arrays::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnRef;
 

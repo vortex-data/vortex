@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-pub use array::MaskedData;
 pub use array::MaskedArrayExt;
+pub use array::MaskedData;
 pub use vtable::MaskedArray;
 
 pub(crate) mod compute;

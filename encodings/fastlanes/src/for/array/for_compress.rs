@@ -35,14 +35,13 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
 ) -> VortexResult<PrimitiveArray> {
     // Set null values to the min value, ensuring that decompress into a value in the primitive
     // range (and stop them wrapping around).
-    let encoded = parray
-        .map_each_with_validity::<T, _, _>(|(v, bool)| {
-            if bool {
-                v.wrapping_sub(&min)
-            } else {
-                T::zero()
-            }
-        })?;
+    let encoded = parray.map_each_with_validity::<T, _, _>(|(v, bool)| {
+        if bool {
+            v.wrapping_sub(&min)
+        } else {
+            T::zero()
+        }
+    })?;
     Ok(encoded)
 }
 
@@ -62,9 +61,9 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
-    use crate::r#for::array::FoRArrayExt;
     use super::*;
     use crate::BitPackedData;
+    use crate::r#for::array::FoRArrayExt;
     use crate::r#for::array::for_decompress::decompress;
     use crate::r#for::array::for_decompress::fused_decompress;
 

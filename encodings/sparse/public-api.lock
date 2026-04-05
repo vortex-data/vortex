@@ -52,9 +52,7 @@ pub fn vortex_sparse::Sparse::serialize(array: vortex_array::array::view::ArrayV
 
 pub fn vortex_sparse::Sparse::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_sparse::Sparse::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_sparse::Sparse::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_sparse::Sparse::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, _slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_sparse::Sparse> for vortex_sparse::Sparse
 

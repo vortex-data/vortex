@@ -65,10 +65,7 @@ impl CanonicalCudaExt for Canonical {
                 // Also update other method to copy validity to host.
                 let validity = bool.validity()?;
                 let BoolDataParts {
-                    bits,
-                    offset,
-                    len,
-                    ..
+                    bits, offset, len, ..
                 } = bool.into_data().into_parts();
 
                 let bits = BitBuffer::new_with_offset(bits.try_into_host()?.await?, offset, len);

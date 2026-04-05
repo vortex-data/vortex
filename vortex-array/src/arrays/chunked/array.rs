@@ -21,8 +21,8 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::arrays::Chunked;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
@@ -84,7 +84,10 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
     }
 
     fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
-        assert!(index <= self.as_ref().len(), "Index out of bounds of the array");
+        assert!(
+            index <= self.as_ref().len(),
+            "Index out of bounds of the array"
+        );
         let index = index as u64;
         let chunk_offsets = self.chunk_offsets();
         let index_chunk = chunk_offsets
@@ -141,7 +144,6 @@ impl Array<Chunked> {
     pub fn non_empty_chunks(&self) -> Box<dyn Iterator<Item = &ArrayRef> + '_> {
         <Self as ChunkedArrayExt>::non_empty_chunks(self)
     }
-
 }
 
 impl ArrayView<'_, Chunked> {
@@ -267,10 +269,12 @@ impl Array<Chunked> {
                 && !chunks_to_combine.is_empty()
             {
                 new_chunks.push(
-                    unsafe { Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone()) }
-                        .into_array()
-                        .to_canonical()?
-                        .into_array(),
+                    unsafe {
+                        Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone())
+                    }
+                    .into_array()
+                    .to_canonical()?
+                    .into_array(),
                 );
 
                 new_chunk_n_bytes = 0;

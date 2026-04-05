@@ -151,7 +151,9 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
         assert!(chunk * 1024 <= self.as_ref().len() + self.offset());
         assert!(lane < self.n_lanes());
 
-        let start = self.lane_offsets().scalar_at(chunk * self.n_lanes() + lane)?;
+        let start = self
+            .lane_offsets()
+            .scalar_at(chunk * self.n_lanes() + lane)?;
         let stop = self
             .lane_offsets()
             .scalar_at(chunk * self.n_lanes() + lane + 1)?;
@@ -195,7 +197,9 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
             Some(values),
         ];
 
-        Ok(unsafe { Array::<Patched>::from_prevalidated_parts(dtype, len, slots, self.n_lanes(), offset) })
+        Ok(unsafe {
+            Array::<Patched>::from_prevalidated_parts(dtype, len, slots, self.n_lanes(), offset)
+        })
     }
 }
 

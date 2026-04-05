@@ -16,8 +16,8 @@ use vortex_error::vortex_panic;
 use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
@@ -223,7 +223,9 @@ impl Array<Primitive> {
         let data = PrimitiveData::empty::<T>(nullability);
         let slots = PrimitiveData::make_slots(&Validity::from(nullability), len);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -239,7 +241,9 @@ impl Array<Primitive> {
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = PrimitiveData::new(buffer, validity);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -250,7 +254,9 @@ impl Array<Primitive> {
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = PrimitiveData::try_new(buffer, validity)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
         })
     }
 
@@ -265,7 +271,9 @@ impl Array<Primitive> {
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = unsafe { PrimitiveData::new_unchecked(buffer, validity) };
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -284,7 +292,9 @@ impl Array<Primitive> {
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = unsafe { PrimitiveData::new_unchecked_from_handle(handle, ptype, validity) };
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -305,7 +315,9 @@ impl Array<Primitive> {
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = PrimitiveData::from_byte_buffer(buffer, ptype, validity);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -322,7 +334,9 @@ impl Array<Primitive> {
         let data =
             PrimitiveData::from_values_byte_buffer(valid_elems_buffer, ptype, validity, n_rows);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Primitive, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Primitive, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -371,7 +385,9 @@ impl Array<Primitive> {
 impl PrimitiveData {
     /// Consume the primitive array and returns its component parts.
     pub fn into_parts(self) -> PrimitiveDataParts {
-        vortex_panic!("PrimitiveData::into_parts requires outer dtype; use Array<Primitive>::into_data_parts")
+        vortex_panic!(
+            "PrimitiveData::into_parts requires outer dtype; use Array<Primitive>::into_data_parts"
+        )
     }
 }
 
@@ -517,7 +533,6 @@ impl Array<Primitive> {
     pub fn buffer_handle(&self) -> &BufferHandle {
         &self.data().buffer
     }
-
 }
 
 impl ArrayView<'_, Primitive> {
@@ -528,5 +543,4 @@ impl ArrayView<'_, Primitive> {
     pub fn buffer_handle(&self) -> &BufferHandle {
         &self.data().buffer
     }
-
 }

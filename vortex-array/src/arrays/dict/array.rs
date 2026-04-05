@@ -139,7 +139,10 @@ pub trait DictArrayExt: TypedArrayRef<Dict> {
         Ok(())
     }
 
-    #[allow(clippy::cognitive_complexity, reason = "branching depends on validity representation and code type")]
+    #[allow(
+        clippy::cognitive_complexity,
+        reason = "branching depends on validity representation and code type"
+    )]
     fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes_validity = self.codes().validity_mask()?;
         let codes_primitive = self.codes().to_primitive();
@@ -210,26 +213,28 @@ impl Array<Dict> {
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
-        let dtype = values.dtype().union_nullability(codes.dtype().nullability());
+        let dtype = values
+            .dtype()
+            .union_nullability(codes.dtype().nullability());
         let len = codes.len();
         let data = DictData::new(codes.clone(), values.clone());
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Dict, dtype, len, data)
-                    .with_slots(vec![Some(codes), Some(values)]),
+                ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),
             )
         }
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn try_new(codes: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
-        let dtype = values.dtype().union_nullability(codes.dtype().nullability());
+        let dtype = values
+            .dtype()
+            .union_nullability(codes.dtype().nullability());
         let len = codes.len();
         let data = DictData::try_new(codes.clone(), values.clone())?;
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Dict, dtype, len, data)
-                    .with_slots(vec![Some(codes), Some(values)]),
+                ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),
             )
         })
     }
@@ -240,13 +245,14 @@ impl Array<Dict> {
     ///
     /// See [`DictData::new_unchecked`].
     pub unsafe fn new_unchecked(codes: ArrayRef, values: ArrayRef) -> Self {
-        let dtype = values.dtype().union_nullability(codes.dtype().nullability());
+        let dtype = values
+            .dtype()
+            .union_nullability(codes.dtype().nullability());
         let len = codes.len();
         let data = unsafe { DictData::new_unchecked(codes.clone(), values.clone()) };
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Dict, dtype, len, data)
-                    .with_slots(vec![Some(codes), Some(values)]),
+                ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),
             )
         }
     }
@@ -265,9 +271,7 @@ impl Array<Dict> {
                 .set_all_values_referenced(all_values_referenced)
         };
         unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Dict, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data).with_slots(slots))
         }
     }
 }

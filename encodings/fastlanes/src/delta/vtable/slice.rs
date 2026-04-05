@@ -26,12 +26,11 @@ impl SliceReduce for Delta {
         let deltas = array.deltas();
         let lanes = lane_count(array.dtype().as_ptype());
 
-        let new_bases =
-            bases.slice(min(start_chunk * lanes, bases.len())..min(stop_chunk * lanes, bases.len()))?;
+        let new_bases = bases
+            .slice(min(start_chunk * lanes, bases.len())..min(stop_chunk * lanes, bases.len()))?;
 
-        let new_deltas = deltas.slice(
-            min(start_chunk * 1024, deltas.len())..min(stop_chunk * 1024, deltas.len()),
-        )?;
+        let new_deltas = deltas
+            .slice(min(start_chunk * 1024, deltas.len())..min(stop_chunk * 1024, deltas.len()))?;
 
         Ok(Some(
             Delta::try_new(new_bases, new_deltas, physical_start % 1024, range.len())?.into_array(),

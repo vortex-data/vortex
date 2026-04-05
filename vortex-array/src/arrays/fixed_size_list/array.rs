@@ -10,8 +10,8 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::FixedSizeList;
@@ -204,7 +204,6 @@ impl FixedSizeListData {
 
         Ok(())
     }
-
 }
 
 pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
@@ -320,8 +319,7 @@ impl Array<FixedSizeList> {
 
     pub fn into_data_parts(self) -> FixedSizeListDataParts {
         let dtype = self.dtype().clone();
-        let elements = self
-            .slots()[ELEMENTS_SLOT]
+        let elements = self.slots()[ELEMENTS_SLOT]
             .clone()
             .vortex_expect("FixedSizeListArray elements slot");
         let validity = self.fixed_size_list_validity();
@@ -341,7 +339,11 @@ impl Array<FixedSizeList> {
             index,
             Array::len(self),
         );
-        debug_assert!(self.fixed_size_list_validity().is_valid(index).unwrap_or(false));
+        debug_assert!(
+            self.fixed_size_list_validity()
+                .is_valid(index)
+                .unwrap_or(false)
+        );
 
         let start = self.list_size() as usize * index;
         let end = self.list_size() as usize * (index + 1);
@@ -373,7 +375,11 @@ impl ArrayView<'_, FixedSizeList> {
             index,
             ArrayView::len(self),
         );
-        debug_assert!(self.fixed_size_list_validity().is_valid(index).unwrap_or(false));
+        debug_assert!(
+            self.fixed_size_list_validity()
+                .is_valid(index)
+                .unwrap_or(false)
+        );
 
         let start = self.list_size() as usize * index;
         let end = self.list_size() as usize * (index + 1);

@@ -3,15 +3,15 @@
 
 mod vtable;
 
-pub use self::vtable::Variant;
-pub use self::vtable::VariantArray;
 use vortex_error::VortexExpect;
 
+pub use self::vtable::Variant;
+pub use self::vtable::VariantArray;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::dtype::DType;
 
 pub(super) const NUM_SLOTS: usize = 1;

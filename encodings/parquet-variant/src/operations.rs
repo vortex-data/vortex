@@ -355,8 +355,8 @@ mod tests {
     use vortex_array::scalar::ScalarValue;
     use vortex_error::VortexResult;
 
-    use crate::ParquetVariantArrayExt;
     use crate::ParquetVariant;
+    use crate::ParquetVariantArrayExt;
     use crate::ParquetVariantData;
     use crate::operations::parquet_variant_to_scalar;
 

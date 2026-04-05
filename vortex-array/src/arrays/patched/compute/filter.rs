@@ -10,8 +10,8 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::FilterArray;
 use crate::arrays::Patched;
-use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::filter::FilterReduce;
+use crate::arrays::patched::PatchedArrayExt;
 
 impl FilterReduce for Patched {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {

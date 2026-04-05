@@ -148,8 +148,8 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
-    use crate::rle::array::RLEArrayExt;
     use super::*;
+    use crate::rle::array::RLEArrayExt;
 
     #[test]
     fn test_encode_decode() {

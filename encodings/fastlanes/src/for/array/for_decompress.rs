@@ -20,8 +20,8 @@ use vortex_error::VortexResult;
 use crate::BitPacked;
 use crate::BitPackedArrayExt;
 use crate::FoRArray;
-use crate::r#for::array::FoRArrayExt;
 use crate::bitpack_decompress;
+use crate::r#for::array::FoRArrayExt;
 use crate::unpack_iter::UnpackStrategy;
 use crate::unpack_iter::UnpackedChunks;
 

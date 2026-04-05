@@ -175,8 +175,8 @@ mod tests {
     use vortex::array::dtype::NativePType;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
-    use vortex::error::VortexExpect;
     use vortex::encodings::fastlanes::BitPackedArrayExt;
+    use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
 
     use super::*;

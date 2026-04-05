@@ -417,8 +417,8 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
 
-    use crate::bitpacking::array::BitPackedArrayExt;
     use crate::BitPackedData;
+    use crate::bitpacking::array::BitPackedArrayExt;
 
     #[test]
     fn test_encode() {
@@ -453,11 +453,7 @@ mod test {
         let parray = values.clone().into_array();
 
         let packed_with_patches = BitPackedData::encode(&parray, 9).unwrap();
-        assert!(
-            packed_with_patches
-                .patches()
-                .is_some()
-        );
+        assert!(packed_with_patches.patches().is_some());
         assert_arrays_eq!(
             packed_with_patches.as_array().to_primitive(),
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)

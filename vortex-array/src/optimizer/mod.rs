@@ -94,7 +94,7 @@ fn try_optimize_recursive(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
     for slot in current_array.slots() {
         match slot {
             Some(child) => {
-                if let Some(new_child) = try_optimize_recursive(&child)? {
+                if let Some(new_child) = try_optimize_recursive(child)? {
                     new_slots.push(Some(new_child));
                     any_slot_optimized = true;
                 } else {

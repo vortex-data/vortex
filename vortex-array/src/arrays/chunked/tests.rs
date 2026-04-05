@@ -44,7 +44,10 @@ fn with_slot_rewrites_chunk_and_offsets() {
 
     assert_eq!(array.nchunks(), 3);
     assert_eq!(array.chunk_offsets(), buffer![0u64, 3, 6, 9]);
-    assert_arrays_eq!(array.chunk(0).clone(), PrimitiveArray::from_iter([10u64, 11, 12]));
+    assert_arrays_eq!(
+        array.chunk(0).clone(),
+        PrimitiveArray::from_iter([10u64, 11, 12])
+    );
     assert_arrays_eq!(
         array.array().clone(),
         PrimitiveArray::from_iter([10u64, 11, 12, 4, 5, 6, 7, 8, 9])

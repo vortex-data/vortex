@@ -17,8 +17,8 @@ use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::ConstantArray;
@@ -110,7 +110,11 @@ impl ListData {
         validity: &Validity,
         len: usize,
     ) -> Vec<Option<ArrayRef>> {
-        vec![Some(elements), Some(offsets), validity_to_child(validity, len)]
+        vec![
+            Some(elements),
+            Some(offsets),
+            validity_to_child(validity, len),
+        ]
     }
 
     /// Creates a new `ListArray`.
@@ -326,7 +330,9 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(elements.clone(), offsets.clone(), &validity, len);
         let data = ListData::new(elements, offsets, validity);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
+        }
     }
 
     /// Constructs a new `ListArray`.
@@ -339,7 +345,9 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(elements.clone(), offsets.clone(), &validity, len);
         let data = ListData::try_new(elements, offsets, validity)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots)) })
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
+        })
     }
 
     /// Creates a new `ListArray` without validation.
@@ -352,7 +360,9 @@ impl Array<List> {
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(elements.clone(), offsets.clone(), &validity, len);
         let data = unsafe { ListData::new_unchecked(elements, offsets, validity) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots)) }
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
+        }
     }
 
     pub fn elements(&self) -> &ArrayRef {
@@ -389,12 +399,10 @@ impl Array<List> {
 
     pub fn into_data_parts(self) -> ListDataParts {
         let dtype = self.dtype().clone();
-        let elements = self
-            .slots()[ELEMENTS_SLOT]
+        let elements = self.slots()[ELEMENTS_SLOT]
             .clone()
             .vortex_expect("ListArray elements slot");
-        let offsets = self
-            .slots()[OFFSETS_SLOT]
+        let offsets = self.slots()[OFFSETS_SLOT]
             .clone()
             .vortex_expect("ListArray offsets slot");
         let validity = self.list_validity();
@@ -411,7 +419,10 @@ impl Array<List> {
         if recurse && elements.is_canonical() {
             elements = elements.to_canonical()?.compact()?.into_array();
         } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
-            elements = child_list_array.into_owned().reset_offsets(recurse)?.into_array();
+            elements = child_list_array
+                .into_owned()
+                .reset_offsets(recurse)?
+                .into_array();
         }
 
         let offsets = self.offsets();

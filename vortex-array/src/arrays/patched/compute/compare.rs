@@ -9,14 +9,14 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::array::child_to_validity;
 use crate::array::ArrayView;
+use crate::array::child_to_validity;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Patched;
-use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolDataParts;
+use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::primitive::NativeValue;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
@@ -53,11 +53,7 @@ impl CompareKernel for Patched {
             .into_bool();
 
         let validity = child_to_validity(&result.slots()[0], result.dtype().nullability());
-        let BoolDataParts {
-            bits,
-            offset,
-            len,
-        } = result.into_data().into_parts();
+        let BoolDataParts { bits, offset, len } = result.into_data().into_parts();
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 

@@ -108,9 +108,7 @@ impl DeltaData {
         len: usize,
     ) -> VortexResult<()> {
         Self::validate_parts(bases, deltas, self.offset, len)?;
-        let expected_dtype = bases
-            .dtype()
-            .with_nullability(deltas.dtype().nullability());
+        let expected_dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         vortex_ensure!(
             dtype == &expected_dtype,
             "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"

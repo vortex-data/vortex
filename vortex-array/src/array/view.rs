@@ -46,7 +46,7 @@ impl<'a, V: VTable> ArrayView<'a, V> {
     }
 
     pub fn slots(&self) -> &'a [Option<ArrayRef>] {
-        &self.array.slots()
+        self.array.slots()
     }
 
     pub fn dtype(&self) -> &DType {
