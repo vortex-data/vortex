@@ -274,6 +274,10 @@ impl Array<Chunked> {
     }
 
     /// Creates a new `ChunkedArray` without validation.
+    ///
+    /// # Safety
+    ///
+    /// All chunks must have exactly the same [`DType`] as the provided `dtype`.
     pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         let len = chunks.iter().map(|chunk| chunk.len()).sum();
         unsafe {
