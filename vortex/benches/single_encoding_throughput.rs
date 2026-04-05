@@ -17,7 +17,6 @@ use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
-use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::builders::dict::dict_encode;
@@ -39,6 +38,7 @@ use vortex::encodings::sequence::sequence_encode;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdData;
+use vortex_array::VortexSessionExecute;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
 
@@ -425,4 +425,114 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
     with_byte_counter(bencher, nbytes)
         .with_inputs(|| &compressed)
         .bench_refs(|a| a.to_canonical());
+}
+
+// TurboQuant vector quantization benchmarks.
+#[cfg(feature = "unstable_encodings")]
+mod turboquant_benches {
+    use divan::Bencher;
+    use paste::paste;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use vortex::array::IntoArray;
+    use vortex::array::arrays::ExtensionArray;
+    use vortex::array::arrays::FixedSizeListArray;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::dtype::extension::ExtDType;
+    use vortex::array::extension::EmptyMetadata;
+    use vortex::array::validity::Validity;
+    use vortex_array::VortexSessionExecute;
+    use vortex_buffer::BufferMut;
+    use vortex_tensor::encodings::turboquant::TurboQuantConfig;
+    use vortex_tensor::encodings::turboquant::turboquant_encode;
+    use vortex_tensor::vector::Vector;
+
+    use super::SESSION;
+    use super::with_byte_counter;
+
+    const NUM_VECTORS: usize = 1_000;
+
+    /// Generate `num_vectors` random f32 Vector extension arrays of the given dimension
+    /// using i.i.d. standard normal components. This is a conservative test distribution:
+    /// real neural network embeddings typically have structure (clustered, anisotropic)
+    /// that the SRHT exploits for better quantization, so Gaussian i.i.d. is a
+    /// worst-case baseline for TurboQuant.
+    fn setup_vector_ext(dim: usize) -> ExtensionArray {
+        let mut rng = StdRng::seed_from_u64(42);
+        let normal = rand_distr::Normal::new(0.0f32, 1.0).unwrap();
+
+        let mut buf = BufferMut::<f32>::with_capacity(NUM_VECTORS * dim);
+        for _ in 0..(NUM_VECTORS * dim) {
+            buf.push(rand_distr::Distribution::sample(&normal, &mut rng));
+        }
+
+        let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
+        let fsl = FixedSizeListArray::try_new(
+            elements.into_array(),
+            dim as u32,
+            Validity::NonNullable,
+            NUM_VECTORS,
+        )
+        .unwrap();
+        let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())
+            .unwrap()
+            .erased();
+        ExtensionArray::new(ext_dtype, fsl.into_array())
+    }
+
+    fn turboquant_config(bit_width: u8) -> TurboQuantConfig {
+        TurboQuantConfig {
+            bit_width,
+            seed: Some(123),
+        }
+    }
+
+    macro_rules! turboquant_bench {
+        (compress, $dim:literal, $bits:literal, $name:ident) => {
+            paste! {
+                #[divan::bench(name = concat!("turboquant_compress_dim", stringify!($dim), "_", stringify!($bits), "bit"))]
+                fn $name(bencher: Bencher) {
+                    let ext = setup_vector_ext($dim);
+                    let config = turboquant_config($bits);
+                    with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
+                        .with_inputs(|| &ext)
+                        .bench_refs(|a| {
+                            let mut ctx = SESSION.create_execution_ctx();
+                            turboquant_encode(a, &config, &mut ctx).unwrap()
+                        });
+                }
+            }
+        };
+        (decompress, $dim:literal, $bits:literal, $name:ident) => {
+            paste! {
+                #[divan::bench(name = concat!("turboquant_decompress_dim", stringify!($dim), "_", stringify!($bits), "bit"))]
+                fn $name(bencher: Bencher) {
+                    let ext = setup_vector_ext($dim);
+                    let config = turboquant_config($bits);
+                    let mut ctx = SESSION.create_execution_ctx();
+                    let compressed = turboquant_encode(&ext, &config, &mut ctx).unwrap();
+                    with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
+                        .with_inputs(|| &compressed)
+                        .bench_refs(|a| {
+                            let mut ctx = SESSION.create_execution_ctx();
+                            a.clone()
+                                .into_array()
+                                .execute::<ExtensionArray>(&mut ctx)
+                                .unwrap()
+                        });
+                }
+            }
+        };
+    }
+
+    turboquant_bench!(compress, 128, 4, bench_tq_compress_128_4);
+    turboquant_bench!(decompress, 128, 4, bench_tq_decompress_128_4);
+    turboquant_bench!(compress, 768, 4, bench_tq_compress_768_4);
+    turboquant_bench!(decompress, 768, 4, bench_tq_decompress_768_4);
+    turboquant_bench!(compress, 1024, 2, bench_tq_compress_1024_2);
+    turboquant_bench!(decompress, 1024, 2, bench_tq_decompress_1024_2);
+    turboquant_bench!(compress, 1024, 4, bench_tq_compress_1024_4);
+    turboquant_bench!(decompress, 1024, 4, bench_tq_decompress_1024_4);
+    turboquant_bench!(compress, 1024, 8, bench_tq_compress_1024_8);
+    turboquant_bench!(decompress, 1024, 8, bench_tq_decompress_1024_8);
 }

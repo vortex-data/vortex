@@ -1,5 +1,5 @@
 [default]
-extend-ignore-identifiers-re = ["ffor", "FFOR", "FoR", "typ", "ratatui"]
+extend-ignore-identifiers-re = ["ffor", "FFOR", "FoR", "typ", "ratatui", "wht", "WHT"]
 # We support a few common special comments to tell the checker to ignore sections of code
 extend-ignore-re = [
     "(#|//)\\s*spellchecker:ignore-next-line\\n.*", # Ignore the next line

@@ -28,6 +28,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::compute::cosine_similarity;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::inner_product::InnerProduct;
@@ -142,13 +144,29 @@ impl ScalarFnVTable for CosineSimilarity {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let lhs = args.get(0)?.execute::<ExtensionArray>(ctx)?.into_array();
-        let rhs = args.get(1)?.execute::<ExtensionArray>(ctx)?.into_array();
+        let lhs_ref = args.get(0)?;
+        let rhs_ref = args.get(1)?;
 
         let len = args.row_count();
 
+        // TurboQuant approximate path: check encoding before executing.
+        if options.is_approx()
+            && let (Some(lhs_tq), Some(rhs_tq)) = (
+                lhs_ref.as_opt::<TurboQuant>(),
+                rhs_ref.as_opt::<TurboQuant>(),
+            )
+        {
+            return cosine_similarity::cosine_similarity_quantized_column(lhs_tq, rhs_tq, ctx);
+        }
+
+        let lhs = lhs_ref.execute::<ExtensionArray>(ctx)?;
+        let rhs = rhs_ref.execute::<ExtensionArray>(ctx)?;
+
         // Compute combined validity.
-        let validity = lhs.validity()?.and(rhs.validity()?)?;
+        let validity = lhs.as_ref().validity()?.and(rhs.as_ref().validity()?)?;
+
+        let lhs = lhs.into_array();
+        let rhs = rhs.into_array();
 
         // Compute inner product and norms as columnar operations, and propagate the options.
         let norm_lhs_arr = L2Norm::try_new_array(options, lhs.clone(), len)?;
