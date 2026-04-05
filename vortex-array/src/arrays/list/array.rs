@@ -17,6 +17,7 @@ use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -256,41 +257,40 @@ impl ListData {
     // the offset type and manual subtraction and fast path where `offsets[0] == 0`.
 }
 
-pub trait ListArrayExt {
-    fn list_data(&self) -> &ListData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn len(&self) -> usize;
-    fn dtype(&self) -> &DType;
-
+pub trait ListArrayExt: TypedArrayRef<List> {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::List(_, nullability) => *nullability,
             _ => unreachable!("ListArrayExt requires a list dtype"),
         }
     }
 
     fn elements(&self) -> &ArrayRef {
-        self.as_slots()[ELEMENTS_SLOT]
+        self.slots_ref()[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListArray elements slot")
     }
 
     fn offsets(&self) -> &ArrayRef {
-        self.as_slots()[OFFSETS_SLOT]
+        self.slots_ref()[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("ListArray offsets slot")
     }
 
     fn list_validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
     }
 
     fn list_validity_mask(&self) -> vortex_mask::Mask {
-        self.list_validity().to_mask(self.len())
+        self.list_validity().to_mask(self.as_ref().len())
     }
 
     fn offset_at(&self, index: usize) -> VortexResult<usize> {
-        vortex_ensure!(index <= self.len(), "Index {index} out of bounds 0..={}", self.len());
+        vortex_ensure!(
+            index <= self.as_ref().len(),
+            "Index {index} out of bounds 0..={}",
+            self.as_ref().len()
+        );
 
         if let Some(p) = self.offsets().as_opt::<Primitive>() {
             Ok(match_each_native_ptype!(p.ptype(), |P| {
@@ -313,46 +313,11 @@ pub trait ListArrayExt {
 
     fn sliced_elements(&self) -> VortexResult<ArrayRef> {
         let start = self.offset_at(0)?;
-        let end = self.offset_at(self.len())?;
+        let end = self.offset_at(self.as_ref().len())?;
         self.elements().slice(start..end)
     }
 }
-
-impl ListArrayExt for Array<List> {
-    fn list_data(&self) -> &ListData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn len(&self) -> usize {
-        Array::len(self)
-    }
-
-    fn dtype(&self) -> &DType {
-        Array::dtype(self)
-    }
-}
-
-impl ListArrayExt for ArrayView<'_, List> {
-    fn list_data(&self) -> &ListData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn len(&self) -> usize {
-        ArrayView::len(self)
-    }
-
-    fn dtype(&self) -> &DType {
-        ArrayView::dtype(self)
-    }
-}
+impl<T: TypedArrayRef<List>> ListArrayExt for T {}
 
 impl Array<List> {
     /// Creates a new `ListArray`.
@@ -423,16 +388,21 @@ impl Array<List> {
     }
 
     pub fn into_data_parts(self) -> ListDataParts {
-        let parts = self.into_parts();
+        let dtype = self.dtype().clone();
+        let elements = self
+            .slots()[ELEMENTS_SLOT]
+            .clone()
+            .vortex_expect("ListArray elements slot");
+        let offsets = self
+            .slots()[OFFSETS_SLOT]
+            .clone()
+            .vortex_expect("ListArray offsets slot");
+        let validity = self.list_validity();
         ListDataParts {
-            elements: parts.slots[ELEMENTS_SLOT]
-                .clone()
-                .vortex_expect("ListArray elements slot"),
-            offsets: parts.slots[OFFSETS_SLOT]
-                .clone()
-                .vortex_expect("ListArray offsets slot"),
-            validity: child_to_validity(&parts.slots[VALIDITY_SLOT], parts.dtype.nullability()),
-            dtype: parts.dtype,
+            elements,
+            offsets,
+            validity,
+            dtype,
         }
     }
 
@@ -474,6 +444,10 @@ impl ArrayView<'_, List> {
 
     pub fn sliced_elements(&self) -> VortexResult<ArrayRef> {
         ListArrayExt::sliced_elements(self)
+    }
+
+    pub fn reset_offsets(&self, recurse: bool) -> VortexResult<Array<List>> {
+        self.into_owned().reset_offsets(recurse)
     }
 
     pub fn element_dtype(&self) -> &DType {

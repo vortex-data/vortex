@@ -25,8 +25,6 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 
-const NUM_SLOTS: usize = 0;
-
 pub(crate) mod compute;
 
 vtable!(Null, Null, NullData);

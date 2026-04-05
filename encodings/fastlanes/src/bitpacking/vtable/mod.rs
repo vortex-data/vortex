@@ -148,10 +148,6 @@ impl VTable for BitPacked {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -335,7 +331,9 @@ impl BitPacked {
         let data =
             BitPackedData::try_new(packed, ptype, validity, patches, bit_width, len, offset)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots),
+            )
         })
     }
 

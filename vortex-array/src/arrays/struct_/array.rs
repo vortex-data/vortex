@@ -14,6 +14,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -336,28 +337,24 @@ impl StructData {
     }
 }
 
-pub trait StructArrayExt {
-    fn struct_data(&self) -> &StructData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn dtype(&self) -> &DType;
-
+pub trait StructArrayExt: TypedArrayRef<Struct> {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::Struct(_, nullability) => *nullability,
             _ => unreachable!("StructArrayExt requires a struct dtype"),
         }
     }
 
     fn names(&self) -> &FieldNames {
-        self.struct_data().names()
+        StructData::names(self)
     }
 
     fn struct_validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
     }
 
     fn iter_unmasked_fields(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        self.as_slots()[FIELDS_OFFSET..]
+        self.slots_ref()[FIELDS_OFFSET..]
             .iter()
             .map(|s| s.as_ref().vortex_expect("StructArray field slot"))
     }
@@ -367,7 +364,7 @@ pub trait StructArrayExt {
     }
 
     fn unmasked_field(&self, idx: usize) -> &ArrayRef {
-        self.as_slots()[FIELDS_OFFSET + idx]
+        self.slots_ref()[FIELDS_OFFSET + idx]
             .as_ref()
             .vortex_expect("StructArray field slot")
     }
@@ -396,34 +393,7 @@ pub trait StructArrayExt {
         )
     }
 }
-
-impl StructArrayExt for Array<Struct> {
-    fn struct_data(&self) -> &StructData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn dtype(&self) -> &DType {
-        Array::dtype(self)
-    }
-}
-
-impl StructArrayExt for ArrayView<'_, Struct> {
-    fn struct_data(&self) -> &StructData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn dtype(&self) -> &DType {
-        ArrayView::dtype(self)
-    }
-}
+impl<T: TypedArrayRef<Struct>> StructArrayExt for T {}
 
 impl Array<Struct> {
     /// Creates a new `StructArray`.
@@ -572,19 +542,19 @@ impl Array<Struct> {
     }
 
     pub fn into_data_parts(self) -> StructDataParts {
-        let parts = self.into_parts();
-        let struct_fields = StructFields::new(
-            parts.data.names.clone(),
-            parts.slots[FIELDS_OFFSET..]
-                .iter()
-                .map(|slot| slot.as_ref().vortex_expect("StructArray field slot").dtype().clone())
-                .collect(),
-        );
-        let fields: Arc<[ArrayRef]> = parts.slots[FIELDS_OFFSET..]
+        let fields: Arc<[ArrayRef]> = self.slots()[FIELDS_OFFSET..]
             .iter()
             .map(|s| s.as_ref().vortex_expect("StructArray field slot").clone())
             .collect();
-        let validity = child_to_validity(&parts.slots[VALIDITY_SLOT], parts.dtype.nullability());
+        let names = self.data().names.clone();
+        let validity = self.validity().vortex_expect("StructArray validity");
+        let struct_fields = StructFields::new(
+            names,
+            fields
+                .iter()
+                .map(|field| field.dtype().clone())
+                .collect(),
+        );
         StructDataParts { struct_fields, fields, validity }
     }
 

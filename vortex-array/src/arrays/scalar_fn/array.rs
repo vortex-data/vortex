@@ -43,12 +43,11 @@ impl ScalarFnData {
 }
 
 pub trait ScalarFnArrayDataExt {
-    fn scalar_fn_data(&self) -> &ScalarFnData;
-    fn get_child(&self, idx: usize) -> &ArrayRef;
-    fn nchildren(&self) -> usize;
+    fn child_at(&self, idx: usize) -> &ArrayRef;
+    fn child_count(&self) -> usize;
 
     fn iter_children(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        (0..self.nchildren()).map(|idx| self.get_child(idx))
+        (0..self.child_count()).map(|idx| self.child_at(idx))
     }
 
     fn children(&self) -> Vec<ArrayRef> {
@@ -57,33 +56,25 @@ pub trait ScalarFnArrayDataExt {
 }
 
 impl ScalarFnArrayDataExt for Array<ScalarFnVTable> {
-    fn scalar_fn_data(&self) -> &ScalarFnData {
-        self.data()
-    }
-
-    fn get_child(&self, idx: usize) -> &ArrayRef {
+    fn child_at(&self, idx: usize) -> &ArrayRef {
         self.slots()[idx]
             .as_ref()
             .vortex_expect("ScalarFnArray child slot")
     }
 
-    fn nchildren(&self) -> usize {
+    fn child_count(&self) -> usize {
         self.slots().len()
     }
 }
 
 impl ScalarFnArrayDataExt for ArrayView<'_, ScalarFnVTable> {
-    fn scalar_fn_data(&self) -> &ScalarFnData {
-        self.data()
-    }
-
-    fn get_child(&self, idx: usize) -> &ArrayRef {
+    fn child_at(&self, idx: usize) -> &ArrayRef {
         self.slots()[idx]
             .as_ref()
             .vortex_expect("ScalarFnArray child slot")
     }
 
-    fn nchildren(&self) -> usize {
+    fn child_count(&self) -> usize {
         self.slots().len()
     }
 }
@@ -102,14 +93,17 @@ impl Array<ScalarFnVTable> {
         ScalarFnArrayDataExt::children(self)
     }
 
+    #[allow(clippy::same_name_method)]
     pub fn get_child(&self, idx: usize) -> &ArrayRef {
-        ScalarFnArrayDataExt::get_child(self, idx)
+        ScalarFnArrayDataExt::child_at(self, idx)
     }
 
+    #[allow(clippy::same_name_method)]
     pub fn nchildren(&self) -> usize {
-        ScalarFnArrayDataExt::nchildren(self)
+        ScalarFnArrayDataExt::child_count(self)
     }
 
+    #[allow(clippy::same_name_method)]
     pub fn iter_children(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
         (0..self.nchildren()).map(|idx| self.get_child(idx))
     }
@@ -139,14 +133,17 @@ impl ArrayView<'_, ScalarFnVTable> {
         ScalarFnArrayDataExt::children(self)
     }
 
+    #[allow(clippy::same_name_method)]
     pub fn get_child(&self, idx: usize) -> &ArrayRef {
-        ScalarFnArrayDataExt::get_child(self, idx)
+        ScalarFnArrayDataExt::child_at(self, idx)
     }
 
+    #[allow(clippy::same_name_method)]
     pub fn nchildren(&self) -> usize {
-        ScalarFnArrayDataExt::nchildren(self)
+        ScalarFnArrayDataExt::child_count(self)
     }
 
+    #[allow(clippy::same_name_method)]
     pub fn iter_children(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
         (0..self.nchildren()).map(|idx| self.get_child(idx))
     }

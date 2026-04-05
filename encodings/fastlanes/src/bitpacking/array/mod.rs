@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::BitPacking;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -326,45 +325,40 @@ impl BitPackedData {
     }
 }
 
-pub trait BitPackedArrayExt {
-    fn bitpacked_data(&self) -> &BitPackedData;
-    fn bitpacked_dtype(&self) -> &DType;
-    fn bitpacked_len(&self) -> usize;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-
+pub trait BitPackedArrayExt: TypedArrayRef<crate::BitPacked> {
     #[inline]
     fn packed(&self) -> &BufferHandle {
-        self.bitpacked_data().packed()
+        BitPackedData::packed(self)
     }
 
     #[inline]
     fn bit_width(&self) -> u8 {
-        self.bitpacked_data().bit_width()
+        BitPackedData::bit_width(self)
     }
 
     #[inline]
     fn offset(&self) -> u16 {
-        self.bitpacked_data().offset()
+        BitPackedData::offset(self)
     }
 
     #[inline]
     fn patch_indices(&self) -> Option<&ArrayRef> {
-        self.as_slots()[PATCH_INDICES_SLOT].as_ref()
+        self.slots_ref()[PATCH_INDICES_SLOT].as_ref()
     }
 
     #[inline]
     fn patch_values(&self) -> Option<&ArrayRef> {
-        self.as_slots()[PATCH_VALUES_SLOT].as_ref()
+        self.slots_ref()[PATCH_VALUES_SLOT].as_ref()
     }
 
     #[inline]
     fn patch_chunk_offsets(&self) -> Option<&ArrayRef> {
-        self.as_slots()[PATCH_CHUNK_OFFSETS_SLOT].as_ref()
+        self.slots_ref()[PATCH_CHUNK_OFFSETS_SLOT].as_ref()
     }
 
     #[inline]
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_slots()[VALIDITY_SLOT].as_ref()
+        self.slots_ref()[VALIDITY_SLOT].as_ref()
     }
 
     #[inline]
@@ -372,17 +366,16 @@ pub trait BitPackedArrayExt {
         match (self.patch_indices(), self.patch_values()) {
             (Some(indices), Some(values)) => {
                 let patch_offset = self
-                    .bitpacked_data()
                     .patch_offset
                     .vortex_expect("has patch slots but no patch_offset");
                 Some(unsafe {
                     Patches::new_unchecked(
-                        self.bitpacked_len(),
+                        self.as_ref().len(),
                         patch_offset,
                         indices.clone(),
                         values.clone(),
                         self.patch_chunk_offsets().cloned(),
-                        self.bitpacked_data().patch_offset_within_chunk,
+                        self.patch_offset_within_chunk,
                     )
                 })
             }
@@ -392,61 +385,29 @@ pub trait BitPackedArrayExt {
 
     #[inline]
     fn validity(&self) -> Validity {
-        child_to_validity(&self.validity_child().cloned(), self.bitpacked_dtype().nullability())
+        child_to_validity(
+            &self.validity_child().cloned(),
+            self.as_ref().dtype().nullability(),
+        )
     }
 
     #[inline]
     fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.bitpacked_len())
+        self.validity().to_mask(self.as_ref().len())
     }
 
     #[inline]
     fn packed_slice<T: NativePType + BitPacking>(&self) -> &[T] {
-        self.bitpacked_data().packed_slice::<T>()
+        BitPackedData::packed_slice::<T>(self)
     }
 
     #[inline]
     fn unpacked_chunks<T: BitPacked>(&self) -> VortexResult<BitUnpackedChunks<T>> {
-        self.bitpacked_data()
-            .unpacked_chunks::<T>(self.bitpacked_dtype(), self.bitpacked_len())
+        BitPackedData::unpacked_chunks::<T>(self, self.as_ref().dtype(), self.as_ref().len())
     }
 }
 
-impl BitPackedArrayExt for Array<crate::BitPacked> {
-    fn bitpacked_data(&self) -> &BitPackedData {
-        self.data()
-    }
-
-    fn bitpacked_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn bitpacked_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl BitPackedArrayExt for ArrayView<'_, crate::BitPacked> {
-    fn bitpacked_data(&self) -> &BitPackedData {
-        self.data()
-    }
-
-    fn bitpacked_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn bitpacked_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<crate::BitPacked>> BitPackedArrayExt for T {}
 
 #[cfg(test)]
 mod test {
@@ -456,6 +417,7 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
 
+    use crate::bitpacking::array::BitPackedArrayExt;
     use crate::BitPackedData;
 
     #[test]

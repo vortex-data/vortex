@@ -62,6 +62,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
+    use crate::r#for::array::FoRArrayExt;
     use super::*;
     use crate::BitPackedData;
     use crate::r#for::array::for_decompress::decompress;

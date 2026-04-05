@@ -13,7 +13,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Bool;
@@ -72,28 +72,20 @@ pub struct BoolDataParts {
     pub len: usize,
 }
 
-pub trait BoolArrayExt {
-    fn bool_data(&self) -> &BoolData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn dtype(&self) -> &DType;
-
+pub trait BoolArrayExt: TypedArrayRef<Bool> {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::Bool(nullability) => *nullability,
             _ => unreachable!("BoolArrayExt requires a bool dtype"),
         }
     }
 
-    fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_slots()[VALIDITY_SLOT].as_ref()
-    }
-
     fn validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
     }
 
     fn bool_validity_mask(&self) -> Mask {
-        self.validity().to_mask(self.bool_data().len)
+        self.validity().to_mask(self.len)
     }
 
     fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
@@ -102,7 +94,7 @@ pub trait BoolArrayExt {
             Validity::AllInvalid => false,
             Validity::Array(a) => a.statistics().compute_min::<bool>().unwrap_or(false),
         };
-        Ok(all_valid.then(|| Mask::from_buffer(self.bool_data().to_bit_buffer())))
+        Ok(all_valid.then(|| Mask::from_buffer(self.to_bit_buffer())))
     }
 
     fn to_mask(&self) -> Mask {
@@ -114,41 +106,14 @@ pub trait BoolArrayExt {
     fn to_mask_fill_null_false(&self) -> Mask {
         let validity_mask = self.bool_validity_mask();
         let buffer = match validity_mask {
-            Mask::AllTrue(_) => self.bool_data().to_bit_buffer(),
-            Mask::AllFalse(_) => return Mask::new_false(self.bool_data().len),
-            Mask::Values(validity) => validity.bit_buffer() & self.bool_data().to_bit_buffer(),
+            Mask::AllTrue(_) => self.to_bit_buffer(),
+            Mask::AllFalse(_) => return Mask::new_false(self.len),
+            Mask::Values(validity) => validity.bit_buffer() & self.to_bit_buffer(),
         };
         Mask::from_buffer(buffer)
     }
 }
-
-impl BoolArrayExt for Array<Bool> {
-    fn bool_data(&self) -> &BoolData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn dtype(&self) -> &DType {
-        Array::dtype(self)
-    }
-}
-
-impl BoolArrayExt for ArrayView<'_, Bool> {
-    fn bool_data(&self) -> &BoolData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn dtype(&self) -> &DType {
-        ArrayView::dtype(self)
-    }
-}
+impl<T: TypedArrayRef<Bool>> BoolArrayExt for T {}
 
 /// Field accessors and non-consuming methods on the inner bool data.
 impl BoolData {

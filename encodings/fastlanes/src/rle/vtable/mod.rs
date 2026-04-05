@@ -5,8 +5,6 @@ use std::hash::Hash;
 
 use prost::Message;
 use vortex_array::Array;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -23,8 +21,8 @@ use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
-use vortex_error::VortexResult;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
@@ -120,10 +118,6 @@ impl VTable for RLE {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         crate::rle::array::SLOT_NAMES[idx].to_string()
     }
@@ -184,7 +178,13 @@ impl VTable for RLE {
             Some(indices.clone()),
             Some(values_idx_offsets.clone()),
         ];
-        let data = RLEData::try_new(values, indices, values_idx_offsets, metadata.offset as usize, len)?;
+        let data = RLEData::try_new(
+            values,
+            indices,
+            values_idx_offsets,
+            metadata.offset as usize,
+            len,
+        )?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 

@@ -31,8 +31,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -58,7 +56,7 @@ impl VTable for Masked {
 
     fn validate(
         &self,
-        data: &MaskedData,
+        _data: &MaskedData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

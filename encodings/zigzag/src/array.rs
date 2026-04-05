@@ -2,8 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::Array;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -12,6 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::TypedArrayRef;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
@@ -71,11 +70,7 @@ impl VTable for ZigZag {
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(
-        _data: &ZigZagData,
-        _state: &mut H,
-        _precision: Precision,
-    ) {
+    fn array_hash<H: std::hash::Hasher>(_data: &ZigZagData, _state: &mut H, _precision: Precision) {
     }
 
     fn array_eq(_data: &ZigZagData, _other: &ZigZagData, _precision: Precision) -> bool {
@@ -126,10 +121,6 @@ impl VTable for ZigZag {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -166,11 +157,9 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
 #[derive(Clone, Debug)]
 pub struct ZigZagData {}
 
-pub trait ZigZagArrayExt {
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-
+pub trait ZigZagArrayExt: TypedArrayRef<ZigZag> {
     fn encoded(&self) -> &ArrayRef {
-        self.as_slots()[ENCODED_SLOT]
+        self.slots_ref()[ENCODED_SLOT]
             .as_ref()
             .vortex_expect("ZigZagArray encoded slot")
     }
@@ -182,17 +171,7 @@ pub trait ZigZagArrayExt {
     }
 }
 
-impl ZigZagArrayExt for Array<ZigZag> {
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl ZigZagArrayExt for ArrayView<'_, ZigZag> {
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<ZigZag>> ZigZagArrayExt for T {}
 
 #[derive(Clone, Debug)]
 pub struct ZigZag;

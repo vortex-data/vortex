@@ -15,8 +15,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::ArrayEq;
-use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
@@ -24,8 +22,8 @@ use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
-use crate::array::ArrayParts;
 use crate::array::ArrayId;
+use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityChild;
@@ -97,7 +95,13 @@ impl VTable for Patched {
         0
     }
 
-    fn validate(&self, data: &PatchedData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &PatchedData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         data.validate(dtype, len, slots)
     }
 
@@ -154,12 +158,14 @@ impl VTable for Patched {
         let values = children.get(3, dtype, n_patches)?;
 
         let data = PatchedData { n_lanes, offset };
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(vec![
-            Some(inner),
-            Some(lane_offsets),
-            Some(indices),
-            Some(values),
-        ]))
+        Ok(
+            ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(vec![
+                Some(inner),
+                Some(lane_offsets),
+                Some(indices),
+                Some(values),
+            ]),
+        )
     }
 
     fn append_to_builder(
@@ -225,14 +231,9 @@ impl VTable for Patched {
         Ok(())
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
-
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let inner = array
@@ -351,6 +352,7 @@ mod tests {
     use crate::arrays::Patched;
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::patched::array::PatchedArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
     use crate::patches::Patches;

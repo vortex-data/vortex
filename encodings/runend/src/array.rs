@@ -6,8 +6,6 @@ use std::hash::Hash;
 
 use prost::Message;
 use vortex_array::Array;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -16,6 +14,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
@@ -147,10 +146,6 @@ impl VTable for RunEnd {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -195,22 +190,19 @@ pub struct RunEndDataParts {
     pub offset: usize,
 }
 
-pub trait RunEndArrayExt {
-    fn run_end_data(&self) -> &RunEndData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-
+pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
     fn offset(&self) -> usize {
-        self.run_end_data().offset
+        self.offset
     }
 
     fn ends(&self) -> &ArrayRef {
-        self.as_slots()[ENDS_SLOT]
+        self.slots_ref()[ENDS_SLOT]
             .as_ref()
             .vortex_expect("RunEndArray ends slot")
     }
 
     fn values(&self) -> &ArrayRef {
-        self.as_slots()[VALUES_SLOT]
+        self.slots_ref()[VALUES_SLOT]
             .as_ref()
             .vortex_expect("RunEndArray values slot")
     }
@@ -230,26 +222,7 @@ pub trait RunEndArrayExt {
             .to_ends_index(self.ends().len()))
     }
 }
-
-impl RunEndArrayExt for Array<RunEnd> {
-    fn run_end_data(&self) -> &RunEndData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl RunEndArrayExt for ArrayView<'_, RunEnd> {
-    fn run_end_data(&self) -> &RunEndData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<RunEnd>> RunEndArrayExt for T {}
 
 #[derive(Clone, Debug)]
 pub struct RunEnd;
@@ -271,7 +244,9 @@ impl RunEnd {
         let slots = vec![Some(ends.clone()), Some(values.clone())];
         let data = unsafe { RunEndData::new_unchecked(ends, values, offset, length) };
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots),
+            )
         }
     }
 

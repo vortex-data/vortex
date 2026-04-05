@@ -24,9 +24,9 @@ pub type vortex_decimal_byte_parts::DecimalByteParts::OperationsVTable = vortex_
 
 pub type vortex_decimal_byte_parts::DecimalByteParts::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::array_eq(array: vortex_array::array::view::ArrayView<'_, Self>, other: vortex_array::array::view::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_decimal_byte_parts::DecimalByteParts::array_eq(_data: &vortex_decimal_byte_parts::DecimalBytePartsData, _other: &vortex_decimal_byte_parts::DecimalBytePartsData, _precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::array_hash<H: core::hash::Hasher>(array: vortex_array::array::view::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_decimal_byte_parts::DecimalByteParts::array_hash<H: core::hash::Hasher>(_data: &vortex_decimal_byte_parts::DecimalBytePartsData, _state: &mut H, _precision: vortex_array::hash::Precision)
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -128,23 +128,13 @@ pub fn vortex_decimal_byte_parts::DecimalBytesPartsMetadata::clear(&mut self)
 
 pub fn vortex_decimal_byte_parts::DecimalBytesPartsMetadata::encoded_len(&self) -> usize
 
-pub trait vortex_decimal_byte_parts::DecimalBytePartsArrayExt
-
-pub fn vortex_decimal_byte_parts::DecimalBytePartsArrayExt::as_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+pub trait vortex_decimal_byte_parts::DecimalBytePartsArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_decimal_byte_parts::DecimalByteParts>
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsArrayExt::msp(&self) -> &vortex_array::array::erased::ArrayRef
 
-impl vortex_decimal_byte_parts::DecimalBytePartsArrayExt for vortex_array::array::typed::Array<vortex_decimal_byte_parts::DecimalByteParts>
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_decimal_byte_parts::DecimalByteParts>> vortex_decimal_byte_parts::DecimalBytePartsArrayExt for T
 
-pub fn vortex_array::array::typed::Array<vortex_decimal_byte_parts::DecimalByteParts>::as_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_array::array::typed::Array<vortex_decimal_byte_parts::DecimalByteParts>::msp(&self) -> &vortex_array::array::erased::ArrayRef
-
-impl vortex_decimal_byte_parts::DecimalBytePartsArrayExt for vortex_array::array::view::ArrayView<'_, vortex_decimal_byte_parts::DecimalByteParts>
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_decimal_byte_parts::DecimalByteParts>::as_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_decimal_byte_parts::DecimalByteParts>::msp(&self) -> &vortex_array::array::erased::ArrayRef
+pub fn T::msp(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_decimal_byte_parts::initialize(session: &vortex_session::VortexSession)
 

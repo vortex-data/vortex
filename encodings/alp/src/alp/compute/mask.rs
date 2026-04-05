@@ -55,6 +55,7 @@ mod test {
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_buffer::buffer;
 
+    use crate::alp::array::ALPArrayExt;
     use crate::alp_encode;
 
     #[rstest]

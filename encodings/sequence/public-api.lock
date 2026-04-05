@@ -26,9 +26,9 @@ pub type vortex_sequence::Sequence::OperationsVTable = vortex_sequence::Sequence
 
 pub type vortex_sequence::Sequence::ValidityVTable = vortex_sequence::Sequence
 
-pub fn vortex_sequence::Sequence::array_eq(array: vortex_array::array::view::ArrayView<'_, Self>, other: vortex_array::array::view::ArrayView<'_, Self>, _precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_sequence::Sequence::array_eq(data: &vortex_sequence::SequenceData, other: &vortex_sequence::SequenceData, _precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_sequence::Sequence::array_hash<H: core::hash::Hasher>(array: vortex_array::array::view::ArrayView<'_, Self>, state: &mut H, _precision: vortex_array::hash::Precision)
+pub fn vortex_sequence::Sequence::array_hash<H: core::hash::Hasher>(data: &vortex_sequence::SequenceData, state: &mut H, _precision: vortex_array::hash::Precision)
 
 pub fn vortex_sequence::Sequence::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 

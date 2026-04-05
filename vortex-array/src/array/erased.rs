@@ -93,6 +93,12 @@ impl ArrayRef {
         &self.0
     }
 
+    /// Consumes the array reference, returning the owned backing allocation.
+    #[inline(always)]
+    pub(crate) fn into_inner(self) -> Arc<dyn DynArray> {
+        self.0
+    }
+
     /// Returns true if the two ArrayRefs point to the same allocation.
     pub fn ptr_eq(this: &ArrayRef, other: &ArrayRef) -> bool {
         Arc::ptr_eq(&this.0, &other.0)
@@ -107,7 +113,8 @@ impl Debug for ArrayRef {
 
 impl ArrayHash for ArrayRef {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
-        self.0.dyn_array_hash(self, state as &mut dyn Hasher, precision);
+        self.0
+            .dyn_array_hash(self, state as &mut dyn Hasher, precision);
     }
 }
 
@@ -390,7 +397,7 @@ impl ArrayRef {
     ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
     pub fn with_slot(self, slot_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
-        let slots = self.slots();
+        let slots = self.slots().to_vec();
         let nslots = slots.len();
         vortex_ensure!(
             slot_idx < nslots,
@@ -474,8 +481,8 @@ impl ArrayRef {
     }
 
     /// Returns the slots of the array.
-    pub fn slots(&self) -> Vec<Option<ArrayRef>> {
-        self.0.slots(self)
+    pub fn slots(&self) -> &[Option<ArrayRef>] {
+        self.0.slots()
     }
 
     /// Returns the name of the slot at the given index.

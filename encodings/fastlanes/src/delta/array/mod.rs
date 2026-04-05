@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use fastlanes::FastLanes;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
+use vortex_array::TypedArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
@@ -66,46 +65,25 @@ pub struct DeltaData {
     pub(super) offset: usize,
 }
 
-pub trait DeltaArrayExt {
-    fn delta_data(&self) -> &DeltaData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-
+pub trait DeltaArrayExt: TypedArrayRef<crate::Delta> {
     fn bases(&self) -> &ArrayRef {
-        self.as_slots()[BASES_SLOT]
+        self.slots_ref()[BASES_SLOT]
             .as_ref()
             .vortex_expect("DeltaArray bases slot")
     }
 
     fn deltas(&self) -> &ArrayRef {
-        self.as_slots()[DELTAS_SLOT]
+        self.slots_ref()[DELTAS_SLOT]
             .as_ref()
             .vortex_expect("DeltaArray deltas slot")
     }
 
     fn offset(&self) -> usize {
-        self.delta_data().offset
+        self.offset
     }
 }
 
-impl DeltaArrayExt for Array<crate::Delta> {
-    fn delta_data(&self) -> &DeltaData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl DeltaArrayExt for ArrayView<'_, crate::Delta> {
-    fn delta_data(&self) -> &DeltaData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<crate::Delta>> DeltaArrayExt for T {}
 
 impl DeltaData {
     /// Create a DeltaArray from the given `bases` and `deltas` arrays

@@ -62,6 +62,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::array::RunEndArrayExt;
     use crate::RunEnd;
     use crate::RunEndArray;
     use crate::compute::take_from::RunEndTakeFrom;

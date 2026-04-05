@@ -10,7 +10,6 @@ use vortex::error::VortexExpect;
 use vortex::array::arrays::Struct;
 
 use crate::arrays::PyArrayRef;
-use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;
 use crate::arrays::native::PyNativeArray;
 use crate::error::PyVortexResult;

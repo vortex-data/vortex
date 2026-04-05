@@ -14,6 +14,7 @@ use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -309,47 +310,46 @@ impl ListViewData {
     }
 }
 
-pub trait ListViewArrayExt {
-    fn listview_data(&self) -> &ListViewData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn len(&self) -> usize;
-    fn dtype(&self) -> &DType;
-
+pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     fn nullability(&self) -> crate::dtype::Nullability {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::List(_, nullability) => *nullability,
             _ => unreachable!("ListViewArrayExt requires a list dtype"),
         }
     }
 
     fn elements(&self) -> &ArrayRef {
-        self.as_slots()[ELEMENTS_SLOT]
+        self.slots_ref()[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray elements slot")
     }
 
     fn offsets(&self) -> &ArrayRef {
-        self.as_slots()[OFFSETS_SLOT]
+        self.slots_ref()[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray offsets slot")
     }
 
     fn sizes(&self) -> &ArrayRef {
-        self.as_slots()[SIZES_SLOT]
+        self.slots_ref()[SIZES_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray sizes slot")
     }
 
     fn listview_validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
     }
 
     fn listview_validity_mask(&self) -> vortex_mask::Mask {
-        self.listview_validity().to_mask(self.len())
+        self.listview_validity().to_mask(self.as_ref().len())
     }
 
     fn offset_at(&self, index: usize) -> usize {
-        assert!(index < self.len(), "Index {index} out of bounds 0..{}", self.len());
+        assert!(
+            index < self.as_ref().len(),
+            "Index {index} out of bounds 0..{}",
+            self.as_ref().len()
+        );
         self.offsets()
             .as_opt::<Primitive>()
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
@@ -364,7 +364,12 @@ pub trait ListViewArrayExt {
     }
 
     fn size_at(&self, index: usize) -> usize {
-        assert!(index < self.len(), "Index {} out of bounds 0..{}", index, self.len());
+        assert!(
+            index < self.as_ref().len(),
+            "Index {} out of bounds 0..{}",
+            index,
+            self.as_ref().len()
+        );
         self.sizes()
             .as_opt::<Primitive>()
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
@@ -384,42 +389,7 @@ pub trait ListViewArrayExt {
         self.elements().slice(offset..offset + size)
     }
 }
-
-impl ListViewArrayExt for Array<ListView> {
-    fn listview_data(&self) -> &ListViewData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn len(&self) -> usize {
-        Array::len(self)
-    }
-
-    fn dtype(&self) -> &DType {
-        Array::dtype(self)
-    }
-}
-
-impl ListViewArrayExt for ArrayView<'_, ListView> {
-    fn listview_data(&self) -> &ListViewData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn len(&self) -> usize {
-        ArrayView::len(self)
-    }
-
-    fn dtype(&self) -> &DType {
-        ArrayView::dtype(self)
-    }
-}
+impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}
 
 impl Array<ListView> {
     /// Creates a new `ListViewArray`.
@@ -529,25 +499,25 @@ impl Array<ListView> {
     }
 
     pub fn into_data_parts(self) -> ListViewDataParts {
-        let parts = self.into_parts();
+        let elements = self
+            .slots()[ELEMENTS_SLOT]
+            .clone()
+            .vortex_expect("ListViewArray elements slot");
+        let offsets = self
+            .slots()[OFFSETS_SLOT]
+            .clone()
+            .vortex_expect("ListViewArray offsets slot");
+        let sizes = self
+            .slots()[SIZES_SLOT]
+            .clone()
+            .vortex_expect("ListViewArray sizes slot");
+        let validity = self.listview_validity();
         ListViewDataParts {
-            elements_dtype: Arc::new(
-                parts.slots[ELEMENTS_SLOT]
-                    .as_ref()
-                    .vortex_expect("ListViewArray elements slot")
-                    .dtype()
-                    .clone(),
-            ),
-            elements: parts.slots[ELEMENTS_SLOT]
-                .clone()
-                .vortex_expect("ListViewArray elements slot"),
-            offsets: parts.slots[OFFSETS_SLOT]
-                .clone()
-                .vortex_expect("ListViewArray offsets slot"),
-            sizes: parts.slots[SIZES_SLOT]
-                .clone()
-                .vortex_expect("ListViewArray sizes slot"),
-            validity: child_to_validity(&parts.slots[VALIDITY_SLOT], parts.dtype.nullability()),
+            elements_dtype: Arc::new(elements.dtype().clone()),
+            elements,
+            offsets,
+            sizes,
+            validity,
         }
     }
 }

@@ -63,6 +63,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
+    use crate::r#for::array::FoRArrayExt;
     use crate::FoRData;
 
     #[test]

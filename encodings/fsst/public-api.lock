@@ -26,9 +26,9 @@ pub type vortex_fsst::FSST::ValidityVTable = vortex_array::array::vtable::validi
 
 pub fn vortex_fsst::FSST::append_to_builder(array: vortex_array::array::view::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_fsst::FSST::array_eq(array: vortex_array::array::view::ArrayView<'_, Self>, other: vortex_array::array::view::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_fsst::FSST::array_eq(data: &vortex_fsst::FSSTData, other: &vortex_fsst::FSSTData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_fsst::FSST::array_hash<H: core::hash::Hasher>(array: vortex_array::array::view::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_fsst::FSST::array_hash<H: core::hash::Hasher>(data: &vortex_fsst::FSSTData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_fsst::FSST::buffer(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -152,29 +152,17 @@ pub fn vortex_fsst::FSSTMetadata::clear(&mut self)
 
 pub fn vortex_fsst::FSSTMetadata::encoded_len(&self) -> usize
 
-pub trait vortex_fsst::FSSTArrayExt
-
-pub fn vortex_fsst::FSSTArrayExt::fsst_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+pub trait vortex_fsst::FSSTArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_fsst::FSST>
 
 pub fn vortex_fsst::FSSTArrayExt::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_fsst::FSSTArrayExt::uncompressed_lengths_dtype(&self) -> &vortex_array::dtype::DType
 
-impl vortex_fsst::FSSTArrayExt for vortex_array::array::typed::Array<vortex_fsst::FSST>
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_fsst::FSST>> vortex_fsst::FSSTArrayExt for T
 
-pub fn vortex_array::array::typed::Array<vortex_fsst::FSST>::fsst_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+pub fn T::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_array::array::typed::Array<vortex_fsst::FSST>::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn vortex_array::array::typed::Array<vortex_fsst::FSST>::uncompressed_lengths_dtype(&self) -> &vortex_array::dtype::DType
-
-impl vortex_fsst::FSSTArrayExt for vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>::fsst_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>::uncompressed_lengths_dtype(&self) -> &vortex_array::dtype::DType
+pub fn T::uncompressed_lengths_dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_fsst::fsst_compress<A: vortex_array::accessor::ArrayAccessor<[u8]>>(strings: A, len: usize, dtype: &vortex_array::dtype::DType, compressor: &fsst::Compressor) -> vortex_fsst::FSSTArray
 

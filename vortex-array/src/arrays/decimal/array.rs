@@ -17,6 +17,7 @@ use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Decimal;
@@ -111,61 +112,30 @@ pub struct DecimalDataParts {
     pub validity: Validity,
 }
 
-pub trait DecimalArrayExt {
-    fn decimal_data(&self) -> &DecimalData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn dtype(&self) -> &DType;
-
+pub trait DecimalArrayExt: TypedArrayRef<Decimal> {
     fn decimal_dtype(&self) -> DecimalDType {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::Decimal(decimal_dtype, _) => *decimal_dtype,
             _ => unreachable!("DecimalArrayExt requires a decimal dtype"),
         }
     }
 
     fn nullability(&self) -> Nullability {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::Decimal(_, nullability) => *nullability,
             _ => unreachable!("DecimalArrayExt requires a decimal dtype"),
         }
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_slots()[VALIDITY_SLOT].as_ref()
+        self.slots_ref()[VALIDITY_SLOT].as_ref()
     }
 
     fn validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
     }
 }
-
-impl DecimalArrayExt for Array<Decimal> {
-    fn decimal_data(&self) -> &DecimalData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn dtype(&self) -> &DType {
-        Array::dtype(self)
-    }
-}
-
-impl DecimalArrayExt for ArrayView<'_, Decimal> {
-    fn decimal_data(&self) -> &DecimalData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn dtype(&self) -> &DType {
-        ArrayView::dtype(self)
-    }
-}
+impl<T: TypedArrayRef<Decimal>> DecimalArrayExt for T {}
 
 impl DecimalData {
     /// Build the slots vector for this array.
@@ -358,7 +328,9 @@ impl DecimalData {
     }
 
     pub fn into_parts(self) -> DecimalDataParts {
-        vortex_panic!("DecimalData::into_parts requires outer dtype; use Array<Decimal>::into_data_parts")
+        vortex_panic!(
+            "DecimalData::into_parts requires outer dtype; use Array<Decimal>::into_data_parts"
+        )
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.
@@ -462,7 +434,9 @@ impl Array<Decimal> {
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::new(buffer, decimal_dtype, validity);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -481,7 +455,9 @@ impl Array<Decimal> {
         let slots = DecimalData::make_slots(&validity, len);
         let data = unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) };
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -496,7 +472,9 @@ impl Array<Decimal> {
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new(buffer, decimal_dtype, validity)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
+            )
         })
     }
 
@@ -509,13 +487,11 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        let data = DecimalData::from_iter(iter, decimal_dtype);
-        let dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-        let len = data.len();
-        let slots = DecimalData::make_slots(&Validity::from(dtype.nullability()), len);
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
-        }
+        Self::new(
+            BufferMut::from_iter(iter.into_iter()).freeze(),
+            decimal_dtype,
+            Validity::NonNullable,
+        )
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of optional values.
@@ -523,13 +499,28 @@ impl Array<Decimal> {
         iter: I,
         decimal_dtype: DecimalDType,
     ) -> Self {
-        let data = DecimalData::from_option_iter(iter, decimal_dtype);
-        let dtype = DType::Decimal(decimal_dtype, Nullability::Nullable);
-        let len = data.len();
-        let slots = DecimalData::make_slots(&Validity::from(dtype.nullability()), len);
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+        let iter = iter.into_iter();
+        let mut values = BufferMut::with_capacity(iter.size_hint().0);
+        let mut validity = BitBufferMut::with_capacity(values.capacity());
+
+        for value in iter {
+            match value {
+                Some(value) => {
+                    values.push(value);
+                    validity.append(true);
+                }
+                None => {
+                    values.push(T::default());
+                    validity.append(false);
+                }
+            }
         }
+
+        Self::new(
+            values.freeze(),
+            decimal_dtype,
+            Validity::from(validity.freeze()),
+        )
     }
 
     /// Creates a new [`DecimalArray`] from a [`BufferHandle`].
@@ -544,7 +535,9 @@ impl Array<Decimal> {
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::new_handle(values, values_type, decimal_dtype, validity);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -566,10 +559,16 @@ impl Array<Decimal> {
             DecimalData::new_unchecked_handle(values, values_type, decimal_dtype, validity)
         };
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
+    #[allow(
+        clippy::cognitive_complexity,
+        reason = "patching depends on both patch and value physical types"
+    )]
     pub fn patch(self, patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let offset = patches.offset();
         let dtype = self.dtype().clone();
@@ -607,7 +606,9 @@ impl Array<Decimal> {
         });
         let slots = DecimalData::make_slots(&patched_validity, len);
         Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
+            )
         })
     }
 

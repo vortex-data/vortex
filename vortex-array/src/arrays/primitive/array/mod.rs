@@ -16,6 +16,7 @@ use vortex_error::vortex_panic;
 use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -87,74 +88,34 @@ pub struct PrimitiveDataParts {
     pub validity: Validity,
 }
 
-pub trait PrimitiveArrayExt {
-    fn primitive_data(&self) -> &PrimitiveData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn dtype(&self) -> &DType;
-    fn len(&self) -> usize;
-
+pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
     fn ptype(&self) -> PType {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::Primitive(ptype, _) => *ptype,
             _ => unreachable!("PrimitiveArrayExt requires a primitive dtype"),
         }
     }
 
     fn nullability(&self) -> Nullability {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::Primitive(_, nullability) => *nullability,
             _ => unreachable!("PrimitiveArrayExt requires a primitive dtype"),
         }
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_slots()[VALIDITY_SLOT].as_ref()
+        self.slots_ref()[VALIDITY_SLOT].as_ref()
     }
 
     fn validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
     }
 
     fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.len())
+        self.validity().to_mask(self.as_ref().len())
     }
 }
-
-impl PrimitiveArrayExt for Array<Primitive> {
-    fn primitive_data(&self) -> &PrimitiveData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn dtype(&self) -> &DType {
-        Array::dtype(self)
-    }
-
-    fn len(&self) -> usize {
-        Array::len(self)
-    }
-}
-
-impl PrimitiveArrayExt for ArrayView<'_, Primitive> {
-    fn primitive_data(&self) -> &PrimitiveData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn dtype(&self) -> &DType {
-        ArrayView::dtype(self)
-    }
-
-    fn len(&self) -> usize {
-        ArrayView::len(self)
-    }
-}
+impl<T: TypedArrayRef<Primitive>> PrimitiveArrayExt for T {}
 
 // TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
 impl PrimitiveData {

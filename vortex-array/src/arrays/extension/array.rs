@@ -6,8 +6,9 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayView;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::arrays::Extension;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
@@ -119,34 +120,14 @@ impl ExtensionData {
     }
 }
 
-pub trait ExtensionArrayExt {
-    fn extension_data(&self) -> &ExtensionData;
-    fn storage_array(&self) -> &ArrayRef;
-}
-
-impl ExtensionArrayExt for Array<Extension> {
-    fn extension_data(&self) -> &ExtensionData {
-        self.data()
-    }
-
+pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
     fn storage_array(&self) -> &ArrayRef {
-        self.slots()[STORAGE_SLOT]
+        self.slots_ref()[STORAGE_SLOT]
             .as_ref()
             .vortex_expect("ExtensionArray storage slot")
     }
 }
-
-impl ExtensionArrayExt for ArrayView<'_, Extension> {
-    fn extension_data(&self) -> &ExtensionData {
-        self.data()
-    }
-
-    fn storage_array(&self) -> &ArrayRef {
-        self.slots()[STORAGE_SLOT]
-            .as_ref()
-            .vortex_expect("ExtensionArray storage slot")
-    }
-}
+impl<T: TypedArrayRef<Extension>> ExtensionArrayExt for T {}
 
 impl Array<Extension> {
     #[inline]

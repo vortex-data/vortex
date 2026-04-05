@@ -22,15 +22,12 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityVTableFromChild;
-use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::extension::ExtensionData;
-use crate::arrays::extension::array::STORAGE_SLOT;
 use crate::arrays::extension::array::SLOT_NAMES;
+use crate::arrays::extension::array::STORAGE_SLOT;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 
@@ -69,10 +66,6 @@ impl VTable for Extension {
         None
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -81,7 +74,13 @@ impl VTable for Extension {
         Ok(Some(vec![]))
     }
 
-    fn validate(&self, data: &ExtensionData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &ExtensionData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         _ = data;
         let storage = slots[STORAGE_SLOT]
             .as_ref()
@@ -127,17 +126,14 @@ impl VTable for Extension {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
-        Ok(
-            crate::array::ArrayParts::new(
-                self.clone(),
-                dtype.clone(),
-                len,
-                ExtensionData::new(ext_dtype.clone(), storage.clone()),
-            )
-            .with_slots(vec![Some(storage)]),
+        Ok(crate::array::ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            ExtensionData::new(ext_dtype.clone(), storage.clone()),
         )
+        .with_slots(vec![Some(storage)]))
     }
-
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

@@ -9,14 +9,13 @@ mod rules;
 mod slice;
 
 use prost::Message as _;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -65,7 +64,7 @@ impl VTable for DecimalByteParts {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        _data: &Self::ArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -144,10 +143,6 @@ impl VTable for DecimalByteParts {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -196,27 +191,15 @@ pub struct DecimalBytePartsDataParts {
     pub msp: ArrayRef,
 }
 
-pub trait DecimalBytePartsArrayExt {
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-
+pub trait DecimalBytePartsArrayExt: TypedArrayRef<DecimalByteParts> {
     fn msp(&self) -> &ArrayRef {
-        self.as_slots()[MSP_SLOT]
+        self.slots_ref()[MSP_SLOT]
             .as_ref()
             .vortex_expect("DecimalBytePartsArray msp slot")
     }
 }
 
-impl DecimalBytePartsArrayExt for Array<DecimalByteParts> {
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl DecimalBytePartsArrayExt for ArrayView<'_, DecimalByteParts> {
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<DecimalByteParts>> DecimalBytePartsArrayExt for T {}
 
 impl DecimalBytePartsData {
     pub fn validate(
@@ -241,7 +224,9 @@ impl DecimalBytePartsData {
     pub(crate) fn try_new(msp: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
         Self::validate(&msp, decimal_dtype, &dtype, msp.len())?;
-        Ok(Self { _lower_parts: Vec::new() })
+        Ok(Self {
+            _lower_parts: Vec::new(),
+        })
     }
 }
 

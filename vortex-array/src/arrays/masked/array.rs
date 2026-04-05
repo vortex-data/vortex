@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
+use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Masked;
-use crate::dtype::DType;
 use crate::validity::Validity;
 
 /// The underlying child array being masked.
@@ -23,70 +24,26 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child", "validity"];
 #[derive(Clone, Debug)]
 pub struct MaskedData;
 
-pub trait MaskedArrayExt {
-    fn masked_data(&self) -> &MaskedData;
-    fn masked_dtype(&self) -> &DType;
-    fn masked_len(&self) -> usize;
-
+pub trait MaskedArrayExt: TypedArrayRef<Masked> {
     fn child(&self) -> &ArrayRef {
-        self.as_slots()[CHILD_SLOT]
+        self.slots_ref()[CHILD_SLOT]
             .as_ref()
-            .expect("validated masked child slot")
+            .vortex_expect("validated masked child slot")
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_slots()[VALIDITY_SLOT].as_ref()
+        self.slots_ref()[VALIDITY_SLOT].as_ref()
     }
 
     fn masked_validity(&self) -> Validity {
-        match self.validity_child() {
-            Some(validity) => Validity::Array(validity.clone()),
-            None => Validity::AllValid,
-        }
+        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.as_ref().dtype().nullability())
     }
 
     fn masked_validity_mask(&self) -> vortex_mask::Mask {
-        self.masked_validity().to_mask(self.masked_len())
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-}
-
-impl MaskedArrayExt for Array<Masked> {
-    fn masked_data(&self) -> &MaskedData {
-        self.data()
-    }
-
-    fn masked_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn masked_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
+        self.masked_validity().to_mask(self.as_ref().len())
     }
 }
-
-impl MaskedArrayExt for ArrayView<'_, Masked> {
-    fn masked_data(&self) -> &MaskedData {
-        self.data()
-    }
-
-    fn masked_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn masked_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<Masked>> MaskedArrayExt for T {}
 
 impl MaskedData {
     pub(crate) fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {

@@ -14,6 +14,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -124,10 +125,6 @@ impl VTable for ByteBool {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -168,56 +165,20 @@ pub struct ByteBoolData {
     buffer: BufferHandle,
 }
 
-pub trait ByteBoolArrayExt {
-    fn byte_bool_data(&self) -> &ByteBoolData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn len(&self) -> usize;
-    fn dtype(&self) -> &DType;
-
+pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
     fn validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.dtype().nullability())
+        child_to_validity(
+            &self.slots_ref()[VALIDITY_SLOT],
+            self.as_ref().dtype().nullability(),
+        )
     }
 
     fn validity_mask(&self) -> Mask {
-        self.validity().to_mask(self.len())
+        self.validity().to_mask(self.as_ref().len())
     }
 }
 
-impl ByteBoolArrayExt for Array<ByteBool> {
-    fn byte_bool_data(&self) -> &ByteBoolData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn len(&self) -> usize {
-        Array::len(self)
-    }
-
-    fn dtype(&self) -> &DType {
-        Array::dtype(self)
-    }
-}
-
-impl ByteBoolArrayExt for ArrayView<'_, ByteBool> {
-    fn byte_bool_data(&self) -> &ByteBoolData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn len(&self) -> usize {
-        ArrayView::len(self)
-    }
-
-    fn dtype(&self) -> &DType {
-        ArrayView::dtype(self)
-    }
-}
+impl<T: TypedArrayRef<ByteBool>> ByteBoolArrayExt for T {}
 
 #[derive(Clone, Debug)]
 pub struct ByteBool;
@@ -231,7 +192,9 @@ impl ByteBool {
         let data = ByteBoolData::new(buffer, validity);
         let len = data.len();
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ByteBool, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(ByteBool, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -243,7 +206,9 @@ impl ByteBool {
         let len = data.len();
         let slots = ByteBoolData::make_slots(&validity, len);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ByteBool, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(ByteBool, dtype, len, data).with_slots(slots),
+            )
         }
     }
 
@@ -255,7 +220,9 @@ impl ByteBool {
         let len = data.len();
         let slots = ByteBoolData::make_slots(&validity, len);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ByteBool, dtype, len, data).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(ByteBool, dtype, len, data).with_slots(slots),
+            )
         }
     }
 }
@@ -298,9 +265,7 @@ impl ByteBoolData {
                 vlen
             );
         }
-        Self {
-            buffer,
-        }
+        Self { buffer }
     }
 
     /// Returns the number of elements in the array.
@@ -330,7 +295,6 @@ impl ByteBoolData {
         unsafe { std::mem::transmute(self.buffer().as_host().as_slice()) }
     }
 }
-
 
 impl ValidityVTable<ByteBool> for ByteBool {
     fn validity(array: ArrayView<'_, ByteBool>) -> VortexResult<Validity> {

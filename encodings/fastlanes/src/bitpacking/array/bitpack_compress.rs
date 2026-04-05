@@ -422,6 +422,7 @@ mod test {
     use vortex_error::VortexError;
     use vortex_session::VortexSession;
 
+    use crate::bitpacking::array::BitPackedArrayExt;
     use super::*;
     use crate::BitPackedData;
     use crate::bitpack_compress::test_harness::make_array;

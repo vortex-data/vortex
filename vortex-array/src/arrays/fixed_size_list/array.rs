@@ -10,6 +10,7 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -206,14 +207,9 @@ impl FixedSizeListData {
 
 }
 
-pub trait FixedSizeListArrayExt {
-    fn fixed_size_list_data(&self) -> &FixedSizeListData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn len(&self) -> usize;
-    fn dtype(&self) -> &DType;
-
+pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
     fn dtype_parts(&self) -> (&DType, u32, crate::dtype::Nullability) {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::FixedSizeList(element_dtype, list_size, nullability) => {
                 (element_dtype.as_ref(), *list_size, *nullability)
             }
@@ -222,7 +218,7 @@ pub trait FixedSizeListArrayExt {
     }
 
     fn elements(&self) -> &ArrayRef {
-        self.as_slots()[ELEMENTS_SLOT]
+        self.slots_ref()[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("FixedSizeListArray elements slot")
     }
@@ -234,49 +230,14 @@ pub trait FixedSizeListArrayExt {
 
     fn fixed_size_list_validity(&self) -> Validity {
         let (_, _, nullability) = self.dtype_parts();
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], nullability)
+        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], nullability)
     }
 
     fn fixed_size_list_validity_mask(&self) -> vortex_mask::Mask {
-        self.fixed_size_list_validity().to_mask(self.len())
+        self.fixed_size_list_validity().to_mask(self.as_ref().len())
     }
 }
-
-impl FixedSizeListArrayExt for Array<FixedSizeList> {
-    fn fixed_size_list_data(&self) -> &FixedSizeListData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn len(&self) -> usize {
-        Array::len(self)
-    }
-
-    fn dtype(&self) -> &DType {
-        Array::dtype(self)
-    }
-}
-
-impl FixedSizeListArrayExt for ArrayView<'_, FixedSizeList> {
-    fn fixed_size_list_data(&self) -> &FixedSizeListData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn len(&self) -> usize {
-        ArrayView::len(self)
-    }
-
-    fn dtype(&self) -> &DType {
-        ArrayView::dtype(self)
-    }
-}
+impl<T: TypedArrayRef<FixedSizeList>> FixedSizeListArrayExt for T {}
 
 impl Array<FixedSizeList> {
     /// Creates a new `FixedSizeListArray`.
@@ -358,13 +319,16 @@ impl Array<FixedSizeList> {
     }
 
     pub fn into_data_parts(self) -> FixedSizeListDataParts {
-        let parts = self.into_parts();
+        let dtype = self.dtype().clone();
+        let elements = self
+            .slots()[ELEMENTS_SLOT]
+            .clone()
+            .vortex_expect("FixedSizeListArray elements slot");
+        let validity = self.fixed_size_list_validity();
         FixedSizeListDataParts {
-            elements: parts.slots[ELEMENTS_SLOT]
-                .clone()
-                .vortex_expect("FixedSizeListArray elements slot"),
-            validity: child_to_validity(&parts.slots[VALIDITY_SLOT], parts.dtype.nullability()),
-            dtype: parts.dtype,
+            elements,
+            validity,
+            dtype,
         }
     }
 }

@@ -16,7 +16,6 @@ use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::decimal::DecimalData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -93,7 +92,13 @@ impl VTable for Decimal {
         ))
     }
 
-    fn validate(&self, data: &DecimalData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &DecimalData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         let DType::Decimal(_, nullability) = dtype else {
             vortex_bail!("Expected decimal dtype, got {dtype:?}");
         };
@@ -158,14 +163,9 @@ impl VTable for Decimal {
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
-
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

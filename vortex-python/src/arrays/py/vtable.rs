@@ -108,10 +108,6 @@ impl VTable for PythonVTable {
         vortex_bail!("PythonArray deserialization is not supported");
     }
 
-    fn slots(_array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &[]
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
         vortex_panic!("PythonArray has no slots")
     }

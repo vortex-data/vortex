@@ -28,8 +28,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -95,8 +93,18 @@ impl VTable for ListView {
         ))
     }
 
-    fn validate(&self, _data: &ListViewData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
-        vortex_ensure!(slots.len() == NUM_SLOTS, "ListViewArray expected {NUM_SLOTS} slots, found {}", slots.len());
+    fn validate(
+        &self,
+        _data: &ListViewData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ListViewArray expected {NUM_SLOTS} slots, found {}",
+            slots.len()
+        );
         let elements = slots[crate::arrays::listview::array::ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray elements slot");
@@ -177,19 +185,19 @@ impl VTable for ListView {
             len,
         )?;
 
-        let data = ListViewData::try_new(elements.clone(), offsets.clone(), sizes.clone(), validity.clone())?;
+        let data = ListViewData::try_new(
+            elements.clone(),
+            offsets.clone(),
+            sizes.clone(),
+            validity.clone(),
+        )?;
         let slots = ListViewData::make_slots(elements, offsets, sizes, &validity, len);
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
-
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

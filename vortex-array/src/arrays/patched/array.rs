@@ -16,7 +16,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::TransposedPatches;
@@ -115,45 +115,40 @@ fn patch_values_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
         .vortex_expect("PatchedArray values slot")
 }
 
-pub trait PatchedArrayExt {
-    fn patched_data(&self) -> &PatchedData;
-    fn patched_slots(&self) -> &[Option<ArrayRef>];
-    fn patched_len(&self) -> usize;
-    fn patched_dtype(&self) -> &DType;
-
+pub trait PatchedArrayExt: TypedArrayRef<Patched> {
     #[inline]
     fn base_array(&self) -> &ArrayRef {
-        base_array_from_slots(self.patched_slots())
+        base_array_from_slots(self.slots_ref())
     }
 
     #[inline]
     fn lane_offsets(&self) -> &ArrayRef {
-        lane_offsets_from_slots(self.patched_slots())
+        lane_offsets_from_slots(self.slots_ref())
     }
 
     #[inline]
     fn patch_indices(&self) -> &ArrayRef {
-        patch_indices_from_slots(self.patched_slots())
+        patch_indices_from_slots(self.slots_ref())
     }
 
     #[inline]
     fn patch_values(&self) -> &ArrayRef {
-        patch_values_from_slots(self.patched_slots())
+        patch_values_from_slots(self.slots_ref())
     }
 
     #[inline]
     fn n_lanes(&self) -> usize {
-        self.patched_data().n_lanes
+        self.n_lanes
     }
 
     #[inline]
     fn offset(&self) -> usize {
-        self.patched_data().offset
+        self.offset
     }
 
     #[inline]
     fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
-        assert!(chunk * 1024 <= self.patched_len() + self.offset());
+        assert!(chunk * 1024 <= self.as_ref().len() + self.offset());
         assert!(lane < self.n_lanes());
 
         let start = self.lane_offsets().scalar_at(chunk * self.n_lanes() + lane)?;
@@ -187,12 +182,12 @@ pub trait PatchedArrayExt {
         let begin = (chunks.start * 1024).saturating_sub(self.offset());
         let end = (chunks.end * 1024)
             .saturating_sub(self.offset())
-            .min(self.patched_len());
+            .min(self.as_ref().len());
 
         let offset = if chunks.start == 0 { self.offset() } else { 0 };
         let inner = self.base_array().slice(begin..end)?;
         let len = inner.len();
-        let dtype = self.patched_dtype().clone();
+        let dtype = self.as_ref().dtype().clone();
         let slots = vec![
             Some(inner),
             Some(sliced_lane_offsets),
@@ -204,41 +199,7 @@ pub trait PatchedArrayExt {
     }
 }
 
-impl PatchedArrayExt for Array<Patched> {
-    fn patched_data(&self) -> &PatchedData {
-        self.data()
-    }
-
-    fn patched_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn patched_len(&self) -> usize {
-        self.len()
-    }
-
-    fn patched_dtype(&self) -> &DType {
-        self.dtype()
-    }
-}
-
-impl PatchedArrayExt for ArrayView<'_, Patched> {
-    fn patched_data(&self) -> &PatchedData {
-        self.data()
-    }
-
-    fn patched_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn patched_len(&self) -> usize {
-        self.len()
-    }
-
-    fn patched_dtype(&self) -> &DType {
-        self.dtype()
-    }
-}
+impl<T: TypedArrayRef<Patched>> PatchedArrayExt for T {}
 
 impl Array<Patched> {
     pub fn from_array_and_patches(

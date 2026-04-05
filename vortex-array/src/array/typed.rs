@@ -49,7 +49,22 @@ impl<V: VTable> ArrayParts<V> {
         self.slots = slots;
         self
     }
+}
 
+pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::ArrayData> {
+    fn slots_ref(&self) -> &[Option<ArrayRef>];
+}
+
+impl<V: VTable> TypedArrayRef<V> for Array<V> {
+    fn slots_ref(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
+}
+
+impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {
+    fn slots_ref(&self) -> &[Option<ArrayRef>] {
+        self.slots()
+    }
 }
 // =============================================================================
 // ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
@@ -74,7 +89,8 @@ impl<V: VTable> ArrayInner<V> {
     /// Create a new inner array from explicit construction parameters.
     #[doc(hidden)]
     pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
-        new.vtable.validate(&new.data, &new.dtype, new.len, &new.slots)?;
+        new.vtable
+            .validate(&new.data, &new.dtype, new.len, &new.slots)?;
         Ok(unsafe {
             Self::from_data_unchecked(
                 new.vtable,
@@ -263,15 +279,25 @@ impl<V: VTable> Array<V> {
         &self.downcast_inner().data
     }
 
-    /// Returns the full typed array construction parts.
-    pub fn into_parts(self) -> ArrayParts<V> {
-        let inner = self.downcast_inner();
-        ArrayParts {
-            vtable: inner.vtable.clone(),
-            dtype: inner.dtype.clone(),
-            len: inner.len,
-            data: inner.data.clone(),
-            slots: inner.slots.clone(),
+    /// Returns the full typed array construction parts if this handle owns the allocation.
+    pub fn try_into_parts(self) -> Result<ArrayParts<V>, Self> {
+        let Self { inner, _phantom } = self;
+        let any = inner.into_inner().into_any_arc();
+        let inner = Arc::downcast::<ArrayInner<V>>(any)
+            .unwrap_or_else(|_| unreachable!("typed array must contain ArrayInner for its vtable"));
+
+        match Arc::try_unwrap(inner) {
+            Ok(inner) => Ok(ArrayParts {
+                vtable: inner.vtable,
+                dtype: inner.dtype,
+                len: inner.len,
+                data: inner.data,
+                slots: inner.slots,
+            }),
+            Err(inner) => Err(Self {
+                inner: ArrayRef::from_inner(inner),
+                _phantom: PhantomData,
+            }),
         }
     }
 
@@ -472,11 +498,24 @@ mod tests {
     #[test]
     fn typed_array_into_parts_roundtrips() {
         let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
-        let expected = array.clone();
+        let expected = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
 
-        let parts = array.into_parts();
+        let parts = array.try_into_parts().unwrap();
         let rebuilt = Array::<Primitive>::try_from_parts(parts).unwrap();
 
         assert_arrays_eq!(rebuilt, expected);
+    }
+
+    #[test]
+    fn typed_array_try_into_parts_requires_unique_owner() {
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
+        let alias = array.clone();
+
+        let array = match array.try_into_parts() {
+            Ok(_) => panic!("aliased arrays should not move out their backing parts"),
+            Err(array) => array,
+        };
+
+        assert_arrays_eq!(array, alias);
     }
 }

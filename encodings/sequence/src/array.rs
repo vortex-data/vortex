@@ -215,7 +215,7 @@ impl VTable for Sequence {
         data: &Self::ArrayData,
         dtype: &DType,
         len: usize,
-        slots: &[Option<ArrayRef>],
+        _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         SequenceData::validate(data.base, data.multiplier, dtype, len)
     }
@@ -300,10 +300,6 @@ impl VTable for Sequence {
 
         let data = SequenceData::try_new(base, multiplier, ptype, dtype.nullability(), len)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

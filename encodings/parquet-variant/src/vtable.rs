@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
 use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -32,8 +29,8 @@ use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 
-use crate::array::ParquetVariantData;
 use crate::array::ParquetVariantArrayExt;
+use crate::array::ParquetVariantData;
 use crate::array::SLOT_NAMES;
 use crate::kernel::PARENT_KERNELS;
 
@@ -80,8 +77,7 @@ impl VTable for ParquetVariant {
         ParquetVariantData::validate_slots(dtype, len, slots)
     }
 
-    fn array_hash<H: Hasher>(_data: &ParquetVariantData, _state: &mut H, _precision: Precision) {
-    }
+    fn array_hash<H: Hasher>(_data: &ParquetVariantData, _state: &mut H, _precision: Precision) {}
 
     fn array_eq(
         _data: &ParquetVariantData,
@@ -101,10 +97,6 @@ impl VTable for ParquetVariant {
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -240,6 +232,7 @@ mod tests {
     use vortex_session::registry::ReadContext;
 
     use crate::ParquetVariant;
+    use crate::array::ParquetVariantArrayExt;
     fn roundtrip(array: ArrayRef) -> ArrayRef {
         let dtype = array.dtype().clone();
         let len = array.len();

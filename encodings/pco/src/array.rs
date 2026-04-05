@@ -95,7 +95,7 @@ impl VTable for Pco {
         data: &PcoData,
         dtype: &DType,
         len: usize,
-        slots: &[Option<ArrayRef>],
+        _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         data.validate(dtype, len)
     }
@@ -115,7 +115,9 @@ impl VTable for Pco {
     }
 
     fn array_eq(data: &PcoData, other: &PcoData, precision: Precision) -> bool {
-        if !data.unsliced_validity.array_eq(&other.unsliced_validity, precision)
+        if !data
+            .unsliced_validity
+            .array_eq(&other.unsliced_validity, precision)
             || data.unsliced_n_rows != other.unsliced_n_rows
             || data.slice_start != other.slice_start
             || data.slice_stop != other.slice_stop
@@ -210,10 +212,6 @@ impl VTable for Pco {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -273,7 +271,10 @@ impl Pco {
     pub(crate) fn try_new(dtype: DType, data: PcoData) -> VortexResult<PcoArray> {
         let len = data.len();
         data.validate(&dtype, len)?;
-        let slots = vec![validity_to_child(&data.unsliced_validity, data.unsliced_n_rows)];
+        let slots = vec![validity_to_child(
+            &data.unsliced_validity,
+            data.unsliced_n_rows,
+        )];
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data).with_slots(slots))
         })
@@ -292,7 +293,6 @@ impl Pco {
 }
 
 /// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 

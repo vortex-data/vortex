@@ -79,7 +79,7 @@ impl VTable for Sparse {
         data: &Self::ArrayData,
         dtype: &DType,
         len: usize,
-        slots: &[Option<ArrayRef>],
+        _slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         SparseData::validate(data.patches(), data.fill_scalar(), dtype, len)
     }
@@ -170,10 +170,6 @@ impl VTable for Sparse {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -200,12 +196,6 @@ impl VTable for Sparse {
     }
 }
 
-/// The indices of non-fill values in the sparse array.
-pub(crate) const PATCH_INDICES_SLOT: usize = 0;
-/// The non-fill values at the corresponding patch indices.
-pub(crate) const PATCH_VALUES_SLOT: usize = 1;
-/// Chunk offsets for the patch indices/values.
-pub(crate) const PATCH_CHUNK_OFFSETS_SLOT: usize = 2;
 pub(crate) const NUM_SLOTS: usize = 3;
 pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
     ["patch_indices", "patch_values", "patch_chunk_offsets"];
@@ -384,11 +374,17 @@ impl SparseData {
     /// Build a new SparseArray from an existing set of patches.
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
         let patches = Self::normalize_patches_dtype(patches, &fill_value)?;
-        Ok(Self { patches, fill_value })
+        Ok(Self {
+            patches,
+            fill_value,
+        })
     }
 
     pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> Self {
-        Self { patches, fill_value }
+        Self {
+            patches,
+            fill_value,
+        }
     }
 
     /// Returns the length of the array.

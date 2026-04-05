@@ -475,6 +475,7 @@ mod tests {
         let _output = buf.pop_front().unwrap();
 
         // Transition SharedState from Source to Cached for ALL slices sharing this Arc.
+        use vortex_array::arrays::shared::SharedArrayExt;
         shared_handle.get_or_compute(|source| source.to_canonical())?;
 
         // Before the fix this panicked with "attempt to subtract with overflow".

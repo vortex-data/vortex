@@ -30,8 +30,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -57,8 +55,7 @@ impl VTable for List {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(_data: &ListData, _state: &mut H, _precision: Precision) {
-    }
+    fn array_hash<H: std::hash::Hasher>(_data: &ListData, _state: &mut H, _precision: Precision) {}
 
     fn array_eq(_data: &ListData, _other: &ListData, _precision: Precision) -> bool {
         true
@@ -94,8 +91,18 @@ impl VTable for List {
         ))
     }
 
-    fn validate(&self, _data: &ListData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
-        vortex_ensure!(slots.len() == NUM_SLOTS, "ListArray expected {NUM_SLOTS} slots, found {}", slots.len());
+    fn validate(
+        &self,
+        _data: &ListData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ListArray expected {NUM_SLOTS} slots, found {}",
+            slots.len()
+        );
         let elements = slots[crate::arrays::list::array::ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListArray elements slot");
@@ -160,14 +167,9 @@ impl VTable for List {
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
-
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(

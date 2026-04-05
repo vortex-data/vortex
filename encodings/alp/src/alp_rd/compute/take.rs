@@ -63,6 +63,7 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
 
+    use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 

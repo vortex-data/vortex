@@ -25,8 +25,6 @@ use crate::arrays::fixed_size_list::array::SLOT_NAMES;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -53,11 +51,19 @@ impl VTable for FixedSizeList {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(data: &FixedSizeListData, state: &mut H, _precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        data: &FixedSizeListData,
+        state: &mut H,
+        _precision: Precision,
+    ) {
         data.degenerate_len.hash(state);
     }
 
-    fn array_eq(data: &FixedSizeListData, other: &FixedSizeListData, _precision: Precision) -> bool {
+    fn array_eq(
+        data: &FixedSizeListData,
+        other: &FixedSizeListData,
+        _precision: Precision,
+    ) -> bool {
         data.degenerate_len == other.degenerate_len
     }
 
@@ -94,8 +100,18 @@ impl VTable for FixedSizeList {
         Ok(Some(vec![]))
     }
 
-    fn validate(&self, data: &FixedSizeListData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
-        vortex_ensure!(slots.len() == NUM_SLOTS, "FixedSizeListArray expected {NUM_SLOTS} slots, found {}", slots.len());
+    fn validate(
+        &self,
+        data: &FixedSizeListData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "FixedSizeListArray expected {NUM_SLOTS} slots, found {}",
+            slots.len()
+        );
         let DType::FixedSizeList(_, list_size, nullability) = dtype else {
             vortex_bail!("Expected `DType::FixedSizeList`, got {dtype:?}");
         };
@@ -113,11 +129,8 @@ impl VTable for FixedSizeList {
             len
         );
 
-        let actual_dtype = DType::FixedSizeList(
-            Arc::new(elements.dtype().clone()),
-            *list_size,
-            *nullability,
-        );
+        let actual_dtype =
+            DType::FixedSizeList(Arc::new(elements.dtype().clone()), *list_size, *nullability);
         vortex_ensure!(
             &actual_dtype == dtype,
             "FixedSizeListArray dtype {} does not match outer dtype {}",
@@ -175,14 +188,9 @@ impl VTable for FixedSizeList {
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
-
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

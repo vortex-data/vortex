@@ -35,6 +35,7 @@ pub use vtable::*;
 
 mod view;
 pub use view::*;
+
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
@@ -47,11 +48,17 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
+    /// Converts an owned array allocation into an owned [`Any`] allocation for downcasting.
+    fn into_any_arc(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn Any + Send + Sync>;
+
     /// Returns the length of the array.
     fn len(&self) -> usize;
 
     /// Returns the logical Vortex [`DType`] of the array.
     fn dtype(&self) -> &DType;
+
+    /// Returns the slots of the array.
+    fn slots(&self) -> &[Option<ArrayRef>];
 
     /// Returns the vtable of the array.
     fn vtable(&self) -> &dyn DynVTable;
@@ -114,9 +121,6 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the number of buffers of the array.
     fn nbuffers(&self, this: &ArrayRef) -> usize;
 
-    /// Returns the slots of the array.
-    fn slots(&self, this: &ArrayRef) -> Vec<Option<ArrayRef>>;
-
     /// Returns the name of the slot at the given index.
     fn slot_name(&self, this: &ArrayRef, idx: usize) -> String;
 
@@ -160,12 +164,20 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         self
     }
 
+    fn into_any_arc(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn Any + Send + Sync> {
+        self
+    }
+
     fn len(&self) -> usize {
         self.len
     }
 
     fn dtype(&self) -> &DType {
         &self.dtype
+    }
+
+    fn slots(&self) -> &[Option<ArrayRef>] {
+        &self.slots
     }
 
     fn vtable(&self) -> &dyn DynVTable {
@@ -263,15 +275,6 @@ impl<V: VTable> DynArray for ArrayInner<V> {
             .collect()
     }
 
-    fn slots(&self, _this: &ArrayRef) -> Vec<Option<ArrayRef>> {
-        self.slots.clone()
-    }
-
-    fn slot_name(&self, this: &ArrayRef, idx: usize) -> String {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::slot_name(view, idx)
-    }
-
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view))
@@ -303,6 +306,11 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         V::nbuffers(view)
     }
 
+    fn slot_name(&self, this: &ArrayRef, idx: usize) -> String {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        V::slot_name(view, idx)
+    }
+
     fn metadata(&self, this: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         V::serialize(view)
@@ -313,7 +321,12 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         V::fmt_metadata(view, f)
     }
 
-    fn dyn_array_hash(&self, this: &ArrayRef, state: &mut dyn Hasher, precision: crate::Precision) {
+    fn dyn_array_hash(
+        &self,
+        _this: &ArrayRef,
+        state: &mut dyn Hasher,
+        precision: crate::Precision,
+    ) {
         let mut wrapper = HasherWrapper(state);
         self.len.hash(&mut wrapper);
         self.dtype.hash(&mut wrapper);
@@ -325,19 +338,28 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         V::array_hash(&self.data, &mut wrapper, precision);
     }
 
-    fn dyn_array_eq(&self, this: &ArrayRef, other: &ArrayRef, precision: crate::Precision) -> bool {
-        other.inner().as_any().downcast_ref::<Self>().is_some_and(|other_inner| {
-            self.len == other.len()
-                && self.dtype == *other.dtype()
-                && self.vtable.id() == other.encoding_id()
-                && self.slots.len() == other_inner.slots.len()
-                && self
-                    .slots
-                    .iter()
-                    .zip(other_inner.slots.iter())
-                    .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
-                && V::array_eq(&self.data, &other_inner.data, precision)
-        })
+    fn dyn_array_eq(
+        &self,
+        _this: &ArrayRef,
+        other: &ArrayRef,
+        precision: crate::Precision,
+    ) -> bool {
+        other
+            .inner()
+            .as_any()
+            .downcast_ref::<Self>()
+            .is_some_and(|other_inner| {
+                self.len == other.len()
+                    && self.dtype == *other.dtype()
+                    && self.vtable.id() == other.encoding_id()
+                    && self.slots.len() == other_inner.slots.len()
+                    && self
+                        .slots
+                        .iter()
+                        .zip(other_inner.slots.iter())
+                        .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
+                    && V::array_eq(&self.data, &other_inner.data, precision)
+            })
     }
 }
 

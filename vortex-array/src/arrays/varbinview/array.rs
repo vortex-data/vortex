@@ -18,6 +18,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -527,14 +528,9 @@ impl VarBinViewData {
     }
 }
 
-pub trait VarBinViewArrayExt {
-    fn varbinview_data(&self) -> &VarBinViewData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn dtype(&self) -> &DType;
-    fn len(&self) -> usize;
-
+pub trait VarBinViewArrayExt: TypedArrayRef<VarBinView> {
     fn dtype_parts(&self) -> (bool, Nullability) {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::Utf8(nullability) => (true, *nullability),
             DType::Binary(nullability) => (false, *nullability),
             _ => unreachable!("VarBinViewArrayExt requires a utf8 or binary dtype"),
@@ -542,49 +538,14 @@ pub trait VarBinViewArrayExt {
     }
 
     fn varbinview_validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.dtype_parts().1)
+        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.dtype_parts().1)
     }
 
     fn varbinview_validity_mask(&self) -> Mask {
-        self.varbinview_validity().to_mask(self.len())
+        self.varbinview_validity().to_mask(self.as_ref().len())
     }
 }
-
-impl VarBinViewArrayExt for Array<VarBinView> {
-    fn varbinview_data(&self) -> &VarBinViewData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn dtype(&self) -> &DType {
-        Array::dtype(self)
-    }
-
-    fn len(&self) -> usize {
-        Array::len(self)
-    }
-}
-
-impl VarBinViewArrayExt for ArrayView<'_, VarBinView> {
-    fn varbinview_data(&self) -> &VarBinViewData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn dtype(&self) -> &DType {
-        ArrayView::dtype(self)
-    }
-
-    fn len(&self) -> usize {
-        ArrayView::len(self)
-    }
-}
+impl<T: TypedArrayRef<VarBinView>> VarBinViewArrayExt for T {}
 
 impl Array<VarBinView> {
     #[inline]
@@ -604,41 +565,65 @@ impl Array<VarBinView> {
         iter: I,
         dtype: DType,
     ) -> Self {
-        let array = VarBinViewData::from_iter(iter, dtype.clone());
-        let slots = VarBinViewData::make_slots(&Validity::from(dtype.nullability()), array.len());
-        Self::from_prevalidated_data(dtype, array, slots)
+        let iter = iter.into_iter();
+        let mut builder = VarBinViewBuilder::with_capacity(dtype, iter.size_hint().0);
+        for value in iter {
+            match value {
+                Some(value) => builder.append_value(value),
+                None => builder.append_null(),
+            }
+        }
+        builder.finish_into_varbinview()
     }
 
     pub fn from_iter_str<T: AsRef<str>, I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let dtype = DType::Utf8(Nullability::NonNullable);
-        let array = VarBinViewData::from_iter_str(iter);
-        let slots = VarBinViewData::make_slots(&Validity::NonNullable, array.len());
-        Self::from_prevalidated_data(dtype, array, slots)
+        let iter = iter.into_iter();
+        let mut builder =
+            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::NonNullable), iter.size_hint().0);
+        for value in iter {
+            builder.append_value(value.as_ref());
+        }
+        builder.finish_into_varbinview()
     }
 
     pub fn from_iter_nullable_str<T: AsRef<str>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
     ) -> Self {
-        let dtype = DType::Utf8(Nullability::Nullable);
-        let array = VarBinViewData::from_iter_nullable_str(iter);
-        let slots = VarBinViewData::make_slots(&Validity::AllValid, array.len());
-        Self::from_prevalidated_data(dtype, array, slots)
+        let iter = iter.into_iter();
+        let mut builder =
+            VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), iter.size_hint().0);
+        for value in iter {
+            match value {
+                Some(value) => builder.append_value(value.as_ref()),
+                None => builder.append_null(),
+            }
+        }
+        builder.finish_into_varbinview()
     }
 
     pub fn from_iter_bin<T: AsRef<[u8]>, I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let dtype = DType::Binary(Nullability::NonNullable);
-        let array = VarBinViewData::from_iter_bin(iter);
-        let slots = VarBinViewData::make_slots(&Validity::NonNullable, array.len());
-        Self::from_prevalidated_data(dtype, array, slots)
+        let iter = iter.into_iter();
+        let mut builder =
+            VarBinViewBuilder::with_capacity(DType::Binary(Nullability::NonNullable), iter.size_hint().0);
+        for value in iter {
+            builder.append_value(value.as_ref());
+        }
+        builder.finish_into_varbinview()
     }
 
     pub fn from_iter_nullable_bin<T: AsRef<[u8]>, I: IntoIterator<Item = Option<T>>>(
         iter: I,
     ) -> Self {
-        let dtype = DType::Binary(Nullability::Nullable);
-        let array = VarBinViewData::from_iter_nullable_bin(iter);
-        let slots = VarBinViewData::make_slots(&Validity::AllValid, array.len());
-        Self::from_prevalidated_data(dtype, array, slots)
+        let iter = iter.into_iter();
+        let mut builder =
+            VarBinViewBuilder::with_capacity(DType::Binary(Nullability::Nullable), iter.size_hint().0);
+        for value in iter {
+            match value {
+                Some(value) => builder.append_value(value.as_ref()),
+                None => builder.append_null(),
+            }
+        }
+        builder.finish_into_varbinview()
     }
 
     /// Creates a new `VarBinViewArray`.
@@ -708,13 +693,13 @@ impl Array<VarBinView> {
     }
 
     pub fn into_data_parts(self) -> VarBinViewDataParts {
-        let parts = self.into_parts();
-        let dtype = parts.dtype;
-        let validity = child_to_validity(&parts.slots[VALIDITY_SLOT], dtype.nullability());
+        let dtype = self.dtype().clone();
+        let validity = self.varbinview_validity();
+        let data = self.into_data();
         VarBinViewDataParts {
             dtype,
-            buffers: parts.data.buffers,
-            views: parts.data.views,
+            buffers: data.buffers,
+            views: data.views,
             validity,
         }
     }

@@ -31,8 +31,6 @@ mod validity;
 
 use crate::Precision;
 use crate::array::ArrayId;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 
 vtable!(Struct, Struct, StructData);
 
@@ -57,7 +55,13 @@ impl VTable for Struct {
         0
     }
 
-    fn validate(&self, data: &StructData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &StructData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         let DType::Struct(struct_dtype, nullability) = dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", dtype)
         };
@@ -106,7 +110,8 @@ impl VTable for Struct {
             vortex_bail!("StructArray cannot have fieldless length and field slots");
         }
 
-        for (idx, (slot, field_dtype)) in field_slots.iter().zip(struct_dtype.fields()).enumerate() {
+        for (idx, (slot, field_dtype)) in field_slots.iter().zip(struct_dtype.fields()).enumerate()
+        {
             let field = slot
                 .as_ref()
                 .ok_or_else(|| vortex_error::vortex_err!("StructArray missing field slot {idx}"))?;
@@ -185,12 +190,9 @@ impl VTable for Struct {
             .try_collect()?;
 
         let slots = StructData::make_slots(&field_children, &validity, len);
-        let data = StructData::try_new_with_dtype(field_children, struct_dtype.clone(), len, validity)?;
+        let data =
+            StructData::try_new_with_dtype(field_children, struct_dtype.clone(), len, validity)?;
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -200,7 +202,6 @@ impl VTable for Struct {
             array.names()[idx - FIELDS_OFFSET].to_string()
         }
     }
-
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

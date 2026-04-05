@@ -5,13 +5,10 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use num_traits::NumCast;
-use vortex_array::Array;
-use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::Decimal;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::NullArray;
@@ -478,8 +475,6 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
         }
     }
     let filled_array = builder.finish_into_decimal();
-    let dtype = filled_array.dtype().clone();
-    let len = filled_array.len();
     Ok(filled_array.patch(patches, ctx)?.into_array())
 }
 

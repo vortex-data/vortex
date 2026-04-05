@@ -6,8 +6,6 @@ use std::hash::Hash;
 
 use prost::Message;
 use vortex_array::Array;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -16,6 +14,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -76,7 +75,7 @@ impl VTable for ALP {
         )
     }
 
-    fn array_hash<H: std::hash::Hasher>(data: &ALPData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(data: &ALPData, state: &mut H, _precision: Precision) {
         data.exponents.hash(state);
         data.patch_offset.hash(state);
         data.patch_offset_within_chunk.hash(state);
@@ -156,10 +155,6 @@ impl VTable for ALP {
             patches,
         )?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -457,12 +452,10 @@ impl ALP {
         let len = encoded.len();
         let slots = ALPData::make_slots(&encoded, &patches);
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(
-                ALP,
-                dtype,
-                len,
-                ALPData::new(encoded, exponents, patches),
-            ).with_slots(slots))
+            Array::from_parts_unchecked(
+                ArrayParts::new(ALP, dtype, len, ALPData::new(encoded, exponents, patches))
+                    .with_slots(slots),
+            )
         }
     }
 
@@ -521,27 +514,23 @@ impl ALPData {
     }
 }
 
-pub trait ALPArrayExt {
-    fn alp_data(&self) -> &ALPData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn alp_len(&self) -> usize;
-
+pub trait ALPArrayExt: TypedArrayRef<ALP> {
     fn encoded(&self) -> &ArrayRef {
-        self.as_slots()[ENCODED_SLOT]
+        self.slots_ref()[ENCODED_SLOT]
             .as_ref()
             .vortex_expect("ALPArray encoded slot")
     }
 
     fn exponents(&self) -> Exponents {
-        self.alp_data().exponents
+        self.exponents
     }
 
     fn patches(&self) -> Option<Patches> {
         patches_from_slots(
-            self.as_slots(),
-            self.alp_data().patch_offset,
-            self.alp_data().patch_offset_within_chunk,
-            self.alp_len(),
+            self.slots_ref(),
+            self.patch_offset,
+            self.patch_offset_within_chunk,
+            self.as_ref().len(),
         )
     }
 }
@@ -570,33 +559,7 @@ fn patches_from_slots(
     }
 }
 
-impl ALPArrayExt for Array<ALP> {
-    fn alp_data(&self) -> &ALPData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn alp_len(&self) -> usize {
-        self.len()
-    }
-}
-
-impl ALPArrayExt for ArrayView<'_, ALP> {
-    fn alp_data(&self) -> &ALPData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn alp_len(&self) -> usize {
-        self.len()
-    }
-}
+impl<T: TypedArrayRef<ALP>> ALPArrayExt for T {}
 
 pub trait ALPArrayOwnedExt {
     fn into_parts(self) -> (ArrayRef, Exponents, Option<Patches>);

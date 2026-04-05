@@ -11,8 +11,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
-use crate::ArrayEq;
-use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -21,9 +19,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::variant::NUM_SLOTS;
 use crate::arrays::variant::SLOT_NAMES;
-use crate::arrays::variant::VariantArrayExt;
 use crate::arrays::variant::VariantData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -52,7 +48,7 @@ impl VTable for Variant {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        _data: &Self::ArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

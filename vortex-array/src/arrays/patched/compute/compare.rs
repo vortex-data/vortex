@@ -52,13 +52,12 @@ impl CompareKernel for Patched {
             .execute::<Canonical>(ctx)?
             .into_bool();
 
-        let result = result.into_parts();
+        let validity = child_to_validity(&result.slots()[0], result.dtype().nullability());
         let BoolDataParts {
             bits,
             offset,
             len,
-        } = result.data.into_parts();
-        let validity = child_to_validity(&result.slots[0], result.dtype.nullability());
+        } = result.into_data().into_parts();
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 

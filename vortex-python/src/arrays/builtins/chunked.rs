@@ -5,7 +5,6 @@ use pyo3::PyRef;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use vortex::array::arrays::Chunked;
-use vortex::array::arrays::chunked::ChunkedArrayExt;
 
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::EncodingSubclass;

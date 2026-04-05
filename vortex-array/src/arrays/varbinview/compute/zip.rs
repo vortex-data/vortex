@@ -15,7 +15,6 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;

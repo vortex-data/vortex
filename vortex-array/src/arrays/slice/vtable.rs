@@ -15,8 +15,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
-use crate::ArrayEq;
-use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;

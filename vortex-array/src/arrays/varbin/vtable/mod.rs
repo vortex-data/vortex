@@ -70,8 +70,18 @@ impl VTable for VarBin {
         1
     }
 
-    fn validate(&self, _data: &VarBinData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
-        vortex_ensure!(slots.len() == NUM_SLOTS, "VarBinArray expected {NUM_SLOTS} slots, found {}", slots.len());
+    fn validate(
+        &self,
+        _data: &VarBinData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "VarBinArray expected {NUM_SLOTS} slots, found {}",
+            slots.len()
+        );
         let offsets = slots[crate::arrays::varbin::array::OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("VarBinArray offsets slot");
@@ -81,7 +91,10 @@ impl VTable for VarBin {
             offsets.len().saturating_sub(1),
             len
         );
-        vortex_ensure!(matches!(dtype, DType::Binary(_) | DType::Utf8(_)), "VarBinArray dtype must be binary or utf8, got {dtype}");
+        vortex_ensure!(
+            matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
+            "VarBinArray dtype must be binary or utf8, got {dtype}"
+        );
         Ok(())
     }
 
@@ -145,14 +158,9 @@ impl VTable for VarBin {
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
-
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,

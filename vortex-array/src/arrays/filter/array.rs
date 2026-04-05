@@ -9,9 +9,8 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::arrays::Filter;
-use crate::dtype::DType;
 
 /// The source array being filtered.
 pub(super) const CHILD_SLOT: usize = 0;
@@ -33,55 +32,14 @@ pub struct FilterDataParts {
     pub mask: Mask,
 }
 
-pub trait FilterArrayExt {
-    fn filter_data(&self) -> &FilterData;
-    fn filter_dtype(&self) -> &DType;
-    fn filter_len(&self) -> usize;
-
+pub trait FilterArrayExt: TypedArrayRef<Filter> {
     fn child(&self) -> &ArrayRef {
-        self.as_slots()[CHILD_SLOT]
+        self.slots_ref()[CHILD_SLOT]
             .as_ref()
-            .expect("validated filter child slot")
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-}
-
-impl FilterArrayExt for Array<Filter> {
-    fn filter_data(&self) -> &FilterData {
-        self.data()
-    }
-
-    fn filter_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn filter_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
+            .vortex_expect("validated filter child slot")
     }
 }
-
-impl FilterArrayExt for ArrayView<'_, Filter> {
-    fn filter_data(&self) -> &FilterData {
-        self.data()
-    }
-
-    fn filter_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn filter_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<Filter>> FilterArrayExt for T {}
 
 impl FilterData {
     pub fn new(array: ArrayRef, mask: Mask) -> Self {

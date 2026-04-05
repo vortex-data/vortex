@@ -435,11 +435,13 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::dtype::PType;
     use vortex::encodings::alp::ALP;
+    use vortex::encodings::alp::ALPArrayExt;
     use vortex::encodings::alp::ALPFloat;
     use vortex::encodings::alp::Exponents;
     use vortex::encodings::alp::alp_encode;
     use vortex::encodings::fastlanes::BitPacked;
     use vortex::encodings::fastlanes::BitPackedArray;
+    use vortex::encodings::fastlanes::FoRArrayExt;
     use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::runend::RunEnd;
     use vortex::encodings::zigzag::ZigZag;

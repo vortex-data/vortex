@@ -49,6 +49,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 

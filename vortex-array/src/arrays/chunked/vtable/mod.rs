@@ -34,8 +34,6 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::executor::VortexSessionExecute;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 mod canonical;
@@ -170,7 +168,7 @@ impl VTable for Chunked {
             &DType::Primitive(PType::U64, Nullability::NonNullable),
             nchunks + 1,
         )?;
-        let chunk_offsets_buf = chunk_offsets.clone().to_primitive().to_buffer::<u64>();
+        let chunk_offsets_buf = chunk_offsets.to_primitive().to_buffer::<u64>();
         let mut slots = Vec::with_capacity(children.len());
         slots.push(Some(chunk_offsets));
         for (idx, (start, end)) in chunk_offsets_buf.iter().copied().tuple_windows().enumerate() {

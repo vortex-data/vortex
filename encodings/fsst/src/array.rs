@@ -22,6 +22,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::buffer::BufferHandle;
@@ -92,11 +93,7 @@ impl VTable for FSST {
     fn array_hash<H: std::hash::Hasher>(data: &FSSTData, state: &mut H, precision: Precision) {
         data.symbols.array_hash(state, precision);
         data.symbol_lengths.array_hash(state, precision);
-        data
-            .codes
-            .clone()
-            .into_array()
-            .array_hash(state, precision);
+        data.codes.clone().into_array().array_hash(state, precision);
     }
 
     fn array_eq(data: &FSSTData, other: &FSSTData, precision: Precision) -> bool {
@@ -181,11 +178,9 @@ impl VTable for FSST {
             )?;
 
             let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
-            let data = FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, dtype)?;
-            return Ok(
-                ArrayParts::new(self.clone(), dtype.clone(), len, data)
-                    .with_slots(slots),
-            );
+            let data =
+                FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, dtype)?;
+            return Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots));
         }
 
         // Check for the current deserialization path.
@@ -227,21 +222,15 @@ impl VTable for FSST {
             )?;
 
             let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
-            let data = FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, dtype)?;
-            return Ok(
-                ArrayParts::new(self.clone(), dtype.clone(), len, data)
-                    .with_slots(slots),
-            );
+            let data =
+                FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, dtype)?;
+            return Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots));
         }
 
         vortex_bail!(
             "InvalidArgument: Expected 2 or 3 buffers, got {}",
             buffers.len()
         );
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -297,8 +286,10 @@ impl VTable for FSST {
 /// Lengths of the original values before compression, can be compressed.
 pub(crate) const UNCOMPRESSED_LENGTHS_SLOT: usize = 0;
 /// The offsets array for the FSST-compressed codes.
+#[allow(dead_code, reason = "reserved for back-compat slot numbering")]
 pub(crate) const CODES_OFFSETS_SLOT: usize = 1;
 /// The validity bitmap for the compressed codes.
+#[allow(dead_code, reason = "reserved for back-compat slot numbering")]
 pub(crate) const CODES_VALIDITY_SLOT: usize = 2;
 pub(crate) const NUM_SLOTS: usize = 3;
 pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
@@ -567,11 +558,9 @@ fn uncompressed_lengths_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
         .vortex_expect("FSSTArray uncompressed_lengths slot")
 }
 
-pub trait FSSTArrayExt {
-    fn fsst_slots(&self) -> &[Option<ArrayRef>];
-
+pub trait FSSTArrayExt: TypedArrayRef<FSST> {
     fn uncompressed_lengths(&self) -> &ArrayRef {
-        uncompressed_lengths_from_slots(self.fsst_slots())
+        uncompressed_lengths_from_slots(self.slots_ref())
     }
 
     fn uncompressed_lengths_dtype(&self) -> &DType {
@@ -579,17 +568,7 @@ pub trait FSSTArrayExt {
     }
 }
 
-impl FSSTArrayExt for Array<FSST> {
-    fn fsst_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl FSSTArrayExt for ArrayView<'_, FSST> {
-    fn fsst_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<FSST>> FSSTArrayExt for T {}
 
 impl ValidityChild<FSST> for FSST {
     fn validity_child(array: ArrayView<'_, FSST>) -> ArrayRef {
@@ -617,6 +596,7 @@ mod test {
     use vortex_error::VortexError;
 
     use crate::FSST;
+    use crate::array::FSSTArrayExt;
     use crate::array::FSSTMetadata;
     use crate::fsst_compress_iter;
 

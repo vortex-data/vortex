@@ -21,7 +21,6 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::varbinview::VarBinViewArrayExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::arrays::varbinview::VarBinViewData;
 use crate::arrays::varbinview::array::NUM_SLOTS;
@@ -56,7 +55,11 @@ impl VTable for VarBinView {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(data: &VarBinViewData, state: &mut H, precision: Precision) {
+    fn array_hash<H: std::hash::Hasher>(
+        data: &VarBinViewData,
+        state: &mut H,
+        precision: Precision,
+    ) {
         for buffer in data.buffers.iter() {
             buffer.array_hash(state, precision);
         }
@@ -66,10 +69,10 @@ impl VTable for VarBinView {
     fn array_eq(data: &VarBinViewData, other: &VarBinViewData, precision: Precision) -> bool {
         data.buffers.len() == other.buffers.len()
             && data
-            .buffers
-            .iter()
-            .zip(other.buffers.iter())
-            .all(|(a, b)| a.array_eq(b, precision))
+                .buffers
+                .iter()
+                .zip(other.buffers.iter())
+                .all(|(a, b)| a.array_eq(b, precision))
             && data.views.array_eq(&other.views, precision)
     }
 
@@ -77,15 +80,28 @@ impl VTable for VarBinView {
         array.data_buffers().len() + 1
     }
 
-    fn validate(&self, data: &VarBinViewData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
-        vortex_ensure!(slots.len() == NUM_SLOTS, "VarBinViewArray expected {NUM_SLOTS} slots, found {}", slots.len());
+    fn validate(
+        &self,
+        data: &VarBinViewData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "VarBinViewArray expected {NUM_SLOTS} slots, found {}",
+            slots.len()
+        );
         vortex_ensure!(
             data.len() == len,
             "VarBinViewArray length {} does not match outer length {}",
             data.len(),
             len
         );
-        vortex_ensure!(matches!(dtype, DType::Binary(_) | DType::Utf8(_)), "VarBinViewArray dtype must be binary or utf8, got {dtype}");
+        vortex_ensure!(
+            matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
+            "VarBinViewArray dtype must be binary or utf8, got {dtype}"
+        );
         Ok(())
     }
 
@@ -177,19 +193,19 @@ impl VTable for VarBinView {
             .collect::<Vec<_>>();
         let views = Buffer::<BinaryView>::from_byte_buffer(views_handle.clone().as_host().clone());
 
-        let data = VarBinViewData::try_new(views, Arc::from(data_buffers), dtype.clone(), validity.clone())?;
+        let data = VarBinViewData::try_new(
+            views,
+            Arc::from(data_buffers),
+            dtype.clone(),
+            validity.clone(),
+        )?;
         let slots = VarBinViewData::make_slots(&validity, len);
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
-
 
     fn reduce_parent(
         array: ArrayView<'_, Self>,

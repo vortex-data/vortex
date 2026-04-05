@@ -38,7 +38,6 @@ use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
-use crate::arrays::variant::VariantArrayExt;
 use crate::arrays::bool::BoolDataParts;
 use crate::arrays::decimal::DecimalDataParts;
 use crate::arrays::listview::ListViewDataParts;
@@ -546,13 +545,12 @@ impl Executable for CanonicalValidity {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(CanonicalValidity(n)),
             Canonical::Bool(b) => {
-                let b = b.into_parts();
+                let validity = child_to_validity(&b.slots()[0], b.dtype().nullability());
                 let BoolDataParts {
                     bits,
                     offset,
                     len,
-                } = b.data.into_parts();
-                let validity = child_to_validity(&b.slots[0], b.dtype.nullability());
+                } = b.into_data().into_parts();
                 Ok(CanonicalValidity(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))
@@ -669,13 +667,12 @@ impl Executable for RecursiveCanonical {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(RecursiveCanonical(n)),
             Canonical::Bool(b) => {
-                let b = b.into_parts();
+                let validity = child_to_validity(&b.slots()[0], b.dtype().nullability());
                 let BoolDataParts {
                     bits,
                     offset,
                     len,
-                } = b.data.into_parts();
-                let validity = child_to_validity(&b.slots[0], b.dtype.nullability());
+                } = b.into_data().into_parts();
                 Ok(RecursiveCanonical(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))

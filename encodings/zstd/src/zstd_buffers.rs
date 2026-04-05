@@ -82,7 +82,8 @@ impl ZstdBuffers {
         };
         let slots = children.into_iter().map(Some).collect();
         let compressed = Array::try_from_parts(
-            ArrayParts::new(ZstdBuffers, array.dtype().clone(), array.len(), data).with_slots(slots),
+            ArrayParts::new(ZstdBuffers, array.dtype().clone(), array.len(), data)
+                .with_slots(slots),
         )?;
         compressed.statistics().inherit_from(array.statistics());
         Ok(compressed)
@@ -96,7 +97,9 @@ impl ZstdBuffers {
         let registry = session.arrays().registry().clone();
         let inner_vtable = registry
             .find(&array.data().inner_encoding_id)
-            .ok_or_else(|| vortex_err!("Unknown inner encoding: {}", array.data().inner_encoding_id))?;
+            .ok_or_else(|| {
+                vortex_err!("Unknown inner encoding: {}", array.data().inner_encoding_id)
+            })?;
 
         let children: Vec<ArrayRef> = array.slots().iter().flatten().cloned().collect();
         inner_vtable.build(
@@ -379,10 +382,6 @@ impl VTable for ZstdBuffers {
         Some(format!("compressed_{idx}"))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         format!("child_{idx}")
     }
@@ -447,7 +446,10 @@ impl OperationsVTable<ZstdBuffers> for ZstdBuffers {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
         // canonical
-        let inner_array = ZstdBuffers::decompress_and_build_inner(&array.into_owned(), &vortex_array::LEGACY_SESSION)?;
+        let inner_array = ZstdBuffers::decompress_and_build_inner(
+            &array.into_owned(),
+            &vortex_array::LEGACY_SESSION,
+        )?;
         inner_array.scalar_at(index)
     }
 }
@@ -460,7 +462,10 @@ impl ValidityVTable<ZstdBuffers> for ZstdBuffers {
             return Ok(vortex_array::validity::Validity::NonNullable);
         }
 
-        let inner_array = ZstdBuffers::decompress_and_build_inner(&array.into_owned(), &vortex_array::LEGACY_SESSION)?;
+        let inner_array = ZstdBuffers::decompress_and_build_inner(
+            &array.into_owned(),
+            &vortex_array::LEGACY_SESSION,
+        )?;
         inner_array.validity()
     }
 }

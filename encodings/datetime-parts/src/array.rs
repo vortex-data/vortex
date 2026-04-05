@@ -5,8 +5,6 @@ use std::fmt::Debug;
 
 use prost::Message;
 use vortex_array::Array;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -15,6 +13,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -36,6 +35,8 @@ use vortex_session::VortexSession;
 use crate::canonical::decode_to_temporal;
 use crate::compute::kernel::PARENT_KERNELS;
 use crate::compute::rules::PARENT_RULES;
+use crate::split_temporal;
+use crate::TemporalParts;
 
 vtable!(DateTimeParts, DateTimeParts, DateTimePartsData);
 
@@ -81,7 +82,7 @@ impl VTable for DateTimeParts {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        _data: &Self::ArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -178,10 +179,6 @@ impl VTable for DateTimeParts {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -220,42 +217,29 @@ pub(super) const NUM_SLOTS: usize = 3;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["days", "seconds", "subseconds"];
 
 #[derive(Clone, Debug)]
-pub struct DateTimePartsData {
-}
+pub struct DateTimePartsData {}
 
-pub trait DateTimePartsArrayExt {
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-
+pub trait DateTimePartsArrayExt: TypedArrayRef<DateTimeParts> {
     fn days(&self) -> &ArrayRef {
-        self.as_slots()[DAYS_SLOT]
+        self.slots_ref()[DAYS_SLOT]
             .as_ref()
             .vortex_expect("DateTimePartsArray days slot")
     }
 
     fn seconds(&self) -> &ArrayRef {
-        self.as_slots()[SECONDS_SLOT]
+        self.slots_ref()[SECONDS_SLOT]
             .as_ref()
             .vortex_expect("DateTimePartsArray seconds slot")
     }
 
     fn subseconds(&self) -> &ArrayRef {
-        self.as_slots()[SUBSECONDS_SLOT]
+        self.slots_ref()[SUBSECONDS_SLOT]
             .as_ref()
             .vortex_expect("DateTimePartsArray subseconds slot")
     }
 }
 
-impl DateTimePartsArrayExt for Array<DateTimeParts> {
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl DateTimePartsArrayExt for ArrayView<'_, DateTimeParts> {
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<DateTimeParts>> DateTimePartsArrayExt for T {}
 
 #[derive(Clone, Debug)]
 pub struct DateTimeParts;
@@ -277,25 +261,22 @@ impl DateTimeParts {
             Some(subseconds.clone()),
         ];
         let data = DateTimePartsData::try_new(dtype.clone(), days, seconds, subseconds)?;
-        Ok(
-            unsafe {
-                Array::from_parts_unchecked(
-                    ArrayParts::new(DateTimeParts, dtype, len, data).with_slots(slots),
-                )
-            },
-        )
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(DateTimeParts, dtype, len, data).with_slots(slots),
+            )
+        })
     }
 
     /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`].
     pub fn try_from_temporal(temporal: TemporalArray) -> VortexResult<DateTimePartsArray> {
         let dtype = temporal.dtype().clone();
-        let len = temporal.temporal_values().len();
-        let data = DateTimePartsData::try_from(temporal)?;
-        Ok(
-            unsafe {
-                Array::from_parts_unchecked(ArrayParts::new(DateTimeParts, dtype, len, data))
-            },
-        )
+        let TemporalParts {
+            days,
+            seconds,
+            subseconds,
+        } = split_temporal(temporal)?;
+        Self::try_new(dtype, days, seconds, subseconds)
     }
 }
 

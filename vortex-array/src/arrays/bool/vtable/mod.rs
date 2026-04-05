@@ -18,7 +18,6 @@ use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::bool::array::BoolArrayExt;
 use crate::arrays::bool::BoolData;
 use crate::arrays::bool::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
@@ -61,7 +60,8 @@ impl VTable for Bool {
     }
 
     fn array_eq(data: &BoolData, other: &BoolData, precision: Precision) -> bool {
-        data.to_bit_buffer().array_eq(&other.to_bit_buffer(), precision)
+        data.to_bit_buffer()
+            .array_eq(&other.to_bit_buffer(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -96,7 +96,13 @@ impl VTable for Bool {
         write!(f, "BoolMetadata {{ offset: {} }}", array.offset)
     }
 
-    fn validate(&self, data: &BoolData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &BoolData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         let DType::Bool(nullability) = dtype else {
             vortex_bail!("Expected bool dtype, got {dtype:?}");
         };
@@ -150,14 +156,9 @@ impl VTable for Bool {
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
-
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

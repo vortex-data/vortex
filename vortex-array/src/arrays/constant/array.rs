@@ -6,8 +6,6 @@ use crate::array::ArrayParts;
 use crate::arrays::Constant;
 use crate::scalar::Scalar;
 
-pub(super) const NUM_SLOTS: usize = 0;
-
 #[derive(Clone, Debug)]
 pub struct ConstantData {
     pub(super) scalar: Scalar,

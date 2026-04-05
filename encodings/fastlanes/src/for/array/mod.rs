@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
+use vortex_array::TypedArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
@@ -28,40 +27,19 @@ pub struct FoRData {
     pub(super) reference: Scalar,
 }
 
-pub trait FoRArrayExt {
-    fn for_data(&self) -> &FoRData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-
+pub trait FoRArrayExt: TypedArrayRef<crate::FoR> {
     fn encoded(&self) -> &ArrayRef {
-        self.as_slots()[ENCODED_SLOT]
+        self.slots_ref()[ENCODED_SLOT]
             .as_ref()
             .vortex_expect("FoRArray encoded slot")
     }
 
     fn reference_scalar(&self) -> &Scalar {
-        &self.for_data().reference
+        &self.reference
     }
 }
 
-impl FoRArrayExt for Array<crate::FoR> {
-    fn for_data(&self) -> &FoRData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl FoRArrayExt for ArrayView<'_, crate::FoR> {
-    fn for_data(&self) -> &FoRData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<crate::FoR>> FoRArrayExt for T {}
 
 impl FoRData {
     pub(crate) fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<Self> {

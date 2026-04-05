@@ -12,7 +12,6 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use super::DictData;
-use super::DictArrayExt;
 use super::DictMetadata;
 use super::array::CODES_SLOT;
 use super::array::SLOT_NAMES;
@@ -35,8 +34,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
@@ -64,22 +61,32 @@ impl VTable for Dict {
         Self::ID
     }
 
-    fn validate(&self, data: &DictData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &DictData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         _ = data;
-        let codes = slots[CODES_SLOT].as_ref().vortex_expect("DictArray codes slot");
+        let codes = slots[CODES_SLOT]
+            .as_ref()
+            .vortex_expect("DictArray codes slot");
         let values = slots[VALUES_SLOT]
             .as_ref()
             .vortex_expect("DictArray values slot");
         vortex_ensure!(codes.len() == len, "DictArray codes length mismatch");
         vortex_ensure!(
-            values.dtype().union_nullability(codes.dtype().nullability()) == *dtype,
+            values
+                .dtype()
+                .union_nullability(codes.dtype().nullability())
+                == *dtype,
             "DictArray dtype does not match codes/values dtype"
         );
         Ok(())
     }
 
-    fn array_hash<H: std::hash::Hasher>(_data: &DictData, _state: &mut H, _precision: Precision) {
-    }
+    fn array_hash<H: std::hash::Hasher>(_data: &DictData, _state: &mut H, _precision: Precision) {}
 
     fn array_eq(_data: &DictData, _other: &DictData, _precision: Precision) -> bool {
         true
@@ -143,27 +150,17 @@ impl VTable for Dict {
         let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
 
         Ok(
-            crate::array::ArrayParts::new(
-                self.clone(),
-                dtype.clone(),
-                len,
-                unsafe {
-                    DictData::new_unchecked(codes.clone(), values.clone())
-                        .set_all_values_referenced(all_values_referenced)
-                },
-            )
+            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, unsafe {
+                DictData::new_unchecked(codes.clone(), values.clone())
+                    .set_all_values_referenced(all_values_referenced)
+            })
             .with_slots(vec![Some(codes), Some(values)]),
         )
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
-
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if array.is_empty() {

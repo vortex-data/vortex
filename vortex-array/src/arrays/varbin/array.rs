@@ -14,6 +14,7 @@ use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -307,23 +308,19 @@ impl VarBinData {
     }
 }
 
-pub trait VarBinArrayExt {
-    fn varbin_data(&self) -> &VarBinData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-    fn dtype(&self) -> &DType;
-
+pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
     fn offsets(&self) -> &ArrayRef {
-        self.as_slots()[OFFSETS_SLOT]
+        self.slots_ref()[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("VarBinArray offsets slot")
     }
 
     fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_slots()[VALIDITY_SLOT].as_ref()
+        self.slots_ref()[VALIDITY_SLOT].as_ref()
     }
 
     fn dtype_parts(&self) -> (bool, Nullability) {
-        match self.dtype() {
+        match self.as_ref().dtype() {
             DType::Utf8(nullability) => (true, *nullability),
             DType::Binary(nullability) => (false, *nullability),
             _ => unreachable!("VarBinArrayExt requires a utf8 or binary dtype"),
@@ -339,17 +336,19 @@ pub trait VarBinArrayExt {
     }
 
     fn varbin_validity(&self) -> Validity {
-        child_to_validity(&self.as_slots()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(&self.slots_ref()[VALIDITY_SLOT], self.nullability())
     }
 
     fn varbin_validity_mask(&self) -> Mask {
-        self.varbin_validity().to_mask(self.len())
+        self.varbin_validity().to_mask(self.as_ref().len())
     }
 
-    fn len(&self) -> usize;
-
     fn offset_at(&self, index: usize) -> usize {
-        assert!(index <= self.len(), "Index {index} out of bounds 0..={}", self.len());
+        assert!(
+            index <= self.as_ref().len(),
+            "Index {index} out of bounds 0..={}",
+            self.as_ref().len()
+        );
 
         (&self
             .offsets()
@@ -362,51 +361,16 @@ pub trait VarBinArrayExt {
     fn bytes_at(&self, index: usize) -> ByteBuffer {
         let start = self.offset_at(index);
         let end = self.offset_at(index + 1);
-        self.varbin_data().bytes().slice(start..end)
+        self.bytes().slice(start..end)
     }
 
     fn sliced_bytes(&self) -> ByteBuffer {
         let first_offset: usize = self.offset_at(0);
-        let last_offset = self.offset_at(self.len());
-        self.varbin_data().bytes().slice(first_offset..last_offset)
+        let last_offset = self.offset_at(self.as_ref().len());
+        self.bytes().slice(first_offset..last_offset)
     }
 }
-
-impl VarBinArrayExt for Array<VarBin> {
-    fn varbin_data(&self) -> &VarBinData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn len(&self) -> usize {
-        Array::len(self)
-    }
-
-    fn dtype(&self) -> &DType {
-        Array::dtype(self)
-    }
-}
-
-impl VarBinArrayExt for ArrayView<'_, VarBin> {
-    fn varbin_data(&self) -> &VarBinData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-
-    fn len(&self) -> usize {
-        ArrayView::len(self)
-    }
-
-    fn dtype(&self) -> &DType {
-        ArrayView::dtype(self)
-    }
-}
+impl<T: TypedArrayRef<VarBin>> VarBinArrayExt for T {}
 
 /// Forwarding constructors for `VarBinArray` (= `Array<VarBin>`).
 impl Array<VarBin> {
@@ -497,15 +461,14 @@ impl Array<VarBin> {
     }
 
     pub fn into_data_parts(self) -> VarBinDataParts {
-        let parts = self.into_parts();
-        let dtype = parts.dtype;
-        let validity = child_to_validity(&parts.slots[VALIDITY_SLOT], dtype.nullability());
+        let dtype = self.dtype().clone();
+        let validity = self.varbin_validity();
+        let offsets = self.offsets().clone();
+        let data = self.into_data();
         VarBinDataParts {
             dtype,
-            bytes: parts.data.bytes,
-            offsets: parts.slots[OFFSETS_SLOT]
-                .clone()
-                .vortex_expect("VarBinArray offsets slot"),
+            bytes: data.bytes,
+            offsets,
             validity,
         }
     }

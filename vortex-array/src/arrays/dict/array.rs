@@ -11,10 +11,10 @@ use vortex_mask::AllOr;
 use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
-use crate::array::ArrayView;
 use crate::array::ArrayParts;
+use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::arrays::Dict;
-use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 
@@ -106,14 +106,22 @@ impl DictData {
     }
 }
 
-pub trait DictArrayExt {
-    fn dict_data(&self) -> &DictData;
-    fn codes(&self) -> &ArrayRef;
-    fn values(&self) -> &ArrayRef;
+pub trait DictArrayExt: TypedArrayRef<Dict> {
+    fn codes(&self) -> &ArrayRef {
+        self.slots_ref()[CODES_SLOT]
+            .as_ref()
+            .vortex_expect("DictArray codes slot")
+    }
+
+    fn values(&self) -> &ArrayRef {
+        self.slots_ref()[VALUES_SLOT]
+            .as_ref()
+            .vortex_expect("DictArray values slot")
+    }
 
     #[inline]
     fn has_all_values_referenced(&self) -> bool {
-        self.dict_data().all_values_referenced
+        self.all_values_referenced
     }
 
     fn validate_all_values_referenced(&self) -> VortexResult<()> {
@@ -131,6 +139,7 @@ pub trait DictArrayExt {
         Ok(())
     }
 
+    #[allow(clippy::cognitive_complexity, reason = "branching depends on validity representation and code type")]
     fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes_validity = self.codes().validity_mask()?;
         let codes_primitive = self.codes().to_primitive();
@@ -173,42 +182,7 @@ pub trait DictArrayExt {
         Ok(BitBuffer::from(values_vec))
     }
 }
-
-impl DictArrayExt for Array<Dict> {
-    fn dict_data(&self) -> &DictData {
-        self.data()
-    }
-
-    fn codes(&self) -> &ArrayRef {
-        self.slots()[CODES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray codes slot")
-    }
-
-    fn values(&self) -> &ArrayRef {
-        self.slots()[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray values slot")
-    }
-}
-
-impl DictArrayExt for ArrayView<'_, Dict> {
-    fn dict_data(&self) -> &DictData {
-        self.data()
-    }
-
-    fn codes(&self) -> &ArrayRef {
-        self.slots()[CODES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray codes slot")
-    }
-
-    fn values(&self) -> &ArrayRef {
-        self.slots()[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray values slot")
-    }
-}
+impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
 
 impl Array<Dict> {
     #[inline]

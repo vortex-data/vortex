@@ -6,8 +6,6 @@ use std::hash::Hash;
 use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::Array;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -72,7 +70,9 @@ impl VTable for Delta {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         data.validate_against_slots(
-            slots[BASES_SLOT].as_ref().vortex_expect("DeltaArray bases slot"),
+            slots[BASES_SLOT]
+                .as_ref()
+                .vortex_expect("DeltaArray bases slot"),
             slots[DELTAS_SLOT]
                 .as_ref()
                 .vortex_expect("DeltaArray deltas slot"),
@@ -107,10 +107,6 @@ impl VTable for Delta {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         rules::RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

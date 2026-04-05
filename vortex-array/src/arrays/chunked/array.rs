@@ -21,6 +21,7 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::PrimitiveArray;
@@ -39,33 +40,28 @@ pub(super) const CHUNKS_OFFSET: usize = 1;
 #[derive(Clone, Debug)]
 pub struct ChunkedData;
 
-pub trait ChunkedArrayExt {
-    fn chunked_data(&self) -> &ChunkedData;
-    fn chunked_dtype(&self) -> &DType;
-    fn chunked_len(&self) -> usize;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-
+pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
     fn chunk_offsets_array(&self) -> &ArrayRef {
-        self.as_slots()[CHUNK_OFFSETS_SLOT]
+        self.slots_ref()[CHUNK_OFFSETS_SLOT]
             .as_ref()
-            .expect("validated chunk offsets slot")
+            .vortex_expect("validated chunk offsets slot")
     }
 
     fn nchunks(&self) -> usize {
-        self.as_slots().len().saturating_sub(CHUNKS_OFFSET)
+        self.slots_ref().len().saturating_sub(CHUNKS_OFFSET)
     }
 
     fn chunk(&self, idx: usize) -> &ArrayRef {
-        self.as_slots()[CHUNKS_OFFSET + idx]
+        self.slots_ref()[CHUNKS_OFFSET + idx]
             .as_ref()
-            .expect("validated chunk slot")
+            .vortex_expect("validated chunk slot")
     }
 
     fn iter_chunks<'a>(&'a self) -> Box<dyn Iterator<Item = &'a ArrayRef> + 'a> {
         Box::new(
-            self.as_slots()[CHUNKS_OFFSET..]
+            self.slots_ref()[CHUNKS_OFFSET..]
                 .iter()
-                .map(|slot| slot.as_ref().expect("validated chunk slot")),
+                .map(|slot| slot.as_ref().vortex_expect("validated chunk slot")),
         )
     }
 
@@ -88,7 +84,7 @@ pub trait ChunkedArrayExt {
     }
 
     fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
-        assert!(index <= self.chunked_len(), "Index out of bounds of the array");
+        assert!(index <= self.as_ref().len(), "Index out of bounds of the array");
         let index = index as u64;
         let chunk_offsets = self.chunk_offsets();
         let index_chunk = chunk_offsets
@@ -103,54 +99,19 @@ pub trait ChunkedArrayExt {
 
     fn array_iterator(&self) -> impl ArrayIterator + '_ {
         ArrayIteratorAdapter::new(
-            self.chunked_dtype().clone(),
+            self.as_ref().dtype().clone(),
             self.iter_chunks().map(|chunk| Ok(chunk.clone())),
         )
     }
 
     fn array_stream(&self) -> impl ArrayStream + '_ {
         ArrayStreamAdapter::new(
-            self.chunked_dtype().clone(),
+            self.as_ref().dtype().clone(),
             stream::iter(self.iter_chunks().map(|chunk| Ok(chunk.clone()))),
         )
     }
 }
-
-impl ChunkedArrayExt for Array<Chunked> {
-    fn chunked_data(&self) -> &ChunkedData {
-        self.data()
-    }
-
-    fn chunked_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn chunked_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl ChunkedArrayExt for ArrayView<'_, Chunked> {
-    fn chunked_data(&self) -> &ChunkedData {
-        self.data()
-    }
-
-    fn chunked_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn chunked_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<Chunked>> ChunkedArrayExt for T {}
 
 impl Array<Chunked> {
     pub fn chunk_offsets_array(&self) -> &ArrayRef {
@@ -181,9 +142,6 @@ impl Array<Chunked> {
         <Self as ChunkedArrayExt>::non_empty_chunks(self)
     }
 
-    pub(crate) fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
-        <Self as ChunkedArrayExt>::find_chunk_idx(self, index)
-    }
 }
 
 impl ArrayView<'_, Chunked> {

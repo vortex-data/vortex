@@ -5,8 +5,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use vortex_array::Array;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -24,8 +22,8 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
-use vortex_error::VortexResult;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -33,7 +31,6 @@ use vortex_session::VortexSession;
 
 use crate::FoRData;
 use crate::r#for::array::FoRArrayExt;
-use crate::r#for::array::NUM_SLOTS;
 use crate::r#for::array::SLOT_NAMES;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::kernels::PARENT_KERNELS;
@@ -86,10 +83,6 @@ impl VTable for FoR {
 
     fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

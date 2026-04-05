@@ -7,6 +7,7 @@ use std::sync::OnceLock;
 
 use async_lock::Mutex as AsyncMutex;
 use vortex_error::SharedVortexResult;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -14,9 +15,8 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::arrays::Shared;
-use crate::dtype::DType;
 
 /// The source array that is shared and lazily computed.
 pub(super) const SOURCE_SLOT: usize = 0;
@@ -34,19 +34,15 @@ pub struct SharedData {
 }
 
 #[allow(async_fn_in_trait)]
-pub trait SharedArrayExt {
-    fn shared_data(&self) -> &SharedData;
-    fn shared_dtype(&self) -> &DType;
-    fn shared_len(&self) -> usize;
-
+pub trait SharedArrayExt: TypedArrayRef<Shared> {
     fn source(&self) -> &ArrayRef {
-        self.as_slots()[SOURCE_SLOT]
+        self.slots_ref()[SOURCE_SLOT]
             .as_ref()
-            .expect("validated shared source slot")
+            .vortex_expect("validated shared source slot")
     }
 
     fn current_array_ref(&self) -> &ArrayRef {
-        match self.shared_data().cached.get() {
+        match self.cached.get() {
             Some(Ok(arr)) => arr,
             _ => self.source(),
         }
@@ -56,7 +52,7 @@ pub trait SharedArrayExt {
         &self,
         f: impl FnOnce(&ArrayRef) -> VortexResult<Canonical>,
     ) -> VortexResult<ArrayRef> {
-        let result = self.shared_data().cached.get_or_init(|| {
+        let result = self.cached.get_or_init(|| {
             f(self.source()).map(|c| c.into_array()).map_err(Arc::new)
         });
         result.clone().map_err(Into::into)
@@ -67,13 +63,13 @@ pub trait SharedArrayExt {
         F: FnOnce(ArrayRef) -> Fut,
         Fut: Future<Output = VortexResult<Canonical>>,
     {
-        if let Some(result) = self.shared_data().cached.get() {
+        if let Some(result) = self.cached.get() {
             return result.clone().map_err(Into::into);
         }
 
-        let _guard = self.shared_data().async_compute_lock.lock().await;
+        let _guard = self.async_compute_lock.lock().await;
 
-        if let Some(result) = self.shared_data().cached.get() {
+        if let Some(result) = self.cached.get() {
             return result.clone().map_err(Into::into);
         }
 
@@ -82,48 +78,11 @@ pub trait SharedArrayExt {
             .map(|c| c.into_array())
             .map_err(Arc::new);
 
-        let result = self.shared_data().cached.get_or_init(|| computed);
+        let result = self.cached.get_or_init(|| computed);
         result.clone().map_err(Into::into)
     }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>];
 }
-
-impl SharedArrayExt for Array<Shared> {
-    fn shared_data(&self) -> &SharedData {
-        self.data()
-    }
-
-    fn shared_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn shared_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl SharedArrayExt for ArrayView<'_, Shared> {
-    fn shared_data(&self) -> &SharedData {
-        self.data()
-    }
-
-    fn shared_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn shared_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<Shared>> SharedArrayExt for T {}
 
 impl SharedData {
     pub fn new() -> Self {
@@ -131,6 +90,12 @@ impl SharedData {
             cached: Arc::new(OnceLock::new()),
             async_compute_lock: Arc::new(AsyncMutex::new(())),
         }
+    }
+}
+
+impl Default for SharedData {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

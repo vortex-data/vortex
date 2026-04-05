@@ -73,11 +73,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn array_hash<H: Hasher>(data: &Self::ArrayData, state: &mut H, precision: Precision);
 
     /// Compares two arrays of the same type for equality.
-    fn array_eq(
-        data: &Self::ArrayData,
-        other: &Self::ArrayData,
-        precision: Precision,
-    ) -> bool;
+    fn array_eq(data: &Self::ArrayData, other: &Self::ArrayData, precision: Precision) -> bool;
 
     /// Returns the number of buffers in the array.
     fn nbuffers(array: ArrayView<'_, Self>) -> usize;
@@ -95,7 +91,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// The default counts non-None slots.
     fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        Self::slots(array).iter().filter(|s| s.is_some()).count()
+        array.slots().iter().filter(|s| s.is_some()).count()
     }
 
     /// Returns the child at the given index.
@@ -105,7 +101,8 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
     fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        Self::slots(array)
+        array
+            .slots()
             .iter()
             .filter_map(|s| s.clone())
             .nth(idx)
@@ -119,7 +116,8 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
     fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        Self::slots(array)
+        array
+            .slots()
             .iter()
             .enumerate()
             .filter(|(_, s)| s.is_some())
@@ -164,23 +162,6 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
             .into_array();
         builder.extend_from_array(&canonical);
         Ok(())
-    }
-
-    /// Returns the slots of the array as a slice.
-    ///
-    /// Slots provide fixed-position storage for child arrays. Each encoding defines named
-    /// constants (e.g. `VALIDITY_SLOT`, `ELEMENTS_SLOT`) that index into this slice, so child
-    /// access is a direct index rather than a dynamic lookup.
-    ///
-    /// Slots are `Option<ArrayRef>` to allow individual children to be _taken_ (moved out)
-    /// without invalidating the indices of other slots. For example, removing the validity
-    /// child leaves a `None` at `VALIDITY_SLOT` while all other slot indices remain stable.
-    ///
-    /// The backing storage is a `Vec` (rather than a fixed-size array) so that it can be
-    /// moved out of an `ArrayData` into the concrete `Array` type during deserialization
-    /// without copying.
-    fn slots<'a>(array: ArrayView<'a, Self>) -> &'a [Option<ArrayRef>] {
-        array.slots()
     }
 
     /// Returns the name of the slot at the given index.

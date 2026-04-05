@@ -5,9 +5,12 @@ mod vtable;
 
 pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
+use vortex_error::VortexExpect;
+
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::array::ArrayView;
 use crate::dtype::DType;
 
@@ -25,55 +28,20 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 #[derive(Clone, Debug)]
 pub struct VariantData;
 
-pub trait VariantArrayExt {
-    fn variant_data(&self) -> &VariantData;
-    fn variant_dtype(&self) -> &DType;
-    fn variant_len(&self) -> usize;
-
+pub trait VariantArrayExt: TypedArrayRef<Variant> {
     fn child(&self) -> &ArrayRef {
-        self.as_slots()[0].as_ref().expect("validated variant child slot")
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-}
-
-impl VariantArrayExt for Array<Variant> {
-    fn variant_data(&self) -> &VariantData {
-        self.data()
-    }
-
-    fn variant_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn variant_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
+        self.slots_ref()[0]
+            .as_ref()
+            .vortex_expect("validated variant child slot")
     }
 }
-
-impl VariantArrayExt for ArrayView<'_, Variant> {
-    fn variant_data(&self) -> &VariantData {
-        self.data()
-    }
-
-    fn variant_dtype(&self) -> &DType {
-        self.dtype()
-    }
-
-    fn variant_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<Variant>> VariantArrayExt for T {}
 
 impl Array<Variant> {
+    pub fn child(&self) -> &ArrayRef {
+        VariantArrayExt::child(self)
+    }
+
     /// Creates a new `VariantArray`.
     pub fn new(child: ArrayRef) -> Self {
         let dtype = DType::Variant(child.dtype().nullability());
@@ -85,5 +53,11 @@ impl Array<Variant> {
             )
         }
         .with_stats_set(stats)
+    }
+}
+
+impl ArrayView<'_, Variant> {
+    pub fn child(&self) -> &ArrayRef {
+        VariantArrayExt::child(self)
     }
 }

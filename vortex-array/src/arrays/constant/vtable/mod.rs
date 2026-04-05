@@ -21,7 +21,6 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::constant::ConstantData;
-use crate::arrays::constant::array::NUM_SLOTS;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;

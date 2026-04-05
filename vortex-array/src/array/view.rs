@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayId;
-use crate::array::ArrayInner;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::stats::StatsSetRef;
@@ -33,10 +32,7 @@ impl<V: VTable> Clone for ArrayView<'_, V> {
 impl<'a, V: VTable> ArrayView<'a, V> {
     /// # Safety
     /// Caller must ensure `data` is the `V::ArrayData` stored inside `array`.
-    pub(crate) unsafe fn new_unchecked(
-        array: &'a ArrayRef,
-        data: &'a V::ArrayData,
-    ) -> Self {
+    pub(crate) unsafe fn new_unchecked(array: &'a ArrayRef, data: &'a V::ArrayData) -> Self {
         debug_assert!(array.is::<V>());
         Self { array, data }
     }
@@ -50,13 +46,7 @@ impl<'a, V: VTable> ArrayView<'a, V> {
     }
 
     pub fn slots(&self) -> &'a [Option<ArrayRef>] {
-        &self
-            .array
-            .inner()
-            .as_any()
-            .downcast_ref::<ArrayInner<V>>()
-            .expect("ArrayView slots requested for mismatched array type")
-            .slots
+        &self.array.slots()
     }
 
     pub fn dtype(&self) -> &DType {

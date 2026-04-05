@@ -13,7 +13,6 @@ use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::primitive::array::PrimitiveArrayExt;
 use crate::arrays::primitive::PrimitiveData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -79,7 +78,13 @@ impl VTable for Primitive {
         Ok(Some(vec![]))
     }
 
-    fn validate(&self, data: &PrimitiveData, dtype: &DType, len: usize, slots: &[Option<ArrayRef>]) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &PrimitiveData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         let DType::Primitive(_, nullability) = dtype else {
             vortex_bail!("Expected primitive dtype, got {dtype:?}");
         };
@@ -162,14 +167,9 @@ impl VTable for Primitive {
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        array.slots()
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
-
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))

@@ -2,8 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::Array;
-use vortex_array::ArrayView;
+use vortex_array::TypedArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -173,27 +172,24 @@ impl RLEData {
     }
 }
 
-pub trait RLEArrayExt {
-    fn rle_data(&self) -> &RLEData;
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-
+pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
     #[inline]
     fn values(&self) -> &ArrayRef {
-        self.as_slots()[VALUES_SLOT]
+        self.slots_ref()[VALUES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values slot must be populated")
     }
 
     #[inline]
     fn indices(&self) -> &ArrayRef {
-        self.as_slots()[INDICES_SLOT]
+        self.slots_ref()[INDICES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray indices slot must be populated")
     }
 
     #[inline]
     fn values_idx_offsets(&self) -> &ArrayRef {
-        self.as_slots()[VALUES_IDX_OFFSETS_SLOT]
+        self.slots_ref()[VALUES_IDX_OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values_idx_offsets slot must be populated")
     }
@@ -226,29 +222,11 @@ pub trait RLEArrayExt {
     /// Index offset into the array
     #[inline]
     fn offset(&self) -> usize {
-        self.rle_data().offset
+        self.offset
     }
 }
 
-impl RLEArrayExt for Array<crate::RLE> {
-    fn rle_data(&self) -> &RLEData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
-
-impl RLEArrayExt for ArrayView<'_, crate::RLE> {
-    fn rle_data(&self) -> &RLEData {
-        self.data()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<crate::RLE>> RLEArrayExt for T {}
 
 #[cfg(test)]
 mod tests {
@@ -271,6 +249,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::registry::ReadContext;
 
+    use crate::rle::array::RLEArrayExt;
     use crate::FL_CHUNK_SIZE;
     use crate::RLE;
     use crate::RLEData;

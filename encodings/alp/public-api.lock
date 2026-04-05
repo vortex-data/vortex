@@ -32,9 +32,9 @@ pub type vortex_alp::ALP::OperationsVTable = vortex_alp::ALP
 
 pub type vortex_alp::ALP::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_alp::ALP::array_eq(array: vortex_array::array::view::ArrayView<'_, Self>, other: vortex_array::array::view::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_alp::ALP::array_eq(data: &vortex_alp::ALPData, other: &vortex_alp::ALPData, _precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_alp::ALP::array_hash<H: core::hash::Hasher>(array: vortex_array::array::view::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_alp::ALP::array_hash<H: core::hash::Hasher>(data: &vortex_alp::ALPData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_alp::ALP::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -166,9 +166,9 @@ pub type vortex_alp::ALPRD::OperationsVTable = vortex_alp::ALPRD
 
 pub type vortex_alp::ALPRD::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
-pub fn vortex_alp::ALPRD::array_eq(array: vortex_array::array::view::ArrayView<'_, Self>, other: vortex_array::array::view::ArrayView<'_, Self>, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_alp::ALPRD::array_eq(data: &vortex_alp::ALPRDData, other: &vortex_alp::ALPRDData, precision: vortex_array::hash::Precision) -> bool
 
-pub fn vortex_alp::ALPRD::array_hash<H: core::hash::Hasher>(array: vortex_array::array::view::ArrayView<'_, Self>, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_alp::ALPRD::array_hash<H: core::hash::Hasher>(data: &vortex_alp::ALPRDData, state: &mut H, precision: vortex_array::hash::Precision)
 
 pub fn vortex_alp::ALPRD::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -330,13 +330,7 @@ pub fn vortex_alp::RDEncoder::from_parts(right_bit_width: u8, codes: alloc::vec:
 
 pub fn vortex_alp::RDEncoder::new<T>(sample: &[T]) -> Self where T: vortex_alp::ALPRDFloat + vortex_array::dtype::ptype::NativePType, <T as vortex_alp::ALPRDFloat>::UINT: vortex_array::dtype::ptype::NativePType
 
-pub trait vortex_alp::ALPArrayExt
-
-pub fn vortex_alp::ALPArrayExt::alp_data(&self) -> &vortex_alp::ALPData
-
-pub fn vortex_alp::ALPArrayExt::alp_len(&self) -> usize
-
-pub fn vortex_alp::ALPArrayExt::as_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+pub trait vortex_alp::ALPArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALP>
 
 pub fn vortex_alp::ALPArrayExt::encoded(&self) -> &vortex_array::array::erased::ArrayRef
 
@@ -344,33 +338,13 @@ pub fn vortex_alp::ALPArrayExt::exponents(&self) -> vortex_alp::Exponents
 
 pub fn vortex_alp::ALPArrayExt::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
-impl vortex_alp::ALPArrayExt for vortex_array::array::typed::Array<vortex_alp::ALP>
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALP>> vortex_alp::ALPArrayExt for T
 
-pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::alp_data(&self) -> &vortex_alp::ALPData
+pub fn T::encoded(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::alp_len(&self) -> usize
+pub fn T::exponents(&self) -> vortex_alp::Exponents
 
-pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::as_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::encoded(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::exponents(&self) -> vortex_alp::Exponents
-
-pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
-
-impl vortex_alp::ALPArrayExt for vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::alp_data(&self) -> &vortex_alp::ALPData
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::alp_len(&self) -> usize
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::as_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::encoded(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::exponents(&self) -> vortex_alp::Exponents
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALP>::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+pub fn T::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
 pub trait vortex_alp::ALPArrayOwnedExt
 
@@ -512,11 +486,7 @@ pub fn f64::find_best_exponents(values: &[Self]) -> vortex_alp::Exponents
 
 pub fn f64::from_int(n: Self::ALPInt) -> Self
 
-pub trait vortex_alp::ALPRDArrayExt
-
-pub fn vortex_alp::ALPRDArrayExt::alprd_data(&self) -> &vortex_alp::ALPRDData
-
-pub fn vortex_alp::ALPRDArrayExt::alprd_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+pub trait vortex_alp::ALPRDArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALPRD>
 
 pub fn vortex_alp::ALPRDArrayExt::left_parts(&self) -> &vortex_array::array::erased::ArrayRef
 
@@ -528,37 +498,17 @@ pub fn vortex_alp::ALPRDArrayExt::right_bit_width(&self) -> u8
 
 pub fn vortex_alp::ALPRDArrayExt::right_parts(&self) -> &vortex_array::array::erased::ArrayRef
 
-impl vortex_alp::ALPRDArrayExt for vortex_array::array::typed::Array<vortex_alp::ALPRD>
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALPRD>> vortex_alp::ALPRDArrayExt for T
 
-pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::alprd_data(&self) -> &vortex_alp::ALPRDData
+pub fn T::left_parts(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::alprd_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
+pub fn T::left_parts_dictionary(&self) -> &vortex_buffer::buffer::Buffer<u16>
 
-pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::left_parts(&self) -> &vortex_array::array::erased::ArrayRef
+pub fn T::left_parts_patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
-pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::left_parts_dictionary(&self) -> &vortex_buffer::buffer::Buffer<u16>
+pub fn T::right_bit_width(&self) -> u8
 
-pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::left_parts_patches(&self) -> core::option::Option<vortex_array::patches::Patches>
-
-pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::right_bit_width(&self) -> u8
-
-pub fn vortex_array::array::typed::Array<vortex_alp::ALPRD>::right_parts(&self) -> &vortex_array::array::erased::ArrayRef
-
-impl vortex_alp::ALPRDArrayExt for vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::alprd_data(&self) -> &vortex_alp::ALPRDData
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::alprd_slots(&self) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::left_parts(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::left_parts_dictionary(&self) -> &vortex_buffer::buffer::Buffer<u16>
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::left_parts_patches(&self) -> core::option::Option<vortex_array::patches::Patches>
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::right_bit_width(&self) -> u8
-
-pub fn vortex_array::array::view::ArrayView<'_, vortex_alp::ALPRD>::right_parts(&self) -> &vortex_array::array::erased::ArrayRef
+pub fn T::right_parts(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub trait vortex_alp::ALPRDArrayOwnedExt
 

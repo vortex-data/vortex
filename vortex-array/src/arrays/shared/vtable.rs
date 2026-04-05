@@ -22,8 +22,6 @@ use crate::arrays::shared::SharedArrayExt;
 use crate::arrays::shared::array::SLOT_NAMES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 use crate::vtable;

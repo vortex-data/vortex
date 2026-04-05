@@ -148,6 +148,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
 
+    use crate::rle::array::RLEArrayExt;
     use super::*;
 
     #[test]

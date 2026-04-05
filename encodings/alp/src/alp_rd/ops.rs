@@ -70,6 +70,7 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::scalar::Scalar;
 
+    use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 

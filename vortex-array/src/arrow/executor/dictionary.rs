@@ -21,7 +21,6 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
-use crate::arrays::dict::DictArrayExt;
 use crate::arrow::ArrowArrayExecutor;
 
 pub(super) fn to_arrow_dictionary(

@@ -46,6 +46,8 @@ mod test {
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
     use vortex_buffer::Alignment;
+
+    use crate::bitpacking::array::BitPackedArrayExt;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
     use vortex_buffer::buffer;

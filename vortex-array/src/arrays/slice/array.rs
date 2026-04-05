@@ -10,7 +10,7 @@ use vortex_error::vortex_panic;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
+use crate::array::TypedArrayRef;
 use crate::arrays::Slice;
 
 /// The underlying child array being sliced.
@@ -27,46 +27,14 @@ pub struct SliceDataParts {
     pub range: Range<usize>,
 }
 
-pub trait SliceArrayExt {
-    fn slice_data(&self) -> &SliceData;
-    fn slice_len(&self) -> usize;
-
+pub trait SliceArrayExt: TypedArrayRef<Slice> {
     fn child(&self) -> &ArrayRef {
-        self.as_slots()[CHILD_SLOT]
+        self.slots_ref()[CHILD_SLOT]
             .as_ref()
-            .expect("validated slice child slot")
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>];
-}
-
-impl SliceArrayExt for Array<Slice> {
-    fn slice_data(&self) -> &SliceData {
-        self.data()
-    }
-
-    fn slice_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
+            .vortex_expect("validated slice child slot")
     }
 }
-
-impl SliceArrayExt for ArrayView<'_, Slice> {
-    fn slice_data(&self) -> &SliceData {
-        self.data()
-    }
-
-    fn slice_len(&self) -> usize {
-        self.len()
-    }
-
-    fn as_slots(&self) -> &[Option<ArrayRef>] {
-        self.slots()
-    }
-}
+impl<T: TypedArrayRef<Slice>> SliceArrayExt for T {}
 
 impl SliceData {
     fn try_new(child: &ArrayRef, range: Range<usize>) -> VortexResult<Self> {
