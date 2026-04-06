@@ -119,7 +119,8 @@ jobs:
               });
               pr = response.data;
 
-              const isFork = Boolean(pr.head.repo.fork) || pr.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+              const headRepo = pr.head.repo;
+              const isFork = !headRepo || Boolean(headRepo.fork) || headRepo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
               core.setOutput('pull_number', String(pullNumber));
               core.setOutput('checkout_ref', pr.head.sha);
 
@@ -131,6 +132,18 @@ jobs:
                 (pr.user?.login ?? '') === trustedClaudeLogin
               ) {
                 reason = 'claude_pr_uses_write_workflow';
+              }
+
+              if (!reason) {
+                const files = await github.paginate(github.rest.pulls.listFiles, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pullNumber,
+                  per_page: 100,
+                });
+                if (files.some(f => f.filename.startsWith('.github/'))) {
+                  reason = 'modifies_github_dir';
+                }
               }
             }
 
@@ -204,5 +217,5 @@ jobs:
             actions: read
 
           claude_args: |
-            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(cat:*),Bash(head:*),Bash(sed:*),Bash(jq:*),Bash(rg:*)"
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(head:*),Bash(jq:*),Bash(rg:*)"
             --system-prompt "You are the repository's read-only Claude review workflow. Review the current same-repo pull request and respond in GitHub. Never modify files, never create commits, never push branches, and never open or update pull requests. Fork pull requests are blocked before this job starts."

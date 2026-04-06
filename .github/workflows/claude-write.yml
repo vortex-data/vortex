@@ -98,15 +98,28 @@ jobs:
                 });
                 const pr = response.data;
 
-                checkoutRef = pr.head.ref;
+                checkoutRef = pr.head.sha;
 
-                const isFork = Boolean(pr.head.repo.fork) || pr.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+                const headRepo = pr.head.repo;
+                const isFork = !headRepo || Boolean(headRepo.fork) || headRepo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
                 if (isFork) {
                   reason = 'fork_pr_refused';
                 } else if (!trustedClaudeLogin) {
                   reason = 'missing_claude_app_login';
                 } else if ((pr.user?.login ?? '') !== trustedClaudeLogin) {
                   reason = 'pr_not_owned_by_claude_app';
+                }
+
+                if (!reason) {
+                  const files = await github.paginate(github.rest.pulls.listFiles, {
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: context.payload.issue.number,
+                    per_page: 100,
+                  });
+                  if (files.some(f => f.filename.startsWith('.github/'))) {
+                    reason = 'modifies_github_dir';
+                  }
                 }
               }
             }
