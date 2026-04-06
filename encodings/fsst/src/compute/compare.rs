@@ -21,6 +21,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::FSST;
+use crate::FSSTData;
+
 impl CompareKernel for FSST {
     fn compare(
         lhs: ArrayView<'_, Self>,
@@ -29,7 +31,7 @@ impl CompareKernel for FSST {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         match rhs.as_constant() {
-            Some(constant) => compare_fsst_constant(lhs, &constant, operator, ctx),
+            Some(constant) => compare_fsst_constant(&lhs, &constant, operator, ctx),
             // Otherwise, fall back to the default comparison behavior.
             _ => Ok(None),
         }
@@ -38,7 +40,7 @@ impl CompareKernel for FSST {
 
 /// Specialized compare function implementation used when performing against a constant
 fn compare_fsst_constant(
-    left: ArrayView<'_, FSST>,
+    left: &FSSTData,
     right: &Scalar,
     operator: CompareOperator,
     ctx: &mut ExecutionCtx,
@@ -76,7 +78,7 @@ fn compare_fsst_constant(
         return Ok(Some(
             BoolArray::new(
                 buffer,
-                Validity::copy_from_array(left.array())?
+                Validity::copy_from_array(&left.clone().into_array())?
                     .union_nullability(right.dtype().nullability()),
             )
             .into_array(),

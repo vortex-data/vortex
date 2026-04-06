@@ -30,6 +30,7 @@ impl FilterKernel for ALP {
                     array.encoded().filter(mask.clone())?,
                     array.exponents(),
                     patches,
+                    array.dtype().clone(),
                 )
                 .into_array(),
             ))

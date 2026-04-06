@@ -129,10 +129,10 @@ impl VTable for Filter {
         metadata: &FilterMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<FilterData> {
         assert_eq!(len, metadata.0.true_count());
         let child = children.get(0, dtype, metadata.0.len())?;
-        Ok(FilterData::try_new(child, metadata.0.clone())?.into_array())
+        FilterData::try_new(child, metadata.0.clone())
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

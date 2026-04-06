@@ -242,7 +242,7 @@ impl VTable for Patched {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<PatchedArray> {
         let n_patches = metadata.n_patches as usize;
         let n_lanes = metadata.n_lanes as usize;
         let offset = metadata.offset as usize;
@@ -262,8 +262,7 @@ impl VTable for Patched {
             offset,
             len,
             stats_set: ArrayStats::default(),
-        }
-        .into_array())
+        })
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

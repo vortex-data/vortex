@@ -200,7 +200,7 @@ impl VTable for FSST {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<FSSTData> {
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
         let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
 
@@ -228,14 +228,13 @@ impl VTable for FSST {
                 len,
             )?;
 
-            return Ok(FSSTData::try_new(
+            return FSSTData::try_new(
                 dtype.clone(),
                 symbols,
                 symbol_lengths,
                 codes,
                 uncompressed_lengths,
-            )?
-            .into_array());
+            );
         }
 
         // Check for the current deserialization path.
@@ -276,14 +275,13 @@ impl VTable for FSST {
                 codes_validity,
             )?;
 
-            return Ok(FSSTData::try_new(
+            return FSSTData::try_new(
                 dtype.clone(),
                 symbols,
                 symbol_lengths,
                 codes,
                 uncompressed_lengths,
-            )?
-            .into_array());
+            );
         }
 
         vortex_bail!(

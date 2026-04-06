@@ -11,7 +11,6 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
@@ -121,7 +120,7 @@ impl VTable for Primitive {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<PrimitiveData> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -161,9 +160,11 @@ impl VTable for Primitive {
         );
 
         // SAFETY: checked ahead of time
-        Ok(unsafe {
-            PrimitiveData::new_unchecked_from_handle(buffer, ptype, validity).into_array()
-        })
+        unsafe {
+            Ok(PrimitiveData::new_unchecked_from_handle(
+                buffer, ptype, validity,
+            ))
+        }
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

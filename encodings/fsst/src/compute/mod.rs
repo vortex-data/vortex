@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::FSSTData;
 mod cast;
 mod compare;
 mod filter;
@@ -27,7 +28,7 @@ impl TakeExecute for FSST {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            FSST::try_new(
+            FSSTData::try_new(
                 array
                     .dtype()
                     .clone()

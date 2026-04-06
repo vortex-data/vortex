@@ -462,7 +462,7 @@ impl VTable for ZstdBuffers {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ZstdBuffersData> {
         let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
 
         let child_arrays: Vec<Option<ArrayRef>> = (0..children.len())
@@ -482,7 +482,7 @@ impl VTable for ZstdBuffers {
         };
 
         data.validate()?;
-        Ok(data.into_array())
+        Ok(data)
     }
 
     // with_slots handles child replacement via the slots mechanism

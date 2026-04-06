@@ -20,7 +20,6 @@ use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
-use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -141,7 +140,7 @@ impl VTable for Dict {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<DictData> {
         if children.len() != 2 {
             vortex_bail!(
                 "Expected 2 children for dict encoding, found {}",
@@ -162,8 +161,7 @@ impl VTable for Dict {
         // SAFETY: We've validated the metadata and children.
         Ok(unsafe {
             DictData::new_unchecked(codes, values).set_all_values_referenced(all_values_referenced)
-        }
-        .into_array())
+        })
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

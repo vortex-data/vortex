@@ -168,7 +168,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef>;
+    ) -> VortexResult<Self::ArrayData>;
 
     /// Returns the slots of the array as a slice.
     ///

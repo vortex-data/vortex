@@ -7,8 +7,8 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
+use crate::arrays::masked::MaskedData;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 
@@ -28,7 +28,7 @@ impl TakeReduce for Masked {
 
         // Construct new MaskedArray
         Ok(Some(
-            MaskedArray::try_new(taken_child, taken_validity)?.into_array(),
+            MaskedData::try_new(taken_child, taken_validity)?.into_array(),
         ))
     }
 }

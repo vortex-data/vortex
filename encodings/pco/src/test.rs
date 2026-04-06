@@ -17,8 +17,8 @@ use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::serde::ArrayParts;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::serde::SerializedArray;
 use vortex_array::session::ArraySession;
 use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
@@ -39,6 +39,8 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 });
 
 use crate::Pco;
+use crate::PcoArray;
+
 #[test]
 fn test_compress_decompress() {
     let data: Vec<i32> = (0..200).collect();
@@ -99,8 +101,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     let compression_level = 3;
     let values_per_chunk = 33;
     let values_per_page = 10;
-    let compressed = Pco::try_new(
-        array.dtype().clone(),
+    let compressed = PcoArray::try_from_data(
         PcoData::from_primitive_with_values_per_chunk(
             &array,
             compression_level,
@@ -178,7 +179,7 @@ fn test_serde() -> VortexResult<()> {
         .collect::<BufferMut<u8>>()
         .freeze();
 
-    let parts = SerializedArray::try_from(bytes)?;
+    let parts = ArrayParts::try_from(bytes)?;
     let decoded = parts.decode(
         &DType::Primitive(PType::I32, Nullability::NonNullable),
         1_000_000,

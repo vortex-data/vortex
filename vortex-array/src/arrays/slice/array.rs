@@ -9,9 +9,9 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayParts;
 use crate::arrays::Slice;
 use crate::dtype::DType;
+use crate::stats::ArrayStats;
 
 /// The underlying child array being sliced.
 pub(super) const CHILD_SLOT: usize = 0;
@@ -22,15 +22,16 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 pub struct SliceData {
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) range: Range<usize>,
+    pub(super) stats: ArrayStats,
 }
 
-pub struct SliceDataParts {
+pub struct SliceArrayParts {
     pub child: ArrayRef,
     pub range: Range<usize>,
 }
 
 impl SliceData {
-    fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
+    pub fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
         if range.end > child.len() {
             vortex_panic!(
                 "SliceArray range out of bounds: range {:?} exceeds child array length {}",
@@ -41,6 +42,7 @@ impl SliceData {
         Ok(Self {
             slots: vec![Some(child)],
             range,
+            stats: ArrayStats::default(),
         })
     }
 
@@ -74,31 +76,29 @@ impl SliceData {
             .as_ref()
             .vortex_expect("SliceArray child slot")
     }
-
-    pub fn into_parts(mut self) -> SliceDataParts {
-        SliceDataParts {
-            child: self.slots[CHILD_SLOT]
-                .take()
-                .vortex_expect("SliceArray child slot"),
-            range: self.range,
-        }
-    }
 }
 
 impl Array<Slice> {
     /// Constructs a new `SliceArray`.
     pub fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
-        let len = range.len();
-        let dtype = child.dtype().clone();
-        let data = SliceData::try_new(child, range)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Slice, dtype, len, data)) })
+        Array::try_from_data(SliceData::try_new(child, range)?)
     }
 
     /// Constructs a new `SliceArray`.
     pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
-        let len = range.len();
-        let dtype = child.dtype().clone();
-        let data = SliceData::new(child, range);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Slice, dtype, len, data)) }
+        Array::try_from_data(SliceData::new(child, range))
+            .vortex_expect("SliceData is always valid")
+    }
+}
+
+impl SliceData {
+    /// Consume the slice array and return its components.
+    pub fn into_parts(mut self) -> SliceArrayParts {
+        SliceArrayParts {
+            child: self.slots[CHILD_SLOT]
+                .take()
+                .vortex_expect("SliceArray child slot"),
+            range: self.range,
+        }
     }
 }

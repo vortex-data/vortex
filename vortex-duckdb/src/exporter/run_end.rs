@@ -11,7 +11,7 @@ use vortex::array::search_sorted::SearchSorted;
 use vortex::array::search_sorted::SearchSortedSide;
 use vortex::dtype::IntegerPType;
 use vortex::encodings::runend::RunEndArray;
-use vortex::encodings::runend::RunEndDataParts;
+use vortex::encodings::runend::RunEndArrayParts;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
@@ -38,7 +38,7 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let offset = array.offset();
-    let RunEndDataParts { ends, values, .. } = array.into_data().into_parts();
+    let RunEndArrayParts { ends, values } = array.into_data().into_parts();
     let ends = ends.execute::<PrimitiveArray>(ctx)?;
     let values_exporter = new_array_exporter(values.clone(), cache, ctx)?;
 

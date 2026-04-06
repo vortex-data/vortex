@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::fmt::Debug;
+use std::fmt::Formatter;
+
+use crate::dtype::DType;
+use crate::scalar_fn::ScalarFnRef;
+
+#[derive(Clone)]
+pub struct ScalarFnMetadata {
+    pub(super) scalar_fn: ScalarFnRef,
+    pub(super) child_dtypes: Vec<DType>,
+}
+
+// Array tree display wrongly uses debug...
+impl Debug for ScalarFnMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.scalar_fn.options())
+    }
+}

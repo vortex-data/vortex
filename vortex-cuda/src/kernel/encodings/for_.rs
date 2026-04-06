@@ -12,7 +12,7 @@ use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Slice;
-use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::NativePType;
@@ -52,7 +52,7 @@ impl CudaExecute for FoRExecutor {
 
         // Fuse FOR + BP => FFOR
         if let Some(bitpacked) = array.encoded().as_opt::<BitPacked>() {
-            match_each_integer_ptype!(bitpacked.ptype(bitpacked.dtype()), |P| {
+            match_each_integer_ptype!(bitpacked.ptype(), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
                 return decode_bitpacked(bitpacked.into_owned(), reference, ctx).await;
             })
@@ -63,7 +63,7 @@ impl CudaExecute for FoRExecutor {
             && let Some(bitpacked) = slice_array.child().as_opt::<BitPacked>()
         {
             let slice_range = slice_array.slice_range().clone();
-            let unpacked = match_each_integer_ptype!(bitpacked.ptype(bitpacked.dtype()), |P| {
+            let unpacked = match_each_integer_ptype!(bitpacked.ptype(), |P| {
                 let reference: P = array.reference_scalar().try_into()?;
                 decode_bitpacked(bitpacked.into_owned(), reference, ctx).await?
             });
@@ -96,7 +96,7 @@ where
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
-    let PrimitiveDataParts {
+    let PrimitiveArrayParts {
         buffer, validity, ..
     } = primitive.into_data().into_parts();
 
@@ -131,9 +131,9 @@ mod tests {
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::dtype::NativePType;
+    use vortex::encodings::fastlanes::BitPacked;
     use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::fastlanes::FoRArray;
-    use vortex::encodings::fastlanes::bitpack_compress::BitPackedEncoder;
     use vortex::error::VortexExpect;
     use vortex::scalar::Scalar;
     use vortex::session::VortexSession;
@@ -180,13 +180,12 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let values = PrimitiveArray::from_iter((0i8..8i8).cycle().take(1024));
-        let packed = BitPackedEncoder::new(&values)
-            .with_bit_width(3)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap();
+        let values = (0i8..8i8)
+            .cycle()
+            .take(1024)
+            .collect::<Buffer<_>>()
+            .into_array();
+        let packed = BitPacked::encode(&values, 3).unwrap().into_array();
         let for_array = FoR::try_new(packed, (-8i8).into()).unwrap();
 
         let cpu_result = for_array.to_canonical().unwrap();

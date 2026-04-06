@@ -150,7 +150,7 @@ impl VTable for LazyPatched {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<LazyPatchedData> {
         // There should be 3 children
         // 1. inner
         // 2. patch_indices
@@ -174,8 +174,7 @@ impl VTable for LazyPatched {
             slots,
             offset,
             stats: ArrayStats::default(),
-        }
-        .into_array())
+        })
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

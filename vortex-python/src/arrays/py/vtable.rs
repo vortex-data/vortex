@@ -144,7 +144,7 @@ impl VTable for PythonVTable {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<PythonArray> {
         todo!()
     }
 

@@ -1,21 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
+use itertools::Itertools;
 use lending_iterator::LendingIterator;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::ToCanonical;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_constant::primitive::IS_CONST_LANE_WIDTH;
 use vortex_array::aggregate_fn::fns::is_constant::primitive::compute_is_constant;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::dtype::IntegerPType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
 /// BitPacked-specific is_constant kernel with SIMD support.
@@ -37,7 +43,7 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
             return Ok(None);
         };
 
-        let result = match_each_integer_ptype!(array.dtype().as_ptype(), |P| {
+        let result = match_each_integer_ptype!(array.ptype(), |P| {
             bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array)?
         });
 
@@ -48,51 +54,47 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
 fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     array: ArrayView<'_, BitPacked>,
 ) -> VortexResult<bool> {
-<<<<<<< HEAD
-    let mut bit_unpack_iterator = array.unpacked_chunks::<T>()?;
+    let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
     let patches = array.patches().map(|p| {
         let values = p.values().to_primitive();
         let indices = p.indices().to_primitive();
         let offset = p.offset();
         (indices, values, offset)
     });
-=======
-    let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
 
     let mut header_constant_value = None;
-    // let mut current_idx = 0;
+    let mut current_idx = 0;
     if let Some(header) = bit_unpack_iterator.initial() {
-        // if let Some((indices, patches, offset)) = &patches {
-        //     apply_patches(
-        //         header,
-        //         current_idx..header.len(),
-        //         indices,
-        //         patches.as_slice::<T>(),
-        //         *offset,
-        //     )
-        // }
+        if let Some((indices, patches, offset)) = &patches {
+            apply_patches(
+                header,
+                current_idx..header.len(),
+                indices,
+                patches.as_slice::<T>(),
+                *offset,
+            )
+        }
 
         if !compute_is_constant::<_, WIDTH>(header) {
             return Ok(false);
         }
         header_constant_value = Some(header[0]);
-        // current_idx = header.len();
+        current_idx = header.len();
     }
 
     let mut first_chunk_value = None;
     let mut chunks_iter = bit_unpack_iterator.full_chunks();
     while let Some(chunk) = chunks_iter.next() {
-        // if let Some((indices, patches, offset)) = &patches {
-        //     let chunk_len = chunk.len();
-        //     apply_patches(
-        //         chunk,
-        //         current_idx..current_idx + chunk_len,
-        //         indices,
-        //         patches.as_slice::<T>(),
-        //         *offset,
-        //     )
-        // }
+        if let Some((indices, patches, offset)) = &patches {
+            let chunk_len = chunk.len();
+            apply_patches(
+                chunk,
+                current_idx..current_idx + chunk_len,
+                indices,
+                patches.as_slice::<T>(),
+                *offset,
+            )
+        }
 
         if !compute_is_constant::<_, WIDTH>(chunk) {
             return Ok(false);
@@ -111,20 +113,20 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
             first_chunk_value = Some(chunk[0]);
         }
 
-        // current_idx += chunk.len();
+        current_idx += chunk.len();
     }
 
     if let Some(trailer) = bit_unpack_iterator.trailer() {
-        // if let Some((indices, patches, offset)) = &patches {
-        //     let chunk_len = trailer.len();
-        //     apply_patches(
-        //         trailer,
-        //         current_idx..current_idx + chunk_len,
-        //         indices,
-        //         patches.as_slice::<T>(),
-        //         *offset,
-        //     )
-        // }
+        if let Some((indices, patches, offset)) = &patches {
+            let chunk_len = trailer.len();
+            apply_patches(
+                trailer,
+                current_idx..current_idx + chunk_len,
+                indices,
+                patches.as_slice::<T>(),
+                *offset,
+            )
+        }
 
         if !compute_is_constant::<_, WIDTH>(trailer) {
             return Ok(false);
@@ -140,61 +142,58 @@ fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
     Ok(true)
 }
 
-// fn apply_patches<T: BitPackedUnpack>(
-//     values: &mut [T],
-//     values_range: Range<usize>,
-//     patch_indices: &PrimitiveArray,
-//     patch_values: &[T],
-//     indices_offset: usize,
-// ) {
-//     match_each_unsigned_integer_ptype!(patch_indices.ptype(), |I| {
-//         apply_patches_idx_typed(
-//             values,
-//             values_range,
-//             patch_indices.as_slice::<I>(),
-//             patch_values,
-//             indices_offset,
-//         )
-//     });
-// }
+fn apply_patches<T: BitPackedUnpack>(
+    values: &mut [T],
+    values_range: Range<usize>,
+    patch_indices: &PrimitiveArray,
+    patch_values: &[T],
+    indices_offset: usize,
+) {
+    match_each_unsigned_integer_ptype!(patch_indices.ptype(), |I| {
+        apply_patches_idx_typed(
+            values,
+            values_range,
+            patch_indices.as_slice::<I>(),
+            patch_values,
+            indices_offset,
+        )
+    });
+}
 
-// fn apply_patches_idx_typed<T: BitPackedUnpack, I: IntegerPType>(
-//     values: &mut [T],
-//     values_range: Range<usize>,
-//     patch_indices: &[I],
-//     patch_values: &[T],
-//     indices_offset: usize,
-// ) {
-//     for (i, &v) in patch_indices
-//         .iter()
-//         .map(|i| i.as_() - indices_offset)
-//         .zip_eq(patch_values)
-//         .skip_while(|(i, _)| i < &values_range.start)
-//         .take_while(|(i, _)| i < &values_range.end)
-//     {
-//         values[i - values_range.start] = v
-//     }
-// }
+fn apply_patches_idx_typed<T: BitPackedUnpack, I: IntegerPType>(
+    values: &mut [T],
+    values_range: Range<usize>,
+    patch_indices: &[I],
+    patch_values: &[T],
+    indices_offset: usize,
+) {
+    for (i, &v) in patch_indices
+        .iter()
+        .map(|i| i.as_() - indices_offset)
+        .zip_eq(patch_values)
+        .skip_while(|(i, _)| i < &values_range.start)
+        .take_while(|(i, _)| i < &values_range.end)
+    {
+        values[i - values_range.start] = v
+    }
+}
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::aggregate_fn::fns::is_constant::is_constant;
-    use vortex_array::arrays::PrimitiveArray;
+    use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::bitpack_compress::BitPackedEncoder;
+    use crate::BitPackedData;
 
     #[test]
     fn is_constant_with_patches() -> VortexResult<()> {
-        let parray = PrimitiveArray::from_iter([4; 1025]);
-        let array = BitPackedEncoder::new(&parray)
-            .with_bit_width(2)
-            .pack()?
-            .into_array()?;
+        let array = BitPackedData::encode(&buffer![4; 1025].into_array(), 2)?;
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert!(is_constant(&array, &mut ctx)?);
+        assert!(is_constant(&array.into_array(), &mut ctx)?);
         Ok(())
     }
 }

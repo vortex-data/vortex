@@ -6,10 +6,10 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::array::Array;
-use crate::array::ArrayParts;
 use crate::arrays::Extension;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
+use crate::stats::ArrayStats;
 
 /// The backing storage array for this extension array.
 pub(super) const STORAGE_SLOT: usize = 0;
@@ -57,8 +57,9 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["storage"];
 #[derive(Clone, Debug)]
 pub struct ExtensionData {
     /// The storage dtype. This **must** be a [`Extension::DType`] variant.
-    pub(super) ext_dtype: ExtDTypeRef,
+    pub(super) dtype: DType,
     pub(super) slots: Vec<Option<ArrayRef>>,
+    pub(super) stats_set: ArrayStats,
 }
 
 impl ExtensionData {
@@ -109,8 +110,9 @@ impl ExtensionData {
         );
 
         Self {
-            ext_dtype,
+            dtype: DType::Extension(ext_dtype),
             slots: vec![Some(storage_array)],
+            stats_set: ArrayStats::default(),
         }
     }
 
@@ -120,8 +122,8 @@ impl ExtensionData {
     }
 
     /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> DType {
-        DType::Extension(self.ext_dtype.clone())
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
     }
 
     /// Returns `true` if this array is empty.
@@ -131,7 +133,11 @@ impl ExtensionData {
 
     /// The extension dtype of this array.
     pub fn ext_dtype(&self) -> &ExtDTypeRef {
-        &self.ext_dtype
+        let DType::Extension(ext) = &self.dtype else {
+            unreachable!("ExtensionArray: dtype must be an ExtDType")
+        };
+
+        ext
     }
 
     pub fn storage_array(&self) -> &ArrayRef {
@@ -148,17 +154,12 @@ impl Array<Extension> {
     ///
     /// Panics if the storage array is not compatible with the extension dtype.
     pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
-        let dtype = DType::Extension(ext_dtype.clone());
-        let len = storage_array.len();
-        let data = ExtensionData::new(ext_dtype, storage_array);
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(Extension, dtype, len, data)) }
+        Array::try_from_data(ExtensionData::new(ext_dtype, storage_array))
+            .vortex_expect("ExtensionData is always valid")
     }
 
     /// Tries to construct a new `ExtensionArray`.
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
-        let dtype = DType::Extension(ext_dtype.clone());
-        let len = storage_array.len();
-        let data = ExtensionData::try_new(ext_dtype, storage_array)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Extension, dtype, len, data)) })
+        Array::try_from_data(ExtensionData::try_new(ext_dtype, storage_array)?)
     }
 }

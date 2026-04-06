@@ -47,7 +47,14 @@ pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> Vort
     };
 
     // SAFETY: alp_encode_components_typed must return well-formed components
-    unsafe { Ok(ALP::new_unchecked(encoded, exponents, patches)) }
+    unsafe {
+        Ok(ALP::new_unchecked(
+            encoded,
+            exponents,
+            patches,
+            parray.dtype().clone(),
+        ))
+    }
 }
 
 #[expect(

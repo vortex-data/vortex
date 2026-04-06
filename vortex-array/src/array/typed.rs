@@ -22,7 +22,6 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
-use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -44,6 +43,7 @@ impl<V: VTable> ArrayParts<V> {
         }
     }
 }
+
 // =============================================================================
 // ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
 // =============================================================================
@@ -63,19 +63,14 @@ pub(crate) struct ArrayInner<V: VTable> {
 }
 
 impl<V: VTable> ArrayInner<V> {
-    /// Create a new inner array from explicit construction parameters.
+    /// Create a new inner array from encoding-specific data.
     #[doc(hidden)]
-    pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
-        new.vtable.validate(&new.data, &new.dtype, new.len)?;
-        Ok(unsafe {
-            Self::from_data_unchecked(
-                new.vtable,
-                new.dtype,
-                new.len,
-                new.data,
-                ArrayStats::default(),
-            )
-        })
+    pub fn try_from_data(data: V::ArrayData) -> VortexResult<Self> {
+        let vtable = V::vtable(&data).clone();
+        let dtype = V::dtype(&data).clone();
+        let len = V::len(&data);
+        let stats = V::stats(&data).clone();
+        Ok(unsafe { Self::from_data_unchecked(vtable, dtype, len, data, stats) })
     }
 
     /// Create without validation.
@@ -165,11 +160,29 @@ pub struct Array<V: VTable> {
 
 #[allow(clippy::same_name_method)]
 impl<V: VTable> Array<V> {
-    /// Create a typed array from explicit construction parameters.
-    pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
-        let inner = ArrayRef::from_inner(Arc::new(ArrayInner::<V>::try_new(new)?));
+    /// Create a typed array from encoding-specific data.
+    pub fn try_from_data(data: V::ArrayData) -> VortexResult<Self> {
+        let inner = ArrayRef::from_inner(Arc::new(ArrayInner::<V>::try_from_data(data)?));
         Ok(Self {
             inner,
+            _phantom: PhantomData,
+        })
+    }
+
+    /// Create a typed array from explicit construction parameters, validating that the
+    /// length and dtype are consistent with the data.
+    pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
+        let inner = unsafe {
+            ArrayInner::from_data_unchecked(
+                new.vtable,
+                new.dtype,
+                new.len,
+                new.data,
+                ArrayStats::default(),
+            )
+        };
+        Ok(Self {
+            inner: ArrayRef::from_inner(Arc::new(inner)),
             _phantom: PhantomData,
         })
     }
@@ -177,20 +190,19 @@ impl<V: VTable> Array<V> {
     /// Create a typed array from explicit construction parameters without validation.
     ///
     /// # Safety
-    /// Caller must ensure the provided parts are logically consistent.
-    #[doc(hidden)]
+    /// Caller must ensure dtype and len match the data.
     pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
-        let inner = ArrayRef::from_inner(Arc::new(unsafe {
-            ArrayInner::<V>::from_data_unchecked(
+        let inner = unsafe {
+            ArrayInner::from_data_unchecked(
                 new.vtable,
                 new.dtype,
                 new.len,
                 new.data,
                 ArrayStats::default(),
             )
-        }));
+        };
         Self {
-            inner,
+            inner: ArrayRef::from_inner(Arc::new(inner)),
             _phantom: PhantomData,
         }
     }
@@ -247,22 +259,6 @@ impl<V: VTable> Array<V> {
     /// Returns a reference to the encoding-specific data.
     pub fn data(&self) -> &V::ArrayData {
         &self.downcast_inner().data
-    }
-
-    /// Returns the full typed array construction parts.
-    pub fn into_parts(self) -> ArrayParts<V> {
-        let inner = self.downcast_inner();
-        ArrayParts {
-            vtable: inner.vtable.clone(),
-            dtype: inner.dtype.clone(),
-            len: inner.len,
-            data: inner.data.clone(),
-        }
-    }
-
-    pub fn with_stats_set(self, stats: StatsSet) -> Self {
-        self.statistics().replace(stats);
-        self
     }
 
     /// Returns a clone of the inner encoding-specific data.
@@ -442,27 +438,5 @@ impl<V: VTable> IntoArray for Arc<Array<V>> {
 impl<V: VTable> From<Array<V>> for ArrayRef {
     fn from(value: Array<V>) -> ArrayRef {
         value.inner
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex_buffer::buffer;
-
-    use super::Array;
-    use crate::arrays::Primitive;
-    use crate::arrays::PrimitiveArray;
-    use crate::assert_arrays_eq;
-    use crate::validity::Validity;
-
-    #[test]
-    fn typed_array_into_parts_roundtrips() {
-        let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
-        let expected = array.clone();
-
-        let parts = array.into_parts();
-        let rebuilt = Array::<Primitive>::try_from_parts(parts).unwrap();
-
-        assert_arrays_eq!(rebuilt, expected);
     }
 }

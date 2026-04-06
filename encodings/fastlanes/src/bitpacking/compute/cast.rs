@@ -4,25 +4,27 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::BitPackedData;
 use crate::bitpacking::BitPacked;
 impl CastReduce for BitPacked {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity = array
-                .validity(array.dtype().nullability())
+                .validity()
                 .cast_nullability(dtype.nullability(), array.len())?;
             return Ok(Some(
-                BitPacked::try_new(
+                BitPackedData::try_new(
                     array.packed().clone(),
                     dtype.as_ptype(),
                     new_validity,
-<<<<<<< HEAD
                     array
-                        .patches(array.len())
+                        .patches()
                         .map(|patches| {
                             let new_values = patches.values().cast(dtype.clone())?;
                             Patches::new(
@@ -34,8 +36,6 @@ impl CastReduce for BitPacked {
                             )
                         })
                         .transpose()?,
-=======
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
                     array.bit_width(),
                     array.len(),
                     array.offset(),
@@ -51,6 +51,7 @@ impl CastReduce for BitPacked {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -59,18 +60,18 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_buffer::buffer;
 
-    use crate::bitpack_compress::BitPackedEncoder;
+    use crate::BitPackedArray;
+    use crate::BitPackedData;
+
+    fn bp(array: &ArrayRef, bit_width: u8) -> BitPackedArray {
+        BitPackedData::encode(array, bit_width).unwrap()
+    }
 
     #[test]
     fn test_cast_bitpacked_u8_to_u32() {
-        let parray = PrimitiveArray::from_iter([10u8, 20, 30, 40, 50, 60]);
-
-        let packed = BitPackedEncoder::new(&parray)
-            .with_bit_width(6)
-            .pack()
-            .unwrap()
-            .unwrap_unpatched();
+        let packed = bp(&buffer![10u8, 20, 30, 40, 50, 60].into_array(), 6);
 
         let casted = packed
             .into_array()
@@ -90,11 +91,7 @@ mod tests {
     #[test]
     fn test_cast_bitpacked_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(5u16), None, Some(10), Some(15), None]);
-        let packed = BitPackedEncoder::new(&values)
-            .with_bit_width(4)
-            .pack()
-            .unwrap()
-            .unwrap_unpatched();
+        let packed = bp(&values.into_array(), 4);
 
         let casted = packed
             .into_array()
@@ -107,17 +104,11 @@ mod tests {
     }
 
     #[rstest]
-    #[case(PrimitiveArray::from_iter([0u8, 10, 20, 30, 40, 50, 60, 63]), 6)]
-    #[case(PrimitiveArray::from_iter([0u16, 100, 200, 300, 400, 500]), 9)]
-    #[case(PrimitiveArray::from_iter([0u32, 1000, 2000, 3000, 4000]), 12)]
-    #[case(PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]), 4)]
-    fn test_cast_bitpacked_conformance(#[case] parray: PrimitiveArray, #[case] bw: u8) {
-        let array = BitPackedEncoder::new(&parray)
-            .with_bit_width(bw)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap();
-        test_cast_conformance(&array);
+    #[case(bp(&buffer![0u8, 10, 20, 30, 40, 50, 60, 63].into_array(), 6))]
+    #[case(bp(&buffer![0u16, 100, 200, 300, 400, 500].into_array(), 9))]
+    #[case(bp(&buffer![0u32, 1000, 2000, 3000, 4000].into_array(), 12))]
+    #[case(bp(&PrimitiveArray::from_option_iter([Some(1u32), None, Some(7), Some(15), None]).into_array(), 4))]
+    fn test_cast_bitpacked_conformance(#[case] array: BitPackedArray) {
+        test_cast_conformance(&array.into_array());
     }
 }

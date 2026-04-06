@@ -61,20 +61,6 @@ impl PrimitiveData {
 }
 
 impl PrimitiveArray {
-    pub fn reinterpret_cast(&self, ptype: PType) -> Self {
-        if self.ptype() == ptype {
-            return self.clone();
-        }
-
-        assert_eq!(
-            self.ptype().byte_width(),
-            ptype.byte_width(),
-            "can't reinterpret cast between integers of two different widths"
-        );
-
-        PrimitiveArray::from_buffer_handle(self.buffer_handle().clone(), ptype, self.validity())
-    }
-
     /// Narrow the array to the smallest possible integer type that can represent all values.
     pub fn narrow(&self) -> VortexResult<PrimitiveArray> {
         if !self.ptype().is_int() {

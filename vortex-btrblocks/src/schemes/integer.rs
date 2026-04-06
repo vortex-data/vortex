@@ -20,8 +20,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_fastlanes::FoR;
-use vortex_fastlanes::bitpack_compress::BitPackedEncoder;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
+use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
 use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
@@ -36,6 +36,7 @@ use crate::CompressorContext;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
+use crate::compress_patches;
 use crate::estimate_compression_ratio_with_sampling;
 
 /// Frame of Reference encoding.
@@ -334,11 +335,13 @@ impl Scheme for BitPackingScheme {
         if bw as usize == stats.source().ptype().bit_width() {
             return Ok(stats.source().clone().into_array());
         }
-        BitPackedEncoder::new(stats.source())
-            .with_bit_width(bw)
-            .with_histogram(&histogram)
-            .pack()?
-            .into_array()
+        let packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
+        let mut packed_data = packed.into_data();
+
+        let patches = packed_data.patches().map(compress_patches).transpose()?;
+        packed_data.replace_patches(patches);
+
+        Ok(Array::<vortex_fastlanes::BitPacked>::try_from_data(packed_data)?.into_array())
     }
 }
 

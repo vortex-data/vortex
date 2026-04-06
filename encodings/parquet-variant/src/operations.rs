@@ -61,7 +61,7 @@ impl OperationsVTable<ParquetVariant> for ParquetVariant {
         )?;
 
         Scalar::try_new(
-            array.dtype().clone(),
+            array.dtype.clone(),
             Some(ScalarValue::Variant(Box::new(inner))),
         )
     }

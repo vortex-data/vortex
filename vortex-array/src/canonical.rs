@@ -37,13 +37,13 @@ use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
-use crate::arrays::bool::BoolDataParts;
-use crate::arrays::decimal::DecimalDataParts;
-use crate::arrays::listview::ListViewDataParts;
+use crate::arrays::bool::BoolArrayParts;
+use crate::arrays::decimal::DecimalArrayParts;
+use crate::arrays::listview::ListViewArrayParts;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrays::primitive::PrimitiveDataParts;
-use crate::arrays::struct_::StructDataParts;
-use crate::arrays::varbinview::VarBinViewDataParts;
+use crate::arrays::primitive::PrimitiveArrayParts;
+use crate::arrays::struct_::StructArrayParts;
+use crate::arrays::varbinview::VarBinViewArrayParts;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -544,19 +544,18 @@ impl Executable for CanonicalValidity {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(CanonicalValidity(n)),
             Canonical::Bool(b) => {
-                let b = b.into_parts();
-                let BoolDataParts {
+                let BoolArrayParts {
                     bits,
                     offset,
                     len,
                     validity,
-                } = b.data.into_parts();
+                } = b.into_parts();
                 Ok(CanonicalValidity(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))
             }
             Canonical::Primitive(p) => {
-                let PrimitiveDataParts {
+                let PrimitiveArrayParts {
                     ptype,
                     buffer,
                     validity,
@@ -566,7 +565,7 @@ impl Executable for CanonicalValidity {
                 })))
             }
             Canonical::Decimal(d) => {
-                let DecimalDataParts {
+                let DecimalArrayParts {
                     decimal_dtype,
                     values,
                     values_type,
@@ -582,7 +581,7 @@ impl Executable for CanonicalValidity {
                 })))
             }
             Canonical::VarBinView(vbv) => {
-                let VarBinViewDataParts {
+                let VarBinViewArrayParts {
                     dtype,
                     buffers,
                     views,
@@ -599,7 +598,7 @@ impl Executable for CanonicalValidity {
             }
             Canonical::List(l) => {
                 let zctl = l.is_zero_copy_to_list();
-                let ListViewDataParts {
+                let ListViewArrayParts {
                     elements,
                     offsets,
                     sizes,
@@ -620,13 +619,12 @@ impl Executable for CanonicalValidity {
                 )))
             }
             Canonical::Struct(st) => {
-                let parts = st.into_parts();
-                let len = parts.len;
-                let StructDataParts {
+                let len = st.len();
+                let StructArrayParts {
                     struct_fields,
                     fields,
                     validity,
-                } = parts.data.into_parts();
+                } = st.into_parts();
                 Ok(CanonicalValidity(Canonical::Struct(unsafe {
                     StructArray::new_unchecked(fields, struct_fields, len, validity.execute(ctx)?)
                 })))
@@ -666,19 +664,18 @@ impl Executable for RecursiveCanonical {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(RecursiveCanonical(n)),
             Canonical::Bool(b) => {
-                let b = b.into_parts();
-                let BoolDataParts {
+                let BoolArrayParts {
                     bits,
                     offset,
                     len,
                     validity,
-                } = b.data.into_parts();
+                } = b.into_parts();
                 Ok(RecursiveCanonical(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))
             }
             Canonical::Primitive(p) => {
-                let PrimitiveDataParts {
+                let PrimitiveArrayParts {
                     ptype,
                     buffer,
                     validity,
@@ -688,7 +685,7 @@ impl Executable for RecursiveCanonical {
                 })))
             }
             Canonical::Decimal(d) => {
-                let DecimalDataParts {
+                let DecimalArrayParts {
                     decimal_dtype,
                     values,
                     values_type,
@@ -704,7 +701,7 @@ impl Executable for RecursiveCanonical {
                 })))
             }
             Canonical::VarBinView(vbv) => {
-                let VarBinViewDataParts {
+                let VarBinViewArrayParts {
                     dtype,
                     buffers,
                     views,
@@ -721,7 +718,7 @@ impl Executable for RecursiveCanonical {
             }
             Canonical::List(l) => {
                 let zctl = l.is_zero_copy_to_list();
-                let ListViewDataParts {
+                let ListViewArrayParts {
                     elements,
                     offsets,
                     sizes,
@@ -752,13 +749,12 @@ impl Executable for RecursiveCanonical {
                 )))
             }
             Canonical::Struct(st) => {
-                let parts = st.into_parts();
-                let len = parts.len;
-                let StructDataParts {
+                let len = st.len();
+                let StructArrayParts {
                     struct_fields,
                     fields,
                     validity,
-                } = parts.data.into_parts();
+                } = st.into_parts();
                 let executed_fields = fields
                     .iter()
                     .map(|f| Ok(f.clone().execute::<RecursiveCanonical>(ctx)?.0.into_array()))

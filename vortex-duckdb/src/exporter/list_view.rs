@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::listview::ListViewDataParts;
+use vortex::array::arrays::listview::ListViewArrayParts;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::DType;
 use vortex::dtype::IntegerPType;
@@ -47,7 +47,7 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let len = array.len();
-    let ListViewDataParts {
+    let ListViewArrayParts {
         elements_dtype,
         elements,
         offsets,

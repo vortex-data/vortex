@@ -1,16 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ArrayView;
-use vortex_array::vtable::ValidityVTable;
-use vortex_error::VortexResult;
+use vortex_array::ArrayRef;
+use vortex_array::vtable::ValidityChild;
+use vortex_array::vtable::ValidityChildSliceHelper;
 
-use crate::rle::RLE;
+use super::RLE;
+use crate::RLEData;
 
-impl ValidityVTable<RLE> for RLE {
-    fn validity(array: ArrayView<'_, RLE>) -> VortexResult<vortex_array::validity::Validity> {
-        let start = array.offset();
-        let stop = start + array.len();
-        array.indices().slice(start..stop)?.validity()
+impl ValidityChild<RLE> for RLE {
+    fn validity_child(array: &RLEData) -> &ArrayRef {
+        array.indices()
+    }
+}
+
+impl ValidityChildSliceHelper for RLEData {
+    fn unsliced_child_and_slice(&self) -> (&ArrayRef, usize, usize) {
+        let (start, len) = (self.offset(), self.len());
+        (self.indices(), start, start + len)
     }
 }

@@ -8,7 +8,6 @@ use vortex_buffer::buffer;
 
 use crate::IntoArray;
 use crate::accessor::ArrayAccessor;
-use crate::array::ArrayParts;
 use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
@@ -208,12 +207,10 @@ fn with_slots_updates_nchunks_len_and_offsets() {
     ];
     let expected_nchunks = slots.len() - 1;
     let expected_len = orig.len();
-    let dtype = orig.dtype().clone();
 
     let mut data = orig.into_data();
     <Chunked as VTable>::with_slots(&mut data, slots).unwrap();
-    let array =
-        ChunkedArray::try_from_parts(ArrayParts::new(Chunked, dtype, expected_len, data)).unwrap();
+    let array = ChunkedArray::try_from_data(data).unwrap();
 
     assert_eq!(array.nchunks(), expected_nchunks);
     assert_eq!(array.len(), expected_len);

@@ -11,7 +11,6 @@ use vortex_array::ArrayView;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
-use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -373,15 +372,14 @@ impl VTable for Sequence {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
-        Ok(SequenceData::try_new(
+    ) -> VortexResult<SequenceData> {
+        SequenceData::try_new(
             metadata.base,
             metadata.multiplier,
             dtype.as_ptype(),
             dtype.nullability(),
             len,
-        )?
-        .into_array())
+        )
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

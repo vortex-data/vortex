@@ -16,7 +16,6 @@ use vortex_array::scalar::ScalarValue;
 use vortex_error::VortexResult;
 
 use crate::Sequence;
-use crate::SequenceData;
 
 /// Sequence-specific min/max kernel.
 ///
@@ -48,7 +47,7 @@ impl DynAggregateKernel for SequenceMinMaxKernel {
         }
 
         let base = seq.base();
-        let last = SequenceData::try_last(base, seq.multiplier(), seq.ptype(), seq.len())?;
+        let last = seq.last();
 
         // Determine min and max based on multiplier direction.
         // For unsigned types, multiplier is always >= 0.

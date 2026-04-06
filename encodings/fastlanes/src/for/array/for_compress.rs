@@ -5,18 +5,20 @@ use num_traits::PrimInt;
 use num_traits::WrappingSub;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveData;
 use vortex_array::dtype::NativePType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::stats::ArrayStats;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::FoR;
 use crate::FoRArray;
 use crate::FoRData;
 impl FoRData {
     pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
         let array_ref = array.clone().into_array();
+        let stats = ArrayStats::from(array_ref.statistics().to_owned());
         let min = array_ref
             .statistics()
             .compute_stat(Stat::Min)?
@@ -25,17 +27,24 @@ impl FoRData {
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             compress_primitive::<T>(array, T::try_from(&min)?)?.into_array()
         });
-        FoR::try_new(encoded, min)
+        let for_data = FoRData::try_new(encoded, min)?;
+        let for_array = FoRArray::try_from_data(for_data)?;
+        let for_ref = for_array.clone().into_array();
+        for_array
+            .stats_set()
+            .to_ref(&for_ref)
+            .inherit_from(stats.to_ref(&for_ref));
+        Ok(for_array)
     }
 }
 
 fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
     parray: PrimitiveArray,
     min: T,
-) -> VortexResult<PrimitiveArray> {
+) -> VortexResult<PrimitiveData> {
     // Set null values to the min value, ensuring that decompress into a value in the primitive
     // range (and stop them wrapping around).
-    let encoded = parray
+    parray
         .into_data()
         .map_each_with_validity::<T, _, _>(|(v, bool)| {
             if bool {
@@ -43,12 +52,7 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
             } else {
                 T::zero()
             }
-        })?;
-    Ok(PrimitiveArray::from_buffer_handle(
-        encoded.buffer_handle().clone(),
-        encoded.ptype(),
-        encoded.validity(),
-    ))
+        })
 }
 
 #[cfg(test)]
@@ -68,12 +72,8 @@ mod test {
     use vortex_session::VortexSession;
 
     use super::*;
-<<<<<<< HEAD
     use crate::BitPackedData;
-=======
     use crate::FoRArray;
-    use crate::bitpack_compress::BitPackedEncoder;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
     use crate::r#for::array::for_decompress::decompress;
     use crate::r#for::array::for_decompress::fused_decompress;
 
@@ -136,19 +136,8 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-<<<<<<< HEAD
         let bp = BitPackedData::encode(&array.into_array(), 3).unwrap();
-        let compressed = FoR::try_new(bp.into_array(), 10u32.into()).unwrap();
-=======
-        let bp = BitPackedEncoder::new(&array)
-            .with_bit_width(3)
-            .pack()
-            .unwrap()
-            .into_packed();
-        let compressed =
-            FoRArray::try_from_data(FoRData::try_new(bp.into_array(), 10u32.into()).unwrap())
-                .unwrap();
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
+        let compressed = FoRData::try_new(bp.into_array(), 10u32.into()).unwrap();
         assert_arrays_eq!(compressed, expect);
     }
 
@@ -157,19 +146,10 @@ mod test {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
-<<<<<<< HEAD
         let bp = BitPackedData::encode(&array.into_array(), 2).unwrap();
-        let compressed = FoR::try_new(bp.clone().into_array(), 10u32.into())?;
-=======
-        let bp = BitPackedEncoder::new(&array)
-            .with_bit_width(2)
-            .pack()
-            .unwrap()
-            .into_packed();
         let compressed = FoRArray::try_from_data(
             FoRData::try_new(bp.clone().into_array(), 10u32.into()).unwrap(),
         )?;
->>>>>>> c2fc4fd43 (add a LazyPatchedArray)
         let decompressed = fused_decompress::<u32>(
             &compressed,
             bp.as_view(),
@@ -198,7 +178,7 @@ mod test {
             .reinterpret_cast(PType::U8);
         let unsigned: Vec<u8> = (0..=u8::MAX).collect_vec();
         let expected_unsigned = PrimitiveArray::from_iter(unsigned);
-        assert_eq!(encoded.as_slice::<u8>(), expected_unsigned.as_slice::<u8>());
+        assert_arrays_eq!(encoded, expected_unsigned);
 
         let decompressed = decompress(&compressed, &mut SESSION.create_execution_ctx())?;
         array

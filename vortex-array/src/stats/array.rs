@@ -83,6 +83,7 @@ impl From<ArrayStats> for StatsSet {
 }
 
 impl StatsSetRef<'_> {
+    #[allow(dead_code)]
     pub(crate) fn replace(&self, stats: StatsSet) {
         *self.array_stats.inner.write() = stats;
     }

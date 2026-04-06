@@ -18,7 +18,10 @@ use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags;
 use vortex::array::IntoArray;
+use vortex::array::ToCanonical;
+use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::scalar::Scalar;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
 use vortex::dtype::PType;
@@ -28,7 +31,6 @@ use vortex::encodings::alp::Exponents;
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::FoRData;
-use vortex::encodings::fastlanes::bitpack_compress::BitPackedEncoder;
 use vortex::encodings::runend::RunEnd;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -165,97 +167,97 @@ impl BenchRunner {
     }
 }
 
-// // ---------------------------------------------------------------------------
-// // Benchmark: FoR(BitPacked)
-// // ---------------------------------------------------------------------------
-// fn bench_for_bitpacked(c: &mut Criterion) {
-//     let mut group = c.benchmark_group("for_bitpacked_6bw");
-//     group.sample_size(10);
-//
-//     let bit_width: u8 = 6;
-//     let reference = 100_000u32;
-//
-//     for (len, len_str) in BENCH_ARGS {
-//         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
-//
-//         // FoR(BitPacked): residuals 0..max_val, reference adds 100_000
-//         let max_val = (1u64 << bit_width).saturating_sub(1);
-//         let residuals: Vec<u32> = (0..*len)
-//             .map(|i| (i as u64 % (max_val + 1)) as u32)
-//             .collect();
-//         let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
-//         let bp = BitPackedArray::encode(&prim.into_array(), bit_width).vortex_expect("bitpack");
-//         let for_arr =
-//             FoRArray::try_new(bp.into_array(), Scalar::from(reference)).vortex_expect("for");
-//         let array = for_arr.into_array();
-//
-//         group.bench_with_input(
-//             BenchmarkId::new("dynamic_dispatch_u32", len_str),
-//             len,
-//             |b, &n| {
-//                 let mut cuda_ctx =
-//                     CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
-//
-//                 let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
-//
-//                 b.iter_custom(|iters| {
-//                     let mut total_time = Duration::ZERO;
-//                     for _ in 0..iters {
-//                         total_time += bench_runner.run(&mut cuda_ctx);
-//                     }
-//                     total_time
-//                 });
-//             },
-//         );
-//     }
-//
-//     group.finish();
-// }
+// ---------------------------------------------------------------------------
+// Benchmark: FoR(BitPacked)
+// ---------------------------------------------------------------------------
+fn bench_for_bitpacked(c: &mut Criterion) {
+    let mut group = c.benchmark_group("for_bitpacked_6bw");
+    group.sample_size(10);
 
-// // ---------------------------------------------------------------------------
-// // Benchmark: Dict(codes=BitPacked, values=Primitive)
-// // ---------------------------------------------------------------------------
-// fn bench_dict_bp_codes(c: &mut Criterion) {
-//     let mut group = c.benchmark_group("dict_256vals_bp8bw_codes");
-//     group.sample_size(10);
-//
-//     let dict_size: usize = 256;
-//     let dict_bit_width: u8 = 8;
-//     let dict_values: Vec<u32> = (0..dict_size as u32).map(|i| i * 1000 + 42).collect();
-//
-//     for (len, len_str) in BENCH_ARGS {
-//         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
-//
-//         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
-//         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-//         let codes_bp = BitPackedData::encode(&codes_prim.into_array(), dict_bit_width)
-//             .vortex_expect("bitpack codes");
-//         let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
-//         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
-//         let array = dict.into_array();
-//
-//         group.bench_with_input(
-//             BenchmarkId::new("dynamic_dispatch_u32", len_str),
-//             len,
-//             |b, &n| {
-//                 let mut cuda_ctx =
-//                     CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
-//
-//                 let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
-//
-//                 b.iter_custom(|iters| {
-//                     let mut total_time = Duration::ZERO;
-//                     for _ in 0..iters {
-//                         total_time += bench_runner.run(&mut cuda_ctx);
-//                     }
-//                     total_time
-//                 });
-//             },
-//         );
-//     }
-//
-//     group.finish();
-// }
+    let bit_width: u8 = 6;
+    let reference = 100_000u32;
+
+    for (len, len_str) in BENCH_ARGS {
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+
+        // FoR(BitPacked): residuals 0..max_val, reference adds 100_000
+        let max_val = (1u64 << bit_width).saturating_sub(1);
+        let residuals: Vec<u32> = (0..*len)
+            .map(|i| (i as u64 % (max_val + 1)) as u32)
+            .collect();
+        let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
+        let bp = BitPackedData::encode(&prim.into_array(), bit_width).vortex_expect("bitpack");
+        let for_arr =
+            FoRData::try_new(bp.into_array(), Scalar::from(reference)).vortex_expect("for");
+        let array = for_arr.into_array();
+
+        group.bench_with_input(
+            BenchmarkId::new("dynamic_dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Benchmark: Dict(codes=BitPacked, values=Primitive)
+// ---------------------------------------------------------------------------
+fn bench_dict_bp_codes(c: &mut Criterion) {
+    let mut group = c.benchmark_group("dict_256vals_bp8bw_codes");
+    group.sample_size(10);
+
+    let dict_size: usize = 256;
+    let dict_bit_width: u8 = 8;
+    let dict_values: Vec<u32> = (0..dict_size as u32).map(|i| i * 1000 + 42).collect();
+
+    for (len, len_str) in BENCH_ARGS {
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+
+        let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+        let codes_bp = BitPackedData::encode(&codes_prim.into_array(), dict_bit_width)
+            .vortex_expect("bitpack codes");
+        let values_prim = PrimitiveArray::new(Buffer::from(dict_values.clone()), NonNullable);
+        let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
+        let array = dict.into_array();
+
+        group.bench_with_input(
+            BenchmarkId::new("dynamic_dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
 
 // ---------------------------------------------------------------------------
 // Benchmark: RunEnd(ends=Prim, values=Prim)
@@ -301,124 +303,124 @@ fn bench_runend(c: &mut Criterion) {
     group.finish();
 }
 
-// // ---------------------------------------------------------------------------
-// // Benchmark: Dict(codes=BitPacked, values=FoR(BitPacked))
-// // ---------------------------------------------------------------------------
-// fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
-//     let mut group = c.benchmark_group("dict_64vals_bp6bw_codes_for_bp6bw_values");
-//     group.sample_size(10);
-//
-//     let dict_size: usize = 64;
-//     let dict_bit_width: u8 = 6;
-//     let dict_reference = 1_000_000u32;
-//     let codes_bit_width: u8 = 6;
-//
-//     // Dict values: residuals 0..63 bitpacked, FoR adds 1_000_000
-//     let dict_residuals: Vec<u32> = (0..dict_size as u32).collect();
-//     let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-//     let dict_bp = BitPackedArray::encode(&dict_prim.into_array(), dict_bit_width)
-//         .vortex_expect("bitpack dict");
-//     let dict_for = FoRArray::try_new(dict_bp.into_array(), Scalar::from(dict_reference))
-//         .vortex_expect("for dict");
-//
-//     for (len, len_str) in BENCH_ARGS {
-//         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
-//
-//         let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
-//         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-//         let codes_bp = BitPackedArray::encode(&codes_prim.into_array(), codes_bit_width)
-//             .vortex_expect("bitpack codes");
-//
-//         let dict = DictArray::new(codes_bp.into_array(), dict_for.clone().into_array());
-//         let array = dict.into_array();
-//
-//         group.bench_with_input(
-//             BenchmarkId::new("dynamic_dispatch_u32", len_str),
-//             len,
-//             |b, &n| {
-//                 let mut cuda_ctx =
-//                     CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
-//
-//                 let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
-//
-//                 b.iter_custom(|iters| {
-//                     let mut total_time = Duration::ZERO;
-//                     for _ in 0..iters {
-//                         total_time += bench_runner.run(&mut cuda_ctx);
-//                     }
-//                     total_time
-//                 });
-//             },
-//         );
-//     }
-//
-//     group.finish();
-// }
+// ---------------------------------------------------------------------------
+// Benchmark: Dict(codes=BitPacked, values=FoR(BitPacked))
+// ---------------------------------------------------------------------------
+fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
+    let mut group = c.benchmark_group("dict_64vals_bp6bw_codes_for_bp6bw_values");
+    group.sample_size(10);
 
-// // ---------------------------------------------------------------------------
-// // Benchmark: ALP(FoR(BitPacked)) for f32
-// // ---------------------------------------------------------------------------
-// fn bench_alp_for_bitpacked(c: &mut Criterion) {
-//     let mut group = c.benchmark_group("alp_for_bp_6bw_f32");
-//     group.sample_size(10);
-//
-//     let exponents = Exponents { e: 2, f: 0 };
-//     let bit_width: u8 = 6;
-//
-//     for (len, len_str) in BENCH_ARGS {
-//         group.throughput(Throughput::Bytes((len * size_of::<f32>()) as u64));
-//
-//         // Generate f32 values that ALP-encode without patches.
-//         let floats: Vec<f32> = (0..*len)
-//             .map(|i| <f32 as ALPFloat>::decode_single(10 + (i as i32 % 64), exponents))
-//             .collect();
-//         let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
-//
-//         // Encode: ALP -> FoR -> BitPacked
-//         let alp = alp_encode(&float_prim, Some(exponents)).vortex_expect("alp_encode");
-//         assert!(alp.patches().is_none());
-//         let for_arr = FoRData::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
-//         let bp =
-//             BitPackedData::encode(for_arr.encoded(), bit_width).vortex_expect("bitpack encode");
-//
-//         let tree = ALP::new(
-//             FoRData::try_new(bp.into_array(), for_arr.reference_scalar().clone())
-//                 .vortex_expect("for_new")
-//                 .into_array(),
-//             exponents,
-//             None,
-//         );
-//         let array = tree.into_array();
-//
-//         group.bench_with_input(
-//             BenchmarkId::new("dynamic_dispatch_f32", len_str),
-//             len,
-//             |b, &n| {
-//                 let mut cuda_ctx =
-//                     CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
-//
-//                 let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
-//
-//                 b.iter_custom(|iters| {
-//                     let mut total_time = Duration::ZERO;
-//                     for _ in 0..iters {
-//                         total_time += bench_runner.run(&mut cuda_ctx);
-//                     }
-//                     total_time
-//                 });
-//             },
-//         );
-//     }
-//
-//     group.finish();
-// }
+    let dict_size: usize = 64;
+    let dict_bit_width: u8 = 6;
+    let dict_reference = 1_000_000u32;
+    let codes_bit_width: u8 = 6;
+
+    // Dict values: residuals 0..63 bitpacked, FoR adds 1_000_000
+    let dict_residuals: Vec<u32> = (0..dict_size as u32).collect();
+    let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
+    let dict_bp = BitPackedData::encode(&dict_prim.into_array(), dict_bit_width)
+        .vortex_expect("bitpack dict");
+    let dict_for = FoRData::try_new(dict_bp.into_array(), Scalar::from(dict_reference))
+        .vortex_expect("for dict");
+
+    for (len, len_str) in BENCH_ARGS {
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+
+        let codes: Vec<u32> = (0..*len).map(|i| (i % dict_size) as u32).collect();
+        let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+        let codes_bp = BitPackedData::encode(&codes_prim.into_array(), codes_bit_width)
+            .vortex_expect("bitpack codes");
+
+        let dict = DictArray::new(codes_bp.into_array(), dict_for.clone().into_array());
+        let array = dict.into_array();
+
+        group.bench_with_input(
+            BenchmarkId::new("dynamic_dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Benchmark: ALP(FoR(BitPacked)) for f32
+// ---------------------------------------------------------------------------
+fn bench_alp_for_bitpacked(c: &mut Criterion) {
+    let mut group = c.benchmark_group("alp_for_bp_6bw_f32");
+    group.sample_size(10);
+
+    let exponents = Exponents { e: 2, f: 0 };
+    let bit_width: u8 = 6;
+
+    for (len, len_str) in BENCH_ARGS {
+        group.throughput(Throughput::Bytes((len * size_of::<f32>()) as u64));
+
+        // Generate f32 values that ALP-encode without patches.
+        let floats: Vec<f32> = (0..*len)
+            .map(|i| <f32 as ALPFloat>::decode_single(10 + (i as i32 % 64), exponents))
+            .collect();
+        let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
+
+        // Encode: ALP → FoR → BitPacked
+        let alp = alp_encode(&float_prim, Some(exponents)).vortex_expect("alp_encode");
+        assert!(alp.patches().is_none());
+        let for_arr = FoRData::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
+        let bp =
+            BitPackedData::encode(for_arr.encoded(), bit_width).vortex_expect("bitpack encode");
+
+        let tree = ALP::new(
+            FoRData::try_new(bp.into_array(), for_arr.reference_scalar().clone())
+                .vortex_expect("for_new")
+                .into_array(),
+            exponents,
+            None,
+        );
+        let array = tree.into_array();
+
+        group.bench_with_input(
+            BenchmarkId::new("dynamic_dispatch_f32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+
+                let bench_runner = BenchRunner::new(&array, n, &cuda_ctx);
+
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
 
 fn benchmark_dynamic_dispatch(c: &mut Criterion) {
-    // bench_for_bitpacked(c);
-    // bench_dict_bp_codes(c);
+    bench_for_bitpacked(c);
+    bench_dict_bp_codes(c);
     bench_runend(c);
-    // bench_dict_bp_codes_bp_for_values(c);
-    // bench_alp_for_bitpacked(c);
+    bench_dict_bp_codes_bp_for_values(c);
+    bench_alp_for_bitpacked(c);
 }
 
 criterion::criterion_group!(benches, benchmark_dynamic_dispatch);

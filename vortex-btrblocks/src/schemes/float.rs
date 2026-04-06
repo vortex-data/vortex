@@ -6,6 +6,7 @@
 use vortex_alp::ALP;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -146,8 +147,6 @@ impl Scheme for ALPRDScheme {
         };
 
         let alp_rd = encoder.encode(stats.source());
-        let dtype = alp_rd.dtype().clone();
-        let right_bit_width = alp_rd.right_bit_width();
         let mut alp_rd_data = alp_rd.into_data();
 
         let patches = alp_rd_data
@@ -155,17 +154,8 @@ impl Scheme for ALPRDScheme {
             .map(compress_patches)
             .transpose()?;
         alp_rd_data.replace_left_parts_patches(patches);
-        let parts = alp_rd_data.into_parts();
 
-        Ok(vortex_alp::ALPRD::try_new(
-            dtype,
-            parts.left_parts,
-            parts.left_parts_dictionary,
-            parts.right_parts,
-            right_bit_width,
-            parts.left_parts_patches,
-        )?
-        .into_array())
+        Ok(Array::<vortex_alp::ALPRD>::try_from_data(alp_rd_data)?.into_array())
     }
 }
 

@@ -18,6 +18,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ParquetVariant;
+use crate::array::ParquetVariantData;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&FilterExecuteAdaptor(ParquetVariant)),
@@ -42,7 +43,7 @@ impl SliceKernel for ParquetVariant {
             .map(|tv| tv.slice(range))
             .transpose()?;
         Ok(Some(
-            ParquetVariant::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariantData::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
@@ -64,7 +65,7 @@ impl FilterKernel for ParquetVariant {
             .map(|tv| tv.filter(mask.clone()))
             .transpose()?;
         Ok(Some(
-            ParquetVariant::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariantData::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
@@ -86,7 +87,7 @@ impl TakeExecute for ParquetVariant {
             .map(|tv| tv.take(indices.clone()))
             .transpose()?;
         Ok(Some(
-            ParquetVariant::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariantData::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }

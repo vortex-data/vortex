@@ -16,7 +16,6 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -113,7 +112,7 @@ impl VTable for Variant {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Self::ArrayData> {
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         vortex_ensure!(
             children.len() == 1,
@@ -122,7 +121,7 @@ impl VTable for Variant {
         );
         // The child carries the nullability for the whole VariantArray.
         let child = children.get(0, dtype, len)?;
-        Ok(VariantData::new(child).into_array())
+        Ok(VariantData::new(child))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

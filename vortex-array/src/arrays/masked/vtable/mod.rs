@@ -118,7 +118,7 @@ impl VTable for Masked {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<MaskedData> {
         if !buffers.is_empty() {
             vortex_bail!("Expected 0 buffer, got {}", buffers.len());
         }
@@ -138,7 +138,7 @@ impl VTable for Masked {
             Validity::from(dtype.nullability())
         };
 
-        Ok(MaskedData::try_new(child, validity)?.into_array())
+        MaskedData::try_new(child, validity)
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

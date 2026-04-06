@@ -240,7 +240,7 @@ impl Scheme for ZstdBuffersScheme {
         let stats = data.string_stats();
 
         Ok(
-            vortex_zstd::ZstdBuffers::compress(&stats.source().clone().into_array(), 3)?
+            vortex_zstd::ZstdBuffersData::compress(&stats.source().clone().into_array(), 3)?
                 .into_array(),
         )
     }

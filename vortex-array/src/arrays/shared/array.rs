@@ -14,9 +14,9 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::Array;
-use crate::array::ArrayParts;
 use crate::arrays::Shared;
 use crate::dtype::DType;
+use crate::stats::ArrayStats;
 
 /// The source array that is shared and lazily computed.
 pub(super) const SOURCE_SLOT: usize = 0;
@@ -32,14 +32,18 @@ pub struct SharedData {
     pub(super) slots: Vec<Option<ArrayRef>>,
     cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
     async_compute_lock: Arc<AsyncMutex<()>>,
+    pub(super) dtype: DType,
+    pub(super) stats: ArrayStats,
 }
 
 impl SharedData {
     pub fn new(source: ArrayRef) -> Self {
         Self {
+            dtype: source.dtype().clone(),
             slots: vec![Some(source)],
             cached: Arc::new(OnceLock::new()),
             async_compute_lock: Arc::new(AsyncMutex::new(())),
+            stats: ArrayStats::default(),
         }
     }
 
@@ -109,7 +113,7 @@ impl SharedData {
 
     /// Returns the [`DType`] of this array.
     pub fn dtype(&self) -> &DType {
-        self.current_array_ref().dtype()
+        &self.dtype
     }
 
     /// Returns `true` if this array is empty.
@@ -121,21 +125,15 @@ impl SharedData {
 impl Array<Shared> {
     /// Creates a new `SharedArray`.
     pub fn new(source: ArrayRef) -> Self {
-        let dtype = source.dtype().clone();
-        let len = source.len();
-        unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(
-                Shared,
-                dtype,
-                len,
-                SharedData::new(source),
-            ))
-        }
+        Array::try_from_data(SharedData::new(source)).vortex_expect("SharedData is always valid")
     }
 }
 
 impl SharedData {
     pub(super) fn set_source(&mut self, source: Option<ArrayRef>) {
+        if let Some(ref s) = source {
+            self.dtype = s.dtype().clone();
+        }
         self.slots = vec![source];
         self.cached = Arc::new(OnceLock::new());
         self.async_compute_lock = Arc::new(AsyncMutex::new(()));

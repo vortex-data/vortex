@@ -8,7 +8,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrays::varbinview::Inlined;
-use vortex::array::arrays::varbinview::VarBinViewDataParts;
+use vortex::array::arrays::varbinview::VarBinViewArrayParts;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
@@ -32,7 +32,7 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let len = array.len();
-    let VarBinViewDataParts {
+    let VarBinViewArrayParts {
         validity,
         dtype,
         views,

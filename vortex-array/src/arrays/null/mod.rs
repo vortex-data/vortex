@@ -11,7 +11,6 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -124,8 +123,8 @@ impl VTable for Null {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
-        Ok(NullData::new(len).into_array())
+    ) -> VortexResult<NullData> {
+        Ok(NullData::new(len))
     }
 
     fn reduce_parent(

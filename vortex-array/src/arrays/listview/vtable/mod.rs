@@ -11,7 +11,6 @@ use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::Precision;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -136,7 +135,7 @@ impl VTable for ListView {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ListViewData> {
         vortex_ensure!(
             buffers.is_empty(),
             "`ListViewArray::build` expects no buffers"
@@ -179,7 +178,7 @@ impl VTable for ListView {
             len,
         )?;
 
-        Ok(ListViewData::try_new(elements, offsets, sizes, validity)?.into_array())
+        ListViewData::try_new(elements, offsets, sizes, validity)
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

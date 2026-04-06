@@ -13,7 +13,7 @@ import vortex._lib.arrays as _arrays  # pyright: ignore[reportMissingModuleSourc
 from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
 from vortex._lib.serde import (  # pyright: ignore[reportMissingModuleSource]
     ArrayContext,
-    SerializedArray,
+    ArrayParts,
     decode_ipc_array_buffers,
 )
 
@@ -463,12 +463,12 @@ class PyArray(Array, metaclass=abc.ABCMeta):
 
     @classmethod
     @abc.abstractmethod
-    def decode(cls, parts: SerializedArray, ctx: ArrayContext, dtype: DType, len: int) -> Array:
+    def decode(cls, parts: ArrayParts, ctx: ArrayContext, dtype: DType, len: int) -> Array:
         """Decode an array from its component parts.
 
-        :class:`SerializedArray` contains the metadata, buffers and child :class:`SerializedArray`
-        that represent the current array. Implementations of this function should validate this
-        information, and then construct a new array.
+        :class:`ArrayParts` contains the metadata, buffers and child :class:`ArrayParts` that represent the
+        current array. Implementations of this function should validate this information, and then construct
+        a new array.
         """
 
 

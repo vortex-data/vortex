@@ -13,7 +13,6 @@ use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::array::Array;
@@ -133,7 +132,7 @@ impl VTable for Bool {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<BoolData> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -149,10 +148,7 @@ impl VTable for Bool {
 
         let buffer = buffers[0].clone();
 
-        Ok(
-            BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)?
-                .into_array(),
-        )
+        BoolData::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

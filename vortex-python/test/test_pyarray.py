@@ -91,7 +91,7 @@ class PCodecArray(vx.PyArray):
 
     @override
     @classmethod
-    def decode(cls, parts: vx.SerializedArray, ctx: vx.ArrayContext, dtype: vx.DType, len: int) -> vx.Array:
+    def decode(cls, parts: vx.ArrayParts, ctx: vx.ArrayContext, dtype: vx.DType, len: int) -> vx.Array:
         """Decode the serialized array parts into an array."""
         assert pco
         raise NotImplementedError

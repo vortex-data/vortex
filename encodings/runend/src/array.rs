@@ -139,20 +139,19 @@ impl VTable for RunEnd {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<RunEndData> {
         let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
         let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
         let ends = children.get(0, &ends_dtype, runs)?;
 
         let values = children.get(1, dtype, runs)?;
 
-        Ok(RunEndData::try_new_offset_length(
+        RunEndData::try_new_offset_length(
             ends,
             values,
             usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
             len,
-        )?
-        .into_array())
+        )
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

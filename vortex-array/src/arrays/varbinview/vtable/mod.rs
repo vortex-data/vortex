@@ -17,7 +17,6 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -147,7 +146,7 @@ impl VTable for VarBinView {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<VarBinViewData> {
         let Some((views_handle, data_handles)) = buffers.split_last() else {
             vortex_bail!("Expected at least 1 buffer, got 0");
         };
@@ -175,13 +174,12 @@ impl VTable for VarBinView {
 
         // If any buffer is on device, skip host validation and use try_new_handle.
         if buffers.iter().any(|b| b.is_on_device()) {
-            return Ok(VarBinViewData::try_new_handle(
+            return VarBinViewData::try_new_handle(
                 views_handle.clone(),
                 Arc::from(data_handles.to_vec()),
                 dtype.clone(),
                 validity,
-            )?
-            .into_array());
+            );
         }
 
         let data_buffers = data_handles
@@ -190,10 +188,7 @@ impl VTable for VarBinView {
             .collect::<Vec<_>>();
         let views = Buffer::<BinaryView>::from_byte_buffer(views_handle.clone().as_host().clone());
 
-        Ok(
-            VarBinViewData::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)?
-                .into_array(),
-        )
+        VarBinViewData::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

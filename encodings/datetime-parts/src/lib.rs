@@ -30,7 +30,7 @@ pub fn initialize(session: &VortexSession) {
 
 #[cfg(test)]
 mod test {
-    use prost::Message;
+    use vortex_array::ProstMetadata;
     use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
 
@@ -41,12 +41,11 @@ mod test {
     fn test_datetimeparts_metadata() {
         check_metadata(
             "datetimeparts.metadata",
-            &DateTimePartsMetadata {
+            ProstMetadata(DateTimePartsMetadata {
                 days_ptype: PType::I64 as i32,
                 seconds_ptype: PType::I64 as i32,
                 subseconds_ptype: PType::I64 as i32,
-            }
-            .encode_to_vec(),
+            }),
         );
     }
 }

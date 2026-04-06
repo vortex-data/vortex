@@ -36,7 +36,7 @@ pub fn vortex_sequence::Sequence::buffer(_array: vortex_array::array::view::Arra
 
 pub fn vortex_sequence::Sequence::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_sequence::Sequence::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_sequence::Sequence::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sequence::SequenceData>
 
 pub fn vortex_sequence::Sequence::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 

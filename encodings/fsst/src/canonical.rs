@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -18,14 +17,13 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
-use crate::FSST;
 use crate::FSSTData;
 
 pub(super) fn canonicalize_fsst(
-    array: ArrayView<'_, FSST>,
+    array: &FSSTData,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let (buffers, views) = fsst_decode_views(array.data(), 0, ctx)?;
+    let (buffers, views) = fsst_decode_views(array, 0, ctx)?;
     // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
     //  top of them, so the view pointers will all be valid.
     Ok(unsafe {

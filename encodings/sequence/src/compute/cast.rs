@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::Sequence;
+use crate::SequenceData;
 impl CastReduce for Sequence {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // SequenceArray represents arithmetic sequences (base + i * multiplier) which
@@ -31,7 +32,7 @@ impl CastReduce for Sequence {
             // For SequenceArray, we can just create a new one with the same parameters
             // but different nullability
             return Ok(Some(
-                Sequence::try_new(
+                SequenceData::try_new(
                     array.base(),
                     array.multiplier(),
                     *target_ptype,
@@ -70,7 +71,7 @@ impl CastReduce for Sequence {
                 .ok_or_else(|| vortex_err!("Cast resulted in null multiplier value"))?;
 
             return Ok(Some(
-                Sequence::try_new(
+                SequenceData::try_new(
                     new_base,
                     new_multiplier,
                     *target_ptype,

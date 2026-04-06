@@ -27,10 +27,8 @@ use vortex::array::session::ArraySession;
 use vortex::dtype::PType;
 use vortex::encodings::alp::RDEncoder;
 use vortex::encodings::alp::alp_encode;
-use vortex::encodings::fastlanes::Delta;
 use vortex::encodings::fastlanes::DeltaData;
 use vortex::encodings::fastlanes::FoR;
-use vortex::encodings::fastlanes::bitpack_compress::BitPackedEncoder;
 use vortex::encodings::fastlanes::delta_compress;
 use vortex::encodings::fsst::fsst_compress;
 use vortex::encodings::fsst::fsst_train_compressor;
@@ -38,7 +36,6 @@ use vortex::encodings::pco::Pco;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::sequence_encode;
 use vortex::encodings::zigzag::zigzag_encode;
-use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdData;
 use vortex_sequence::Sequence;
 use vortex_session::VortexSession;
@@ -117,18 +114,17 @@ fn bench_bitpacked_compress_u32(bencher: Bencher) {
 
 #[divan::bench(name = "bitpacked_decompress_u32")]
 fn bench_bitpacked_decompress_u32(bencher: Bencher) {
+    use vortex::encodings::fastlanes::bitpack_compress::bitpack_encode;
+
     let (uint_array, ..) = setup_primitive_arrays();
     let bit_width = 8;
-    let compressed = BitPackedEncoder::new(&uint_array)
-        .with_bit_width(bit_width)
-        .pack()
+    let compressed = bitpack_encode(&uint_array, bit_width, None)
         .unwrap()
-        .into_array()
-        .unwrap();
+        .into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)
-        .bench_refs(|a| a.to_canonical().unwrap());
+        .bench_refs(|a| a.to_canonical());
 }
 
 #[divan::bench(name = "runend_compress_u32")]
@@ -166,9 +162,10 @@ fn bench_delta_compress_u32(bencher: Bencher) {
 fn bench_delta_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
     let (bases, deltas) = delta_compress(&uint_array, &mut SESSION.create_execution_ctx()).unwrap();
-    let compressed = Delta::try_new(bases.into_array(), deltas.into_array(), 0, uint_array.len())
-        .unwrap()
-        .into_array();
+    let compressed =
+        DeltaData::try_new(bases.into_array(), deltas.into_array(), 0, uint_array.len())
+            .unwrap()
+            .into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)
@@ -330,13 +327,9 @@ fn bench_zstd_compress_u32(bencher: Bencher) {
 #[divan::bench(name = "zstd_decompress_u32")]
 fn bench_zstd_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
-    let dtype = uint_array.dtype().clone();
-    let compressed = Zstd::try_new(
-        dtype,
-        ZstdData::from_array(uint_array.into_array(), 3, 8192).unwrap(),
-    )
-    .unwrap()
-    .into_array();
+    let compressed = ZstdData::from_array(uint_array.into_array(), 3, 8192)
+        .unwrap()
+        .into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)
@@ -415,13 +408,9 @@ fn bench_zstd_compress_string(bencher: Bencher) {
 fn bench_zstd_decompress_string(bencher: Bencher) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
-    let dtype = varbinview_arr.dtype().clone();
-    let compressed = Zstd::try_new(
-        dtype,
-        ZstdData::from_array(varbinview_arr.clone().into_array(), 3, 8192).unwrap(),
-    )
-    .unwrap()
-    .into_array();
+    let compressed = ZstdData::from_array(varbinview_arr.clone().into_array(), 3, 8192)
+        .unwrap()
+        .into_array();
     let nbytes = varbinview_arr.into_array().nbytes() as u64;
 
     with_byte_counter(bencher, nbytes)

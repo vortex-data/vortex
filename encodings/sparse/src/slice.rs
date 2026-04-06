@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::ConstantArray;
 use crate::Sparse;
+use crate::SparseData;
 
 impl SliceKernel for Sparse {
     fn slice(
@@ -35,7 +36,8 @@ impl SliceKernel for Sparse {
         // patches slice will ensure that dtype of patches is unchanged and the indices and
         // values match
         Ok(Some(
-            unsafe { Sparse::new_unchecked(new_patches, array.fill_scalar().clone()) }.into_array(),
+            unsafe { SparseData::new_unchecked(new_patches, array.fill_scalar().clone()) }
+                .into_array(),
         ))
     }
 }

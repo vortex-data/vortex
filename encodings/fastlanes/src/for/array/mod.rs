@@ -5,9 +5,10 @@ use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
+use vortex_array::stats::ArrayStats;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
+use vortex_error::vortex_bail;
 
 pub mod for_compress;
 pub mod for_decompress;
@@ -25,46 +26,33 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
 pub struct FoRData {
     pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) reference: Scalar,
+    pub(super) stats_set: ArrayStats,
 }
 
 impl FoRData {
-    pub(crate) fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<Self> {
-        Self::validate_parts(&encoded, &reference, reference.dtype(), encoded.len())?;
+    pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<Self> {
+        if reference.is_null() {
+            vortex_bail!("Reference value cannot be null");
+        }
+        let reference = reference.cast(
+            &reference
+                .dtype()
+                .with_nullability(encoded.dtype().nullability()),
+        )?;
 
         Ok(Self {
             slots: vec![Some(encoded)],
             reference,
+            stats_set: Default::default(),
         })
     }
 
-    pub(crate) fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
-        Self::validate_parts(self.encoded(), &self.reference, dtype, len)
-    }
-
-    fn validate_parts(
-        encoded: &ArrayRef,
-        reference: &Scalar,
-        dtype: &DType,
-        len: usize,
-    ) -> VortexResult<()> {
-        vortex_ensure!(!reference.is_null(), "Reference value cannot be null");
-        vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
-        vortex_ensure!(
-            reference.dtype() == dtype,
-            "FoR reference dtype mismatch: expected {dtype}, got {}",
-            reference.dtype()
-        );
-        vortex_ensure!(
-            encoded.dtype() == dtype,
-            "FoR encoded dtype mismatch: expected {dtype}, got {}",
-            encoded.dtype()
-        );
-        vortex_ensure!(
-            encoded.len() == len,
-            "FoR encoded length mismatch: expected {len}, got {}",
-            encoded.len()
-        );
-        Ok(())
+    pub(crate) unsafe fn new_unchecked(encoded: ArrayRef, reference: Scalar) -> Self {
+        Self {
+            slots: vec![Some(encoded)],
+            reference,
+            stats_set: Default::default(),
+        }
     }
 
     /// Returns the length of the array.
@@ -100,5 +88,9 @@ impl FoRData {
     #[inline]
     pub fn reference_scalar(&self) -> &Scalar {
         &self.reference
+    }
+
+    pub(crate) fn stats_set(&self) -> &ArrayStats {
+        &self.stats_set
     }
 }

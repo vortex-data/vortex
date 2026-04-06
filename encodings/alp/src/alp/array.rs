@@ -131,7 +131,7 @@ impl VTable for ALP {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ALPData> {
         let encoded_ptype = match &dtype {
             DType::Primitive(PType::F32, n) => DType::Primitive(PType::I32, *n),
             DType::Primitive(PType::F64, n) => DType::Primitive(PType::I64, *n),
@@ -153,15 +153,14 @@ impl VTable for ALP {
             })
             .transpose()?;
 
-        Ok(ALPData::try_new(
+        ALPData::try_new(
             encoded,
             Exponents {
                 e: u8::try_from(metadata.exp_e)?,
                 f: u8::try_from(metadata.exp_f)?,
             },
             patches,
-        )?
-        .into_array())
+        )
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

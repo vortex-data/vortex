@@ -56,7 +56,7 @@ pub fn vortex_sparse::Sparse::buffer(array: vortex_array::array::view::ArrayView
 
 pub fn vortex_sparse::Sparse::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_sparse::Sparse::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_sparse::Sparse::build(dtype: &vortex_array::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_sparse::SparseData>
 
 pub fn vortex_sparse::Sparse::deserialize(bytes: &[u8], dtype: &vortex_array::dtype::DType, _len: usize, buffers: &[vortex_array::buffer::BufferHandle], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 

@@ -13,7 +13,6 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -146,7 +145,7 @@ impl VTable for FixedSizeList {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<FixedSizeListData> {
         vortex_ensure!(
             buffers.is_empty(),
             "`FixedSizeList::build` expects no buffers"
@@ -173,7 +172,7 @@ impl VTable for FixedSizeList {
         let num_elements = len * (*list_size as usize);
         let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
-        Ok(FixedSizeListData::try_new(elements, *list_size, validity, len)?.into_array())
+        FixedSizeListData::try_new(elements, *list_size, validity, len)
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

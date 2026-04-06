@@ -12,7 +12,7 @@ pub mod gpu {
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use tracing::instrument;
-use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
 use vortex::dtype::NativePType;
@@ -67,12 +67,12 @@ pub(crate) async fn execute_patches<
     let patches_len = indices.len();
     let patches_len_u64 = patches_len as u64;
 
-    let PrimitiveDataParts {
+    let PrimitiveArrayParts {
         buffer: indices_buffer,
         ..
     } = indices.into_data().into_parts();
 
-    let PrimitiveDataParts {
+    let PrimitiveArrayParts {
         buffer: values_buffer,
         ..
     } = values.into_data().into_parts();
@@ -105,7 +105,7 @@ mod tests {
     use vortex::array::ToCanonical;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::PrimitiveArray;
-    use vortex::array::arrays::primitive::PrimitiveDataParts;
+    use vortex::array::arrays::primitive::PrimitiveArrayParts;
     use vortex::array::assert_arrays_eq;
     use vortex::array::buffer::BufferHandle;
     use vortex::array::builtins::ArrayBuiltins;
@@ -167,7 +167,7 @@ mod tests {
             )
             .unwrap();
 
-        let PrimitiveDataParts {
+        let PrimitiveArrayParts {
             buffer: cuda_buffer,
             ..
         } = values.into_data().into_parts();

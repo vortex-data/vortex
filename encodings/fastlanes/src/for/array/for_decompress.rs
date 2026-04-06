@@ -18,8 +18,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitPackedArrayExt;
 use crate::FoRArray;
+use crate::bitpack_decompress;
 use crate::unpack_iter::UnpackStrategy;
 use crate::unpack_iter::UnpackedChunks;
 
@@ -81,7 +81,7 @@ pub(crate) fn fused_decompress<
 >(
     for_: &FoRArray,
     bp: ArrayView<'_, BitPacked>,
-    _ctx: &mut ExecutionCtx,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let ref_ = for_
         .reference_scalar()
@@ -92,13 +92,13 @@ pub(crate) fn fused_decompress<
     let strategy = FoRStrategy { reference: ref_ };
 
     // Create [`UnpackedChunks`] with FoR strategy.
-    let mut unpacked = UnpackedChunks::try_new_with_strategy(
+    let mut unpacked = UnpackedChunks::new_with_strategy(
         strategy,
         bp.packed().as_host().clone(),
         bp.bit_width() as usize,
         bp.offset() as usize,
         bp.len(),
-    )?;
+    );
 
     let mut builder = PrimitiveBuilder::<T>::with_capacity(
         for_.reference_scalar().dtype().nullability(),
@@ -107,7 +107,7 @@ pub(crate) fn fused_decompress<
     let mut uninit_range = builder.uninit_range(bp.len());
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(bp.validity().to_mask(bp.len()));
+        uninit_range.append_mask(bp.validity_mask());
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -116,15 +116,14 @@ pub(crate) fn fused_decompress<
     // Decode all chunks (initial, full, and trailer) in one call.
     unpacked.decode_into(uninit_slice);
 
-    // TODO(aduffy): make sure we do Patched(FOR(BP)) instead of FOR(Patched(BP))
-    // if let Some(patches) = bp.patches() {
-    //     bitpack_decompress::apply_patches_to_uninit_range_fn(
-    //         &mut uninit_range,
-    //         patches,
-    //         ctx,
-    //         |v| v.wrapping_add(&ref_),
-    //     )?;
-    // };
+    if let Some(ref patches) = bp.patches() {
+        bitpack_decompress::apply_patches_to_uninit_range_fn(
+            &mut uninit_range,
+            patches,
+            ctx,
+            |v| v.wrapping_add(&ref_),
+        )?;
+    };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
     // initialized the same number of values needed via `decode_into`.

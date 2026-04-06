@@ -33,3 +33,4 @@ mod vtable;
 pub use array::ParquetVariantData;
 pub use vtable::ParquetVariant;
 pub use vtable::ParquetVariantArray;
+pub use vtable::ParquetVariantMetadata;

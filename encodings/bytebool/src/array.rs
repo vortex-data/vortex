@@ -120,7 +120,7 @@ impl VTable for ByteBool {
         _metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ByteBoolData> {
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
@@ -135,7 +135,7 @@ impl VTable for ByteBool {
         }
         let buffer = buffers[0].clone();
 
-        Ok(ByteBoolData::new(buffer, validity).into_array())
+        Ok(ByteBoolData::new(buffer, validity))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

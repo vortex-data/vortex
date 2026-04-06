@@ -25,7 +25,7 @@ impl SliceReduce for Struct {
             unsafe {
                 StructArray::new_unchecked(
                     fields,
-                    array.struct_fields(),
+                    array.struct_fields().clone(),
                     range.len(),
                     array.validity().slice(range)?,
                 )

@@ -177,7 +177,7 @@ impl VTable for Sparse {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<SparseData> {
         vortex_ensure_eq!(
             children.len(),
             2,
@@ -192,7 +192,7 @@ impl VTable for Sparse {
         )?;
         let patch_values = children.get(1, dtype, metadata.patches.len()?)?;
 
-        Ok(SparseData::try_new_from_patches(
+        SparseData::try_new_from_patches(
             Patches::new(
                 len,
                 metadata.patches.offset()?,
@@ -201,8 +201,7 @@ impl VTable for Sparse {
                 None,
             )?,
             metadata.fill_value.clone(),
-        )?
-        .into_array())
+        )
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

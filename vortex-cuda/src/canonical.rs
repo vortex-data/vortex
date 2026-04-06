@@ -13,12 +13,12 @@ use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::arrays::bool::BoolDataParts;
-use vortex::array::arrays::decimal::DecimalDataParts;
-use vortex::array::arrays::primitive::PrimitiveDataParts;
-use vortex::array::arrays::struct_::StructDataParts;
+use vortex::array::arrays::bool::BoolArrayParts;
+use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::struct_::StructArrayParts;
 use vortex::array::arrays::varbinview::BinaryView;
-use vortex::array::arrays::varbinview::VarBinViewDataParts;
+use vortex::array::arrays::varbinview::VarBinViewArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::buffer::BitBuffer;
 use vortex::buffer::Buffer;
@@ -40,12 +40,12 @@ impl CanonicalCudaExt for Canonical {
             Canonical::Struct(struct_array) => {
                 // Children should all be canonical now
                 let len = struct_array.len();
-                let StructDataParts {
+                let StructArrayParts {
                     fields,
                     struct_fields,
                     validity,
                     ..
-                } = struct_array.into_data().into_parts();
+                } = struct_array.into_parts();
 
                 let mut host_fields = vec![];
                 for field in fields.iter() {
@@ -63,19 +63,19 @@ impl CanonicalCudaExt for Canonical {
             Canonical::Bool(bool) => {
                 // NOTE: update to copy to host when adding buffer handle.
                 // Also update other method to copy validity to host.
-                let BoolDataParts {
+                let BoolArrayParts {
                     bits,
                     validity,
                     offset,
                     len,
                     ..
-                } = bool.into_data().into_parts();
+                } = bool.into_parts();
 
                 let bits = BitBuffer::new_with_offset(bits.try_into_host()?.await?, offset, len);
                 Ok(Canonical::Bool(BoolArray::new(bits, validity)))
             }
             Canonical::Primitive(prim) => {
-                let PrimitiveDataParts {
+                let PrimitiveArrayParts {
                     ptype,
                     buffer,
                     validity,
@@ -88,7 +88,7 @@ impl CanonicalCudaExt for Canonical {
                 )))
             }
             Canonical::Decimal(decimal) => {
-                let DecimalDataParts {
+                let DecimalArrayParts {
                     decimal_dtype,
                     values,
                     values_type,
@@ -105,7 +105,7 @@ impl CanonicalCudaExt for Canonical {
                 }))
             }
             Canonical::VarBinView(varbinview) => {
-                let VarBinViewDataParts {
+                let VarBinViewArrayParts {
                     views,
                     buffers,
                     validity,

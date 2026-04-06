@@ -12,7 +12,7 @@ use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::array::arrays::primitive::PrimitiveArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_native_ptype;
 use vortex::array::match_each_unsigned_integer_ptype;
@@ -21,7 +21,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArray;
-use vortex::encodings::runend::RunEndDataParts;
+use vortex::encodings::runend::RunEndArrayParts;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -61,7 +61,7 @@ impl CudaExecute for RunEndExecutor {
 
         let offset = array.offset();
         let output_len = array.len();
-        let RunEndDataParts { ends, values, .. } = array.into_data().into_parts();
+        let RunEndArrayParts { ends, values } = array.into_data().into_parts();
 
         let values_ptype = PType::try_from(values.dtype())?;
         let ends_ptype = PType::try_from(ends.dtype())?;
@@ -105,14 +105,14 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
         "run-end output length must be greater than zero"
     );
 
-    let PrimitiveDataParts {
+    let PrimitiveArrayParts {
         ptype: value_ptype,
         buffer: values_buffer,
         validity: values_validity,
         ..
     } = values.into_data().into_parts();
 
-    let PrimitiveDataParts {
+    let PrimitiveArrayParts {
         buffer: ends_buffer,
         ..
     } = ends.into_data().into_parts();

@@ -21,6 +21,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::RunEnd;
+use crate::RunEndData;
 use crate::compute::take::take_indices_unchecked;
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
@@ -58,7 +59,7 @@ impl FilterKernel for RunEnd {
             // SAFETY: guaranteed by implementation of filter_run_end_primitive
             unsafe {
                 Ok(Some(
-                    RunEnd::new_unchecked(
+                    RunEndData::new_unchecked(
                         run_ends.into_array(),
                         values,
                         0,

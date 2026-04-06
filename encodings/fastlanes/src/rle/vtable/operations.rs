@@ -47,7 +47,6 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
-    use crate::RLE;
     use crate::RLEArray;
     use crate::RLEData;
 
@@ -66,12 +65,15 @@ mod tests {
             .into_array();
             let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
 
-            RLE::try_new(
-                values,
-                indices.clone(),
-                values_idx_offsets,
-                0,
-                indices.len(),
+            RLEArray::try_from_data(
+                RLEData::try_new(
+                    values,
+                    indices.clone(),
+                    values_idx_offsets,
+                    0,
+                    indices.len(),
+                )
+                .unwrap(),
             )
             .vortex_expect("RLEData is always valid")
         }
@@ -101,12 +103,15 @@ mod tests {
             )
             .into_array();
 
-            RLE::try_new(
-                values,
-                indices.clone(),
-                values_idx_offsets,
-                0,
-                indices.len(),
+            RLEArray::try_from_data(
+                RLEData::try_new(
+                    values,
+                    indices.clone(),
+                    values_idx_offsets,
+                    0,
+                    indices.len(),
+                )
+                .unwrap(),
             )
             .vortex_expect("RLEData is always valid")
         }

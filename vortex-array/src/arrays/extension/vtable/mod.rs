@@ -16,7 +16,6 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -122,7 +121,7 @@ impl VTable for Extension {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ExtensionData> {
         let DType::Extension(ext_dtype) = dtype else {
             vortex_bail!("Not an extension DType");
         };
@@ -130,7 +129,7 @@ impl VTable for Extension {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
-        Ok(ExtensionData::new(ext_dtype.clone(), storage).into_array())
+        Ok(ExtensionData::new(ext_dtype.clone(), storage))
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

@@ -11,6 +11,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::FSST;
+use crate::FSSTData;
 impl CastReduce for FSST {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // FSST is a string compression encoding.
@@ -24,7 +25,7 @@ impl CastReduce for FSST {
                 .cast(array.codes().dtype().with_nullability(dtype.nullability()))?;
 
             Ok(Some(
-                FSST::try_new(
+                FSSTData::try_new(
                     dtype.clone(),
                     array.symbols().clone(),
                     array.symbol_lengths().clone(),

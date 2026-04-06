@@ -60,7 +60,6 @@ fn with_byte_counter<'a, 'b>(bencher: Bencher<'a, 'b>, bytes: u64) -> Bencher<'a
 
 mod setup {
     use rand::rngs::StdRng;
-    use vortex_fastlanes::bitpack_compress::BitPackedEncoder;
 
     use super::*;
 
@@ -88,13 +87,8 @@ mod setup {
         let (uint_array, ..) = setup_primitive_arrays();
         let compressed = FoR::encode(uint_array).unwrap();
         let inner = compressed.encoded();
-        let bp = BitPackedEncoder::new(&inner.to_primitive())
-            .with_bit_width(8)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap();
-        FoR::try_new(bp, compressed.reference_scalar().clone())
+        let bp = BitPacked::encode(inner, 8).unwrap();
+        FoR::try_new(bp.into_array(), compressed.reference_scalar().clone())
             .unwrap()
             .into_array()
     }
@@ -107,13 +101,9 @@ mod setup {
         // Manually construct ALP <- FoR <- BitPacked tree
         let for_array = FoR::encode(alp_compressed.encoded().to_primitive()).unwrap();
         let inner = for_array.encoded();
-        let bp = BitPackedEncoder::new(&inner.to_primitive())
-            .with_bit_width(8)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap();
-        let for_with_bp = FoR::try_new(bp, for_array.reference_scalar().clone()).unwrap();
+        let bp = BitPacked::encode(inner, 8).unwrap();
+        let for_with_bp =
+            FoR::try_new(bp.into_array(), for_array.reference_scalar().clone()).unwrap();
 
         ALP::try_new(
             for_with_bp.into_array(),
@@ -146,12 +136,9 @@ mod setup {
         let codes_prim = PrimitiveArray::from_iter(codes);
 
         // Compress codes with BitPacked (6 bits should be enough for ~50 unique values)
-        let codes_bp = BitPackedEncoder::new(&codes_prim)
-            .with_bit_width(6)
-            .pack()
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), 6)
             .unwrap()
-            .into_array()
-            .unwrap();
+            .into_array();
 
         // Create values array
         let values_array = VarBinViewArray::from_iter_str(unique_strings).into_array();
@@ -186,24 +173,17 @@ mod setup {
         let ends_prim = runend.ends().to_primitive();
         let ends_for = FoR::encode(ends_prim).unwrap();
         let ends_inner = ends_for.encoded();
-        let ends_bp = BitPackedEncoder::new(&ends_inner.to_primitive())
-            .with_bit_width(8)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap();
-        let compressed_ends = FoR::try_new(ends_bp, ends_for.reference_scalar().clone())
-            .unwrap()
-            .into_array();
+        let ends_bp = BitPacked::encode(ends_inner, 8).unwrap();
+        let compressed_ends =
+            FoR::try_new(ends_bp.into_array(), ends_for.reference_scalar().clone())
+                .unwrap()
+                .into_array();
 
         // Compress the values with BitPacked
         let values_prim = runend.values().to_primitive();
-        let compressed_values = BitPackedEncoder::new(&values_prim)
-            .with_bit_width(8)
-            .pack()
+        let compressed_values = BitPacked::encode(&values_prim.into_array(), 8)
             .unwrap()
-            .into_array()
-            .unwrap();
+            .into_array();
 
         RunEnd::try_new(compressed_ends, compressed_values)
             .unwrap()
@@ -275,12 +255,7 @@ mod setup {
         // Compress the VarBin offsets with BitPacked
         let codes = fsst.codes();
         let offsets_prim = codes.offsets().to_primitive();
-        let offsets_bp = BitPackedEncoder::new(&offsets_prim)
-            .with_bit_width(20)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap();
+        let offsets_bp = BitPacked::encode(&offsets_prim.into_array(), 20).unwrap();
 
         // Rebuild VarBin with compressed offsets
         let compressed_codes = VarBinArray::try_new(
@@ -333,44 +308,35 @@ mod setup {
         let days_prim = parts.days.to_primitive();
         let days_for = FoR::encode(days_prim).unwrap();
         let days_inner = days_for.encoded();
-        let days_bp = BitPackedEncoder::new(&days_inner.to_primitive())
-            .with_bit_width(16)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap();
-        let compressed_days = FoR::try_new(days_bp, days_for.reference_scalar().clone())
-            .unwrap()
-            .into_array();
+        let days_bp = BitPacked::encode(days_inner, 16).unwrap();
+        let compressed_days =
+            FoR::try_new(days_bp.into_array(), days_for.reference_scalar().clone())
+                .unwrap()
+                .into_array();
 
         // Compress seconds with FoR <- BitPacked
         let seconds_prim = parts.seconds.to_primitive();
         let seconds_for = FoR::encode(seconds_prim).unwrap();
         let seconds_inner = seconds_for.encoded();
-        let seconds_bp = BitPackedEncoder::new(&seconds_inner.to_primitive())
-            .with_bit_width(17)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap();
-        let compressed_seconds = FoR::try_new(seconds_bp, seconds_for.reference_scalar().clone())
-            .unwrap()
-            .into_array();
+        let seconds_bp = BitPacked::encode(seconds_inner, 17).unwrap();
+        let compressed_seconds = FoR::try_new(
+            seconds_bp.into_array(),
+            seconds_for.reference_scalar().clone(),
+        )
+        .unwrap()
+        .into_array();
 
         // Compress subseconds with FoR <- BitPacked
         let subseconds_prim = parts.subseconds.to_primitive();
         let subseconds_for = FoR::encode(subseconds_prim).unwrap();
         let subseconds_inner = subseconds_for.encoded();
-        let subseconds_bp = BitPackedEncoder::new(&subseconds_inner.to_primitive())
-            .with_bit_width(20)
-            .pack()
-            .unwrap()
-            .into_array()
-            .unwrap();
-        let compressed_subseconds =
-            FoR::try_new(subseconds_bp, subseconds_for.reference_scalar().clone())
-                .unwrap()
-                .into_array();
+        let subseconds_bp = BitPacked::encode(subseconds_inner, 20).unwrap();
+        let compressed_subseconds = FoR::try_new(
+            subseconds_bp.into_array(),
+            subseconds_for.reference_scalar().clone(),
+        )
+        .unwrap()
+        .into_array();
 
         DateTimeParts::try_new(
             DType::Extension(temporal_array.ext_dtype()),

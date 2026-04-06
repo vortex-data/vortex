@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use super::DecimalBytePartsData;
 mod cast;
 mod compare;
 mod filter;

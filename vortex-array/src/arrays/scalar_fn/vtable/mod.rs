@@ -140,7 +140,7 @@ impl VTable for ScalarFnVTable {
         metadata: &ScalarFnMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Self::ArrayData> {
         let children: Vec<_> = metadata
             .child_dtypes
             .iter()
@@ -165,8 +165,7 @@ impl VTable for ScalarFnVTable {
             len,
             slots: children.into_iter().map(Some).collect(),
             stats: Default::default(),
-        }
-        .into_array())
+        })
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

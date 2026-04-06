@@ -129,10 +129,10 @@ impl VTable for Slice {
         metadata: &SliceMetadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<Self::ArrayData> {
         assert_eq!(len, metadata.0.len());
         let child = children.get(0, dtype, metadata.0.end)?;
-        Ok(SliceData::try_new(child, metadata.0.clone())?.into_array())
+        SliceData::try_new(child, metadata.0.clone())
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

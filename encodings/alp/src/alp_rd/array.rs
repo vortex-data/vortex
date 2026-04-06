@@ -164,7 +164,7 @@ impl VTable for ALPRD {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ALPRDData> {
         if children.len() < 2 {
             vortex_bail!(
                 "Expected at least 2 children for ALPRD encoding, found {}",
@@ -212,7 +212,7 @@ impl VTable for ALPRD {
             })
             .transpose()?;
 
-        Ok(ALPRDData::try_new(
+        ALPRDData::try_new(
             dtype.clone(),
             left_parts,
             left_parts_dictionary,
@@ -224,8 +224,7 @@ impl VTable for ALPRD {
                 )
             })?,
             left_parts_patches,
-        )?
-        .into_array())
+        )
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

@@ -14,8 +14,8 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 
 /// Compress a string array using FSST.
-use crate::FSST;
 use crate::FSSTArray;
+use crate::FSSTData;
 pub fn fsst_compress<A: ArrayAccessor<[u8]>>(
     strings: A,
     len: usize,
@@ -102,8 +102,11 @@ where
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
 
-    FSST::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
-        .vortex_expect("FSST parts must be valid")
+    FSSTArray::try_from_data(
+        FSSTData::try_new(dtype, symbols, symbol_lengths, codes, uncompressed_lengths)
+            .vortex_expect("building FSSTArray from parts"),
+    )
+    .vortex_expect("FSSTData is always valid")
 }
 
 #[cfg(test)]

@@ -216,7 +216,7 @@ impl VTable for ParquetVariant {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ParquetVariantData> {
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         let has_typed_value = metadata.typed_value_dtype.is_some();
         vortex_ensure!(
@@ -266,10 +266,7 @@ impl VTable for ParquetVariant {
             None
         };
 
-        Ok(
-            ParquetVariantData::try_new(validity, variant_metadata, value, typed_value)?
-                .into_array(),
-        )
+        ParquetVariantData::try_new(validity, variant_metadata, value, typed_value)
     }
 
     fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {

@@ -26,7 +26,7 @@ impl OperationsVTable<ALP> for ALP {
 
         let encoded_val = array.encoded().scalar_at(index)?;
 
-        Ok(match_each_alp_float_ptype!(array.dtype().as_ptype(), |T| {
+        Ok(match_each_alp_float_ptype!(array.ptype(), |T| {
             let encoded_val: <T as ALPFloat>::ALPInt =
                 (&encoded_val).try_into().vortex_expect("invalid ALPInt");
             Scalar::primitive(

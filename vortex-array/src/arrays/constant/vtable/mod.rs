@@ -169,8 +169,8 @@ impl VTable for Constant {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
-        Ok(ConstantData::new(metadata.clone(), len).into_array())
+    ) -> VortexResult<ConstantData> {
+        Ok(ConstantData::new(metadata.clone(), len))
     }
 
     fn reduce_parent(

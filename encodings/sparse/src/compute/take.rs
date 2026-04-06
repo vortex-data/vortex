@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::ConstantArray;
 use crate::Sparse;
+use crate::SparseData;
 impl TakeExecute for Sparse {
     fn take(
         array: ArrayView<'_, Self>,
@@ -39,7 +40,7 @@ impl TakeExecute for Sparse {
         }
 
         Ok(Some(
-            Sparse::try_new_from_patches(
+            SparseData::try_new_from_patches(
                 new_patches,
                 array.fill_scalar().cast(
                     &array

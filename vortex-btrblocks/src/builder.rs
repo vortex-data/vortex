@@ -143,6 +143,7 @@ impl BtrBlocksCompressorBuilder {
     /// With the `unstable_encodings` feature, buffer-level Zstd compression is used which
     /// preserves the array buffer layout for zero-conversion GPU decompression. Without it,
     /// interleaved Zstd compression is used.
+    #[cfg(feature = "zstd")]
     pub fn only_cuda_compatible(self) -> Self {
         let builder = self.exclude_schemes([
             integer::SparseScheme.id(),
@@ -153,9 +154,9 @@ impl BtrBlocksCompressorBuilder {
             string::FSSTScheme.id(),
         ]);
 
-        #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+        #[cfg(feature = "unstable_encodings")]
         let builder = builder.with_new_scheme(&string::ZstdBuffersScheme);
-        #[cfg(all(feature = "zstd", not(feature = "unstable_encodings")))]
+        #[cfg(not(feature = "unstable_encodings"))]
         let builder = builder.with_new_scheme(&string::ZstdScheme);
 
         builder

@@ -13,7 +13,6 @@ use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::array::Array;
@@ -143,7 +142,7 @@ impl VTable for Decimal {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<DecimalData> {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -169,13 +168,7 @@ impl VTable for Decimal {
                 "DecimalArray buffer not aligned for values type {:?}",
                 D::DECIMAL_TYPE
             );
-            Ok(DecimalData::try_new_handle(
-                values,
-                metadata.values_type(),
-                *decimal_dtype,
-                validity,
-            )?
-            .into_array())
+            DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
         })
     }
 

@@ -11,7 +11,6 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -135,9 +134,9 @@ impl VTable for Shared {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn crate::serde::ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<SharedData> {
         let child = children.get(0, dtype, len)?;
-        Ok(SharedData::new(child).into_array())
+        Ok(SharedData::new(child))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

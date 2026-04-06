@@ -26,7 +26,7 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
-use vortex::encodings::zstd::ZstdDataParts;
+use vortex::encodings::zstd::ZstdArrayParts;
 use vortex::encodings::zstd::ZstdMetadata;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -206,17 +206,17 @@ impl CudaExecute for ZstdExecutor {
                     dtype = %_other,
                     "Only Binary/Utf8 ZSTD arrays supported on GPU, falling back to CPU"
                 );
-                Zstd::decompress(&zstd, ctx.execution_ctx())?.to_canonical()
+                zstd.decompress(ctx.execution_ctx())?.to_canonical()
             }
         }
     }
 }
 
 async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-    let dtype = array.dtype().clone();
-    let ZstdDataParts {
+    let ZstdArrayParts {
         frames,
         metadata,
+        dtype,
         validity,
         n_rows,
         dictionary,
@@ -373,7 +373,9 @@ mod tests {
 
         let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
 
-        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?.to_canonical()?;
+        let cpu_result = zstd_array
+            .decompress(cuda_ctx.execution_ctx())?
+            .to_canonical()?;
         let gpu_result = ZstdExecutor
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
@@ -408,7 +410,9 @@ mod tests {
         // 14 strings and 3 values per frame = ceil(14/3) = 5 frames.
         let zstd_array = Zstd::from_var_bin_view(&strings, 3, 3)?;
 
-        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?.to_canonical()?;
+        let cpu_result = zstd_array
+            .decompress(cuda_ctx.execution_ctx())?
+            .to_canonical()?;
         let gpu_result = ZstdExecutor
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;

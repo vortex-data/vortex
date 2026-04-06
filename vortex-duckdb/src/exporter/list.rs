@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::list::ListDataParts;
+use vortex::array::arrays::list::ListArrayParts;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
@@ -45,7 +45,7 @@ pub(crate) fn new_exporter(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let array_len = array.len();
     // Cache an `elements` vector up front so that future exports can reference it.
-    let ListDataParts {
+    let ListArrayParts {
         elements,
         offsets,
         validity,

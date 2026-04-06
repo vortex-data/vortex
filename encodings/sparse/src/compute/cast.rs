@@ -11,6 +11,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
+use crate::SparseData;
 impl CastReduce for Sparse {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let casted_patches = array
@@ -27,7 +28,7 @@ impl CastReduce for Sparse {
         };
 
         Ok(Some(
-            Sparse::try_new_from_patches(casted_patches, casted_fill)?.into_array(),
+            SparseData::try_new_from_patches(casted_patches, casted_fill)?.into_array(),
         ))
     }
 }

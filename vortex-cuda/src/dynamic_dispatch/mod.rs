@@ -441,7 +441,6 @@ mod tests {
     use vortex::encodings::fastlanes::BitPacked;
     use vortex::encodings::fastlanes::BitPackedArray;
     use vortex::encodings::fastlanes::FoR;
-    use vortex::encodings::fastlanes::bitpack_compress::BitPackedEncoder;
     use vortex::encodings::runend::RunEnd;
     use vortex::encodings::zigzag::ZigZag;
     use vortex::error::VortexExpect;
@@ -466,11 +465,8 @@ mod tests {
             .map(|i| ((i as u64) % (max_val + 1)) as u32)
             .collect();
         let primitive = PrimitiveArray::new(Buffer::from(values), NonNullable);
-        BitPackedEncoder::new(&primitive)
-            .with_bit_width(bit_width)
-            .pack()
+        BitPacked::encode(&primitive.into_array(), bit_width)
             .vortex_expect("failed to create BitPacked array")
-            .unwrap_unpatched()
     }
 
     fn dispatch_plan(
@@ -759,18 +755,12 @@ mod tests {
 
         // BitPack+FoR the dict values
         let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-        let dict_bp = BitPackedEncoder::new(&dict_prim)
-            .with_bit_width(6)
-            .pack()?
-            .into_packed();
+        let dict_bp = BitPacked::encode(&dict_prim.into_array(), 6)?;
         let dict_for = FoR::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
 
         // BitPack the codes
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedEncoder::new(&codes_prim)
-            .with_bit_width(6)
-            .pack()?
-            .into_packed();
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), 6)?;
 
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 
@@ -798,10 +788,7 @@ mod tests {
         let alp = alp_encode(&float_prim, Some(exponents))?;
         assert!(alp.patches().is_none());
         let for_arr = FoR::encode(alp.encoded().to_primitive())?;
-        let bp = BitPackedEncoder::new(&for_arr.encoded().to_primitive())
-            .with_bit_width(6)
-            .pack()?
-            .into_packed();
+        let bp = BitPacked::encode(for_arr.encoded(), 6)?;
 
         let tree = ALP::new(
             FoR::try_new(bp.into_array(), for_arr.reference_scalar().clone())?.into_array(),
@@ -835,10 +822,7 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
-        let bp = BitPackedEncoder::new(&prim)
-            .with_bit_width(bit_width)
-            .pack()?
-            .into_packed();
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
         let zz = ZigZag::try_new(bp.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
@@ -921,10 +905,7 @@ mod tests {
         // BitPack codes, then wrap in FoR (reference=0 so values unchanged)
         let bit_width: u8 = 3;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedEncoder::new(&codes_prim)
-            .with_bit_width(bit_width)
-            .pack()?
-            .into_packed();
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), bit_width)?;
         let codes_for = FoR::try_new(codes_bp.into_array(), Scalar::from(0u32))?;
 
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
@@ -950,10 +931,7 @@ mod tests {
 
         let bit_width: u8 = 2;
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedEncoder::new(&codes_prim)
-            .with_bit_width(bit_width)
-            .pack()?
-            .into_packed();
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), bit_width)?;
         let values_prim = PrimitiveArray::new(Buffer::from(dict_values), NonNullable);
 
         let dict = DictArray::try_new(codes_bp.into_array(), values_prim.into_array())?;
@@ -1079,10 +1057,7 @@ mod tests {
             .collect();
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
-        let bp = BitPackedEncoder::new(&prim)
-            .with_bit_width(bit_width)
-            .pack()?
-            .into_packed();
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
         let zz = ZigZag::try_new(bp.into_array())?;
 
         let sliced = zz.into_array().slice(slice_start..slice_end)?;
@@ -1178,10 +1153,7 @@ mod tests {
 
         let data: Vec<u32> = (0..len).map(|i| (i as u32) % max_val).collect();
         let prim = PrimitiveArray::new(Buffer::from(data.clone()), NonNullable);
-        let bp = BitPackedEncoder::new(&prim)
-            .with_bit_width(bit_width)
-            .pack()?
-            .into_packed();
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
 
         let sliced = bp.into_array().slice(slice_start..slice_end)?;
         let expected: Vec<u32> = data[slice_start..slice_end].to_vec();
@@ -1227,10 +1199,7 @@ mod tests {
 
         let encoded_data: Vec<u32> = (0..len).map(|i| (i as u32) % max_val).collect();
         let prim = PrimitiveArray::new(Buffer::from(encoded_data.clone()), NonNullable);
-        let bp = BitPackedEncoder::new(&prim)
-            .with_bit_width(bit_width)
-            .pack()?
-            .into_packed();
+        let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
         let for_arr = FoR::try_new(bp.into_array(), Scalar::from(reference))?;
 
         let all_decoded: Vec<u32> = encoded_data.iter().map(|&v| v + reference).collect();
@@ -1283,18 +1252,12 @@ mod tests {
 
         // BitPack+FoR the dict values
         let dict_prim = PrimitiveArray::new(Buffer::from(dict_residuals), NonNullable);
-        let dict_bp = BitPackedEncoder::new(&dict_prim)
-            .with_bit_width(6)
-            .pack()?
-            .into_packed();
+        let dict_bp = BitPacked::encode(&dict_prim.into_array(), 6)?;
         let dict_for = FoR::try_new(dict_bp.into_array(), Scalar::from(dict_reference))?;
 
         // BitPack the codes
         let codes_prim = PrimitiveArray::new(Buffer::from(codes), NonNullable);
-        let codes_bp = BitPackedEncoder::new(&codes_prim)
-            .with_bit_width(6)
-            .pack()?
-            .into_packed();
+        let codes_bp = BitPacked::encode(&codes_prim.into_array(), 6)?;
 
         let dict = DictArray::try_new(codes_bp.into_array(), dict_for.into_array())?;
 

@@ -8,7 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::ValidityVTable;
 use crate::arrays::Chunked;
-use crate::arrays::ChunkedArray;
+use crate::arrays::chunked::ChunkedData;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::validity::Validity;
@@ -39,7 +39,7 @@ impl ValidityVTable<Chunked> for Chunked {
 
         Ok(Validity::Array(
             unsafe {
-                ChunkedArray::new_unchecked(
+                ChunkedData::new_unchecked(
                     validities
                         .into_iter()
                         .zip(array.iter_chunks())

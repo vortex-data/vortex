@@ -19,7 +19,7 @@ use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::arrays::Filter;
-use vortex::array::arrays::filter::FilterDataParts;
+use vortex::array::arrays::filter::FilterArrayParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_decimal_value_type;
 use vortex::array::match_each_native_simd_ptype;
@@ -53,7 +53,7 @@ impl CudaExecute for FilterExecutor {
             .try_into::<Filter>()
             .map_err(|_| vortex_err!("Expected FilterArray"))?;
 
-        let FilterDataParts { child, mask } = filter_array.into_data().into_parts();
+        let FilterArrayParts { child, mask } = filter_array.into_data().into_parts();
 
         // Early return for trivial cases.
         match mask {

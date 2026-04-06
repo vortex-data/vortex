@@ -137,7 +137,7 @@ impl VTable for DecimalByteParts {
         metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<DecimalBytePartsData> {
         let Some(decimal_dtype) = dtype.as_decimal_opt() else {
             vortex_bail!("decoding decimal but given non decimal dtype {}", dtype)
         };
@@ -151,7 +151,7 @@ impl VTable for DecimalByteParts {
             "lower_part_count > 0 not currently supported"
         );
 
-        Ok(DecimalBytePartsData::try_new(msp, *decimal_dtype)?.into_array())
+        DecimalBytePartsData::try_new(msp, *decimal_dtype)
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

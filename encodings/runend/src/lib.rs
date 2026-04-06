@@ -58,7 +58,7 @@ pub fn initialize(session: &VortexSession) {
 
 #[cfg(test)]
 mod tests {
-    use prost::Message;
+    use vortex_array::ProstMetadata;
     use vortex_array::dtype::PType;
     use vortex_array::test_harness::check_metadata;
 
@@ -69,12 +69,11 @@ mod tests {
     fn test_runend_metadata() {
         check_metadata(
             "runend.metadata",
-            &RunEndMetadata {
+            ProstMetadata(RunEndMetadata {
                 ends_ptype: PType::U64 as i32,
                 num_runs: u64::MAX,
                 offset: u64::MAX,
-            }
-            .encode_to_vec(),
+            }),
         );
     }
 }

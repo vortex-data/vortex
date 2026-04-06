@@ -5,13 +5,10 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use num_traits::NumCast;
-use vortex_array::Array;
-use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::Decimal;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::NullArray;
@@ -55,8 +52,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::ConstantArray;
-use crate::Sparse;
 use crate::SparseArray;
+use crate::SparseData;
 pub(super) fn execute_sparse(
     array: &SparseArray,
     ctx: &mut ExecutionCtx,
@@ -440,7 +437,7 @@ fn execute_sparse_struct(
                 .cloned()
                 .zip_eq(fill_values)
                 .map(|(patch_values, fill_value)| unsafe {
-                    Sparse::new_unchecked(
+                    SparseData::new_unchecked(
                         unresolved_patches
                             .clone()
                             .map_values(|_| Ok(patch_values))
@@ -477,10 +474,8 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
         }
     }
     let filled_array = builder.finish_into_decimal();
-    let dtype = filled_array.dtype().clone();
-    let len = filled_array.len();
-    let data = filled_array.into_data().patch(patches, ctx)?;
-    Ok(Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data))?.into_array())
+    let array = filled_array.into_data().patch(patches, ctx)?;
+    Ok(array.into_array())
 }
 
 fn execute_varbin(

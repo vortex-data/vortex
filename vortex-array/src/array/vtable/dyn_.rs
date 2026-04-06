@@ -16,11 +16,13 @@ use crate::ExecutionStep;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayId;
+use crate::array::ArrayInner;
 use crate::array::VTable;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
+use crate::stats::ArrayStats;
 
 /// Reference-counted DynVTable
 pub type DynVTableRef = Arc<dyn DynVTable>;
@@ -86,10 +88,24 @@ impl<V: VTable> DynVTable for V {
         let metadata = V::deserialize(metadata, dtype, len, buffers, session)?;
         let inner = V::build(dtype, len, &metadata, buffers, children)?;
         // Validate the inner array's properties before wrapping.
-        assert_eq!(inner.len(), len, "Array length mismatch after building");
-        assert_eq!(inner.dtype(), dtype, "Array dtype mismatch after building");
-
-        Ok(inner)
+        assert_eq!(V::len(&inner), len, "Array length mismatch after building");
+        assert_eq!(
+            V::dtype(&inner),
+            dtype,
+            "Array dtype mismatch after building"
+        );
+        // Wrap in ArrayInner<V> for safe downcasting.
+        // SAFETY: We just validated that V::len(&inner) == len and V::dtype(&inner) == dtype.
+        let array = unsafe {
+            ArrayInner::from_data_unchecked(
+                self.clone(),
+                dtype.clone(),
+                len,
+                inner,
+                ArrayStats::default(),
+            )
+        };
+        Ok(array.into_array())
     }
 
     fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {

@@ -10,13 +10,14 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::Sequence;
+use crate::SequenceData;
 
 impl SliceReduce for Sequence {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: this is a slice of an already-validated `SequenceArray`, so this is still valid.
         Ok(Some(
             unsafe {
-                Sequence::new_unchecked(
+                SequenceData::new_unchecked(
                     array.index_value(range.start),
                     array.multiplier(),
                     array.ptype(),

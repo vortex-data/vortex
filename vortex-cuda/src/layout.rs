@@ -26,8 +26,8 @@ use vortex::array::expr::stats::Stat;
 use vortex::array::expr::stats::StatsProvider;
 use vortex::array::normalize::NormalizeOptions;
 use vortex::array::normalize::Operation;
+use vortex::array::serde::ArrayParts;
 use vortex::array::serde::SerializeOptions;
-use vortex::array::serde::SerializedArray;
 use vortex::array::session::ArrayRegistry;
 use vortex::array::stats::StatsSetRef;
 use vortex::buffer::BufferString;
@@ -249,7 +249,7 @@ impl CudaFlatReader {
 
                 async move {
                     let segment = segment_fut.await?;
-                    let parts = SerializedArray::from_flatbuffer_and_segment_with_overrides(
+                    let parts = ArrayParts::from_flatbuffer_and_segment_with_overrides(
                         array_tree,
                         segment,
                         &host_buffers,

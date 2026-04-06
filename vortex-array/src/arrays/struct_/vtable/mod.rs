@@ -13,7 +13,6 @@ use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayView;
 use crate::array::VTable;
@@ -116,7 +115,7 @@ impl VTable for Struct {
         _metadata: &Self::Metadata,
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<StructData> {
         let DType::Struct(struct_dtype, nullability) = dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", dtype)
         };
@@ -144,10 +143,7 @@ impl VTable for Struct {
             })
             .try_collect()?;
 
-        Ok(
-            StructData::try_new_with_dtype(field_children, struct_dtype.clone(), len, validity)?
-                .into_array(),
-        )
+        StructData::try_new_with_dtype(field_children, struct_dtype.clone(), len, validity)
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

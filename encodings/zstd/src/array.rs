@@ -203,7 +203,7 @@ impl VTable for Zstd {
         metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<ArrayRef> {
+    ) -> VortexResult<ZstdData> {
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
@@ -240,8 +240,7 @@ impl VTable for Zstd {
             metadata.0.clone(),
             len,
             validity,
-        )
-        .into_array())
+        ))
     }
 
     fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {

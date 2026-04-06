@@ -44,11 +44,11 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
 
         debug_assert_eq!(
             scalar.dtype(),
-            array.dtype(),
+            &array.dtype,
             "Scalar function {} returned dtype {:?} but expected {:?}",
             array.scalar_fn(),
             scalar.dtype(),
-            array.dtype()
+            array.dtype
         );
 
         Ok(scalar)
