@@ -38,7 +38,6 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::executor::VortexSessionExecute;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 mod canonical;
@@ -54,11 +53,16 @@ impl Chunked {
 }
 
 impl ArrayHash for ChunkedData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {
+        // Chunk offsets are cached derived data. Slot 0 already stores the logical offsets array,
+        // and ArrayInner hashing includes every slot before ArrayData.
+    }
 }
 
 impl ArrayEq for ChunkedData {
     fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        // Chunk offsets are cached derived data. Slot 0 already stores the logical offsets array,
+        // and ArrayInner equality compares every slot before ArrayData.
         true
     }
 }
@@ -91,7 +95,7 @@ impl VTable for Chunked {
 
     fn validate(
         &self,
-        _data: &ChunkedData,
+        data: &ChunkedData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -109,28 +113,34 @@ impl VTable for Chunked {
             chunk_offsets.dtype()
         );
         vortex_ensure!(
-            chunk_offsets.len() == slots.len() - CHUNKS_OFFSET + 1,
-            "ChunkedArray chunk offsets length {} does not match {} chunks",
+            chunk_offsets.len() == data.chunk_offsets.len(),
+            "ChunkedArray chunk offsets slot length {} does not match cached offsets length {}",
             chunk_offsets.len(),
+            data.chunk_offsets.len()
+        );
+        vortex_ensure!(
+            data.chunk_offsets.len() == slots.len() - CHUNKS_OFFSET + 1,
+            "ChunkedArray chunk offsets length {} does not match {} chunks",
+            data.chunk_offsets.len(),
             slots.len() - CHUNKS_OFFSET
         );
-        let chunk_offsets = chunk_offsets
-            .clone()
-            .execute::<Canonical>(&mut crate::LEGACY_SESSION.create_execution_ctx())?
-            .into_primitive()
-            .to_buffer::<u64>();
         vortex_ensure!(
-            chunk_offsets
+            data.chunk_offsets
                 .last()
                 .copied()
-                .and_then(|v| usize::try_from(v).ok())
-                .vortex_expect("chunk offset must fit in usize")
+                .vortex_expect("chunked arrays always have a leading 0 offset")
                 == len,
             "ChunkedArray length {} does not match outer length {}",
-            chunk_offsets.last().copied().unwrap_or_default(),
+            data.chunk_offsets.last().copied().unwrap_or_default(),
             len
         );
-        for (idx, (start, end)) in chunk_offsets.iter().copied().tuple_windows().enumerate() {
+        for (idx, (start, end)) in data
+            .chunk_offsets
+            .iter()
+            .copied()
+            .tuple_windows()
+            .enumerate()
+        {
             let chunk = slots[CHUNKS_OFFSET + idx]
                 .as_ref()
                 .vortex_expect("validated chunk slot");
@@ -141,8 +151,7 @@ impl VTable for Chunked {
                 dtype
             );
             vortex_ensure!(
-                chunk.len()
-                    == usize::try_from(end - start).vortex_expect("chunk len must fit in usize"),
+                chunk.len() == end - start,
                 "ChunkedArray chunk {} len {} does not match offsets span {}",
                 idx,
                 chunk.len(),
@@ -178,20 +187,35 @@ impl VTable for Chunked {
             nchunks + 1,
         )?;
         let chunk_offsets_buf = chunk_offsets.to_primitive().to_buffer::<u64>();
+        let chunk_offsets_usize = chunk_offsets_buf
+            .iter()
+            .copied()
+            .map(|offset| {
+                usize::try_from(offset)
+                    .map_err(|_| vortex_err!("chunk offset {offset} exceeds usize range"))
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
         let mut slots = Vec::with_capacity(children.len());
         slots.push(Some(chunk_offsets));
-        for (idx, (start, end)) in chunk_offsets_buf
+        for (idx, (start, end)) in chunk_offsets_usize
             .iter()
             .copied()
             .tuple_windows()
             .enumerate()
         {
-            let chunk_len = usize::try_from(end - start)
-                .map_err(|_| vortex_err!("chunk_len {} exceeds usize range", end - start))?;
+            let chunk_len = end - start;
             slots.push(Some(children.get(idx + CHUNKS_OFFSET, dtype, chunk_len)?));
         }
 
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, ChunkedData).with_slots(slots))
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            ChunkedData {
+                chunk_offsets: chunk_offsets_usize,
+            },
+        )
+        .with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

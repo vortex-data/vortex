@@ -9,7 +9,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
-use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
@@ -263,17 +262,6 @@ impl BitPackedData {
     #[inline]
     pub fn max_packed_value(&self) -> usize {
         (1 << self.bit_width()) - 1
-    }
-
-    pub fn into_parts(self, len: usize, nullability: Nullability) -> BitPackedDataParts {
-        BitPackedDataParts {
-            offset: self.offset,
-            bit_width: self.bit_width,
-            len,
-            packed: self.packed,
-            patches: None,
-            validity: Validity::from(nullability),
-        }
     }
 }
 

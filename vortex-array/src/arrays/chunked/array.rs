@@ -8,17 +8,13 @@
 use std::fmt::Debug;
 
 use futures::stream;
-use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -37,7 +33,9 @@ pub(super) const CHUNK_OFFSETS_SLOT: usize = 0;
 pub(super) const CHUNKS_OFFSET: usize = 1;
 
 #[derive(Clone, Debug)]
-pub struct ChunkedData;
+pub struct ChunkedData {
+    pub(super) chunk_offsets: Vec<usize>,
+}
 
 pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
     fn chunk_offsets_array(&self) -> &ArrayRef {
@@ -72,14 +70,8 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
         Box::new(self.iter_chunks().filter(|chunk| !chunk.is_empty()))
     }
 
-    fn chunk_offsets(&self) -> Buffer<u64> {
-        let chunk_offsets = self
-            .chunk_offsets_array()
-            .clone()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
-            .vortex_expect("failed to execute chunk offsets")
-            .into_primitive();
-        chunk_offsets.to_buffer::<u64>()
+    fn chunk_offsets(&self) -> &[usize] {
+        &self.chunk_offsets
     }
 
     fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
@@ -87,15 +79,13 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
             index <= self.as_ref().len(),
             "Index out of bounds of the array"
         );
-        let index = index as u64;
         let chunk_offsets = self.chunk_offsets();
         let index_chunk = chunk_offsets
             .search_sorted(&index, SearchSortedSide::Right)?
             .to_ends_index(self.nchunks() + 1)
             .saturating_sub(1);
         let chunk_start = chunk_offsets[index_chunk];
-        let index_in_chunk =
-            usize::try_from(index - chunk_start).vortex_expect("Index is too large for usize");
+        let index_in_chunk = index - chunk_start;
         Ok((index_chunk, index_in_chunk))
     }
 
@@ -116,13 +106,26 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
 impl<T: TypedArrayRef<Chunked>> ChunkedArrayExt for T {}
 
 impl ChunkedData {
-    pub(super) fn make_slots(chunks: &[ArrayRef]) -> Vec<Option<ArrayRef>> {
-        let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(chunks.len() + 1);
-        unsafe { chunk_offsets_buf.push_unchecked(0) }
+    pub(super) fn compute_chunk_offsets(chunks: &[ArrayRef]) -> Vec<usize> {
+        let mut chunk_offsets = Vec::with_capacity(chunks.len() + 1);
+        chunk_offsets.push(0);
         let mut curr_offset = 0;
         for chunk in chunks {
-            curr_offset += chunk.len() as u64;
-            unsafe { chunk_offsets_buf.push_unchecked(curr_offset) }
+            curr_offset += chunk.len();
+            chunk_offsets.push(curr_offset);
+        }
+        chunk_offsets
+    }
+
+    pub(super) fn make_slots(
+        chunk_offsets: &[usize],
+        chunks: &[ArrayRef],
+    ) -> Vec<Option<ArrayRef>> {
+        let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(chunk_offsets.len());
+        for &offset in chunk_offsets {
+            let offset = u64::try_from(offset)
+                .vortex_expect("chunk offset must fit in u64 for serialization");
+            unsafe { chunk_offsets_buf.push_unchecked(offset) }
         }
 
         let mut slots = Vec::with_capacity(1 + chunks.len());
@@ -152,10 +155,18 @@ impl Array<Chunked> {
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
         ChunkedData::validate(&chunks, &dtype)?;
         let len = chunks.iter().map(|chunk| chunk.len()).sum();
+        let chunk_offsets = ChunkedData::compute_chunk_offsets(&chunks);
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Chunked, dtype, len, ChunkedData)
-                    .with_slots(ChunkedData::make_slots(&chunks)),
+                ArrayParts::new(
+                    Chunked,
+                    dtype,
+                    len,
+                    ChunkedData {
+                        chunk_offsets: chunk_offsets.clone(),
+                    },
+                )
+                .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
             )
         })
     }
@@ -215,10 +226,18 @@ impl Array<Chunked> {
     /// All chunks must have exactly the same [`DType`] as the provided `dtype`.
     pub unsafe fn new_unchecked(chunks: Vec<ArrayRef>, dtype: DType) -> Self {
         let len = chunks.iter().map(|chunk| chunk.len()).sum();
+        let chunk_offsets = ChunkedData::compute_chunk_offsets(&chunks);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Chunked, dtype, len, ChunkedData)
-                    .with_slots(ChunkedData::make_slots(&chunks)),
+                ArrayParts::new(
+                    Chunked,
+                    dtype,
+                    len,
+                    ChunkedData {
+                        chunk_offsets: chunk_offsets.clone(),
+                    },
+                )
+                .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
             )
         }
     }

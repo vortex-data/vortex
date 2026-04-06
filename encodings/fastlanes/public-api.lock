@@ -200,8 +200,6 @@ pub fn vortex_fastlanes::BitPackedData::bit_width(&self) -> u8
 
 pub fn vortex_fastlanes::BitPackedData::encode(array: &vortex_array::array::erased::ArrayRef, bit_width: u8) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
-pub fn vortex_fastlanes::BitPackedData::into_parts(self, len: usize, nullability: vortex_array::dtype::nullability::Nullability) -> vortex_fastlanes::BitPackedDataParts
-
 pub fn vortex_fastlanes::BitPackedData::max_packed_value(&self) -> usize
 
 pub fn vortex_fastlanes::BitPackedData::offset(&self) -> u16

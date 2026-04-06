@@ -26,8 +26,8 @@ impl MaskKernel for Chunked {
             .iter_chunks()
             .enumerate()
             .map(|(i, chunk)| {
-                let start: usize = chunk_offsets[i].try_into()?;
-                let end: usize = chunk_offsets[i + 1].try_into()?;
+                let start = chunk_offsets[i];
+                let end = chunk_offsets[i + 1];
                 let chunk_mask = mask.slice(start..end)?;
                 MaskExpr.try_new_array(chunk.len(), EmptyOptions, [chunk.clone(), chunk_mask])
             })

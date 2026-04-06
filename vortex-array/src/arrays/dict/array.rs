@@ -168,16 +168,16 @@ pub trait DictArrayExt: TypedArrayRef<Dict> {
             AllOr::None => {}
             AllOr::Some(mask) => {
                 match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                    let codes = codes_primitive.as_slice::<P>();
+
                     #[allow(
                         clippy::cast_possible_truncation,
                         clippy::cast_sign_loss,
                         reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
                     )]
-                    for (valid, &idx) in mask.iter().zip(codes_primitive.as_slice::<P>()) {
-                        if valid {
-                            values_vec[idx as usize] = referenced_value;
-                        }
-                    }
+                    mask.set_indices().for_each(|idx| {
+                        values_vec[codes[idx] as usize] = referenced_value;
+                    });
                 });
             }
         }
@@ -236,9 +236,18 @@ impl Array<Dict> {
             self.into_data()
                 .set_all_values_referenced(all_values_referenced)
         };
-        unsafe {
+        let array = unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data).with_slots(slots))
+        };
+
+        #[cfg(debug_assertions)]
+        if all_values_referenced {
+            array
+                .validate_all_values_referenced()
+                .vortex_expect("validation should succeed when all values are referenced");
         }
+
+        array
     }
 }
 

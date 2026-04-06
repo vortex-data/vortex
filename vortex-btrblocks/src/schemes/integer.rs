@@ -341,10 +341,8 @@ impl Scheme for BitPackingScheme {
         let packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
         let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
-        let len = packed.len();
-        let nullability = packed.dtype().nullability();
         let patches = packed.patches().map(compress_patches).transpose()?;
-        let mut parts = packed.into_data().into_parts(len, nullability);
+        let mut parts = vortex_fastlanes::BitPacked::into_parts(packed);
         parts.patches = patches;
 
         Ok(vortex_fastlanes::BitPacked::try_new(

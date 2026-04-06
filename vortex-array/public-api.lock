@@ -1182,7 +1182,7 @@ pub fn vortex_array::arrays::Chunked::serialize(_array: vortex_array::ArrayView<
 
 pub fn vortex_array::arrays::Chunked::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Chunked::validate(&self, _data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Chunked::validate(&self, data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::ValidityVTable<vortex_array::arrays::Chunked> for vortex_array::arrays::Chunked
 
@@ -1246,7 +1246,7 @@ pub fn vortex_array::arrays::chunked::ChunkedArrayExt::array_stream(&self) -> im
 
 pub fn vortex_array::arrays::chunked::ChunkedArrayExt::chunk(&self, idx: usize) -> &vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::chunked::ChunkedArrayExt::chunk_offsets(&self) -> vortex_buffer::buffer::Buffer<u64>
+pub fn vortex_array::arrays::chunked::ChunkedArrayExt::chunk_offsets(&self) -> &[usize]
 
 pub fn vortex_array::arrays::chunked::ChunkedArrayExt::chunk_offsets_array(&self) -> &vortex_array::ArrayRef
 
@@ -1268,7 +1268,7 @@ pub fn T::array_stream(&self) -> impl vortex_array::stream::ArrayStream + '_
 
 pub fn T::chunk(&self, idx: usize) -> &vortex_array::ArrayRef
 
-pub fn T::chunk_offsets(&self) -> vortex_buffer::buffer::Buffer<u64>
+pub fn T::chunk_offsets(&self) -> &[usize]
 
 pub fn T::chunk_offsets_array(&self) -> &vortex_array::ArrayRef
 
@@ -5108,7 +5108,7 @@ pub fn vortex_array::arrays::Chunked::serialize(_array: vortex_array::ArrayView<
 
 pub fn vortex_array::arrays::Chunked::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Chunked::validate(&self, _data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Chunked::validate(&self, data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::ValidityVTable<vortex_array::arrays::Chunked> for vortex_array::arrays::Chunked
 
@@ -18984,7 +18984,7 @@ pub fn vortex_array::arrays::Chunked::serialize(_array: vortex_array::ArrayView<
 
 pub fn vortex_array::arrays::Chunked::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Chunked::validate(&self, _data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Chunked::validate(&self, data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::Constant
 
@@ -20032,7 +20032,7 @@ pub fn vortex_array::arrays::Chunked::serialize(_array: vortex_array::ArrayView<
 
 pub fn vortex_array::arrays::Chunked::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Chunked::validate(&self, _data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Chunked::validate(&self, data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::Constant
 
@@ -22724,7 +22724,7 @@ pub fn vortex_array::arrays::Chunked::serialize(_array: vortex_array::ArrayView<
 
 pub fn vortex_array::arrays::Chunked::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Chunked::validate(&self, _data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Chunked::validate(&self, data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::Constant
 
@@ -24020,7 +24020,7 @@ pub fn vortex_array::arrays::Chunked::serialize(_array: vortex_array::ArrayView<
 
 pub fn vortex_array::arrays::Chunked::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Chunked::validate(&self, _data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Chunked::validate(&self, data: &vortex_array::arrays::chunked::ChunkedData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::Constant
 
