@@ -50,6 +50,8 @@ pub mod fixed_size_list;
 pub use fixed_size_list::FixedSizeList;
 pub use fixed_size_list::FixedSizeListArray;
 
+pub mod lazy_patched;
+
 pub mod list;
 pub use list::List;
 pub use list::ListArray;
