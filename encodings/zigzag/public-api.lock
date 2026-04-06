@@ -78,13 +78,17 @@ pub struct vortex_zigzag::ZigZagData
 
 impl vortex_zigzag::ZigZagData
 
-pub fn vortex_zigzag::ZigZagData::new(encoded: vortex_array::array::erased::ArrayRef) -> Self
+pub fn vortex_zigzag::ZigZagData::new() -> Self
 
-pub fn vortex_zigzag::ZigZagData::try_new(encoded: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<Self>
+pub fn vortex_zigzag::ZigZagData::try_new(encoded_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_zigzag::ZigZagData
 
 pub fn vortex_zigzag::ZigZagData::clone(&self) -> vortex_zigzag::ZigZagData
+
+impl core::default::Default for vortex_zigzag::ZigZagData
+
+pub fn vortex_zigzag::ZigZagData::default() -> Self
 
 impl core::fmt::Debug for vortex_zigzag::ZigZagData
 

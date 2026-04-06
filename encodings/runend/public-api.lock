@@ -106,9 +106,9 @@ pub fn vortex_runend::RunEndData::encode(array: vortex_array::array::erased::Arr
 
 pub fn vortex_runend::RunEndData::into_parts(self, ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef) -> vortex_runend::RunEndDataParts
 
-pub fn vortex_runend::RunEndData::new(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef) -> Self
+pub fn vortex_runend::RunEndData::new(offset: usize) -> Self
 
-pub unsafe fn vortex_runend::RunEndData::new_unchecked(_ends: vortex_array::array::erased::ArrayRef, _values: vortex_array::array::erased::ArrayRef, offset: usize, _length: usize) -> Self
+pub unsafe fn vortex_runend::RunEndData::new_unchecked(offset: usize) -> Self
 
 impl core::clone::Clone for vortex_runend::RunEndData
 

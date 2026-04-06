@@ -237,7 +237,7 @@ impl RLE {
     /// Create a new RLE array without validation.
     ///
     /// # Safety
-    /// See [`RLEData::validate`] for preconditions.
+    /// See [`RLE::validate`] for preconditions.
     pub unsafe fn new_unchecked(
         values: ArrayRef,
         indices: ArrayRef,

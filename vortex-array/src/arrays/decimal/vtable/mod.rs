@@ -110,6 +110,7 @@ impl VTable for Decimal {
         };
         vortex_ensure!(
             data.len() == len,
+            InvalidArgument:
             "DecimalArray length {} does not match outer length {}",
             data.len(),
             len
@@ -118,6 +119,7 @@ impl VTable for Decimal {
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == len,
+                InvalidArgument:
                 "DecimalArray validity len {} does not match outer length {}",
                 validity_len,
                 len

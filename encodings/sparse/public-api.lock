@@ -96,8 +96,6 @@ pub fn vortex_sparse::SparseData::patches(&self) -> &vortex_array::patches::Patc
 
 pub fn vortex_sparse::SparseData::resolved_patches(&self) -> vortex_error::VortexResult<vortex_array::patches::Patches>
 
-pub fn vortex_sparse::SparseData::try_new(indices: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, len: usize, fill_value: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
-
 pub fn vortex_sparse::SparseData::try_new_from_patches(patches: vortex_array::patches::Patches, fill_value: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_sparse::SparseData::validate(patches: &vortex_array::patches::Patches, fill_value: &vortex_array::scalar::Scalar, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>

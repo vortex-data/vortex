@@ -190,16 +190,7 @@ impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
 impl Array<Dict> {
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
-        let dtype = values
-            .dtype()
-            .union_nullability(codes.dtype().nullability());
-        let len = codes.len();
-        let data = DictData::new(codes.dtype());
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),
-            )
-        }
+        Self::try_new(codes, values).vortex_expect("DictArray new")
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
@@ -209,11 +200,9 @@ impl Array<Dict> {
             .union_nullability(codes.dtype().nullability());
         let len = codes.len();
         let data = DictData::try_new(codes.dtype())?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),
-            )
-        })
+        Array::try_from_parts(
+            ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),
+        )
     }
 
     /// Build a new `DictArray` without validating the codes or values.

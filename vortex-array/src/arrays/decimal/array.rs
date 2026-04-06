@@ -386,15 +386,8 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
-        let dtype = DType::Decimal(decimal_dtype, validity.nullability());
-        let len = buffer.len();
-        let slots = DecimalData::make_slots(&validity, len);
-        let data = DecimalData::new(buffer, decimal_dtype);
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
-            )
-        }
+        Self::try_new(buffer, decimal_dtype, validity)
+            .vortex_expect("DecimalArray construction failed")
     }
 
     /// Creates a new [`DecimalArray`] without validation.
@@ -428,11 +421,7 @@ impl Array<Decimal> {
         let len = buffer.len();
         let slots = DecimalData::make_slots(&validity, len);
         let data = DecimalData::try_new(buffer, decimal_dtype)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
-            )
-        })
+        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
     }
 
     /// Creates a new [`DecimalArray`] from an iterator of values.
@@ -487,15 +476,22 @@ impl Array<Decimal> {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> Self {
+        Self::try_new_handle(values, values_type, decimal_dtype, validity)
+            .vortex_expect("DecimalArray construction failed")
+    }
+
+    /// Creates a new [`DecimalArray`] from a [`BufferHandle`] with validation.
+    pub fn try_new_handle(
+        values: BufferHandle,
+        values_type: DecimalType,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> VortexResult<Self> {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = values.len() / values_type.byte_width();
         let slots = DecimalData::make_slots(&validity, len);
-        let data = DecimalData::new_handle(values, values_type, decimal_dtype);
-        unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
-            )
-        }
+        let data = DecimalData::try_new_handle(values, values_type, decimal_dtype)?;
+        Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data).with_slots(slots))
     }
 
     /// Creates a new [`DecimalArray`] without validation from a [`BufferHandle`].

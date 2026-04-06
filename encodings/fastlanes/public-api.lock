@@ -312,7 +312,7 @@ pub struct vortex_fastlanes::DeltaData
 
 impl vortex_fastlanes::DeltaData
 
-pub fn vortex_fastlanes::DeltaData::try_new(bases: vortex_array::array::erased::ArrayRef, deltas: vortex_array::array::erased::ArrayRef, offset: usize, len: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::DeltaData::try_new(offset: usize) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_fastlanes::DeltaData
 
@@ -506,11 +506,11 @@ pub fn vortex_fastlanes::RLEData::encode(array: &vortex_array::arrays::primitive
 
 impl vortex_fastlanes::RLEData
 
-pub unsafe fn vortex_fastlanes::RLEData::new_unchecked(_values: vortex_array::array::erased::ArrayRef, _indices: vortex_array::array::erased::ArrayRef, _values_idx_offsets: vortex_array::array::erased::ArrayRef, offset: usize) -> Self
+pub unsafe fn vortex_fastlanes::RLEData::new_unchecked(offset: usize) -> Self
 
 pub fn vortex_fastlanes::RLEData::offset(&self) -> usize
 
-pub fn vortex_fastlanes::RLEData::try_new(values: vortex_array::array::erased::ArrayRef, indices: vortex_array::array::erased::ArrayRef, values_idx_offsets: vortex_array::array::erased::ArrayRef, offset: usize, length: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::RLEData::try_new(offset: usize) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_fastlanes::RLEData
 

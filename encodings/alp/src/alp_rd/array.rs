@@ -366,7 +366,7 @@ impl ALPRD {
     }
 
     /// # Safety
-    /// See [`ALPRDData::validate_parts`] for preconditions.
+    /// See [`ALPRD::try_new`] for preconditions.
     pub unsafe fn new_unchecked(
         dtype: DType,
         left_parts: ArrayRef,

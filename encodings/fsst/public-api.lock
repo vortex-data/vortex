@@ -100,7 +100,7 @@ pub fn vortex_fsst::FSSTData::symbol_lengths(&self) -> &vortex_buffer::buffer::B
 
 pub fn vortex_fsst::FSSTData::symbols(&self) -> &vortex_buffer::buffer::Buffer<fsst::Symbol>
 
-pub fn vortex_fsst::FSSTData::try_new(symbols: vortex_buffer::buffer::Buffer<fsst::Symbol>, symbol_lengths: vortex_buffer::buffer::Buffer<u8>, codes: vortex_array::arrays::varbin::vtable::VarBinArray, uncompressed_lengths: vortex_array::array::erased::ArrayRef, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
+pub fn vortex_fsst::FSSTData::try_new(symbols: vortex_buffer::buffer::Buffer<fsst::Symbol>, symbol_lengths: vortex_buffer::buffer::Buffer<u8>, codes: vortex_array::arrays::varbin::vtable::VarBinArray, _dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_fsst::FSSTData::validate(&self, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 

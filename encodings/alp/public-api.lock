@@ -102,9 +102,9 @@ pub fn vortex_alp::ALPData::exponents(&self) -> vortex_alp::Exponents
 
 impl vortex_alp::ALPData
 
-pub fn vortex_alp::ALPData::new(encoded: vortex_array::array::erased::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> Self
+pub fn vortex_alp::ALPData::new(encoded_dtype: &vortex_array::dtype::DType, encoded_len: usize, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> Self
 
-pub fn vortex_alp::ALPData::try_new(encoded: vortex_array::array::erased::ArrayRef, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
+pub fn vortex_alp::ALPData::try_new(encoded_dtype: &vortex_array::dtype::DType, encoded_len: usize, exponents: vortex_alp::Exponents, patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_alp::ALPData
 
@@ -228,7 +228,7 @@ pub fn vortex_alp::ALPRDData::left_parts_dictionary(&self) -> &vortex_buffer::bu
 
 pub fn vortex_alp::ALPRDData::right_bit_width(&self) -> u8
 
-pub fn vortex_alp::ALPRDData::try_new(dtype: vortex_array::dtype::DType, left_parts: vortex_array::array::erased::ArrayRef, left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_parts: vortex_array::array::erased::ArrayRef, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
+pub fn vortex_alp::ALPRDData::try_new(left_parts_dictionary: vortex_buffer::buffer::Buffer<u16>, right_bit_width: u8, left_parts_patches: core::option::Option<vortex_array::patches::Patches>) -> vortex_error::VortexResult<Self>
 
 impl core::clone::Clone for vortex_alp::ALPRDData
 
