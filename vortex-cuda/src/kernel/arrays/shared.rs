@@ -27,7 +27,7 @@ impl CudaExecute for SharedExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let shared = array
-            .try_into::<Shared>()
+            .try_downcast::<Shared>()
             .ok()
             .vortex_expect("Array is not a Shared array");
 

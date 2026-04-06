@@ -382,7 +382,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 
@@ -415,7 +415,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array()
             .slice(3..1024)
@@ -448,7 +448,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 
@@ -481,7 +481,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array()
             .slice(3..1024)
@@ -518,7 +518,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 
@@ -562,7 +562,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        PatchedArray::from_array_and_patches(array, &patches, &mut ctx)
+        Patched::from_array_and_patches(array, &patches, &mut ctx)
     }
 
     #[rstest]

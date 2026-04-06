@@ -816,7 +816,7 @@ impl<T: NativePType> Executable for Buffer<T> {
 /// This will panic if the array's dtype is not primitive.
 impl Executable for PrimitiveArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Primitive>() {
+        match array.try_downcast::<Primitive>() {
             Ok(primitive) => Ok(primitive),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_primitive()),
         }
@@ -828,7 +828,7 @@ impl Executable for PrimitiveArray {
 /// This will panic if the array's dtype is not bool.
 impl Executable for BoolArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Bool>() {
+        match array.try_downcast::<Bool>() {
             Ok(bool_array) => Ok(bool_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_bool()),
         }
@@ -854,7 +854,7 @@ impl Executable for BitBuffer {
 /// This will panic if the array's dtype is not null.
 impl Executable for NullArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Null>() {
+        match array.try_downcast::<Null>() {
             Ok(null_array) => Ok(null_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_null()),
         }
@@ -866,7 +866,7 @@ impl Executable for NullArray {
 /// This will panic if the array's dtype is not utf8 or binary.
 impl Executable for VarBinViewArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<VarBinView>() {
+        match array.try_downcast::<VarBinView>() {
             Ok(varbinview) => Ok(varbinview),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_varbinview()),
         }
@@ -878,7 +878,7 @@ impl Executable for VarBinViewArray {
 /// This will panic if the array's dtype is not an extension type.
 impl Executable for ExtensionArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Extension>() {
+        match array.try_downcast::<Extension>() {
             Ok(ext_array) => Ok(ext_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_extension()),
         }
@@ -890,7 +890,7 @@ impl Executable for ExtensionArray {
 /// This will panic if the array's dtype is not decimal.
 impl Executable for DecimalArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Decimal>() {
+        match array.try_downcast::<Decimal>() {
             Ok(decimal) => Ok(decimal),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_decimal()),
         }
@@ -902,7 +902,7 @@ impl Executable for DecimalArray {
 /// This will panic if the array's dtype is not list.
 impl Executable for ListViewArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<ListView>() {
+        match array.try_downcast::<ListView>() {
             Ok(list) => Ok(list),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_listview()),
         }
@@ -914,7 +914,7 @@ impl Executable for ListViewArray {
 /// This will panic if the array's dtype is not fixed size list.
 impl Executable for FixedSizeListArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<FixedSizeList>() {
+        match array.try_downcast::<FixedSizeList>() {
             Ok(fsl) => Ok(fsl),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_fixed_size_list()),
         }
@@ -926,7 +926,7 @@ impl Executable for FixedSizeListArray {
 /// This will panic if the array's dtype is not struct.
 impl Executable for StructArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Struct>() {
+        match array.try_downcast::<Struct>() {
             Ok(struct_array) => Ok(struct_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_struct()),
         }

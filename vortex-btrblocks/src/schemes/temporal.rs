@@ -10,6 +10,7 @@ use vortex_array::ToCanonical;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::TemporalArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::extension::Matcher;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::TemporalMetadata;

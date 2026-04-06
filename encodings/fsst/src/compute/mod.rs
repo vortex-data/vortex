@@ -41,7 +41,7 @@ impl TakeExecute for FSST {
                     <VarBin as TakeExecute>::take(codes, indices, _ctx)?
                         .vortex_expect("VarBin take kernel always returns Some")
                 }
-                .try_into::<VarBin>()
+                .try_downcast::<VarBin>()
                 .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
                 array
                     .uncompressed_lengths()

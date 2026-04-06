@@ -185,7 +185,7 @@ pub(crate) struct ZstdExecutor;
 
 impl ZstdExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZstdArray> {
-        array.try_into::<Zstd>().ok()
+        array.try_downcast::<Zstd>().ok()
     }
 }
 

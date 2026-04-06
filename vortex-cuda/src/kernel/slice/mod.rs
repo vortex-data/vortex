@@ -26,7 +26,7 @@ impl CudaExecute for SliceExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let slice_array = array.try_into::<Slice>().map_err(|array| {
+        let slice_array = array.try_downcast::<Slice>().map_err(|array| {
             vortex_err!(
                 "SliceExecutor requires input of SliceArray, was {}",
                 array.encoding_id()

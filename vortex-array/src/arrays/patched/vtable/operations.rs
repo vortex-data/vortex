@@ -59,7 +59,6 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::arrays::Patched;
-    use crate::arrays::PatchedArray;
     use crate::dtype::Nullability;
     use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
@@ -80,7 +79,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 
@@ -117,7 +116,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 
@@ -147,7 +146,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array()
             .slice(3..4096)

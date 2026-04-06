@@ -29,11 +29,11 @@ pub(super) fn to_arrow_dictionary(
     values_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let array = match array.try_into::<Dict>() {
+    let array = match array.try_downcast::<Dict>() {
         Ok(dict) => return dict_to_dict(dict, codes_type, values_type, ctx),
         Err(array) => array,
     };
-    let array = match array.try_into::<Constant>() {
+    let array = match array.try_downcast::<Constant>() {
         Ok(constant) => return constant_to_dict(constant, codes_type, values_type, ctx),
         Err(array) => array,
     };

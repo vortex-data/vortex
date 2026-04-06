@@ -28,7 +28,7 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
     // Check for Vortex ListViewArray and convert directly.
-    let array = match array.try_into::<ListView>() {
+    let array = match array.try_downcast::<ListView>() {
         Ok(array) => return list_view_to_list_view::<O>(array, elements_field, ctx),
         Err(array) => array,
     };

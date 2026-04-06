@@ -137,7 +137,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::arrays::PatchedArray;
+    use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
@@ -160,7 +160,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        PatchedArray::from_array_and_patches(values, &patches, &mut ctx)?
+        Patched::from_array_and_patches(values, &patches, &mut ctx)?
             .into_array()
             .slice(slice)
     }

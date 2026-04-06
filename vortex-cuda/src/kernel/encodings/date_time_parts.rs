@@ -52,7 +52,7 @@ impl CudaExecute for DateTimePartsExecutor {
     ) -> VortexResult<Canonical> {
         let output_len = array.len();
         let array = array
-            .try_into::<DateTimeParts>()
+            .try_downcast::<DateTimeParts>()
             .map_err(|_| vortex_err!("Expected DateTimePartsArray"))?;
 
         // Extract the temporal metadata from the dtype

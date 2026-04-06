@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::type_name;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
@@ -12,6 +13,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::AnyCanonical;
@@ -349,8 +351,18 @@ impl ArrayRef {
     }
 
     /// Returns the array downcast to the given `Array<V>` as an owned typed handle.
-    pub fn try_into<V: VTable>(self) -> Result<Array<V>, ArrayRef> {
+    pub fn try_downcast<V: VTable>(self) -> Result<Array<V>, ArrayRef> {
         Array::<V>::try_from_array_ref(self)
+    }
+
+    /// Returns the array downcast to the given `Array<V>` as an owned typed handle.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array is not of the given type.
+    pub fn downcast<V: VTable>(self) -> Array<V> {
+        Self::try_downcast(self)
+            .unwrap_or_else(|_| vortex_panic!("Failed to downcast to {}", type_name::<V>()))
     }
 
     /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.

@@ -26,7 +26,7 @@ impl FilterKernel for FSST {
         let filtered_codes_ref = <VarBin as FilterKernel>::filter(codes, mask, ctx)?
             .vortex_expect("VarBin filter kernel always returns Some");
         let filtered_codes = filtered_codes_ref
-            .try_into::<VarBin>()
+            .try_downcast::<VarBin>()
             .ok()
             .vortex_expect("must be VarBin");
 

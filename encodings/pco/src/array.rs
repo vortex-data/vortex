@@ -469,7 +469,7 @@ impl PcoData {
     }
 
     pub fn from_array(array: ArrayRef, level: usize, nums_per_page: usize) -> VortexResult<Self> {
-        let parray = array.try_into::<Primitive>().map_err(|a| {
+        let parray = array.try_downcast::<Primitive>().map_err(|a| {
             vortex_err!(
                 "Pco can only encode primitive arrays, got {}",
                 a.encoding_id()

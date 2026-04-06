@@ -50,7 +50,7 @@ impl CudaExecute for FilterExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let filter_array = array
-            .try_into::<Filter>()
+            .try_downcast::<Filter>()
             .map_err(|_| vortex_err!("Expected FilterArray"))?;
 
         let child = filter_array.child().clone();

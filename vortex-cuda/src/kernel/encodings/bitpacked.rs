@@ -37,7 +37,7 @@ pub(crate) struct BitPackedExecutor;
 
 impl BitPackedExecutor {
     fn try_specialize(array: ArrayRef) -> Option<BitPackedArray> {
-        array.try_into::<BitPacked>().ok()
+        array.try_downcast::<BitPacked>().ok()
     }
 }
 

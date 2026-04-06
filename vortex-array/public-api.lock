@@ -2992,6 +2992,10 @@ pub mod vortex_array::arrays::patched
 
 pub struct vortex_array::arrays::patched::Patched
 
+impl vortex_array::arrays::patched::Patched
+
+pub fn vortex_array::arrays::patched::Patched::from_array_and_patches(inner: vortex_array::ArrayRef, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::Array<vortex_array::arrays::patched::Patched>>
+
 impl core::clone::Clone for vortex_array::arrays::patched::Patched
 
 pub fn vortex_array::arrays::patched::Patched::clone(&self) -> vortex_array::arrays::patched::Patched
@@ -3392,9 +3396,13 @@ pub trait vortex_array::arrays::primitive::PrimitiveArrayExt: vortex_array::Type
 
 pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::buffer_handle(&self) -> &vortex_array::buffer::BufferHandle
 
+pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::narrow(&self) -> vortex_error::VortexResult<vortex_array::arrays::PrimitiveArray>
+
 pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::ptype(&self) -> vortex_array::dtype::PType
+
+pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::reinterpret_cast(&self, ptype: vortex_array::dtype::PType) -> vortex_array::arrays::PrimitiveArray
 
 pub fn vortex_array::arrays::primitive::PrimitiveArrayExt::validity(&self) -> vortex_array::validity::Validity
 
@@ -3406,9 +3414,13 @@ impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Primitive>> vortex_arr
 
 pub fn T::buffer_handle(&self) -> &vortex_array::buffer::BufferHandle
 
+pub fn T::narrow(&self) -> vortex_error::VortexResult<vortex_array::arrays::PrimitiveArray>
+
 pub fn T::nullability(&self) -> vortex_array::dtype::Nullability
 
 pub fn T::ptype(&self) -> vortex_array::dtype::PType
+
+pub fn T::reinterpret_cast(&self, ptype: vortex_array::dtype::PType) -> vortex_array::arrays::PrimitiveArray
 
 pub fn T::validity(&self) -> vortex_array::validity::Validity
 
@@ -5787,6 +5799,10 @@ impl vortex_array::scalar_fn::fns::mask::MaskReduce for vortex_array::arrays::nu
 pub fn vortex_array::arrays::null::Null::mask(array: vortex_array::ArrayView<'_, vortex_array::arrays::null::Null>, _mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::arrays::Patched
+
+impl vortex_array::arrays::patched::Patched
+
+pub fn vortex_array::arrays::patched::Patched::from_array_and_patches(inner: vortex_array::ArrayRef, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::Array<vortex_array::arrays::patched::Patched>>
 
 impl core::clone::Clone for vortex_array::arrays::patched::Patched
 
@@ -21238,12 +21254,6 @@ pub fn vortex_array::Array<vortex_array::arrays::Primitive>::try_into_buffer_mut
 
 impl vortex_array::Array<vortex_array::arrays::Primitive>
 
-pub fn vortex_array::Array<vortex_array::arrays::Primitive>::narrow(&self) -> vortex_error::VortexResult<vortex_array::arrays::PrimitiveArray>
-
-pub fn vortex_array::Array<vortex_array::arrays::Primitive>::reinterpret_cast(&self, ptype: vortex_array::dtype::PType) -> Self
-
-impl vortex_array::Array<vortex_array::arrays::Primitive>
-
 pub fn vortex_array::Array<vortex_array::arrays::Primitive>::patch(self, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::Array<vortex_array::arrays::Primitive>
@@ -21399,10 +21409,6 @@ pub fn vortex_array::Array<vortex_array::arrays::dict::Dict>::values(&self) -> &
 impl vortex_array::Array<vortex_array::arrays::null::Null>
 
 pub fn vortex_array::Array<vortex_array::arrays::null::Null>::new(len: usize) -> Self
-
-impl vortex_array::Array<vortex_array::arrays::patched::Patched>
-
-pub fn vortex_array::Array<vortex_array::arrays::patched::Patched>::from_array_and_patches(inner: vortex_array::ArrayRef, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::Array<vortex_array::arrays::scalar_fn::ScalarFnVTable>
 
@@ -21592,6 +21598,8 @@ pub fn vortex_array::Array<V>::into_array(self) -> vortex_array::ArrayRef
 
 impl<V: vortex_array::VTable> vortex_array::TypedArrayRef<V> for vortex_array::Array<V>
 
+pub fn vortex_array::Array<V>::to_owned(&self) -> vortex_array::Array<V>
+
 pub struct vortex_array::ArrayParts<V: vortex_array::VTable>
 
 pub vortex_array::ArrayParts::data: <V as vortex_array::VTable>::ArrayData
@@ -21639,6 +21647,8 @@ pub fn vortex_array::ArrayRef::children(&self) -> alloc::vec::Vec<vortex_array::
 pub fn vortex_array::ArrayRef::children_names(&self) -> alloc::vec::Vec<alloc::string::String>
 
 pub fn vortex_array::ArrayRef::depth_first_traversal(&self) -> vortex_array::DepthFirstArrayIterator
+
+pub fn vortex_array::ArrayRef::downcast<V: vortex_array::VTable>(self) -> vortex_array::Array<V>
 
 pub fn vortex_array::ArrayRef::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -21698,7 +21708,7 @@ pub fn vortex_array::ArrayRef::take(&self, indices: vortex_array::ArrayRef) -> v
 
 pub fn vortex_array::ArrayRef::to_canonical(&self) -> vortex_error::VortexResult<vortex_array::Canonical>
 
-pub fn vortex_array::ArrayRef::try_into<V: vortex_array::VTable>(self) -> core::result::Result<vortex_array::Array<V>, vortex_array::ArrayRef>
+pub fn vortex_array::ArrayRef::try_downcast<V: vortex_array::VTable>(self) -> core::result::Result<vortex_array::Array<V>, vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::valid_count(&self) -> vortex_error::VortexResult<usize>
 
@@ -22281,6 +22291,8 @@ pub type vortex_array::ArrayView<'_, V>::Target = <V as vortex_array::VTable>::A
 pub fn vortex_array::ArrayView<'_, V>::deref(&self) -> &<V as vortex_array::VTable>::ArrayData
 
 impl<V: vortex_array::VTable> vortex_array::TypedArrayRef<V> for vortex_array::ArrayView<'_, V>
+
+pub fn vortex_array::ArrayView<'_, V>::to_owned(&self) -> vortex_array::Array<V>
 
 pub struct vortex_array::CanonicalValidity(pub vortex_array::Canonical)
 
@@ -23980,9 +23992,15 @@ pub fn vortex_array::ArrayRef::to_varbinview(&self) -> vortex_array::arrays::Var
 
 pub trait vortex_array::TypedArrayRef<V: vortex_array::VTable>: core::convert::AsRef<vortex_array::ArrayRef> + core::ops::deref::Deref<Target = <V as vortex_array::VTable>::ArrayData>
 
+pub fn vortex_array::TypedArrayRef::to_owned(&self) -> vortex_array::Array<V>
+
 impl<V: vortex_array::VTable> vortex_array::TypedArrayRef<V> for vortex_array::Array<V>
 
+pub fn vortex_array::Array<V>::to_owned(&self) -> vortex_array::Array<V>
+
 impl<V: vortex_array::VTable> vortex_array::TypedArrayRef<V> for vortex_array::ArrayView<'_, V>
+
+pub fn vortex_array::ArrayView<'_, V>::to_owned(&self) -> vortex_array::Array<V>
 
 pub trait vortex_array::VTable: 'static + core::clone::Clone + core::marker::Sized + core::marker::Send + core::marker::Sync + core::fmt::Debug
 

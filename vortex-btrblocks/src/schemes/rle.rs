@@ -9,6 +9,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::builtins::is_float_primitive;

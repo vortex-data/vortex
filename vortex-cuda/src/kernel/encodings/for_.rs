@@ -38,7 +38,7 @@ pub(crate) struct FoRExecutor;
 
 impl FoRExecutor {
     fn try_specialize(array: ArrayRef) -> Option<FoRArray> {
-        array.try_into::<FoR>().ok()
+        array.try_downcast::<FoR>().ok()
     }
 }
 

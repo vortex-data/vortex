@@ -13,7 +13,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
@@ -37,9 +39,11 @@ pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
 use crate::ArrayRef;
+use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::buffer::BufferHandle;
+use crate::builtins::ArrayBuiltins;
 
 /// The validity bitmap indicating which elements are non-null.
 pub(super) const VALIDITY_SLOT: usize = 0;
@@ -117,6 +121,102 @@ pub trait PrimitiveArrayExt: TypedArrayRef<Primitive> {
 
     fn buffer_handle(&self) -> &BufferHandle {
         &self.buffer
+    }
+
+    fn reinterpret_cast(&self, ptype: PType) -> PrimitiveArray {
+        if self.ptype() == ptype {
+            return self.to_owned();
+        }
+
+        assert_eq!(
+            self.ptype().byte_width(),
+            ptype.byte_width(),
+            "can't reinterpret cast between integers of two different widths"
+        );
+
+        PrimitiveArray::from_buffer_handle(self.buffer_handle().clone(), ptype, self.validity())
+    }
+
+    /// Narrow the array to the smallest possible integer type that can represent all values.
+    fn narrow(&self) -> VortexResult<PrimitiveArray> {
+        if !self.ptype().is_int() {
+            return Ok(self.to_owned());
+        }
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let Some(min_max) = min_max(self.as_ref(), &mut ctx)? else {
+            return Ok(PrimitiveArray::new(
+                Buffer::<u8>::zeroed(self.len()),
+                self.validity(),
+            ));
+        };
+
+        // If we can't cast to i64, then leave the array as its original type.
+        // It's too big to downcast anyway.
+        let Ok(min) = min_max
+            .min
+            .cast(&PType::I64.into())
+            .and_then(|s| i64::try_from(&s))
+        else {
+            return Ok(self.to_owned());
+        };
+        let Ok(max) = min_max
+            .max
+            .cast(&PType::I64.into())
+            .and_then(|s| i64::try_from(&s))
+        else {
+            return Ok(self.to_owned());
+        };
+
+        let nullability = self.as_ref().dtype().nullability();
+
+        if min < 0 || max < 0 {
+            // Signed
+            if min >= i8::MIN as i64 && max <= i8::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::I8, nullability))?
+                    .to_primitive());
+            }
+
+            if min >= i16::MIN as i64 && max <= i16::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::I16, nullability))?
+                    .to_primitive());
+            }
+
+            if min >= i32::MIN as i64 && max <= i32::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::I32, nullability))?
+                    .to_primitive());
+            }
+        } else {
+            // Unsigned
+            if max <= u8::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::U8, nullability))?
+                    .to_primitive());
+            }
+
+            if max <= u16::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::U16, nullability))?
+                    .to_primitive());
+            }
+
+            if max <= u32::MAX as i64 {
+                return Ok(self
+                    .as_ref()
+                    .cast(DType::Primitive(PType::U32, nullability))?
+                    .to_primitive());
+            }
+        }
+
+        Ok(self.to_owned())
     }
 }
 impl<T: TypedArrayRef<Primitive>> PrimitiveArrayExt for T {}

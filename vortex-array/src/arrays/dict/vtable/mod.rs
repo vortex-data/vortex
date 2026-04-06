@@ -194,7 +194,7 @@ impl VTable for Dict {
         let codes = array
             .codes()
             .clone()
-            .try_into::<Primitive>()
+            .try_downcast::<Primitive>()
             .ok()
             .vortex_expect("must be primitive");
         let values = array.values().clone();

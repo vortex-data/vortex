@@ -6,6 +6,7 @@ use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;

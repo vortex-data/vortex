@@ -139,27 +139,27 @@ fn new_array_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let array = match array.try_into::<Constant>() {
+    let array = match array.try_downcast::<Constant>() {
         Ok(array) => return constant::new_exporter(array),
         Err(array) => array,
     };
 
-    let array = match array.try_into::<Sequence>() {
+    let array = match array.try_downcast::<Sequence>() {
         Ok(array) => return sequence::new_exporter(&array),
         Err(array) => array,
     };
 
-    let array = match array.try_into::<RunEnd>() {
+    let array = match array.try_downcast::<RunEnd>() {
         Ok(array) => return run_end::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
 
-    let array = match array.try_into::<Dict>() {
+    let array = match array.try_downcast::<Dict>() {
         Ok(array) => return dict::new_exporter_with_flatten(&array, cache, ctx, flatten),
         Err(array) => array,
     };
 
-    let array = match array.try_into::<List>() {
+    let array = match array.try_downcast::<List>() {
         Ok(array) => return list::new_exporter(array, cache, ctx),
         Err(array) => array,
     };

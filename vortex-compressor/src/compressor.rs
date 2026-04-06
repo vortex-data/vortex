@@ -22,6 +22,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::listview::list_from_list_view;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;

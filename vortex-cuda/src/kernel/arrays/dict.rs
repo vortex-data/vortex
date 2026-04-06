@@ -48,7 +48,7 @@ impl CudaExecute for DictExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let dict_array = array
-            .try_into::<Dict>()
+            .try_downcast::<Dict>()
             .ok()
             .vortex_expect("Array is not a Dict array");
 

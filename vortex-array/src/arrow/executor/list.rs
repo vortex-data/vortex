@@ -53,7 +53,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     }
 
     // If the Vortex array is a ListViewArray, rebuild to ZCTL if needed and convert.
-    let array = match array.try_into::<ListView>() {
+    let array = match array.try_downcast::<ListView>() {
         Ok(array) => {
             let zctl = if array.is_zero_copy_to_list() {
                 array

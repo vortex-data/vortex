@@ -359,7 +359,7 @@ impl CudaArrayExt for ArrayRef {
                 struct_fields,
                 validity,
                 ..
-            } = self.try_into::<Struct>().unwrap().into_data_parts();
+            } = self.try_downcast::<Struct>().unwrap().into_data_parts();
 
             let mut cuda_fields = Vec::with_capacity(fields.len());
             for field in fields.iter() {

@@ -166,7 +166,6 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::Patched;
-    use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::optimizer::ArrayOptimizer;
@@ -189,10 +188,10 @@ mod tests {
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)
+        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)
             .unwrap()
             .into_array()
-            .try_into::<Patched>()
+            .try_downcast::<Patched>()
             .unwrap();
 
         let rhs = ConstantArray::new(u32::MAX, 512).into_array();
@@ -222,10 +221,10 @@ mod tests {
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
+        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx).unwrap();
         // Slice the array so that the first patch should be skipped.
         let lhs_ref = lhs.into_array().slice(10..512).unwrap().optimize().unwrap();
-        let lhs = lhs_ref.try_into::<Patched>().unwrap();
+        let lhs = lhs_ref.try_downcast::<Patched>().unwrap();
 
         assert_eq!(lhs.len(), 502);
 
@@ -258,9 +257,9 @@ mod tests {
         )?;
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)?
+        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
-            .try_into::<Patched>()
+            .try_downcast::<Patched>()
             .unwrap();
 
         let rhs = ConstantArray::new(subnormal, 512).into_array();
@@ -292,9 +291,9 @@ mod tests {
         )?;
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-        let lhs = PatchedArray::from_array_and_patches(lhs, &patches, &mut ctx)?
+        let lhs = Patched::from_array_and_patches(lhs, &patches, &mut ctx)?
             .into_array()
-            .try_into::<Patched>()
+            .try_downcast::<Patched>()
             .unwrap();
 
         let rhs = ConstantArray::new(0.0f32, 10).into_array();

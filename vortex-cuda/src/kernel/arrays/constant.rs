@@ -40,7 +40,7 @@ pub(crate) struct ConstantNumericExecutor;
 
 impl ConstantNumericExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ConstantArray> {
-        array.try_into::<Constant>().ok()
+        array.try_downcast::<Constant>().ok()
     }
 }
 

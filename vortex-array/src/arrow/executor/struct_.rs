@@ -37,7 +37,7 @@ pub(super) fn to_arrow_struct(
     let len = array.len();
 
     // If the array is chunked, then we invert the chunk-of-struct to struct-of-chunk.
-    let array = match array.try_into::<Chunked>() {
+    let array = match array.try_downcast::<Chunked>() {
         Ok(array) => {
             // NOTE(ngates): this currently uses the old into_canonical code path, but we should
             //  just call directly into the swizzle-chunks function.
@@ -47,7 +47,7 @@ pub(super) fn to_arrow_struct(
     };
 
     // Attempt to short-circuit if the array is already a Struct:
-    let array = match array.try_into::<Struct>() {
+    let array = match array.try_downcast::<Struct>() {
         Ok(array) => {
             let StructDataParts {
                 validity,

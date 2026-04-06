@@ -40,7 +40,7 @@ pub(crate) struct RunEndExecutor;
 
 impl RunEndExecutor {
     fn try_specialize(array: ArrayRef) -> Option<RunEndArray> {
-        array.try_into::<RunEnd>().ok()
+        array.try_downcast::<RunEnd>().ok()
     }
 }
 

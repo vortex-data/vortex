@@ -9,7 +9,6 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Patched;
-use crate::arrays::PatchedArray;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::slice::SliceReduce;
 
@@ -31,7 +30,7 @@ impl SliceReduce for Patched {
 
         Ok(Some(
             unsafe {
-                PatchedArray::from_prevalidated_parts(
+                Patched::new_unchecked(
                     array.dtype().clone(),
                     inner.len(),
                     vec![
@@ -63,7 +62,7 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
-    use crate::arrays::PatchedArray;
+    use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::dtype::NativePType;
@@ -78,7 +77,7 @@ mod tests {
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let patched_array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)?;
+        let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)?;
 
         let sliced = patched_array.into_array().slice(1..10)?;
 
@@ -124,10 +123,9 @@ mod tests {
 
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let patched_array =
-            PatchedArray::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
-                .unwrap()
-                .into_array();
+        let patched_array = Patched::from_array_and_patches(inner.into_array(), &patches, &mut ctx)
+            .unwrap()
+            .into_array();
 
         // Verify that applying slice first yields same result as applying slice at end.
         let slice_first = patched_array
@@ -157,7 +155,7 @@ mod tests {
         let patches = Patches::new(10_000, 0, patched_indices, patched_values, None).unwrap();
         let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
 
-        let patched_array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let patched_array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 

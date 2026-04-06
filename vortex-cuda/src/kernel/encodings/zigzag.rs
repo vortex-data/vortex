@@ -32,7 +32,7 @@ pub(crate) struct ZigZagExecutor;
 
 impl ZigZagExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZigZagArray> {
-        array.try_into::<ZigZag>().ok()
+        array.try_downcast::<ZigZag>().ok()
     }
 }
 

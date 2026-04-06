@@ -56,7 +56,12 @@ impl<V: VTable> ArrayParts<V> {
 ///
 /// Extension traits use this to share typed array logic while still exposing the backing
 /// [`ArrayRef`] and the encoding-specific [`VTable::ArrayData`].
-pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::ArrayData> {}
+pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::ArrayData> {
+    /// Returns an owned [`Array<V>`] from the reference.
+    fn to_owned(&self) -> Array<V> {
+        self.as_ref().clone().downcast()
+    }
+}
 
 impl<V: VTable> TypedArrayRef<V> for Array<V> {}
 

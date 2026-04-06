@@ -299,7 +299,7 @@ impl BitPackedData {
     pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<BitPackedArray> {
         let parray: PrimitiveArray = array
             .clone()
-            .try_into::<Primitive>()
+            .try_downcast::<Primitive>()
             .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
         bitpack_encode(&parray, bit_width, None)
     }

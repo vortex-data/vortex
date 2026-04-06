@@ -236,11 +236,11 @@ impl VTable for ALPRD {
         let ptype = dtype.as_ptype();
 
         let left_parts = left_parts
-            .try_into::<Primitive>()
+            .try_downcast::<Primitive>()
             .ok()
             .vortex_expect("ALPRD execute: left_parts is primitive");
         let right_parts = right_parts
-            .try_into::<Primitive>()
+            .try_downcast::<Primitive>()
             .ok()
             .vortex_expect("ALPRD execute: right_parts is primitive");
 

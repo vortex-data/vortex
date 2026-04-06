@@ -197,20 +197,18 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
             Some(values),
         ];
 
-        Ok(unsafe {
-            Array::<Patched>::from_prevalidated_parts(dtype, len, slots, self.n_lanes(), offset)
-        })
+        Ok(unsafe { Patched::new_unchecked(dtype, len, slots, self.n_lanes(), offset) })
     }
 }
 
 impl<T: TypedArrayRef<Patched>> PatchedArrayExt for T {}
 
-impl Array<Patched> {
+impl Patched {
     pub fn from_array_and_patches(
         inner: ArrayRef,
         patches: &Patches,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Self> {
+    ) -> VortexResult<Array<Patched>> {
         vortex_ensure!(
             inner.dtype().eq_with_nullability_superset(patches.dtype()),
             "array DType must match patches DType"
@@ -262,16 +260,16 @@ impl Array<Patched> {
         let dtype = inner.dtype().clone();
         let len = inner.len();
         let slots = vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)];
-        Ok(unsafe { Self::from_prevalidated_parts(dtype, len, slots, n_lanes, 0) })
+        Ok(unsafe { Self::new_unchecked(dtype, len, slots, n_lanes, 0) })
     }
 
-    pub(crate) unsafe fn from_prevalidated_parts(
+    pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         len: usize,
         slots: Vec<Option<ArrayRef>>,
         n_lanes: usize,
         offset: usize,
-    ) -> Self {
+    ) -> Array<Patched> {
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Patched, dtype, len, PatchedData { n_lanes, offset })
