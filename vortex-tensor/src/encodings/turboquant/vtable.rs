@@ -7,6 +7,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
+use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -40,6 +41,7 @@ use crate::encodings::turboquant::array::slots::Slot;
 use crate::encodings::turboquant::compute::rules::PARENT_KERNELS;
 use crate::encodings::turboquant::compute::rules::RULES;
 use crate::encodings::turboquant::decompress::execute_decompress;
+use crate::encodings::turboquant::metadata::TurboQuantMetadata;
 use crate::utils::tensor_element_ptype;
 use crate::utils::tensor_list_size;
 use crate::vector::Vector;
@@ -197,7 +199,9 @@ impl VTable for TurboQuant {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![array.bit_width]))
+        Ok(Some(
+            TurboQuantMetadata::new(array.bit_width).encode_to_vec(),
+        ))
     }
 
     fn deserialize(
@@ -209,19 +213,8 @@ impl VTable for TurboQuant {
         children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
-        vortex_ensure_eq!(
-            metadata.len(),
-            1,
-            "TurboQuant metadata must be exactly 1 byte, got {}",
-            metadata.len()
-        );
-        vortex_ensure!(
-            metadata[0] <= 8,
-            "bit_width is expected to be between 0 and 8, got {}",
-            metadata[0]
-        );
-
-        let bit_width = metadata[0];
+        let metadata = TurboQuantMetadata::decode(metadata)?;
+        let bit_width = metadata.bit_width()?;
 
         // bit_width == 0 is only valid for degenerate (empty) arrays. A non-empty array with
         // bit_width == 0 would have zero centroids while codes reference centroid indices.
