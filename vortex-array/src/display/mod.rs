@@ -19,6 +19,7 @@ use itertools::Itertools as _;
 pub use tree_display::TreeDisplay;
 
 use crate::ArrayRef;
+use crate::arrays::struct_::StructArrayExt;
 
 /// Describe how to convert an array to a string.
 ///
