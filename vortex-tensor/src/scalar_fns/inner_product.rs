@@ -26,6 +26,7 @@ use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -36,7 +37,7 @@ use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extract_flat_elements;
 use crate::utils::tensor_element_ptype;
-use crate::utils::tensor_list_size;
+use crate::vector::AnyVector;
 
 /// Inner product (dot product) between two columns.
 ///
@@ -129,6 +130,7 @@ impl ScalarFnVTable for InnerProduct {
         );
 
         let ptype = tensor_element_ptype(lhs_ext)?;
+        // TODO(connor): This should support integer tensors!
         vortex_ensure!(
             ptype.is_float(),
             "InnerProduct element dtype must be a float primitive, got {ptype}"
@@ -149,6 +151,13 @@ impl ScalarFnVTable for InnerProduct {
 
         let row_count = args.row_count();
 
+        // We validated that both inputs have the same type.
+        let ext = lhs_ref.dtype().as_extension();
+        let vector_metadata = ext
+            .metadata_opt::<AnyVector>()
+            .vortex_expect("we already validated this in `return_dtype`");
+        let dimensions = vector_metadata.dimensions() as usize;
+
         // TurboQuant approximate path: check encoding before executing.
         if options.is_approx()
             && let (Some(lhs_tq), Some(rhs_tq)) = (
@@ -166,18 +175,13 @@ impl ScalarFnVTable for InnerProduct {
         let rhs_validity = rhs.as_ref().validity()?;
         let validity = lhs.as_ref().validity()?.and(rhs_validity)?;
 
-        // Get list size from the dtype. Both sides have the same dtype (validated by
-        // `return_dtype`).
-        let ext = lhs.dtype().as_extension();
-        let list_size = tensor_list_size(ext)? as usize;
-
         // Extract the storage array from each extension input. We pass the storage (FSL) rather
         // than the extension array to avoid canonicalizing the extension wrapper.
         let lhs_storage = lhs.storage_array();
         let rhs_storage = rhs.storage_array();
 
-        let lhs_flat = extract_flat_elements(lhs_storage, list_size, ctx)?;
-        let rhs_flat = extract_flat_elements(rhs_storage, list_size, ctx)?;
+        let lhs_flat = extract_flat_elements(lhs_storage, dimensions, ctx)?;
+        let rhs_flat = extract_flat_elements(rhs_storage, dimensions, ctx)?;
 
         match_each_float_ptype!(lhs_flat.ptype(), |T| {
             let buffer: Buffer<T> = (0..row_count)

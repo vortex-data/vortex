@@ -9,6 +9,7 @@ use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::scheme::Scheme;
 use vortex_compressor::stats::ArrayAndStats;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
@@ -58,15 +59,15 @@ impl Scheme for TurboQuantScheme {
         let dtype = data.array().dtype();
         let len = data.array().len();
 
-        let ext = TurboQuant::validate_dtype(dtype)?;
-        let element_ptype = tensor_element_ptype(ext)?;
-        let dimension = tensor_list_size(ext)?;
+        let ext = TurboQuant::validate_dtype(dtype).vortex_expect("invalid dtype for TurboQuant");
+        let element_ptype = tensor_element_ptype(ext).vortex_expect("invalid ptype for TurboQuant");
+        let bit_width: u8 = element_ptype
+            .bit_width()
+            .try_into()
+            .vortex_expect("invalid bit width for TurboQuant");
+        let dimension = tensor_list_size(ext).vortex_expect("invalid ptype for TurboQuant");
 
-        Ok(estimate_compression_ratio(
-            element_ptype.bit_width(),
-            dimension,
-            len,
-        ))
+        Ok(estimate_compression_ratio(bit_width, dimension, len))
     }
 
     fn compress(
@@ -84,7 +85,7 @@ impl Scheme for TurboQuantScheme {
 }
 
 /// Estimate the compression ratio for TurboQuant MSE encoding with the default config.
-fn estimate_compression_ratio(bits_per_element: usize, dimensions: u32, num_vectors: usize) -> f64 {
+fn estimate_compression_ratio(bits_per_element: u8, dimensions: u32, num_vectors: usize) -> f64 {
     let config = TurboQuantConfig::default();
     let padded_dim = dimensions.next_power_of_two() as usize;
 
@@ -99,7 +100,7 @@ fn estimate_compression_ratio(bits_per_element: usize, dimensions: u32, num_vect
         + 3 * padded_dim; // rotation signs, 1 bit each
 
     let compressed_size_bits = compressed_bits_per_vector * num_vectors + overhead_bits;
-    let uncompressed_size_bits = bits_per_element * num_vectors * dimensions as usize;
+    let uncompressed_size_bits = bits_per_element as usize * dimensions as usize * num_vectors;
     uncompressed_size_bits as f64 / compressed_size_bits as f64
 }
 
@@ -121,7 +122,7 @@ mod tests {
     #[case::f64_768d(64, 768, 1000, 5.0, 7.0)]
     #[case::f16_768d(16, 768, 1000, 1.2, 2.0)]
     fn compression_ratio_in_expected_range(
-        #[case] bits_per_element: usize,
+        #[case] bits_per_element: u8,
         #[case] dim: u32,
         #[case] num_vectors: usize,
         #[case] min_ratio: f64,
@@ -142,7 +143,7 @@ mod tests {
     #[case(32, 768, 10)]
     #[case(64, 256, 50)]
     fn ratio_always_greater_than_one(
-        #[case] bits_per_element: usize,
+        #[case] bits_per_element: u8,
         #[case] dim: u32,
         #[case] num_vectors: usize,
     ) {

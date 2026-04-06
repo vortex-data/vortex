@@ -12,3 +12,6 @@ pub use metadata::FixedShapeTensorMetadata;
 
 mod proto;
 mod vtable;
+
+// TODO(connor): Add a dedicated `AnyFixedShapeTensor` that also contains the element ptype and
+// the storage fixed size list size (which is just the product of all logical shapes).

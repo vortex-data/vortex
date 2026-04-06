@@ -30,11 +30,10 @@ use vortex_error::vortex_err;
 
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::compute::cosine_similarity;
-use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_norm::L2Norm;
-use crate::utils::tensor_element_ptype;
+use crate::vector::AnyVector;
 
 /// Cosine similarity between two columns.
 ///
@@ -118,24 +117,20 @@ impl ScalarFnVTable for CosineSimilarity {
 
         // We don't need to look at rhs anymore since we know lhs and rhs are equal.
 
-        // Both inputs must be tensor-like extension types.
+        // Both inputs must be vector extension types.
         let lhs_ext = lhs.as_extension_opt().ok_or_else(|| {
             vortex_err!("CosineSimilarity lhs must be an extension type, got {lhs}")
         })?;
 
-        vortex_ensure!(
-            lhs_ext.is::<AnyTensor>(),
-            "CosineSimilarity inputs must be an `AnyTensor`, got {lhs}"
-        );
-
-        let ptype = tensor_element_ptype(lhs_ext)?;
-        vortex_ensure!(
-            ptype.is_float(),
-            "CosineSimilarity element dtype must be a float primitive, got {ptype}"
-        );
+        let vector_metadata = lhs_ext
+            .metadata_opt::<AnyVector>()
+            .ok_or_else(|| vortex_err!("can only apply an L2Norm expression on `Vector`s"))?;
 
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
-        Ok(DType::Primitive(ptype, nullability))
+        Ok(DType::Primitive(
+            vector_metadata.element_ptype(),
+            nullability,
+        ))
     }
 
     fn execute(

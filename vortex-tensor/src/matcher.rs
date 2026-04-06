@@ -8,7 +8,8 @@ use vortex_array::dtype::extension::Matcher;
 
 use crate::fixed_shape::FixedShapeTensor;
 use crate::fixed_shape::FixedShapeTensorMetadata;
-use crate::vector::Vector;
+use crate::vector::AnyVector;
+use crate::vector::VectorMatcherMetadata;
 
 /// Matcher for any tensor-like extension type.
 ///
@@ -23,20 +24,26 @@ pub struct AnyTensor;
 pub enum TensorMatch<'a> {
     /// A [`FixedShapeTensor`] extension type.
     FixedShapeTensor(&'a FixedShapeTensorMetadata),
+
     /// A [`Vector`] extension type.
-    Vector,
+    ///
+    /// Note that we store an owned type here wrapping (copyable) data from the dtype.
+    Vector(VectorMatcherMetadata),
 }
 
 impl Matcher for AnyTensor {
     type Match<'a> = TensorMatch<'a>;
 
-    fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
-        if let Some(metadata) = item.metadata_opt::<FixedShapeTensor>() {
+    fn try_match<'a>(ext_dtype: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
+        if let Some(metadata) = ext_dtype.metadata_opt::<FixedShapeTensor>() {
             return Some(TensorMatch::FixedShapeTensor(metadata));
         }
-        if item.metadata_opt::<Vector>().is_some() {
-            return Some(TensorMatch::Vector);
+
+        // Special logic for vectors to get convenience metadata (instead of `EmptyMetadata`).
+        if let Some(metadata) = ext_dtype.metadata_opt::<AnyVector>() {
+            return Some(TensorMatch::Vector(metadata));
         }
+
         None
     }
 }

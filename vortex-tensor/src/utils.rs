@@ -32,7 +32,7 @@ pub fn tensor_list_size(ext: &ExtDTypeRef) -> VortexResult<u32> {
     Ok(*list_size)
 }
 
-/// Extracts the float element [`PType`] from a tensor-like extension dtype.
+/// Extracts the element [`PType`] from a tensor-like extension dtype.
 ///
 /// The storage dtype must be a `FixedSizeList` of non-nullable primitives.
 pub fn tensor_element_ptype(ext: &ExtDTypeRef) -> VortexResult<PType> {
