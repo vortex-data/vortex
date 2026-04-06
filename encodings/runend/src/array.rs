@@ -144,12 +144,9 @@ impl VTable for RunEnd {
         let values = children.get(1, dtype, runs)?;
         let slots = vec![Some(ends.clone()), Some(values.clone())];
 
-        let data = RunEndData::try_new_offset_length(
-            ends,
-            values,
-            usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
-            len,
-        )?;
+        let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
+        RunEndData::validate(&ends, &values, offset, len)?;
+        let data = RunEndData::new(offset);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -249,7 +246,9 @@ impl RunEnd {
     ) -> RunEndArray {
         let dtype = values.dtype().clone();
         let slots = vec![Some(ends.clone()), Some(values.clone())];
-        let data = unsafe { RunEndData::new_unchecked(ends, values, offset, length) };
+        RunEndData::validate(&ends, &values, offset, length)
+            .vortex_expect("RunEndArray validation failed");
+        let data = unsafe { RunEndData::new_unchecked(offset) };
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots),
@@ -262,7 +261,8 @@ impl RunEnd {
         let len = RunEndData::logical_len_from_ends(&ends)?;
         let dtype = values.dtype().clone();
         let slots = vec![Some(ends.clone()), Some(values.clone())];
-        let data = RunEndData::try_new_offset_length(ends, values, 0, len)?;
+        RunEndData::validate(&ends, &values, 0, len)?;
+        let data = RunEndData::new(0);
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
         })
@@ -277,7 +277,8 @@ impl RunEnd {
     ) -> VortexResult<RunEndArray> {
         let dtype = values.dtype().clone();
         let slots = vec![Some(ends.clone()), Some(values.clone())];
-        let data = RunEndData::try_new_offset_length(ends, values, offset, length)?;
+        RunEndData::validate(&ends, &values, offset, length)?;
+        let data = RunEndData::new(offset);
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots),
@@ -298,7 +299,8 @@ impl RunEnd {
             let len = array.len();
             let dtype = values.dtype().clone();
             let slots = vec![Some(ends.clone()), Some(values.clone())];
-            let data = unsafe { RunEndData::new_unchecked(ends, values, 0, len) };
+            RunEndData::validate(&ends, &values, 0, len)?;
+            let data = unsafe { RunEndData::new_unchecked(0) };
             Ok(unsafe {
                 Array::from_parts_unchecked(
                     ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots),
@@ -319,7 +321,7 @@ impl RunEndData {
         }
     }
 
-    fn validate(
+    pub(crate) fn validate(
         ends: &ArrayRef,
         values: &ArrayRef,
         offset: usize,
@@ -416,32 +418,8 @@ impl RunEndData {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new(ends: ArrayRef, values: ArrayRef) -> Self {
-        Self::try_new(ends, values).vortex_expect("RunEndArray new")
-    }
-
-    /// Build a new `RunEndArray` from components.
-    ///
-    /// # Validation
-    ///
-    /// The `ends` must be non-nullable unsigned integers.
-    pub(crate) fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
-        let length = Self::logical_len_from_ends(&ends)?;
-        Self::try_new_offset_length(ends, values, 0, length)
-    }
-
-    /// Construct a new sliced `RunEndArray` with the provided offset and length.
-    ///
-    /// This performs all the same validation as [`RunEnd::try_new_offset_length`].
-    pub(crate) fn try_new_offset_length(
-        ends: ArrayRef,
-        values: ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<Self> {
-        Self::validate(&ends, &values, offset, length)?;
-
-        Ok(Self { offset })
+    pub fn new(offset: usize) -> Self {
+        Self { offset }
     }
 
     /// Build a new `RunEndArray` without validation.
@@ -453,27 +431,17 @@ impl RunEndData {
     /// satisfied before calling this function.
     ///
     /// See [`RunEnd::try_new_offset_length`] for the preconditions needed to build a new array.
-    pub unsafe fn new_unchecked(
-        _ends: ArrayRef,
-        _values: ArrayRef,
-        offset: usize,
-        _length: usize,
-    ) -> Self {
+    pub unsafe fn new_unchecked(offset: usize) -> Self {
         Self { offset }
     }
 
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<Primitive>() {
-            let (ends, values) = runend_encode(parray);
+            let (_ends, _values) = runend_encode(parray);
             // SAFETY: runend_encode handles this
             unsafe {
-                Ok(Self::new_unchecked(
-                    ends.into_array(),
-                    values,
-                    0,
-                    array.len(),
-                ))
+                Ok(Self::new_unchecked(0))
             }
         } else {
             vortex_bail!("REE can only encode primitive arrays")

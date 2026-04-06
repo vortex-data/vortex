@@ -49,17 +49,21 @@ pub trait MaskedArrayExt: TypedArrayRef<Masked> {
 impl<T: TypedArrayRef<Masked>> MaskedArrayExt for T {}
 
 impl MaskedData {
-    pub(crate) fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
+    pub(crate) fn try_new(
+        child_len: usize,
+        child_all_valid: bool,
+        validity: Validity,
+    ) -> VortexResult<Self> {
         if matches!(validity, Validity::NonNullable) {
             vortex_bail!("MaskedArray must have nullable validity, got {validity:?}")
         }
 
-        if !child.all_valid()? {
+        if !child_all_valid {
             vortex_bail!("MaskedArray children must not have nulls");
         }
 
         if let Some(validity_len) = validity.maybe_len()
-            && validity_len != child.len()
+            && validity_len != child_len
         {
             vortex_bail!("Validity must be the same length as a MaskedArray's child");
         }
@@ -76,7 +80,7 @@ impl Array<Masked> {
         let dtype = child.dtype().as_nullable();
         let len = child.len();
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(child.clone(), validity)?;
+        let data = MaskedData::try_new(len, child.all_valid()?, validity)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Masked, dtype, len, data)

@@ -169,11 +169,11 @@ impl VTable for DateTimeParts {
         )?;
 
         let slots = vec![
-            Some(days.clone()),
-            Some(seconds.clone()),
-            Some(subseconds.clone()),
+            Some(days),
+            Some(seconds),
+            Some(subseconds),
         ];
-        let data = DateTimePartsData::try_new(dtype.clone(), days, seconds, subseconds)?;
+        let data = DateTimePartsData {};
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -253,12 +253,13 @@ impl DateTimeParts {
         subseconds: ArrayRef,
     ) -> VortexResult<DateTimePartsArray> {
         let len = days.len();
+        DateTimePartsData::validate(&dtype, &days, &seconds, &subseconds, len)?;
         let slots = vec![
-            Some(days.clone()),
-            Some(seconds.clone()),
-            Some(subseconds.clone()),
+            Some(days),
+            Some(seconds),
+            Some(subseconds),
         ];
-        let data = DateTimePartsData::try_new(dtype.clone(), days, seconds, subseconds)?;
+        let data = DateTimePartsData {};
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(DateTimeParts, dtype, len, data).with_slots(slots),
@@ -314,15 +315,6 @@ impl DateTimePartsData {
         Ok(())
     }
 
-    pub(crate) fn try_new(
-        dtype: DType,
-        days: ArrayRef,
-        seconds: ArrayRef,
-        subseconds: ArrayRef,
-    ) -> VortexResult<Self> {
-        Self::validate(&dtype, &days, &seconds, &subseconds, days.len())?;
-        Ok(Self {})
-    }
 }
 
 impl ValidityChild<DateTimeParts> for DateTimeParts {

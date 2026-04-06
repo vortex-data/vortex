@@ -39,7 +39,7 @@ pub struct RLEData {
 }
 
 impl RLEData {
-    fn validate(
+    pub(crate) fn validate(
         values: &ArrayRef,
         indices: &ArrayRef,
         value_idx_offsets: &ArrayRef,
@@ -137,14 +137,12 @@ impl RLEData {
     /// * `values_idx_offsets` - Start indices for each value chunk.
     /// * `offset` - Offset into the first chunk
     /// * `length` - Array length
-    pub fn try_new(
-        values: ArrayRef,
-        indices: ArrayRef,
-        values_idx_offsets: ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<Self> {
-        Self::validate(&values, &indices, &values_idx_offsets, offset, length)?;
+    pub fn try_new(offset: usize) -> VortexResult<Self> {
+        vortex_ensure!(
+            offset < 1024,
+            "Offset must be smaller than 1024, got {}",
+            offset
+        );
         Ok(Self { offset })
     }
 
@@ -155,12 +153,7 @@ impl RLEData {
     /// - `offset + length` does not exceed the length of the indices array
     /// - The `indices` array contains valid indices into chunks of the `values` array
     /// - The `values_idx_offsets` array contains valid chunk start offsets
-    pub unsafe fn new_unchecked(
-        _values: ArrayRef,
-        _indices: ArrayRef,
-        _values_idx_offsets: ArrayRef,
-        offset: usize,
-    ) -> Self {
+    pub unsafe fn new_unchecked(offset: usize) -> Self {
         Self { offset }
     }
 

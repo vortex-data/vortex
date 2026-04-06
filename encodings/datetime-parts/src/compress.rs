@@ -67,7 +67,14 @@ impl TryFrom<TemporalArray> for DateTimePartsData {
             seconds,
             subseconds,
         } = split_temporal(array)?;
-        DateTimePartsData::try_new(DType::Extension(ext_dtype), days, seconds, subseconds)
+        DateTimePartsData::validate(
+            &DType::Extension(ext_dtype),
+            &days,
+            &seconds,
+            &subseconds,
+            days.len(),
+        )?;
+        Ok(DateTimePartsData {})
     }
 }
 

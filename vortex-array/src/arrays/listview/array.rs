@@ -138,16 +138,16 @@ pub struct ListViewDataParts {
 
 impl ListViewData {
     pub(crate) fn make_slots(
-        elements: ArrayRef,
-        offsets: ArrayRef,
-        sizes: ArrayRef,
+        elements: &ArrayRef,
+        offsets: &ArrayRef,
+        sizes: &ArrayRef,
         validity: &Validity,
         len: usize,
     ) -> Vec<Option<ArrayRef>> {
         vec![
-            Some(elements),
-            Some(offsets),
-            Some(sizes),
+            Some(elements.clone()),
+            Some(offsets.clone()),
+            Some(sizes.clone()),
             validity_to_child(validity, len),
         ]
     }
@@ -158,9 +158,10 @@ impl ListViewData {
     ///
     /// Panics if the provided components do not satisfy the invariants documented
     /// in `ListViewArray::new_unchecked`.
-    pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
-        Self::try_new(elements, offsets, sizes, validity)
-            .vortex_expect("`ListViewArray` construction failed")
+    pub fn new() -> Self {
+        Self {
+            is_zero_copy_to_list: false,
+        }
     }
 
     /// Constructs a new `ListViewArray`.
@@ -169,17 +170,8 @@ impl ListViewData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented
     /// in `ListViewArray::new_unchecked`.
-    pub fn try_new(
-        elements: ArrayRef,
-        offsets: ArrayRef,
-        sizes: ArrayRef,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        Self::validate(&elements, &offsets, &sizes, &validity)?;
-
-        Ok(Self {
-            is_zero_copy_to_list: false,
-        })
+    pub fn try_new() -> VortexResult<Self> {
+        Ok(Self::new())
     }
 
     /// Creates a new `ListViewArray` without validation.
@@ -201,20 +193,8 @@ impl ListViewData {
     /// - For each `i`, `offsets[i] + sizes[i]` must not overflow and must be `<= elements.len()`
     ///   (even if the corresponding view is defined as null by the validity array).
     /// - If validity is an array, its length must equal `offsets.len()`.
-    pub unsafe fn new_unchecked(
-        elements: ArrayRef,
-        offsets: ArrayRef,
-        sizes: ArrayRef,
-        validity: Validity,
-    ) -> Self {
-        if cfg!(debug_assertions) {
-            Self::validate(&elements, &offsets, &sizes, &validity)
-                .vortex_expect("Failed to crate `ListViewArray`");
-        }
-
-        Self {
-            is_zero_copy_to_list: false,
-        }
+    pub unsafe fn new_unchecked() -> Self {
+        Self::new()
     }
 
     /// Validates the components that would be used to create a `ListViewArray`.
@@ -310,6 +290,12 @@ impl ListViewData {
     }
 }
 
+impl Default for ListViewData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     fn nullability(&self) -> crate::dtype::Nullability {
         match self.as_ref().dtype() {
@@ -397,13 +383,15 @@ impl Array<ListView> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
         let slots = ListViewData::make_slots(
-            elements.clone(),
-            offsets.clone(),
-            sizes.clone(),
+            &elements,
+            &offsets,
+            &sizes,
             &validity,
             len,
         );
-        let data = ListViewData::new(elements, offsets, sizes, validity);
+        ListViewData::validate(&elements, &offsets, &sizes, &validity)
+            .vortex_expect("`ListViewArray` construction failed");
+        let data = ListViewData::new();
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
@@ -421,13 +409,14 @@ impl Array<ListView> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
         let slots = ListViewData::make_slots(
-            elements.clone(),
-            offsets.clone(),
-            sizes.clone(),
+            &elements,
+            &offsets,
+            &sizes,
             &validity,
             len,
         );
-        let data = ListViewData::try_new(elements, offsets, sizes, validity)?;
+        ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
+        let data = ListViewData::try_new()?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
@@ -449,13 +438,13 @@ impl Array<ListView> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
         let slots = ListViewData::make_slots(
-            elements.clone(),
-            offsets.clone(),
-            sizes.clone(),
+            &elements,
+            &offsets,
+            &sizes,
             &validity,
             len,
         );
-        let data = unsafe { ListViewData::new_unchecked(elements, offsets, sizes, validity) };
+        let data = unsafe { ListViewData::new_unchecked() };
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(ListView, dtype, len, data).with_slots(slots),

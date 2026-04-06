@@ -138,7 +138,7 @@ impl VTable for DecimalByteParts {
         );
 
         let slots = vec![Some(msp.clone())];
-        let data = DecimalBytePartsData::try_new(msp, *decimal_dtype)?;
+        let data = DecimalBytePartsData::try_new(msp.dtype(), msp.len(), *decimal_dtype)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -220,9 +220,18 @@ impl DecimalBytePartsData {
         Ok(())
     }
 
-    pub(crate) fn try_new(msp: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
-        let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
-        Self::validate(&msp, decimal_dtype, &dtype, msp.len())?;
+    pub(crate) fn try_new(
+        msp_dtype: &DType,
+        msp_len: usize,
+        decimal_dtype: DecimalDType,
+    ) -> VortexResult<Self> {
+        let expected_dtype = DType::Decimal(decimal_dtype, msp_dtype.nullability());
+        vortex_ensure!(
+            msp_dtype.is_signed_int(),
+            "decimal bytes parts, first part must be a signed array"
+        );
+        let _ = msp_len;
+        drop(expected_dtype);
         Ok(Self {
             _lower_parts: Vec::new(),
         })
@@ -243,7 +252,7 @@ impl DecimalByteParts {
         let len = msp.len();
         let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
         let slots = vec![Some(msp.clone())];
-        let data = DecimalBytePartsData::try_new(msp, decimal_dtype)?;
+        let data = DecimalBytePartsData::try_new(msp.dtype(), msp.len(), decimal_dtype)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(DecimalByteParts, dtype, len, data).with_slots(slots),

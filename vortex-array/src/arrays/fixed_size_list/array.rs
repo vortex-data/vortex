@@ -100,11 +100,11 @@ pub struct FixedSizeListDataParts {
 
 impl FixedSizeListData {
     pub(crate) fn make_slots(
-        elements: ArrayRef,
+        elements: &ArrayRef,
         validity: &Validity,
         len: usize,
     ) -> Vec<Option<ArrayRef>> {
-        vec![Some(elements), validity_to_child(validity, len)]
+        vec![Some(elements.clone()), validity_to_child(validity, len)]
     }
 
     /// Creates a new `FixedSizeListArray`.
@@ -113,8 +113,8 @@ impl FixedSizeListData {
     ///
     /// Panics if the provided components do not satisfy the invariants documented
     /// in `FixedSizeListArray::new_unchecked`.
-    pub fn new(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
-        Self::try_new(elements, list_size, validity, len)
+    pub fn build(elements: ArrayRef, list_size: u32, validity: Validity, len: usize) -> Self {
+        Self::try_build(elements, list_size, validity, len)
             .vortex_expect("FixedSizeListArray construction failed")
     }
 
@@ -126,7 +126,7 @@ impl FixedSizeListData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented
     /// in `FixedSizeListArray::new_unchecked`.
-    pub(crate) fn try_new(
+    pub(crate) fn try_build(
         elements: ArrayRef,
         list_size: u32,
         validity: Validity,
@@ -237,8 +237,8 @@ impl Array<FixedSizeList> {
             list_size,
             validity.nullability(),
         );
-        let slots = FixedSizeListData::make_slots(elements.clone(), &validity, len);
-        let data = FixedSizeListData::new(elements, list_size, validity, len);
+        let slots = FixedSizeListData::make_slots(&elements, &validity, len);
+        let data = FixedSizeListData::build(elements, list_size, validity, len);
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
@@ -258,8 +258,8 @@ impl Array<FixedSizeList> {
             list_size,
             validity.nullability(),
         );
-        let slots = FixedSizeListData::make_slots(elements.clone(), &validity, len);
-        let data = FixedSizeListData::try_new(elements, list_size, validity, len)?;
+        let slots = FixedSizeListData::make_slots(&elements, &validity, len);
+        let data = FixedSizeListData::try_build(elements, list_size, validity, len)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),
@@ -283,7 +283,7 @@ impl Array<FixedSizeList> {
             list_size,
             validity.nullability(),
         );
-        let slots = FixedSizeListData::make_slots(elements.clone(), &validity, len);
+        let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         let data = unsafe { FixedSizeListData::new_unchecked(list_size, len) };
         unsafe {
             Array::from_parts_unchecked(

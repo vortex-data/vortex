@@ -77,7 +77,7 @@ impl VTable for FoR {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let encoded = slots[0].as_ref().vortex_expect("FoRArray encoded slot");
-        FoRData::validate_parts(encoded, &data.reference, dtype, len)
+        FoRData::validate_parts(encoded.dtype(), encoded.len(), &data.reference, dtype, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -129,7 +129,7 @@ impl VTable for FoR {
         let encoded = children.get(0, dtype, len)?;
         let slots = vec![Some(encoded.clone())];
 
-        let data = FoRData::try_new(encoded, reference)?;
+        let data = FoRData::try_new(encoded.dtype(), encoded.len(), reference)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -170,7 +170,7 @@ impl FoR {
         let reference = reference.cast(&dtype)?;
         let len = encoded.len();
         let slots = vec![Some(encoded.clone())];
-        let data = FoRData::try_new(encoded, reference)?;
+        let data = FoRData::try_new(encoded.dtype(), encoded.len(), reference)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
         })

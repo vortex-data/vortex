@@ -169,8 +169,8 @@ impl VTable for List {
             len + 1,
         )?;
 
-        let data = ListData::try_new(elements.clone(), offsets.clone(), validity.clone())?;
-        let slots = ListData::make_slots(elements, offsets, &validity, len);
+        let data = ListData::try_build(elements.clone(), offsets.clone(), validity.clone())?;
+        let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 

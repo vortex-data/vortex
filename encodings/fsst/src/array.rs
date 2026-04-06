@@ -182,9 +182,16 @@ impl VTable for FSST {
                 len,
             )?;
 
+            FSSTData::validate_parts(
+                &symbols,
+                &symbol_lengths,
+                &codes,
+                &uncompressed_lengths,
+                dtype,
+                len,
+            )?;
             let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
-            let data =
-                FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, dtype)?;
+            let data = FSSTData::try_new(symbols, symbol_lengths, codes, dtype)?;
             return Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots));
         }
 
@@ -226,9 +233,16 @@ impl VTable for FSST {
                 codes_validity,
             )?;
 
+            FSSTData::validate_parts(
+                &symbols,
+                &symbol_lengths,
+                &codes,
+                &uncompressed_lengths,
+                dtype,
+                len,
+            )?;
             let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
-            let data =
-                FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, dtype)?;
+            let data = FSSTData::try_new(symbols, symbol_lengths, codes, dtype)?;
             return Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots));
         }
 
@@ -338,8 +352,16 @@ impl FSST {
         uncompressed_lengths: ArrayRef,
     ) -> VortexResult<FSSTArray> {
         let len = codes.len();
+        FSSTData::validate_parts(
+            &symbols,
+            &symbol_lengths,
+            &codes,
+            &uncompressed_lengths,
+            &dtype,
+            len,
+        )?;
         let slots = vec![
-            Some(uncompressed_lengths.clone()),
+            Some(uncompressed_lengths),
             Some(codes.offsets().clone()),
             validity_to_child(
                 &codes
@@ -348,7 +370,7 @@ impl FSST {
                 codes.len(),
             ),
         ];
-        let data = FSSTData::try_new(symbols, symbol_lengths, codes, uncompressed_lengths, &dtype)?;
+        let data = FSSTData::try_new(symbols, symbol_lengths, codes, &dtype)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
         })
@@ -363,7 +385,7 @@ impl FSST {
     ) -> FSSTArray {
         let len = codes.len();
         let slots = vec![
-            Some(uncompressed_lengths.clone()),
+            Some(uncompressed_lengths),
             Some(codes.offsets().clone()),
             validity_to_child(
                 &codes
@@ -372,9 +394,7 @@ impl FSST {
                 codes.len(),
             ),
         ];
-        let data = unsafe {
-            FSSTData::new_unchecked(symbols, symbol_lengths, codes, uncompressed_lengths)
-        };
+        let data = unsafe { FSSTData::new_unchecked(symbols, symbol_lengths, codes) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
         }
@@ -407,27 +427,10 @@ impl FSSTData {
         symbols: Buffer<Symbol>,
         symbol_lengths: Buffer<u8>,
         codes: VarBinArray,
-        uncompressed_lengths: ArrayRef,
-        dtype: &DType,
+        _dtype: &DType,
     ) -> VortexResult<Self> {
-        Self::validate_parts(
-            &symbols,
-            &symbol_lengths,
-            &codes,
-            &uncompressed_lengths,
-            dtype,
-            codes.len(),
-        )?;
-
         // SAFETY: all components validated above
-        unsafe {
-            Ok(Self::new_unchecked(
-                symbols,
-                symbol_lengths,
-                codes,
-                uncompressed_lengths,
-            ))
-        }
+        unsafe { Ok(Self::new_unchecked(symbols, symbol_lengths, codes)) }
     }
 
     pub fn validate(
@@ -494,7 +497,6 @@ impl FSSTData {
         symbols: Buffer<Symbol>,
         symbol_lengths: Buffer<u8>,
         codes: VarBinArray,
-        _uncompressed_lengths: ArrayRef,
     ) -> Self {
         let symbols2 = symbols.clone();
         let symbol_lengths2 = symbol_lengths.clone();

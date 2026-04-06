@@ -133,7 +133,7 @@ impl VTable for Extension {
             self.clone(),
             dtype.clone(),
             len,
-            ExtensionData::new(ext_dtype.clone(), storage.clone()),
+            ExtensionData::new(ext_dtype.clone(), storage.dtype()),
         )
         .with_slots(vec![Some(storage)]))
     }

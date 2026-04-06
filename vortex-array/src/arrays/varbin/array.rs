@@ -52,8 +52,8 @@ impl VarBinData {
     ///
     /// Panics if the provided components do not satisfy the invariants documented
     /// in `VarBinArray::new_unchecked`.
-    pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
-        Self::try_new(offsets, bytes, dtype, validity).vortex_expect("VarBinArray new")
+    pub fn build(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
+        Self::try_build(offsets, bytes, dtype, validity).vortex_expect("VarBinArray new")
     }
 
     /// Creates a new `VarBinArray`.
@@ -62,13 +62,14 @@ impl VarBinData {
     ///
     /// Panics if the provided components do not satisfy the invariants documented
     /// in `VarBinArray::new_unchecked`.
-    pub fn new_from_handle(
+    pub fn build_from_handle(
         offset: ArrayRef,
         bytes: BufferHandle,
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        Self::try_new_from_handle(offset, bytes, dtype, validity).vortex_expect("VarBinArray new")
+        Self::try_build_from_handle(offset, bytes, dtype, validity)
+            .vortex_expect("VarBinArray new")
     }
 
     pub(crate) fn make_slots(
@@ -87,7 +88,7 @@ impl VarBinData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
     /// `VarBinArray::new_unchecked`.
-    pub fn try_new(
+    pub fn try_build(
         offsets: ArrayRef,
         bytes: ByteBuffer,
         dtype: DType,
@@ -109,7 +110,7 @@ impl VarBinData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
     /// `VarBinArray::new_unchecked`.
-    pub fn try_new_from_handle(
+    pub fn try_build_from_handle(
         offsets: ArrayRef,
         bytes: BufferHandle,
         dtype: DType,
@@ -476,7 +477,7 @@ impl Array<VarBin> {
     pub fn new(offsets: ArrayRef, bytes: ByteBuffer, dtype: DType, validity: Validity) -> Self {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
-        let data = VarBinData::new(
+        let data = VarBinData::build(
             slots[OFFSETS_SLOT]
                 .as_ref()
                 .vortex_expect("VarBinArray offsets slot")
@@ -537,7 +538,7 @@ impl Array<VarBin> {
     ) -> VortexResult<Self> {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
-        let data = VarBinData::try_new(
+        let data = VarBinData::try_build(
             slots[OFFSETS_SLOT]
                 .as_ref()
                 .vortex_expect("VarBinArray offsets slot")

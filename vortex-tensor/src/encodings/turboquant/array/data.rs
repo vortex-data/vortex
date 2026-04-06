@@ -53,15 +53,10 @@ impl TurboQuantData {
     /// in [`new_unchecked`](Self::new_unchecked).
     pub fn try_new(
         dtype: &DType,
-        codes: ArrayRef,
-        norms: ArrayRef,
-        centroids: ArrayRef,
-        rotation_signs: ArrayRef,
+        centroids_len: usize,
     ) -> VortexResult<Self> {
-        Self::validate(dtype, &codes, &norms, &centroids, &rotation_signs)?;
-
         // SAFETY: we validate that the inputs are valid above.
-        Ok(unsafe { Self::new_unchecked(dtype, codes, norms, centroids, rotation_signs) })
+        Ok(unsafe { Self::new_unchecked(dtype, centroids_len) })
     }
 
     /// Build a TurboQuant array without validation.
@@ -85,27 +80,20 @@ impl TurboQuantData {
     /// Violating these invariants may produce incorrect results during decompression.
     pub unsafe fn new_unchecked(
         dtype: &DType,
-        codes: ArrayRef,
-        norms: ArrayRef,
-        centroids: ArrayRef,
-        rotation_signs: ArrayRef,
+        centroids_len: usize,
     ) -> Self {
-        #[cfg(debug_assertions)]
-        Self::validate(dtype, &codes, &norms, &centroids, &rotation_signs)
-            .vortex_expect("[Debug Assertion]: Invalid TurboQuantData parameters");
-
         let dimension = dtype
             .as_extension_opt()
             .and_then(|ext| extension_list_size(ext).ok())
             .vortex_expect("dtype must be a Vector extension type with FixedSizeList storage");
 
-        let bit_width = if centroids.is_empty() {
+        let bit_width = if centroids_len == 0 {
             0
         } else {
             // Guaranteed to be 1-8 by validate().
             #[expect(clippy::cast_possible_truncation)]
             {
-                centroids.len().trailing_zeros() as u8
+                centroids_len.trailing_zeros() as u8
             }
         };
 

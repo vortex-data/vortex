@@ -42,16 +42,16 @@ pub trait FilterArrayExt: TypedArrayRef<Filter> {
 impl<T: TypedArrayRef<Filter>> FilterArrayExt for T {}
 
 impl FilterData {
-    pub fn new(array: ArrayRef, mask: Mask) -> Self {
-        Self::try_new(array, mask).vortex_expect("FilterArray construction failed")
+    pub fn new(mask: Mask) -> Self {
+        Self { mask }
     }
 
-    fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
+    fn try_new(array_len: usize, mask: Mask) -> VortexResult<Self> {
         vortex_ensure_eq!(
-            array.len(),
+            array_len,
             mask.len(),
             "FilterArray length mismatch: array has length {} but mask has length {}",
-            array.len(),
+            array_len,
             mask.len()
         );
 
@@ -83,7 +83,7 @@ impl Array<Filter> {
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
         let dtype = array.dtype().clone();
         let len = mask.true_count();
-        let data = FilterData::new(array.clone(), mask);
+        let data = FilterData::new(mask);
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Filter, dtype, len, data).with_slots(vec![Some(array)]),
@@ -95,7 +95,7 @@ impl Array<Filter> {
     pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
         let dtype = array.dtype().clone();
         let len = mask.true_count();
-        let data = FilterData::try_new(array.clone(), mask)?;
+        let data = FilterData::try_new(array.len(), mask)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Filter, dtype, len, data).with_slots(vec![Some(array)]),

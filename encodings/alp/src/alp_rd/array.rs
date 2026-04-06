@@ -192,13 +192,19 @@ impl VTable for ALPRD {
                 )
             })
             .transpose()?;
+        let left_parts_patches =
+            ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
 
+        ALPRDData::validate_parts(
+            dtype,
+            len,
+            &left_parts,
+            &right_parts,
+            left_parts_patches.as_ref(),
+        )?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
         let data = ALPRDData::try_new(
-            dtype.clone(),
-            left_parts,
             left_parts_dictionary,
-            right_parts,
             u8::try_from(metadata.right_bit_width).map_err(|_| {
                 vortex_err!(
                     "right_bit_width {} out of u8 range",
@@ -345,25 +351,27 @@ impl ALPRD {
         left_parts_patches: Option<Patches>,
     ) -> VortexResult<ALPRDArray> {
         let len = left_parts.len();
-        let logical_dtype = dtype.clone();
-        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
-        let data = ALPRDData::try_new(
-            dtype,
-            left_parts,
-            left_parts_dictionary,
-            right_parts,
-            right_bit_width,
-            left_parts_patches,
+        let left_parts_patches =
+            ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
+        ALPRDData::validate_parts(
+            &dtype,
+            len,
+            &left_parts,
+            &right_parts,
+            left_parts_patches.as_ref(),
         )?;
+        let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
+        let data =
+            ALPRDData::try_new(left_parts_dictionary, right_bit_width, left_parts_patches)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(ALPRD, logical_dtype, len, data).with_slots(slots),
+                ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots),
             )
         })
     }
 
     /// # Safety
-    /// See [`ALPRDData::try_new`] for preconditions.
+    /// See [`ALPRDData::validate_parts`] for preconditions.
     pub unsafe fn new_unchecked(
         dtype: DType,
         left_parts: ArrayRef,
@@ -384,6 +392,26 @@ impl ALPRD {
 }
 
 impl ALPRDData {
+    fn canonicalize_patches(
+        left_parts: &ArrayRef,
+        left_parts_patches: Option<Patches>,
+    ) -> VortexResult<Option<Patches>> {
+        left_parts_patches
+            .map(|patches| {
+                if !patches.values().all_valid()? {
+                    vortex_bail!("patches must be all valid: {}", patches.values());
+                }
+                // TODO(ngates): assert the DType, don't cast it.
+                // TODO(joe): assert the DType, don't cast it in the next PR.
+                let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
+                // Force execution of the lazy cast so patch values are materialized
+                // before serialization.
+                *patches.values_mut() = patches.values().to_canonical()?.into_array();
+                Ok(patches)
+            })
+            .transpose()
+    }
+
     fn validate_parts(
         dtype: &DType,
         len: usize,
@@ -479,40 +507,14 @@ impl ALPRDData {
 
     /// Build a new `ALPRDArray` from components.
     pub fn try_new(
-        dtype: DType,
-        left_parts: ArrayRef,
         left_parts_dictionary: Buffer<u16>,
-        right_parts: ArrayRef,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> VortexResult<Self> {
-        let len = left_parts.len();
-        let left_parts_patches = left_parts_patches
-            .map(|patches| {
-                if !patches.values().all_valid()? {
-                    vortex_bail!("patches must be all valid: {}", patches.values());
-                }
-                // TODO(ngates): assert the DType, don't cast it.
-                // TODO(joe): assert the DType, don't cast it in the next PR.
-                let mut patches = patches.cast_values(&left_parts.dtype().as_nonnullable())?;
-                // Force execution of the lazy cast so patch values are materialized
-                // before serialization.
-                *patches.values_mut() = patches.values().to_canonical()?.into_array();
-                Ok(patches)
-            })
-            .transpose()?;
         let (patch_offset, patch_offset_within_chunk) = match &left_parts_patches {
             Some(patches) => (Some(patches.offset()), patches.offset_within_chunk()),
             None => (None, None),
         };
-
-        Self::validate_parts(
-            &dtype,
-            len,
-            &left_parts,
-            &right_parts,
-            left_parts_patches.as_ref(),
-        )?;
 
         Ok(Self {
             patch_offset,

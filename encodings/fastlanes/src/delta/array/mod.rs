@@ -88,16 +88,9 @@ impl<T: TypedArrayRef<crate::Delta>> DeltaArrayExt for T {}
 impl DeltaData {
     /// Create a DeltaArray from the given `bases` and `deltas` arrays
     /// with given `offset` into first chunk and `logical_len` length.
-    pub fn try_new(
-        bases: ArrayRef,
-        deltas: ArrayRef,
-        offset: usize,
-        len: usize,
-    ) -> VortexResult<Self> {
-        Self::validate_parts(&bases, &deltas, offset, len)?;
-
-        // SAFETY: validation done above
-        Ok(unsafe { Self::new_unchecked(offset) })
+    pub fn try_new(offset: usize) -> VortexResult<Self> {
+        vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
+        Ok(Self { offset })
     }
 
     pub(crate) fn validate_against_slots(
@@ -116,7 +109,7 @@ impl DeltaData {
         Ok(())
     }
 
-    fn validate_parts(
+    pub(crate) fn validate_parts(
         bases: &ArrayRef,
         deltas: &ArrayRef,
         offset: usize,
@@ -156,9 +149,6 @@ impl DeltaData {
         Ok(())
     }
 
-    pub(crate) unsafe fn new_unchecked(offset: usize) -> Self {
-        Self { offset }
-    }
 }
 
 pub(crate) fn lane_count(ptype: PType) -> usize {

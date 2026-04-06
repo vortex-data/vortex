@@ -68,8 +68,8 @@ impl ExtensionData {
     /// # Panics
     ///
     /// Panics if the storage array in not compatible with the extension dtype.
-    pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
-        Self::try_new(ext_dtype, storage_array).vortex_expect("Failed to create `ExtensionArray`")
+    pub fn new(ext_dtype: ExtDTypeRef, storage_dtype: &DType) -> Self {
+        Self::try_new(ext_dtype, storage_dtype).vortex_expect("Failed to create `ExtensionArray`")
     }
 
     /// Tries to construct a new `ExtensionArray`.
@@ -77,17 +77,17 @@ impl ExtensionData {
     /// # Errors
     ///
     /// Returns an error if the storage array in not compatible with the extension dtype.
-    pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
+    pub fn try_new(ext_dtype: ExtDTypeRef, storage_dtype: &DType) -> VortexResult<Self> {
         // TODO(connor): Replace these statements once we add `validate_storage_array`.
         // ext_dtype.validate_storage_array(&storage_array)?;
         assert_eq!(
             ext_dtype.storage_dtype(),
-            storage_array.dtype(),
+            storage_dtype,
             "ExtensionArray: storage_dtype must match storage array DType",
         );
 
         // SAFETY: we validate that the inputs are valid above.
-        Ok(unsafe { Self::new_unchecked(ext_dtype, storage_array) })
+        Ok(unsafe { Self::new_unchecked(ext_dtype, storage_dtype) })
     }
 
     /// Creates a new `ExtensionArray`.
@@ -97,7 +97,7 @@ impl ExtensionData {
     /// The caller must ensure that the storage array is compatible with the extension dtype. In
     /// other words, they must know that `ext_dtype.validate_storage_array(&storage_array)` has been
     /// called successfully on this storage array.
-    pub unsafe fn new_unchecked(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
+    pub unsafe fn new_unchecked(ext_dtype: ExtDTypeRef, storage_dtype: &DType) -> Self {
         // TODO(connor): Replace these statements once we add `validate_storage_array`.
         // #[cfg(debug_assertions)]
         // ext_dtype
@@ -105,7 +105,7 @@ impl ExtensionData {
         //     .vortex_expect("[Debug Assertion]: Invalid storage array for `ExtensionArray`");
         debug_assert_eq!(
             ext_dtype.storage_dtype(),
-            storage_array.dtype(),
+            storage_dtype,
             "ExtensionArray: storage_dtype must match storage array DType",
         );
 
@@ -141,7 +141,7 @@ impl Array<Extension> {
     pub fn new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> Self {
         let dtype = DType::Extension(ext_dtype.clone());
         let len = storage_array.len();
-        let data = ExtensionData::new(ext_dtype, storage_array.clone());
+        let data = ExtensionData::new(ext_dtype, storage_array.dtype());
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Extension, dtype, len, data).with_slots(vec![Some(storage_array)]),
@@ -153,7 +153,7 @@ impl Array<Extension> {
     pub fn try_new(ext_dtype: ExtDTypeRef, storage_array: ArrayRef) -> VortexResult<Self> {
         let dtype = DType::Extension(ext_dtype.clone());
         let len = storage_array.len();
-        let data = ExtensionData::try_new(ext_dtype, storage_array.clone())?;
+        let data = ExtensionData::try_new(ext_dtype, storage_array.dtype())?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Extension, dtype, len, data).with_slots(vec![Some(storage_array)]),

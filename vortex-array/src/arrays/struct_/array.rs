@@ -178,7 +178,7 @@ impl StructData {
 
     /// Create a new `StructArray` with the given length, but without any fields.
     pub fn new_fieldless_with_len(len: usize) -> Self {
-        Self::try_new(
+        Self::try_build(
             FieldNames::default(),
             Vec::new(),
             len,
@@ -193,13 +193,13 @@ impl StructData {
     ///
     /// Panics if the provided components do not satisfy the invariants documented
     /// in `StructArray::new_unchecked`.
-    pub fn new(
+    pub fn build(
         names: FieldNames,
         fields: impl Into<Arc<[ArrayRef]>>,
         length: usize,
         validity: Validity,
     ) -> Self {
-        Self::try_new(names, fields, length, validity)
+        Self::try_build(names, fields, length, validity)
             .vortex_expect("StructArray construction failed")
     }
 
@@ -211,7 +211,7 @@ impl StructData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
     /// `StructArray::new_unchecked`.
-    pub(crate) fn try_new(
+    pub(crate) fn try_build(
         names: FieldNames,
         fields: impl Into<Arc<[ArrayRef]>>,
         length: usize,
@@ -399,7 +399,7 @@ impl Array<Struct> {
             validity.nullability(),
         );
         let slots = StructData::make_slots(&fields, &validity, length);
-        let data = StructData::new(names, fields, length, validity);
+        let data = StructData::build(names, fields, length, validity);
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Struct, dtype, length, data).with_slots(slots),
@@ -421,7 +421,7 @@ impl Array<Struct> {
             validity.nullability(),
         );
         let slots = StructData::make_slots(&fields, &validity, length);
-        let data = StructData::try_new(names, fields, length, validity)?;
+        let data = StructData::try_build(names, fields, length, validity)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Struct, dtype, length, data).with_slots(slots),

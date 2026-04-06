@@ -192,13 +192,9 @@ impl VTable for ListView {
             len,
         )?;
 
-        let data = ListViewData::try_new(
-            elements.clone(),
-            offsets.clone(),
-            sizes.clone(),
-            validity.clone(),
-        )?;
-        let slots = ListViewData::make_slots(elements, offsets, sizes, &validity, len);
+        ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
+        let data = ListViewData::try_new()?;
+        let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 

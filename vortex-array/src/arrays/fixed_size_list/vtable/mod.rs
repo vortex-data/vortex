@@ -184,8 +184,9 @@ impl VTable for FixedSizeList {
         let num_elements = len * (*list_size as usize);
         let elements = children.get(0, element_dtype.as_ref(), num_elements)?;
 
-        let data = FixedSizeListData::try_new(elements.clone(), *list_size, validity.clone(), len)?;
-        let slots = FixedSizeListData::make_slots(elements, &validity, len);
+        let data =
+            FixedSizeListData::try_build(elements.clone(), *list_size, validity.clone(), len)?;
+        let slots = FixedSizeListData::make_slots(&elements, &validity, len);
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 

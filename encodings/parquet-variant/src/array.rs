@@ -79,13 +79,21 @@ impl ParquetVariant {
     ) -> VortexResult<Array<Self>> {
         let len = metadata.len();
         let dtype = DType::Variant(validity.nullability());
+        ParquetVariantData::validate_parts(
+            &validity,
+            &metadata,
+            value.as_ref(),
+            typed_value.as_ref(),
+            &dtype,
+            len,
+        )?;
         let slots = vec![
             validity_to_child(&validity, len),
-            Some(metadata.clone()),
-            value.clone(),
-            typed_value.clone(),
+            Some(metadata),
+            value,
+            typed_value,
         ];
-        let data = ParquetVariantData::try_new(validity, metadata, value, typed_value)?;
+        let data = ParquetVariantData;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(ParquetVariant, dtype, len, data).with_slots(slots),
@@ -95,26 +103,6 @@ impl ParquetVariant {
 }
 
 impl ParquetVariantData {
-    /// Creates a Parquet Variant array with explicit outer validity.
-    pub fn try_new(
-        validity: Validity,
-        metadata: ArrayRef,
-        value: Option<ArrayRef>,
-        typed_value: Option<ArrayRef>,
-    ) -> VortexResult<ParquetVariantData> {
-        let len = metadata.len();
-        let dtype = DType::Variant(validity.nullability());
-        Self::validate_parts(
-            &validity,
-            &metadata,
-            value.as_ref(),
-            typed_value.as_ref(),
-            &dtype,
-            len,
-        )?;
-        Ok(Self)
-    }
-
     pub(crate) fn validate_slots(
         dtype: &DType,
         len: usize,
@@ -133,7 +121,7 @@ impl ParquetVariantData {
         )
     }
 
-    fn validate_parts(
+    pub(crate) fn validate_parts(
         validity: &Validity,
         metadata: &ArrayRef,
         value: Option<&ArrayRef>,

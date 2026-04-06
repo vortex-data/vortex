@@ -159,7 +159,7 @@ impl VTable for VarBin {
         }
         let bytes = buffers[0].clone().try_to_host_sync()?;
 
-        let data = VarBinData::try_new(offsets.clone(), bytes, dtype.clone(), validity.clone())?;
+        let data = VarBinData::try_build(offsets.clone(), bytes, dtype.clone(), validity.clone())?;
         let slots = VarBinData::make_slots(offsets, &validity, len);
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }

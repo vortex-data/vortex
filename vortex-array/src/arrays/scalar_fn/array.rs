@@ -22,7 +22,7 @@ pub struct ScalarFnData {
 
 impl ScalarFnData {
     /// Create a new ScalarFnArray from a scalar function and its children.
-    pub fn try_new(
+    pub fn build(
         scalar_fn: ScalarFnRef,
         children: Vec<ArrayRef>,
         len: usize,
@@ -104,7 +104,7 @@ impl Array<ScalarFnVTable> {
     ) -> VortexResult<Self> {
         let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
-        let data = ScalarFnData::try_new(scalar_fn.clone(), children.clone(), len)?;
+        let data = ScalarFnData::build(scalar_fn.clone(), children.clone(), len)?;
         let vtable = ScalarFnVTable { scalar_fn };
         Ok(unsafe {
             Array::from_parts_unchecked(

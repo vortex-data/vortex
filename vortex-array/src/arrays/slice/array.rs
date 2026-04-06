@@ -37,19 +37,19 @@ pub trait SliceArrayExt: TypedArrayRef<Slice> {
 impl<T: TypedArrayRef<Slice>> SliceArrayExt for T {}
 
 impl SliceData {
-    fn try_new(child: &ArrayRef, range: Range<usize>) -> VortexResult<Self> {
-        if range.end > child.len() {
+    fn try_new(child_len: usize, range: Range<usize>) -> VortexResult<Self> {
+        if range.end > child_len {
             vortex_panic!(
                 "SliceArray range out of bounds: range {:?} exceeds child array length {}",
                 range,
-                child.len()
+                child_len
             );
         }
         Ok(Self { range })
     }
 
-    pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
-        Self::try_new(&child, range).vortex_expect("failed")
+    pub fn new(range: Range<usize>) -> Self {
+        Self { range }
     }
 
     /// Returns the length of this array.
@@ -77,7 +77,7 @@ impl Array<Slice> {
     pub fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
         let len = range.len();
         let dtype = child.dtype().clone();
-        let data = SliceData::try_new(&child, range)?;
+        let data = SliceData::try_new(child.len(), range)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Slice, dtype, len, data).with_slots(vec![Some(child)]),
@@ -89,7 +89,7 @@ impl Array<Slice> {
     pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
         let len = range.len();
         let dtype = child.dtype().clone();
-        let data = SliceData::new(child.clone(), range);
+        let data = SliceData::new(range);
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Slice, dtype, len, data).with_slots(vec![Some(child)]),

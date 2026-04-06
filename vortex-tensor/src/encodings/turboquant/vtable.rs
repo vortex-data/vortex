@@ -88,13 +88,8 @@ impl TurboQuant {
         rotation_signs: ArrayRef,
     ) -> VortexResult<TurboQuantArray> {
         let len = norms.len();
-        let data = TurboQuantData::try_new(
-            &dtype,
-            codes.clone(),
-            norms.clone(),
-            centroids.clone(),
-            rotation_signs.clone(),
-        )?;
+        TurboQuantData::validate(&dtype, &codes, &norms, &centroids, &rotation_signs)?;
+        let data = TurboQuantData::try_new(&dtype, centroids.len())?;
         let parts = ArrayParts::new(TurboQuant, dtype, len, data).with_slots(
             TurboQuantData::make_slots(codes, norms, centroids, rotation_signs),
         );

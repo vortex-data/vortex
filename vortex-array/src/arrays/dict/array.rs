@@ -15,6 +15,7 @@ use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::arrays::Dict;
+use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 
@@ -82,8 +83,8 @@ impl DictData {
     ///
     /// This constructor will panic if `codes` or `values` do not pass validation for building
     /// a new `DictArray`. See `DictArray::try_new` for a description of the error conditions.
-    pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
-        Self::try_new(codes, values).vortex_expect("DictArray new")
+    pub fn new(codes_dtype: &DType) -> Self {
+        Self::try_new(codes_dtype).vortex_expect("DictArray new")
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
@@ -97,9 +98,9 @@ impl DictData {
     /// of the `values` array. Otherwise, this constructor returns an error.
     ///
     /// It is an error to provide a nullable `codes` with non-nullable `values`.
-    pub(crate) fn try_new(codes: ArrayRef, _values: ArrayRef) -> VortexResult<Self> {
-        if !codes.dtype().is_int() {
-            vortex_bail!(MismatchedTypes: "int", codes.dtype());
+    pub(crate) fn try_new(codes_dtype: &DType) -> VortexResult<Self> {
+        if !codes_dtype.is_int() {
+            vortex_bail!(MismatchedTypes: "int", codes_dtype);
         }
 
         Ok(unsafe { Self::new_unchecked() })
@@ -217,7 +218,7 @@ impl Array<Dict> {
             .dtype()
             .union_nullability(codes.dtype().nullability());
         let len = codes.len();
-        let data = DictData::new(codes.clone(), values.clone());
+        let data = DictData::new(codes.dtype());
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),
@@ -231,7 +232,7 @@ impl Array<Dict> {
             .dtype()
             .union_nullability(codes.dtype().nullability());
         let len = codes.len();
-        let data = DictData::try_new(codes.clone(), values.clone())?;
+        let data = DictData::try_new(codes.dtype())?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),

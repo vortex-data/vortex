@@ -154,7 +154,8 @@ impl VTable for ALP {
 
         let slots = ALPData::make_slots(&encoded, &patches);
         let data = ALPData::try_new(
-            encoded,
+            encoded.dtype(),
+            encoded.len(),
             Exponents {
                 e: u8::try_from(metadata.exp_e)?,
                 f: u8::try_from(metadata.exp_f)?,
@@ -355,8 +356,14 @@ impl ALPData {
     ///
     /// See [`ALPData::try_new`] for reference on preconditions that must pass before
     /// calling this method.
-    pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> Self {
-        Self::try_new(encoded, exponents, patches).vortex_expect("ALPArray new")
+    pub fn new(
+        encoded_dtype: &DType,
+        encoded_len: usize,
+        exponents: Exponents,
+        patches: Option<Patches>,
+    ) -> Self {
+        Self::try_new(encoded_dtype, encoded_len, exponents, patches)
+            .vortex_expect("ALPArray new")
     }
 
     /// Build a new `ALPArray` from components:
@@ -411,11 +418,58 @@ impl ALPData {
     /// assert_eq!(value.scalar_at(0).unwrap(), 0f32.into());
     /// ```
     pub fn try_new(
-        encoded: ArrayRef,
+        encoded_dtype: &DType,
+        encoded_len: usize,
         exponents: Exponents,
         patches: Option<Patches>,
     ) -> VortexResult<Self> {
-        Self::validate_components(&encoded, exponents, patches.as_ref())?;
+        vortex_ensure!(
+            matches!(encoded_dtype, DType::Primitive(PType::I32 | PType::I64, _)),
+            "ALP encoded ints have invalid DType {}",
+            encoded_dtype,
+        );
+        let Exponents { e, f } = exponents;
+        match encoded_dtype.as_ptype() {
+            PType::I32 => {
+                vortex_ensure!(exponents.e <= f32::MAX_EXPONENT, "e out of bounds: {e}");
+                vortex_ensure!(exponents.f <= f32::MAX_EXPONENT, "f out of bounds: {f}");
+                if let Some(patches) = patches.as_ref() {
+                    vortex_ensure!(
+                        patches.array_len() == encoded_len,
+                        "patches array_len != encoded len: {} != {}",
+                        patches.array_len(),
+                        encoded_len
+                    );
+                    let expected_type =
+                        DType::Primitive(PType::F32, encoded_dtype.nullability());
+                    vortex_ensure!(
+                        patches.dtype() == &expected_type,
+                        "Expected patches type {expected_type}, actual {}",
+                        patches.dtype(),
+                    );
+                }
+            }
+            PType::I64 => {
+                vortex_ensure!(e <= f64::MAX_EXPONENT, "e out of bounds: {e}");
+                vortex_ensure!(f <= f64::MAX_EXPONENT, "f out of bounds: {f}");
+                if let Some(patches) = patches.as_ref() {
+                    vortex_ensure!(
+                        patches.array_len() == encoded_len,
+                        "patches array_len != encoded len: {} != {}",
+                        patches.array_len(),
+                        encoded_len
+                    );
+                    let expected_type =
+                        DType::Primitive(PType::F64, encoded_dtype.nullability());
+                    vortex_ensure!(
+                        patches.dtype() == &expected_type,
+                        "Expected patches type {expected_type}, actual {}",
+                        patches.dtype(),
+                    );
+                }
+            }
+            _ => unreachable!(),
+        }
         let (patch_offset, patch_offset_within_chunk) = match &patches {
             Some(p) => (Some(p.offset()), p.offset_within_chunk()),
             None => (None, None),
@@ -454,7 +508,12 @@ impl ALP {
         let slots = ALPData::make_slots(&encoded, &patches);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(ALP, dtype, len, ALPData::new(encoded, exponents, patches))
+                ArrayParts::new(
+                    ALP,
+                    dtype,
+                    len,
+                    ALPData::new(encoded.dtype(), encoded.len(), exponents, patches),
+                )
                     .with_slots(slots),
             )
         }
@@ -468,7 +527,7 @@ impl ALP {
         let dtype = ALPData::logical_dtype(&encoded)?;
         let len = encoded.len();
         let slots = ALPData::make_slots(&encoded, &patches);
-        let data = ALPData::try_new(encoded, exponents, patches)?;
+        let data = ALPData::try_new(encoded.dtype(), encoded.len(), exponents, patches)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
         })

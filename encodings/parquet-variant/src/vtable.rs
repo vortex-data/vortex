@@ -174,13 +174,21 @@ impl VTable for ParquetVariant {
             None
         };
 
+        ParquetVariantData::validate_parts(
+            &validity,
+            &variant_metadata,
+            value.as_ref(),
+            typed_value.as_ref(),
+            dtype,
+            len,
+        )?;
         let slots = vec![
             validity_to_child(&validity, len),
-            Some(variant_metadata.clone()),
-            value.clone(),
-            typed_value.clone(),
+            Some(variant_metadata),
+            value,
+            typed_value,
         ];
-        let data = ParquetVariantData::try_new(validity, variant_metadata, value, typed_value)?;
+        let data = ParquetVariantData;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 

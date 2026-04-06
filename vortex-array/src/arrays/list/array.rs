@@ -105,14 +105,14 @@ pub struct ListDataParts {
 
 impl ListData {
     pub(crate) fn make_slots(
-        elements: ArrayRef,
-        offsets: ArrayRef,
+        elements: &ArrayRef,
+        offsets: &ArrayRef,
         validity: &Validity,
         len: usize,
     ) -> Vec<Option<ArrayRef>> {
         vec![
-            Some(elements),
-            Some(offsets),
+            Some(elements.clone()),
+            Some(offsets.clone()),
             validity_to_child(validity, len),
         ]
     }
@@ -123,8 +123,8 @@ impl ListData {
     ///
     /// Panics if the provided components do not satisfy the invariants documented
     /// in `ListArray::new_unchecked`.
-    pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
-        Self::try_new(elements, offsets, validity).vortex_expect("ListArray new")
+    pub fn build(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
+        Self::try_build(elements, offsets, validity).vortex_expect("ListArray new")
     }
 
     /// Constructs a new `ListArray`.
@@ -135,7 +135,7 @@ impl ListData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented in
     /// `ListArray::new_unchecked`.
-    pub(crate) fn try_new(
+    pub(crate) fn try_build(
         elements: ArrayRef,
         offsets: ArrayRef,
         validity: Validity,
@@ -323,8 +323,8 @@ impl Array<List> {
     pub fn new(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len().saturating_sub(1);
-        let slots = ListData::make_slots(elements.clone(), offsets.clone(), &validity, len);
-        let data = ListData::new(elements, offsets, validity);
+        let slots = ListData::make_slots(&elements, &offsets, &validity, len);
+        let data = ListData::build(elements, offsets, validity);
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
         }
@@ -338,8 +338,8 @@ impl Array<List> {
     ) -> VortexResult<Self> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len().saturating_sub(1);
-        let slots = ListData::make_slots(elements.clone(), offsets.clone(), &validity, len);
-        let data = ListData::try_new(elements, offsets, validity)?;
+        let slots = ListData::make_slots(&elements, &offsets, &validity, len);
+        let data = ListData::try_build(elements, offsets, validity)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
         })
@@ -353,7 +353,7 @@ impl Array<List> {
     pub unsafe fn new_unchecked(elements: ArrayRef, offsets: ArrayRef, validity: Validity) -> Self {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len().saturating_sub(1);
-        let slots = ListData::make_slots(elements.clone(), offsets.clone(), &validity, len);
+        let slots = ListData::make_slots(&elements, &offsets, &validity, len);
         let data = unsafe { ListData::new_unchecked() };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))

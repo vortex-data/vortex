@@ -225,14 +225,15 @@ impl Sparse {
         fill_value: Scalar,
     ) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
-        let slots = SparseData::make_slots(&Patches::new(
+        let patches = Patches::new(
             len,
             0,
-            indices.clone(),
-            values.clone(),
+            indices,
+            values,
             None,
-        )?);
-        let data = SparseData::try_new(indices, values, len, fill_value)?;
+        )?;
+        let slots = SparseData::make_slots(&patches);
+        let data = SparseData::try_new_from_patches(patches, fill_value)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
         })
@@ -265,25 +266,6 @@ impl Sparse {
 }
 
 impl SparseData {
-    fn normalize_values_dtype(values: ArrayRef, fill_value: &Scalar) -> VortexResult<ArrayRef> {
-        let fill_dtype = fill_value.dtype();
-        let values_dtype = values.dtype();
-
-        vortex_ensure!(
-            values_dtype.eq_ignore_nullability(fill_dtype),
-            "fill value, {:?}, should be instance of values dtype, {} but was {}.",
-            fill_value,
-            values_dtype,
-            fill_dtype,
-        );
-
-        if values_dtype == fill_dtype {
-            Ok(values)
-        } else {
-            values.cast(fill_dtype.clone())
-        }
-    }
-
     fn normalize_patches_dtype(patches: Patches, fill_value: &Scalar) -> VortexResult<Patches> {
         let fill_dtype = fill_value.dtype();
         let values_dtype = patches.values().dtype();
@@ -336,44 +318,6 @@ impl SparseData {
             Some(patches.values().clone()),
             patches.chunk_offsets().clone(),
         ]
-    }
-
-    pub fn try_new(
-        indices: ArrayRef,
-        values: ArrayRef,
-        len: usize,
-        fill_value: Scalar,
-    ) -> VortexResult<Self> {
-        vortex_ensure!(
-            indices.len() == values.len(),
-            "Mismatched indices {} and values {} length",
-            indices.len(),
-            values.len()
-        );
-
-        if indices.is_host() {
-            debug_assert_eq!(
-                indices.statistics().compute_is_strict_sorted(),
-                Some(true),
-                "SparseArray: indices must be strict-sorted"
-            );
-
-            // Verify the indices are all in the valid range
-            if !indices.is_empty() {
-                let last_index = usize::try_from(&indices.scalar_at(indices.len() - 1)?)?;
-
-                vortex_ensure!(
-                    last_index < len,
-                    "Array length was {len} but the last index is {last_index}"
-                );
-            }
-        }
-
-        let values = Self::normalize_values_dtype(values, &fill_value)?;
-
-        // TODO(0ax1): handle chunk offsets
-        let patches = Patches::new(len, 0, indices, values, None)?;
-        Self::try_new_from_patches(patches, fill_value)
     }
 
     /// Build a new SparseArray from an existing set of patches.

@@ -142,7 +142,7 @@ impl VTable for Masked {
         };
 
         let validity_slot = validity_to_child(&validity, len);
-        let data = MaskedData::try_new(child.clone(), validity)?;
+        let data = MaskedData::try_new(len, child.all_valid()?, validity)?;
         Ok(
             crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
                 .with_slots(vec![Some(child), validity_slot]),

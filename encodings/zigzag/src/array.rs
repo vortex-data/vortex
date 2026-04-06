@@ -114,7 +114,7 @@ impl VTable for ZigZag {
 
         let encoded = children.get(0, &encoded_type, len)?;
         let slots = vec![Some(encoded.clone())];
-        let data = ZigZagData::try_new(encoded)?;
+        let data = ZigZagData::try_new(encoded.dtype())?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -191,7 +191,7 @@ impl ZigZag {
         let dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;
         let len = encoded.len();
         let slots = vec![Some(encoded.clone())];
-        let data = ZigZagData::try_new(encoded)?;
+        let data = ZigZagData::try_new(encoded.dtype())?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(ZigZag, dtype, len, data).with_slots(slots))
         })
@@ -204,19 +204,24 @@ impl ZigZagData {
             .with_nullability(encoded_dtype.nullability()))
     }
 
-    pub fn new(encoded: ArrayRef) -> Self {
-        Self::try_new(encoded).vortex_expect("ZigZagArray new")
+    pub fn new() -> Self {
+        Self {}
     }
 
-    pub fn try_new(encoded: ArrayRef) -> VortexResult<Self> {
-        let encoded_dtype = encoded.dtype().clone();
+    pub fn try_new(encoded_dtype: &DType) -> VortexResult<Self> {
         if !encoded_dtype.is_unsigned_int() {
             vortex_bail!(MismatchedTypes: "unsigned int", encoded_dtype);
         }
 
-        Self::dtype_from_encoded_dtype(&encoded_dtype)?;
+        Self::dtype_from_encoded_dtype(encoded_dtype)?;
 
         Ok(Self {})
+    }
+}
+
+impl Default for ZigZagData {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
