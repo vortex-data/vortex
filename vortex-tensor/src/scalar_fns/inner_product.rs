@@ -36,8 +36,6 @@ use crate::encodings::turboquant::compute::cosine_similarity;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extract_flat_elements;
-use crate::utils::tensor_element_ptype;
-use crate::vector::AnyVector;
 
 /// Inner product (dot product) between two columns.
 ///
@@ -129,7 +127,10 @@ impl ScalarFnVTable for InnerProduct {
             "InnerProduct inputs must be an `AnyTensor`, got {lhs}"
         );
 
-        let ptype = tensor_element_ptype(lhs_ext)?;
+        let tensor_match = lhs_ext
+            .metadata_opt::<AnyTensor>()
+            .ok_or_else(|| vortex_err!("InnerProduct inputs must be an `AnyTensor`, got {lhs}"))?;
+        let ptype = tensor_match.element_ptype();
         // TODO(connor): This should support integer tensors!
         vortex_ensure!(
             ptype.is_float(),
@@ -153,10 +154,10 @@ impl ScalarFnVTable for InnerProduct {
 
         // We validated that both inputs have the same type.
         let ext = lhs_ref.dtype().as_extension();
-        let vector_metadata = ext
-            .metadata_opt::<AnyVector>()
+        let tensor_match = ext
+            .metadata_opt::<AnyTensor>()
             .vortex_expect("we already validated this in `return_dtype`");
-        let dimensions = vector_metadata.dimensions() as usize;
+        let dimensions = tensor_match.list_size();
 
         // TurboQuant approximate path: check encoding before executing.
         if options.is_approx()

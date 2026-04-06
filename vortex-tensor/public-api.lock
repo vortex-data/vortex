@@ -14,7 +14,7 @@ pub const vortex_tensor::encodings::turboquant::TurboQuant::MIN_DIMENSION: u32
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::try_new_array(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_tensor::encodings::turboquant::TurboQuantArray>
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::validate_dtype(dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<&vortex_array::dtype::extension::erased::ExtDTypeRef>
+pub fn vortex_tensor::encodings::turboquant::TurboQuant::validate_dtype(dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_tensor::vector::VectorMatcherMetadata>
 
 impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuant
 
@@ -188,6 +188,14 @@ pub type vortex_tensor::encodings::turboquant::TurboQuantArray = vortex_array::a
 
 pub mod vortex_tensor::fixed_shape
 
+pub struct vortex_tensor::fixed_shape::AnyFixedShapeTensor
+
+impl vortex_array::dtype::extension::matcher::Matcher for vortex_tensor::fixed_shape::AnyFixedShapeTensor
+
+pub type vortex_tensor::fixed_shape::AnyFixedShapeTensor::Match<'a> = vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+
+pub fn vortex_tensor::fixed_shape::AnyFixedShapeTensor::try_match<'a>(ext_dtype: &'a vortex_array::dtype::extension::erased::ExtDTypeRef) -> core::option::Option<Self::Match>
+
 pub struct vortex_tensor::fixed_shape::FixedShapeTensor
 
 impl core::clone::Clone for vortex_tensor::fixed_shape::FixedShapeTensor
@@ -229,6 +237,34 @@ pub fn vortex_tensor::fixed_shape::FixedShapeTensor::serialize_metadata(&self, m
 pub fn vortex_tensor::fixed_shape::FixedShapeTensor::unpack_native<'a>(_ext_dtype: &'a vortex_array::dtype::extension::typed::ExtDType<Self>, storage_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
 pub fn vortex_tensor::fixed_shape::FixedShapeTensor::validate_dtype(ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>
+
+pub struct vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+
+impl vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>
+
+pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>::element_ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>::list_size(&self) -> usize
+
+pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>::metadata(&self) -> &vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+
+impl<'a> core::clone::Clone for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+
+pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>::clone(&self) -> vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+
+impl<'a> core::cmp::Eq for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+
+impl<'a> core::cmp::PartialEq for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+
+pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>::eq(&self, other: &vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>) -> bool
+
+impl<'a> core::fmt::Debug for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+
+pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::Copy for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+
+impl<'a> core::marker::StructuralPartialEq for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
 
 pub struct vortex_tensor::fixed_shape::FixedShapeTensorMetadata
 
@@ -280,9 +316,19 @@ pub mod vortex_tensor::matcher
 
 pub enum vortex_tensor::matcher::TensorMatch<'a>
 
-pub vortex_tensor::matcher::TensorMatch::FixedShapeTensor(&'a vortex_tensor::fixed_shape::FixedShapeTensorMetadata)
+pub vortex_tensor::matcher::TensorMatch::FixedShapeTensor(vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>)
 
-pub vortex_tensor::matcher::TensorMatch::Vector
+pub vortex_tensor::matcher::TensorMatch::Vector(vortex_tensor::vector::VectorMatcherMetadata)
+
+impl vortex_tensor::matcher::TensorMatch<'_>
+
+pub fn vortex_tensor::matcher::TensorMatch<'_>::element_ptype(self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_tensor::matcher::TensorMatch<'_>::list_size(self) -> usize
+
+impl<'a> core::clone::Clone for vortex_tensor::matcher::TensorMatch<'a>
+
+pub fn vortex_tensor::matcher::TensorMatch<'a>::clone(&self) -> vortex_tensor::matcher::TensorMatch<'a>
 
 impl<'a> core::cmp::Eq for vortex_tensor::matcher::TensorMatch<'a>
 
@@ -294,6 +340,8 @@ impl<'a> core::fmt::Debug for vortex_tensor::matcher::TensorMatch<'a>
 
 pub fn vortex_tensor::matcher::TensorMatch<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+impl<'a> core::marker::Copy for vortex_tensor::matcher::TensorMatch<'a>
+
 impl<'a> core::marker::StructuralPartialEq for vortex_tensor::matcher::TensorMatch<'a>
 
 pub struct vortex_tensor::matcher::AnyTensor
@@ -302,7 +350,7 @@ impl vortex_array::dtype::extension::matcher::Matcher for vortex_tensor::matcher
 
 pub type vortex_tensor::matcher::AnyTensor::Match<'a> = vortex_tensor::matcher::TensorMatch<'a>
 
-pub fn vortex_tensor::matcher::AnyTensor::try_match<'a>(item: &'a vortex_array::dtype::extension::erased::ExtDTypeRef) -> core::option::Option<Self::Match>
+pub fn vortex_tensor::matcher::AnyTensor::try_match<'a>(ext_dtype: &'a vortex_array::dtype::extension::erased::ExtDTypeRef) -> core::option::Option<Self::Match>
 
 pub mod vortex_tensor::scalar_fns
 
@@ -456,6 +504,14 @@ impl core::marker::StructuralPartialEq for vortex_tensor::scalar_fns::ApproxOpti
 
 pub mod vortex_tensor::vector
 
+pub struct vortex_tensor::vector::AnyVector
+
+impl vortex_array::dtype::extension::matcher::Matcher for vortex_tensor::vector::AnyVector
+
+pub type vortex_tensor::vector::AnyVector::Match<'a> = vortex_tensor::vector::VectorMatcherMetadata
+
+pub fn vortex_tensor::vector::AnyVector::try_match<'a>(ext_dtype: &'a vortex_array::dtype::extension::erased::ExtDTypeRef) -> core::option::Option<Self::Match>
+
 pub struct vortex_tensor::vector::Vector
 
 impl core::clone::Clone for vortex_tensor::vector::Vector
@@ -497,5 +553,37 @@ pub fn vortex_tensor::vector::Vector::serialize_metadata(&self, _metadata: &Self
 pub fn vortex_tensor::vector::Vector::unpack_native<'a>(_ext_dtype: &'a vortex_array::dtype::extension::typed::ExtDType<Self>, storage_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
 pub fn vortex_tensor::vector::Vector::validate_dtype(ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>
+
+pub struct vortex_tensor::vector::VectorMatcherMetadata
+
+impl vortex_tensor::vector::VectorMatcherMetadata
+
+pub fn vortex_tensor::vector::VectorMatcherMetadata::dimensions(&self) -> u32
+
+pub fn vortex_tensor::vector::VectorMatcherMetadata::element_ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_tensor::vector::VectorMatcherMetadata::try_new(element_ptype: vortex_array::dtype::ptype::PType, dimensions: u32) -> vortex_error::VortexResult<Self>
+
+impl core::clone::Clone for vortex_tensor::vector::VectorMatcherMetadata
+
+pub fn vortex_tensor::vector::VectorMatcherMetadata::clone(&self) -> vortex_tensor::vector::VectorMatcherMetadata
+
+impl core::cmp::Eq for vortex_tensor::vector::VectorMatcherMetadata
+
+impl core::cmp::PartialEq for vortex_tensor::vector::VectorMatcherMetadata
+
+pub fn vortex_tensor::vector::VectorMatcherMetadata::eq(&self, other: &vortex_tensor::vector::VectorMatcherMetadata) -> bool
+
+impl core::fmt::Debug for vortex_tensor::vector::VectorMatcherMetadata
+
+pub fn vortex_tensor::vector::VectorMatcherMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_tensor::vector::VectorMatcherMetadata
+
+pub fn vortex_tensor::vector::VectorMatcherMetadata::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+impl core::marker::Copy for vortex_tensor::vector::VectorMatcherMetadata
+
+impl core::marker::StructuralPartialEq for vortex_tensor::vector::VectorMatcherMetadata
 
 pub fn vortex_tensor::initialize(session: &vortex_session::VortexSession)

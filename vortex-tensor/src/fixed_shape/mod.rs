@@ -7,11 +7,12 @@
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct FixedShapeTensor;
 
+mod matcher;
+pub use matcher::AnyFixedShapeTensor;
+pub use matcher::FixedShapeTensorMatcherMetadata;
+
 mod metadata;
 pub use metadata::FixedShapeTensorMetadata;
 
 mod proto;
 mod vtable;
-
-// TODO(connor): Add a dedicated `AnyFixedShapeTensor` that also contains the element ptype and
-// the storage fixed size list size (which is just the product of all logical shapes).

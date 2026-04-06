@@ -15,8 +15,6 @@ use vortex_error::VortexResult;
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::turboquant_encode;
-use crate::utils::tensor_element_ptype;
-use crate::utils::tensor_list_size;
 
 /// TurboQuant compression scheme for [`Vector`] extension types.
 ///
@@ -59,13 +57,14 @@ impl Scheme for TurboQuantScheme {
         let dtype = data.array().dtype();
         let len = data.array().len();
 
-        let ext = TurboQuant::validate_dtype(dtype).vortex_expect("invalid dtype for TurboQuant");
-        let element_ptype = tensor_element_ptype(ext).vortex_expect("invalid ptype for TurboQuant");
+        let vector_metadata =
+            TurboQuant::validate_dtype(dtype).vortex_expect("invalid dtype for TurboQuant");
+        let element_ptype = vector_metadata.element_ptype();
         let bit_width: u8 = element_ptype
             .bit_width()
             .try_into()
             .vortex_expect("invalid bit width for TurboQuant");
-        let dimension = tensor_list_size(ext).vortex_expect("invalid ptype for TurboQuant");
+        let dimension = vector_metadata.dimensions();
 
         Ok(estimate_compression_ratio(bit_width, dimension, len))
     }

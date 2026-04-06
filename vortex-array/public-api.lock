@@ -8756,9 +8756,9 @@ impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extensio
 
 pub type V::Match<'a> = &'a <V as vortex_array::dtype::extension::ExtVTable>::Metadata
 
-pub fn V::matches(item: &vortex_array::dtype::extension::ExtDTypeRef) -> bool
+pub fn V::matches(ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> bool
 
-pub fn V::try_match<'a>(item: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<<V as vortex_array::dtype::extension::Matcher>::Match>
+pub fn V::try_match<'a>(ext_dtype: &'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<<V as vortex_array::dtype::extension::Matcher>::Match>
 
 pub type vortex_array::dtype::extension::ExtDTypePluginRef = alloc::sync::Arc<dyn vortex_array::dtype::extension::ExtDTypePlugin>
 

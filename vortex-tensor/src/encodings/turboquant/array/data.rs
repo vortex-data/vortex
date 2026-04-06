@@ -15,8 +15,6 @@ use vortex_error::vortex_ensure_eq;
 
 use crate::encodings::turboquant::array::slots::Slot;
 use crate::encodings::turboquant::vtable::TurboQuant;
-use crate::utils::tensor_element_ptype;
-use crate::utils::tensor_list_size;
 
 /// TurboQuant array data.
 ///
@@ -41,16 +39,13 @@ pub struct TurboQuantData {
 }
 
 impl TurboQuantData {
-    /// Build a TurboQuant array with validation.
-    ///
-    /// The `dimension` and `bit_width` are derived from the inputs:
-    /// - `dimension` from the `dtype`'s `FixedSizeList` storage list size.
-    /// - `bit_width` from `log2(centroids.len())` (0 for degenerate empty arrays).
+    /// Build a `TurboQuantData` with validation.
     ///
     /// # Errors
     ///
-    /// Returns an error if the provided components do not satisfy the invariants documented
-    /// in [`new_unchecked`](Self::new_unchecked).
+    /// Returns an error if:
+    /// - `dimension` is less than [`MIN_DIMENSION`](TurboQuant::MIN_DIMENSION).
+    /// - `bit_width` is greater than 8.
     pub fn try_new(dimension: u32, bit_width: u8) -> VortexResult<Self> {
         vortex_ensure!(
             dimension >= TurboQuant::MIN_DIMENSION,
@@ -67,23 +62,14 @@ impl TurboQuantData {
         })
     }
 
-    /// Build a TurboQuant array without validation.
+    /// Build a `TurboQuantData` without validation.
     ///
     /// # Safety
     ///
     /// The caller must ensure:
     ///
-    /// - `dtype` is a [`Vector`](crate::vector::Vector) extension type whose storage list size
-    ///   is >= [`MIN_DIMENSION`](crate::encodings::turboquant::TurboQuant::MIN_DIMENSION).
-    /// - `codes` is a non-nullable `FixedSizeListArray<u8>` with `list_size == padded_dim` and
-    ///   `codes.len() == norms.len()`. Null vectors are represented by all-zero codes.
-    /// - `norms` is a primitive array whose ptype matches the element type of the Vector's storage
-    ///   dtype. The nullability must match `dtype.nullability()`. Norms carry the validity of the
-    ///   entire array, since null vectors have null norms.
-    /// - `centroids` is a non-nullable `PrimitiveArray<f32>` whose length is a power of 2 in
-    ///   `[2, 256]` (i.e., `2^bit_width` for bit_width 1-8), or empty for degenerate arrays.
-    /// - `rotation_signs` has `3 * padded_dim` elements, or is empty for degenerate arrays.
-    /// - For degenerate (empty) arrays: all children must be empty.
+    /// - `dimension` is >= [`MIN_DIMENSION`](TurboQuant::MIN_DIMENSION).
+    /// - `bit_width` is in the range `[0, 8]`.
     ///
     /// Violating these invariants may produce incorrect results during decompression.
     pub unsafe fn new_unchecked(dimension: u32, bit_width: u8) -> Self {
@@ -103,8 +89,8 @@ impl TurboQuantData {
         centroids: &ArrayRef,
         rotation_signs: &ArrayRef,
     ) -> VortexResult<()> {
-        let ext = TurboQuant::validate_dtype(dtype)?;
-        let dimension = tensor_list_size(ext)?;
+        let vector_metadata = TurboQuant::validate_dtype(dtype)?;
+        let dimension = vector_metadata.dimensions();
         let padded_dim = dimension.next_power_of_two();
 
         // Codes must be a non-nullable FixedSizeList<u8> with list_size == padded_dim.
@@ -159,7 +145,7 @@ impl TurboQuantData {
 
         // Norms dtype must match the element ptype of the Vector, with the parent's nullability.
         // Norms carry the validity of the entire TurboQuant array.
-        let element_ptype = tensor_element_ptype(ext)?;
+        let element_ptype = vector_metadata.element_ptype();
         let expected_norms_dtype = DType::Primitive(element_ptype, dtype.nullability());
         vortex_ensure_eq!(
             *norms.dtype(),

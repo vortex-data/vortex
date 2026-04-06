@@ -9,50 +9,9 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
-
-/// Extracts the list size from a tensor-like extension dtype.
-///
-/// The storage dtype must be a `FixedSizeList`.
-pub fn tensor_list_size(ext: &ExtDTypeRef) -> VortexResult<u32> {
-    let DType::FixedSizeList(_, list_size, _) = ext.storage_dtype() else {
-        vortex_bail!(
-            "expected FixedSizeList storage dtype, got {}",
-            ext.storage_dtype()
-        );
-    };
-
-    Ok(*list_size)
-}
-
-/// Extracts the element [`PType`] from a tensor-like extension dtype.
-///
-/// The storage dtype must be a `FixedSizeList` of non-nullable primitives.
-pub fn tensor_element_ptype(ext: &ExtDTypeRef) -> VortexResult<PType> {
-    let element_dtype = ext
-        .storage_dtype()
-        .as_fixed_size_list_element_opt()
-        .ok_or_else(|| {
-            vortex_err!(
-                "expected FixedSizeList storage dtype, got {}",
-                ext.storage_dtype()
-            )
-        })?;
-
-    vortex_ensure!(
-        !element_dtype.is_nullable(),
-        "element dtype must be non-nullable"
-    );
-
-    Ok(element_dtype.as_ptype())
-}
 
 /// The flat primitive elements of a tensor storage array, with typed row access.
 ///

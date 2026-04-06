@@ -22,7 +22,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
@@ -42,9 +41,8 @@ use crate::encodings::turboquant::compute::rules::PARENT_KERNELS;
 use crate::encodings::turboquant::compute::rules::RULES;
 use crate::encodings::turboquant::decompress::execute_decompress;
 use crate::encodings::turboquant::metadata::TurboQuantMetadata;
-use crate::utils::tensor_element_ptype;
-use crate::utils::tensor_list_size;
-use crate::vector::Vector;
+use crate::vector::AnyVector;
+use crate::vector::VectorMatcherMetadata;
 
 /// Encoding marker type for TurboQuant.
 #[derive(Clone, Debug)]
@@ -59,24 +57,23 @@ impl TurboQuant {
     /// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
     /// dimension >= [`MIN_DIMENSION`](Self::MIN_DIMENSION).
     ///
-    /// Returns the validated [`ExtDTypeRef`] on success, which can be used to extract the
-    /// element ptype and list size.
-    pub fn validate_dtype(dtype: &DType) -> VortexResult<&ExtDTypeRef> {
-        let ext = dtype
+    /// Returns the validated vector metadata on success.
+    pub fn validate_dtype(dtype: &DType) -> VortexResult<VectorMatcherMetadata> {
+        let vector_metadata = dtype
             .as_extension_opt()
-            .filter(|e| e.is::<Vector>())
+            .and_then(|ext| ext.metadata_opt::<AnyVector>())
             .ok_or_else(|| {
                 vortex_err!("TurboQuant dtype must be a Vector extension type, got {dtype}")
             })?;
 
-        let dimension = tensor_list_size(ext)?;
+        let dimensions = vector_metadata.dimensions();
         vortex_ensure!(
-            dimension >= Self::MIN_DIMENSION,
-            "TurboQuant requires dimension >= {}, got {dimension}",
+            dimensions >= Self::MIN_DIMENSION,
+            "TurboQuant requires dimension >= {}, got {dimensions}",
             Self::MIN_DIMENSION
         );
 
-        Ok(ext)
+        Ok(vector_metadata)
     }
 
     /// Creates a new [`TurboQuantArray`].
@@ -89,17 +86,18 @@ impl TurboQuant {
         centroids: ArrayRef,
         rotation_signs: ArrayRef,
     ) -> VortexResult<TurboQuantArray> {
-        let len = norms.len();
         TurboQuantData::validate(&dtype, &codes, &norms, &centroids, &rotation_signs)?;
-        let ext = TurboQuant::validate_dtype(&dtype)?;
-        let dimension = tensor_list_size(ext)?;
+
+        let len = norms.len();
+        let vector_metadata = TurboQuant::validate_dtype(&dtype)?;
+
         let bit_width = if centroids.is_empty() {
             0
         } else {
             u8::try_from(centroids.len().trailing_zeros())
                 .map_err(|_| vortex_err!("centroids bit_width does not fit in u8"))?
         };
-        let data = TurboQuantData::try_new(dimension, bit_width)?;
+        let data = TurboQuantData::try_new(vector_metadata.dimensions(), bit_width)?;
         let parts = ArrayParts::new(TurboQuant, dtype, len, data).with_slots(
             TurboQuantData::make_slots(codes, norms, centroids, rotation_signs),
         );
@@ -166,10 +164,7 @@ impl VTable for TurboQuant {
             len,
             "TurboQuant norms length does not match outer length",
         );
-        vortex_ensure_eq!(
-            data.dimension,
-            tensor_list_size(TurboQuant::validate_dtype(dtype)?)?
-        );
+        vortex_ensure_eq!(data.dimension, Self::validate_dtype(dtype)?.dimensions());
 
         let expected_bit_width = if centroids.is_empty() {
             0
@@ -224,11 +219,11 @@ impl VTable for TurboQuant {
         );
 
         // Validate and derive dimension and element ptype from the Vector extension dtype.
-        let ext = TurboQuant::validate_dtype(dtype)?;
-        let dimension = tensor_list_size(ext)?;
-        let element_ptype = tensor_element_ptype(ext)?;
+        let vector_metadata = TurboQuant::validate_dtype(dtype)?;
+        let dimensions = vector_metadata.dimensions();
+        let element_ptype = vector_metadata.element_ptype();
 
-        let padded_dim = dimension.next_power_of_two();
+        let padded_dim = dimensions.next_power_of_two();
 
         // Get the codes array (indices into the codebook). Codes are always non-nullable;
         // null vectors are represented by all-zero codes with a null norm.
@@ -261,7 +256,7 @@ impl VTable for TurboQuant {
             dtype.clone(),
             len,
             TurboQuantData {
-                dimension,
+                dimension: dimensions,
                 bit_width,
             },
         )

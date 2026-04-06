@@ -27,14 +27,15 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantArrayExt;
+use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extract_flat_elements;
-use crate::vector::AnyVector;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
 ///
@@ -99,20 +100,22 @@ impl ScalarFnVTable for L2Norm {
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let input_dtype = &arg_dtypes[0];
 
-        // Input must be a vector extension type.
+        // Input must be a tensor-like extension type.
         let ext = input_dtype.as_extension_opt().ok_or_else(|| {
             vortex_err!("L2Norm input must be an extension type, got {input_dtype}")
         })?;
 
-        let vector_metadata = ext
-            .metadata_opt::<AnyVector>()
-            .ok_or_else(|| vortex_err!("can only apply an L2Norm expression on `Vector`s"))?;
+        let tensor_match = ext
+            .metadata_opt::<AnyTensor>()
+            .ok_or_else(|| vortex_err!("L2Norm input must be an `AnyTensor`, got {input_dtype}"))?;
+        let ptype = tensor_match.element_ptype();
+        vortex_ensure!(
+            ptype.is_float(),
+            "L2Norm element dtype must be a float primitive, got {ptype}"
+        );
 
         let nullability = Nullability::from(input_dtype.is_nullable());
-        Ok(DType::Primitive(
-            vector_metadata.element_ptype(),
-            nullability,
-        ))
+        Ok(DType::Primitive(ptype, nullability))
     }
 
     fn execute(
@@ -125,9 +128,11 @@ impl ScalarFnVTable for L2Norm {
         let row_count = args.row_count();
 
         let ext = input_ref.dtype().as_extension();
-        let vector_metadata = ext
-            .metadata_opt::<AnyVector>()
+        let tensor_match = ext
+            .metadata_opt::<AnyTensor>()
             .vortex_expect("we already validated this in `return_dtype`");
+        let dimensions = tensor_match.list_size();
+        let element_ptype = tensor_match.element_ptype();
 
         // TODO(connor): TQ might not store norms in the future.
         // TurboQuant stores exact precomputed norms, so no decompression needed.
@@ -137,10 +142,7 @@ impl ScalarFnVTable for L2Norm {
             // Assert that the norms dtype has the correct output dtype and nullability.
             vortex_ensure_eq!(
                 norms.dtype(),
-                &DType::Primitive(
-                    vector_metadata.element_ptype(),
-                    input_ref.dtype().nullability(),
-                )
+                &DType::Primitive(element_ptype, input_ref.dtype().nullability(),)
             );
 
             return Ok(norms.into_array());
@@ -150,7 +152,7 @@ impl ScalarFnVTable for L2Norm {
         let validity = input.as_ref().validity()?;
 
         let storage = input.storage_array();
-        let flat = extract_flat_elements(storage, vector_metadata.dimensions() as usize, ctx)?;
+        let flat = extract_flat_elements(storage, dimensions, ctx)?;
 
         match_each_float_ptype!(flat.ptype(), |T| {
             let buffer: Buffer<T> = (0..row_count)

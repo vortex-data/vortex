@@ -8,7 +8,8 @@
 pub struct Vector;
 
 mod matcher;
-mod vtable;
 
 pub use matcher::AnyVector;
 pub use matcher::VectorMatcherMetadata;
+
+mod vtable;
