@@ -133,7 +133,7 @@ impl ScalarFnVTable for L2Norm {
         // (e.g., if the input extension has f64 elements).
         if let Some(tq) = input_ref.as_opt::<TurboQuant>() {
             let ext = input_ref.dtype().as_extension();
-            let target_ptype = extension_element_ptype(ext)?;
+            let target_ptype = tensor_element_ptype(ext)?;
             let norms: PrimitiveArray = tq.norms().clone().execute(ctx)?;
             let target_dtype = DType::Primitive(target_ptype, input_ref.dtype().nullability());
             return norms.into_array().cast(target_dtype);

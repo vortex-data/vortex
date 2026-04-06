@@ -43,7 +43,7 @@ use vortex_error::vortex_ensure_eq;
 
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::array::float_from_f32;
-use crate::utils::extension_element_ptype;
+use crate::utils::tensor_element_ptype;
 
 /// Compute the per-row unit-norm dot products in f32 (centroids are always f32).
 ///
@@ -107,7 +107,7 @@ pub fn cosine_similarity_quantized_column(
         "TurboQuant quantized dot product requires matching dimensions",
     );
 
-    let element_ptype = extension_element_ptype(lhs.dtype().as_extension())?;
+    let element_ptype = tensor_element_ptype(lhs.dtype().as_extension())?;
     let validity = lhs.norms().validity()?.and(rhs.norms().validity()?)?;
     let dots = compute_unit_dots(&lhs, &rhs, ctx)?;
 
@@ -145,7 +145,7 @@ pub fn dot_product_quantized_column(
         "TurboQuant quantized dot product requires matching dimensions",
     );
 
-    let element_ptype = extension_element_ptype(lhs.dtype().as_extension())?;
+    let element_ptype = tensor_element_ptype(lhs.dtype().as_extension())?;
     let validity = lhs.norms().validity()?.and(rhs.norms().validity()?)?;
     let dots = compute_unit_dots(&lhs, &rhs, ctx)?;
     let num_rows = lhs.norms().len();

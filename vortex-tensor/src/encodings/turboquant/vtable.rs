@@ -39,8 +39,8 @@ use crate::encodings::turboquant::array::slots::Slot;
 use crate::encodings::turboquant::compute::rules::PARENT_KERNELS;
 use crate::encodings::turboquant::compute::rules::RULES;
 use crate::encodings::turboquant::decompress::execute_decompress;
-use crate::utils::extension_element_ptype;
-use crate::utils::extension_list_size;
+use crate::utils::tensor_element_ptype;
+use crate::utils::tensor_list_size;
 use crate::vector::Vector;
 
 /// Encoding marker type for TurboQuant.
@@ -66,7 +66,7 @@ impl TurboQuant {
                 vortex_err!("TurboQuant dtype must be a Vector extension type, got {dtype}")
             })?;
 
-        let dimension = extension_list_size(ext)?;
+        let dimension = tensor_list_size(ext)?;
         vortex_ensure!(
             dimension >= Self::MIN_DIMENSION,
             "TurboQuant requires dimension >= {}, got {dimension}",
@@ -113,7 +113,7 @@ impl VTable for TurboQuant {
                 vortex_err!("TurboQuant dtype must be a Vector extension type, got {dtype}")
             })?;
 
-        let dimension = extension_list_size(ext)?;
+        let dimension = tensor_list_size(ext)?;
         vortex_ensure!(
             dimension >= Self::MIN_DIMENSION,
             "TurboQuant requires dimension >= {}, got {dimension}",
@@ -208,8 +208,8 @@ impl VTable for TurboQuant {
 
         // Validate and derive dimension and element ptype from the Vector extension dtype.
         let ext = TurboQuant::validate_dtype(dtype)?;
-        let dimension = extension_list_size(ext)?;
-        let element_ptype = extension_element_ptype(ext)?;
+        let dimension = tensor_list_size(ext)?;
+        let element_ptype = tensor_element_ptype(ext)?;
 
         let padded_dim = dimension.next_power_of_two();
 
