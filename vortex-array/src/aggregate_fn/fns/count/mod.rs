@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Columnar;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
