@@ -164,7 +164,7 @@ impl VTable for Decimal {
                 "DecimalArray buffer not aligned for values type {:?}",
                 D::DECIMAL_TYPE
             );
-            DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
+            DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype)
         })?;
         Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }

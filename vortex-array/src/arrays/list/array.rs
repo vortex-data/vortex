@@ -143,7 +143,7 @@ impl ListData {
         Self::validate(&elements, &offsets, &validity)?;
 
         // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked(elements, offsets, validity) })
+        Ok(unsafe { Self::new_unchecked() })
     }
 
     /// Creates a new `ListArray` without validation from these components:
@@ -162,14 +162,7 @@ impl ListData {
     /// - All offset values must be non-negative.
     /// - The maximum offset must not exceed `elements.len()`.
     /// - If validity is an array, its length must equal `offsets.len() - 1`.
-    pub unsafe fn new_unchecked(
-        elements: ArrayRef,
-        offsets: ArrayRef,
-        _validity: Validity,
-    ) -> Self {
-        #[cfg(debug_assertions)]
-        Self::validate(&elements, &offsets, &_validity)
-            .vortex_expect("[Debug Assertion]: Invalid `ListViewArray` parameters");
+    pub unsafe fn new_unchecked() -> Self {
         Self
     }
 
@@ -361,7 +354,7 @@ impl Array<List> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len().saturating_sub(1);
         let slots = ListData::make_slots(elements.clone(), offsets.clone(), &validity, len);
-        let data = unsafe { ListData::new_unchecked(elements, offsets, validity) };
+        let data = unsafe { ListData::new_unchecked() };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(List, dtype, len, data).with_slots(slots))
         }

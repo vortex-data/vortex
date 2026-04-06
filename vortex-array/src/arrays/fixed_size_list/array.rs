@@ -135,7 +135,7 @@ impl FixedSizeListData {
         Self::validate(&elements, len, list_size, &validity)?;
 
         // SAFETY: we validate that the inputs are valid above.
-        Ok(unsafe { Self::new_unchecked(elements, list_size, validity, len) })
+        Ok(unsafe { Self::new_unchecked(list_size, len) })
     }
 
     /// Creates a new `FixedSizeListArray` without validation from these components:
@@ -154,16 +154,7 @@ impl FixedSizeListData {
     ///   fixed-size list is equal to the length of the validity).
     /// - The length of the `elements` array is equal to the length of the outer array times the
     ///   `list_size` (`elements.len() == list_size * len`).
-    pub unsafe fn new_unchecked(
-        elements: ArrayRef,
-        list_size: u32,
-        validity: Validity,
-        len: usize,
-    ) -> Self {
-        #[cfg(debug_assertions)]
-        Self::validate(&elements, len, list_size, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `FixedSizeListArray` parameters");
-
+    pub unsafe fn new_unchecked(list_size: u32, len: usize) -> Self {
         Self {
             degenerate_len: if list_size == 0 { len } else { 0 },
         }
@@ -293,7 +284,7 @@ impl Array<FixedSizeList> {
             validity.nullability(),
         );
         let slots = FixedSizeListData::make_slots(elements.clone(), &validity, len);
-        let data = unsafe { FixedSizeListData::new_unchecked(elements, list_size, validity, len) };
+        let data = unsafe { FixedSizeListData::new_unchecked(list_size, len) };
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(FixedSizeList, dtype, len, data).with_slots(slots),

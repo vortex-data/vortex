@@ -5,7 +5,6 @@ use num_traits::AsPrimitive;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
@@ -47,14 +46,6 @@ pub struct VarBinDataParts {
 }
 
 impl VarBinData {
-    fn dtype_parts(dtype: &DType) -> VortexResult<(bool, Nullability)> {
-        match dtype {
-            DType::Utf8(nullability) => Ok((true, *nullability)),
-            DType::Binary(nullability) => Ok((false, *nullability)),
-            _ => vortex_bail!(MismatchedTypes: "utf8 or binary", dtype),
-        }
-    }
-
     /// Creates a new `VarBinArray`.
     ///
     /// # Panics
@@ -106,7 +97,7 @@ impl VarBinData {
         Self::validate(&offsets, &bytes, &dtype, &validity)?;
 
         // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked_from_handle(offsets, bytes, dtype, validity) })
+        Ok(unsafe { Self::new_unchecked_from_handle(bytes) })
     }
 
     /// Constructs a new `VarBinArray` from a `BufferHandle` of memory that may exist
@@ -127,7 +118,7 @@ impl VarBinData {
         Self::validate(&offsets, &bytes, &dtype, &validity)?;
 
         // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked_from_handle(offsets, bytes, dtype, validity) })
+        Ok(unsafe { Self::new_unchecked_from_handle(bytes) })
     }
 
     /// Creates a new `VarBinArray` without validation from these components:
@@ -158,17 +149,10 @@ impl VarBinData {
     /// ## Validity Requirements
     ///
     /// - If `validity` is [`Validity::Array`], its length must exactly equal `offsets.len() - 1`.
-    pub unsafe fn new_unchecked(
-        offsets: ArrayRef,
-        bytes: ByteBuffer,
-        dtype: DType,
-        validity: Validity,
-    ) -> Self {
+    pub unsafe fn new_unchecked(bytes: ByteBuffer) -> Self {
         // SAFETY: `new_unchecked_from_handle` has same invariants which should be checked
         //  by caller.
-        unsafe {
-            Self::new_unchecked_from_handle(offsets, BufferHandle::new_host(bytes), dtype, validity)
-        }
+        unsafe { Self::new_unchecked_from_handle(BufferHandle::new_host(bytes)) }
     }
 
     /// Creates a new `VarBinArray` without validation from its components, with string data
@@ -177,18 +161,7 @@ impl VarBinData {
     /// # Safety
     ///
     /// The caller must ensure all the invariants documented in `new_unchecked` are satisfied.
-    pub unsafe fn new_unchecked_from_handle(
-        offsets: ArrayRef,
-        bytes: BufferHandle,
-        dtype: DType,
-        validity: Validity,
-    ) -> Self {
-        #[cfg(debug_assertions)]
-        Self::validate(&offsets, &bytes, &dtype, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `VarBinArray` parameters");
-
-        let _ = Self::dtype_parts(&dtype).vortex_expect("VarBinArray dtype must be utf8 or binary");
-
+    pub unsafe fn new_unchecked_from_handle(bytes: BufferHandle) -> Self {
         Self { bytes }
     }
 
@@ -530,17 +503,7 @@ impl Array<VarBin> {
     ) -> Self {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
-        let data = unsafe {
-            VarBinData::new_unchecked(
-                slots[OFFSETS_SLOT]
-                    .as_ref()
-                    .vortex_expect("VarBinArray offsets slot")
-                    .clone(),
-                bytes,
-                dtype.clone(),
-                validity,
-            )
-        };
+        let data = unsafe { VarBinData::new_unchecked(bytes) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
         }
@@ -559,17 +522,7 @@ impl Array<VarBin> {
     ) -> Self {
         let len = offsets.len().saturating_sub(1);
         let slots = VarBinData::make_slots(offsets, &validity, len);
-        let data = unsafe {
-            VarBinData::new_unchecked_from_handle(
-                slots[OFFSETS_SLOT]
-                    .as_ref()
-                    .vortex_expect("VarBinArray offsets slot")
-                    .clone(),
-                bytes,
-                dtype.clone(),
-                validity,
-            )
-        };
+        let data = unsafe { VarBinData::new_unchecked_from_handle(bytes) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
         }

@@ -224,7 +224,7 @@ impl StructData {
         Self::validate(&fields, &dtype, length, &validity)?;
 
         // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked(fields, dtype, length, validity) })
+        Ok(unsafe { Self::new_unchecked(dtype, fields.is_empty().then_some(length)) })
     }
 
     /// Creates a new `StructArray` without validation from these components:
@@ -252,21 +252,10 @@ impl StructData {
     /// ## Validity Requirements
     ///
     /// - If `validity` is [`Validity::Array`], its length must exactly equal `length`.
-    pub unsafe fn new_unchecked(
-        fields: impl Into<Arc<[ArrayRef]>>,
-        dtype: StructFields,
-        length: usize,
-        validity: Validity,
-    ) -> Self {
-        let fields = fields.into();
-
-        #[cfg(debug_assertions)]
-        Self::validate(&fields, &dtype, length, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `StructArray` parameters");
-
+    pub unsafe fn new_unchecked(dtype: StructFields, fieldless_len: Option<usize>) -> Self {
         Self {
             names: dtype.names().clone(),
-            fieldless_len: fields.is_empty().then_some(length),
+            fieldless_len,
         }
     }
 
@@ -333,7 +322,7 @@ impl StructData {
         Self::validate(&fields, &dtype, length, &validity)?;
 
         // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked(fields, dtype, length, validity) })
+        Ok(unsafe { Self::new_unchecked(dtype, fields.is_empty().then_some(length)) })
     }
 }
 
@@ -454,7 +443,7 @@ impl Array<Struct> {
         let fields = fields.into();
         let outer_dtype = DType::Struct(dtype.clone(), validity.nullability());
         let slots = StructData::make_slots(&fields, &validity, length);
-        let data = unsafe { StructData::new_unchecked(fields, dtype, length, validity) };
+        let data = unsafe { StructData::new_unchecked(dtype, fields.is_empty().then_some(length)) };
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Struct, outer_dtype, length, data).with_slots(slots),

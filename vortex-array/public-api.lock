@@ -1438,31 +1438,27 @@ pub fn vortex_array::arrays::decimal::DecimalData::buffer_handle(&self) -> &vort
 
 pub fn vortex_array::arrays::decimal::DecimalData::decimal_dtype(&self) -> vortex_array::dtype::DecimalDType
 
-pub fn vortex_array::arrays::decimal::DecimalData::from_iter<T: vortex_array::dtype::NativeDecimalType, I: core::iter::traits::collect::IntoIterator<Item = T>>(iter: I, decimal_dtype: vortex_array::dtype::DecimalDType) -> Self
-
-pub fn vortex_array::arrays::decimal::DecimalData::from_option_iter<T: vortex_array::dtype::NativeDecimalType, I: core::iter::traits::collect::IntoIterator<Item = core::option::Option<T>>>(iter: I, decimal_dtype: vortex_array::dtype::DecimalDType) -> Self
-
 pub fn vortex_array::arrays::decimal::DecimalData::is_empty(&self) -> bool
 
 pub fn vortex_array::arrays::decimal::DecimalData::len(&self) -> usize
 
-pub fn vortex_array::arrays::decimal::DecimalData::new<T: vortex_array::dtype::NativeDecimalType>(buffer: vortex_buffer::buffer::Buffer<T>, decimal_dtype: vortex_array::dtype::DecimalDType, validity: vortex_array::validity::Validity) -> Self
+pub fn vortex_array::arrays::decimal::DecimalData::new<T: vortex_array::dtype::NativeDecimalType>(buffer: vortex_buffer::buffer::Buffer<T>, decimal_dtype: vortex_array::dtype::DecimalDType) -> Self
 
-pub fn vortex_array::arrays::decimal::DecimalData::new_handle(values: vortex_array::buffer::BufferHandle, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType, validity: vortex_array::validity::Validity) -> Self
+pub fn vortex_array::arrays::decimal::DecimalData::new_handle(values: vortex_array::buffer::BufferHandle, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType) -> Self
 
-pub unsafe fn vortex_array::arrays::decimal::DecimalData::new_unchecked<T: vortex_array::dtype::NativeDecimalType>(buffer: vortex_buffer::buffer::Buffer<T>, decimal_dtype: vortex_array::dtype::DecimalDType, validity: vortex_array::validity::Validity) -> Self
+pub unsafe fn vortex_array::arrays::decimal::DecimalData::new_unchecked<T: vortex_array::dtype::NativeDecimalType>(buffer: vortex_buffer::buffer::Buffer<T>, decimal_dtype: vortex_array::dtype::DecimalDType) -> Self
 
-pub unsafe fn vortex_array::arrays::decimal::DecimalData::new_unchecked_from_byte_buffer(byte_buffer: vortex_buffer::ByteBuffer, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType, validity: vortex_array::validity::Validity) -> Self
+pub unsafe fn vortex_array::arrays::decimal::DecimalData::new_unchecked_from_byte_buffer(byte_buffer: vortex_buffer::ByteBuffer, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType) -> Self
 
-pub unsafe fn vortex_array::arrays::decimal::DecimalData::new_unchecked_handle(values: vortex_array::buffer::BufferHandle, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType, validity: vortex_array::validity::Validity) -> Self
+pub unsafe fn vortex_array::arrays::decimal::DecimalData::new_unchecked_handle(values: vortex_array::buffer::BufferHandle, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType) -> Self
 
 pub fn vortex_array::arrays::decimal::DecimalData::precision(&self) -> u8
 
 pub fn vortex_array::arrays::decimal::DecimalData::scale(&self) -> i8
 
-pub fn vortex_array::arrays::decimal::DecimalData::try_new<T: vortex_array::dtype::NativeDecimalType>(buffer: vortex_buffer::buffer::Buffer<T>, decimal_dtype: vortex_array::dtype::DecimalDType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrays::decimal::DecimalData::try_new<T: vortex_array::dtype::NativeDecimalType>(buffer: vortex_buffer::buffer::Buffer<T>, decimal_dtype: vortex_array::dtype::DecimalDType) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_array::arrays::decimal::DecimalData::try_new_handle(values: vortex_array::buffer::BufferHandle, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrays::decimal::DecimalData::try_new_handle(values: vortex_array::buffer::BufferHandle, values_type: vortex_array::dtype::DecimalType, decimal_dtype: vortex_array::dtype::DecimalDType) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::decimal::DecimalData::values_type(&self) -> vortex_array::dtype::DecimalType
 
@@ -2344,7 +2340,7 @@ impl vortex_array::arrays::fixed_size_list::FixedSizeListData
 
 pub fn vortex_array::arrays::fixed_size_list::FixedSizeListData::new(elements: vortex_array::ArrayRef, list_size: u32, validity: vortex_array::validity::Validity, len: usize) -> Self
 
-pub unsafe fn vortex_array::arrays::fixed_size_list::FixedSizeListData::new_unchecked(elements: vortex_array::ArrayRef, list_size: u32, validity: vortex_array::validity::Validity, len: usize) -> Self
+pub unsafe fn vortex_array::arrays::fixed_size_list::FixedSizeListData::new_unchecked(list_size: u32, len: usize) -> Self
 
 pub fn vortex_array::arrays::fixed_size_list::FixedSizeListData::validate(elements: &vortex_array::ArrayRef, len: usize, list_size: u32, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
@@ -2490,7 +2486,7 @@ impl vortex_array::arrays::list::ListData
 
 pub fn vortex_array::arrays::list::ListData::new(elements: vortex_array::ArrayRef, offsets: vortex_array::ArrayRef, validity: vortex_array::validity::Validity) -> Self
 
-pub unsafe fn vortex_array::arrays::list::ListData::new_unchecked(elements: vortex_array::ArrayRef, offsets: vortex_array::ArrayRef, _validity: vortex_array::validity::Validity) -> Self
+pub unsafe fn vortex_array::arrays::list::ListData::new_unchecked() -> Self
 
 pub fn vortex_array::arrays::list::ListData::validate(elements: &vortex_array::ArrayRef, offsets: &vortex_array::ArrayRef, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
@@ -4012,7 +4008,7 @@ pub fn vortex_array::arrays::struct_::StructData::new(names: vortex_array::dtype
 
 pub fn vortex_array::arrays::struct_::StructData::new_fieldless_with_len(len: usize) -> Self
 
-pub unsafe fn vortex_array::arrays::struct_::StructData::new_unchecked(fields: impl core::convert::Into<alloc::sync::Arc<[vortex_array::ArrayRef]>>, dtype: vortex_array::dtype::StructFields, length: usize, validity: vortex_array::validity::Validity) -> Self
+pub unsafe fn vortex_array::arrays::struct_::StructData::new_unchecked(dtype: vortex_array::dtype::StructFields, fieldless_len: core::option::Option<usize>) -> Self
 
 pub fn vortex_array::arrays::struct_::StructData::validate(fields: &[vortex_array::ArrayRef], dtype: &vortex_array::dtype::StructFields, length: usize, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
 
@@ -4214,9 +4210,9 @@ pub fn vortex_array::arrays::varbin::VarBinData::new(offsets: vortex_array::Arra
 
 pub fn vortex_array::arrays::varbin::VarBinData::new_from_handle(offset: vortex_array::ArrayRef, bytes: vortex_array::buffer::BufferHandle, dtype: vortex_array::dtype::DType, validity: vortex_array::validity::Validity) -> Self
 
-pub unsafe fn vortex_array::arrays::varbin::VarBinData::new_unchecked(offsets: vortex_array::ArrayRef, bytes: vortex_buffer::ByteBuffer, dtype: vortex_array::dtype::DType, validity: vortex_array::validity::Validity) -> Self
+pub unsafe fn vortex_array::arrays::varbin::VarBinData::new_unchecked(bytes: vortex_buffer::ByteBuffer) -> Self
 
-pub unsafe fn vortex_array::arrays::varbin::VarBinData::new_unchecked_from_handle(offsets: vortex_array::ArrayRef, bytes: vortex_array::buffer::BufferHandle, dtype: vortex_array::dtype::DType, validity: vortex_array::validity::Validity) -> Self
+pub unsafe fn vortex_array::arrays::varbin::VarBinData::new_unchecked_from_handle(bytes: vortex_array::buffer::BufferHandle) -> Self
 
 pub fn vortex_array::arrays::varbin::VarBinData::try_new(offsets: vortex_array::ArrayRef, bytes: vortex_buffer::ByteBuffer, dtype: vortex_array::dtype::DType, validity: vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
 

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -169,13 +170,8 @@ impl DecimalData {
     ///
     /// Panics if the provided components do not satisfy the invariants documented in
     /// [`DecimalArray::new_unchecked`].
-    pub fn new<T: NativeDecimalType>(
-        buffer: Buffer<T>,
-        decimal_dtype: DecimalDType,
-        validity: Validity,
-    ) -> Self {
-        Self::try_new(buffer, decimal_dtype, validity)
-            .vortex_expect("DecimalArray construction failed")
+    pub fn new<T: NativeDecimalType>(buffer: Buffer<T>, decimal_dtype: DecimalDType) -> Self {
+        Self::try_new(buffer, decimal_dtype).vortex_expect("DecimalArray construction failed")
     }
 
     /// Creates a new [`DecimalArray`] from a [`BufferHandle`] of values that may live in
@@ -189,9 +185,8 @@ impl DecimalData {
         values: BufferHandle,
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
-        validity: Validity,
     ) -> Self {
-        Self::try_new_handle(values, values_type, decimal_dtype, validity)
+        Self::try_new_handle(values, values_type, decimal_dtype)
             .vortex_expect("DecimalArray construction failed")
     }
 
@@ -206,12 +201,11 @@ impl DecimalData {
     pub fn try_new<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
-        validity: Validity,
     ) -> VortexResult<Self> {
         let values = BufferHandle::new_host(buffer.into_byte_buffer());
         let values_type = T::DECIMAL_TYPE;
 
-        Self::try_new_handle(values, values_type, decimal_dtype, validity)
+        Self::try_new_handle(values, values_type, decimal_dtype)
     }
 
     /// Constructs a new `DecimalArray` with validation from a [`BufferHandle`].
@@ -225,12 +219,11 @@ impl DecimalData {
         values: BufferHandle,
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
-        validity: Validity,
     ) -> VortexResult<Self> {
-        Self::validate(&values, values_type, &validity)?;
+        Self::validate(&values, values_type)?;
 
         // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked_handle(values, values_type, decimal_dtype, validity) })
+        Ok(unsafe { Self::new_unchecked_handle(values, values_type, decimal_dtype) })
     }
 
     /// Creates a new [`DecimalArray`] without validation from these components:
@@ -249,7 +242,6 @@ impl DecimalData {
     pub unsafe fn new_unchecked<T: NativeDecimalType>(
         buffer: Buffer<T>,
         decimal_dtype: DecimalDType,
-        validity: Validity,
     ) -> Self {
         // SAFETY: new_unchecked_handle inherits the safety guarantees of new_unchecked
         unsafe {
@@ -257,7 +249,6 @@ impl DecimalData {
                 BufferHandle::new_host(buffer.into_byte_buffer()),
                 T::DECIMAL_TYPE,
                 decimal_dtype,
-                validity,
             )
         }
     }
@@ -275,14 +266,7 @@ impl DecimalData {
         values: BufferHandle,
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
-        validity: Validity,
     ) -> Self {
-        #[cfg(debug_assertions)]
-        {
-            Self::validate(&values, values_type, &validity)
-                .vortex_expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
-        }
-
         Self {
             decimal_dtype,
             values,
@@ -293,21 +277,23 @@ impl DecimalData {
     /// Validates the components that would be used to create a [`DecimalArray`] from a byte buffer.
     ///
     /// This function checks all the invariants required by [`DecimalArray::new_unchecked`].
-    fn validate(
-        buffer: &BufferHandle,
-        values_type: DecimalType,
-        validity: &Validity,
-    ) -> VortexResult<()> {
-        if let Some(validity_len) = validity.maybe_len() {
-            let expected_len = values_type.byte_width() * validity_len;
+    fn validate(buffer: &BufferHandle, values_type: DecimalType) -> VortexResult<()> {
+        let byte_width = values_type.byte_width();
+        vortex_ensure!(
+            buffer.len().is_multiple_of(byte_width),
+            InvalidArgument: "decimal buffer size {} is not divisible by element width {}",
+            buffer.len(),
+            byte_width,
+        );
+        match_each_decimal_value_type!(values_type, |D| {
             vortex_ensure!(
-                buffer.len() == expected_len,
-                InvalidArgument: "expected buffer of size {} bytes, was {} bytes",
-                expected_len,
-                buffer.len(),
+                buffer.is_aligned_to(Alignment::of::<D>()),
+                InvalidArgument: "decimal buffer alignment {:?} is invalid for values type {:?}",
+                buffer.alignment(),
+                D::DECIMAL_TYPE,
             );
-        }
-
+            Ok::<(), vortex_error::VortexError>(())
+        })?;
         Ok(())
     }
 
@@ -324,7 +310,6 @@ impl DecimalData {
         byte_buffer: ByteBuffer,
         values_type: DecimalType,
         decimal_dtype: DecimalDType,
-        validity: Validity,
     ) -> Self {
         // SAFETY: inherits the same safety contract as `new_unchecked_from_byte_buffer`
         unsafe {
@@ -332,7 +317,6 @@ impl DecimalData {
                 BufferHandle::new_host(byte_buffer),
                 values_type,
                 decimal_dtype,
-                validity,
             )
         }
     }
@@ -380,46 +364,6 @@ impl DecimalData {
     pub fn scale(&self) -> i8 {
         self.decimal_dtype.scale()
     }
-
-    pub fn from_iter<T: NativeDecimalType, I: IntoIterator<Item = T>>(
-        iter: I,
-        decimal_dtype: DecimalDType,
-    ) -> Self {
-        let iter = iter.into_iter();
-
-        Self::new(
-            BufferMut::from_iter(iter).freeze(),
-            decimal_dtype,
-            Validity::NonNullable,
-        )
-    }
-
-    pub fn from_option_iter<T: NativeDecimalType, I: IntoIterator<Item = Option<T>>>(
-        iter: I,
-        decimal_dtype: DecimalDType,
-    ) -> Self {
-        let iter = iter.into_iter();
-        let mut values = BufferMut::with_capacity(iter.size_hint().0);
-        let mut validity = BitBufferMut::with_capacity(values.capacity());
-
-        for i in iter {
-            match i {
-                None => {
-                    validity.append(false);
-                    values.push(T::default());
-                }
-                Some(e) => {
-                    validity.append(true);
-                    values.push(e);
-                }
-            }
-        }
-        Self::new(
-            values.freeze(),
-            decimal_dtype,
-            Validity::from(validity.freeze()),
-        )
-    }
 }
 
 impl Array<Decimal> {
@@ -446,7 +390,7 @@ impl Array<Decimal> {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = buffer.len();
         let slots = DecimalData::make_slots(&validity, len);
-        let data = DecimalData::new(buffer, decimal_dtype, validity);
+        let data = DecimalData::new(buffer, decimal_dtype);
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
@@ -467,7 +411,7 @@ impl Array<Decimal> {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = buffer.len();
         let slots = DecimalData::make_slots(&validity, len);
-        let data = unsafe { DecimalData::new_unchecked(buffer, decimal_dtype, validity) };
+        let data = unsafe { DecimalData::new_unchecked(buffer, decimal_dtype) };
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
@@ -484,7 +428,7 @@ impl Array<Decimal> {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = buffer.len();
         let slots = DecimalData::make_slots(&validity, len);
-        let data = DecimalData::try_new(buffer, decimal_dtype, validity)?;
+        let data = DecimalData::try_new(buffer, decimal_dtype)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
@@ -547,7 +491,7 @@ impl Array<Decimal> {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = values.len() / values_type.byte_width();
         let slots = DecimalData::make_slots(&validity, len);
-        let data = DecimalData::new_handle(values, values_type, decimal_dtype, validity);
+        let data = DecimalData::new_handle(values, values_type, decimal_dtype);
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
@@ -569,9 +513,7 @@ impl Array<Decimal> {
         let dtype = DType::Decimal(decimal_dtype, validity.nullability());
         let len = values.len() / values_type.byte_width();
         let slots = DecimalData::make_slots(&validity, len);
-        let data = unsafe {
-            DecimalData::new_unchecked_handle(values, values_type, decimal_dtype, validity)
-        };
+        let data = unsafe { DecimalData::new_unchecked_handle(values, values_type, decimal_dtype) };
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
@@ -613,7 +555,6 @@ impl Array<Decimal> {
                         patch_indices,
                         offset,
                         patch_values,
-                        patched_validity.clone(),
                     )
                 })
             })
@@ -683,7 +624,6 @@ fn patch_typed<I, ValuesDVT, PatchDVT>(
     patch_indices: &[I],
     patch_indices_offset: usize,
     patch_values: Buffer<PatchDVT>,
-    patched_validity: Validity,
 ) -> DecimalData
 where
     I: IntegerPType,
@@ -704,5 +644,5 @@ where
         );
     }
 
-    DecimalData::new(buffer.freeze(), decimal_dtype, patched_validity)
+    DecimalData::new(buffer.freeze(), decimal_dtype)
 }
