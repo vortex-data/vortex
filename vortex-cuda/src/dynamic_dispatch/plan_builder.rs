@@ -399,7 +399,7 @@ impl FusedPlan {
         let slice_arr = array.as_::<Slice>();
         let child = slice_arr.child().clone();
 
-        if let Some(reduced) = child.vtable().reduce_parent(&child, &array, 0)? {
+        if let Some(reduced) = child.reduce_parent(&array, 0)? {
             return self.walk(reduced, pending_subtrees);
         }
 

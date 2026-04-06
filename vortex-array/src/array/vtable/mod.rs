@@ -11,7 +11,6 @@ use std::fmt::Formatter;
 
 pub use operations::*;
 pub use validity::*;
-pub use crate::array::plugin::*;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -23,6 +22,7 @@ use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionResult;
 use crate::IntoArray;
+pub use crate::array::plugin::*;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::Constant;
 use crate::buffer::BufferHandle;

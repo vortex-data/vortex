@@ -18350,7 +18350,7 @@ impl vortex_array::session::ArraySession
 
 pub fn vortex_array::session::ArraySession::empty() -> vortex_array::session::ArraySession
 
-pub fn vortex_array::session::ArraySession::register<V: vortex_array::VTable>(&self, vtable: V)
+pub fn vortex_array::session::ArraySession::register<P: vortex_array::ArrayPlugin>(&self, plugin: P)
 
 pub fn vortex_array::session::ArraySession::registry(&self) -> &vortex_array::session::ArrayRegistry
 

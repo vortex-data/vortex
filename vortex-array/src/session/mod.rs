@@ -7,8 +7,8 @@ use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
+use crate::array::ArrayPlugin;
 use crate::array::ArrayPluginRef;
-use crate::array::VTable;
 use crate::arrays::Bool;
 use crate::arrays::Chunked;
 use crate::arrays::Constant;
@@ -45,9 +45,9 @@ impl ArraySession {
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
-    pub fn register<V: VTable>(&self, vtable: V) {
+    pub fn register<P: ArrayPlugin>(&self, plugin: P) {
         self.registry
-            .register(vtable.id(), Arc::new(vtable) as ArrayPluginRef);
+            .register(plugin.id(), Arc::new(plugin) as ArrayPluginRef);
     }
 }
 
