@@ -11,6 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::stats::Stat;

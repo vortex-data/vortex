@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 

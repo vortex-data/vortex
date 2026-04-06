@@ -26,6 +26,7 @@ use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;

@@ -10,6 +10,7 @@ use crate::ArrayRef;
 use crate::arrays::StructArray;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
+use crate::arrays::struct_::StructArrayExt;
 
 pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray {
     let filtered_validity = filter_validity(

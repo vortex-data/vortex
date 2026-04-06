@@ -6,10 +6,7 @@ use std::ops::Range;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-#[cfg(test)]
-use crate::array::Array;
-use crate::array::ArrayView;
-use crate::arrays::Chunked;
+use crate::arrays::chunked::ChunkedArrayExt;
 
 pub(crate) struct AlignedPair {
     pub left: ArrayRef,
@@ -70,38 +67,23 @@ pub(crate) struct PairedChunks {
     total_len: usize,
 }
 
-#[cfg(test)]
-impl Array<Chunked> {
-    pub(crate) fn paired_chunks(&self, other: &Array<Chunked>) -> PairedChunks {
+pub(crate) trait PairedChunksExt: ChunkedArrayExt {
+    fn paired_chunks<T: ChunkedArrayExt>(&self, other: &T) -> PairedChunks {
         assert_eq!(
-            self.len(),
-            other.len(),
+            self.as_ref().len(),
+            other.as_ref().len(),
             "paired_chunks requires arrays of equal length"
         );
         PairedChunks {
             left: ChunkCursor::new(self.chunks()),
             right: ChunkCursor::new(other.chunks()),
             pos: 0,
-            total_len: self.len(),
+            total_len: self.as_ref().len(),
         }
     }
 }
 
-impl ArrayView<'_, Chunked> {
-    pub(crate) fn paired_chunks(&self, other: &ArrayView<'_, Chunked>) -> PairedChunks {
-        assert_eq!(
-            self.len(),
-            other.len(),
-            "paired_chunks requires arrays of equal length"
-        );
-        PairedChunks {
-            left: ChunkCursor::new(self.chunks()),
-            right: ChunkCursor::new(other.chunks()),
-            pos: 0,
-            total_len: self.len(),
-        }
-    }
-}
+impl<T: ChunkedArrayExt> PairedChunksExt for T {}
 
 impl Iterator for PairedChunks {
     type Item = VortexResult<AlignedPair>;
@@ -140,6 +122,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::chunked::paired_chunks::PairedChunksExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;

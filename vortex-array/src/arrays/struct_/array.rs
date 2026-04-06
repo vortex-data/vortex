@@ -14,7 +14,6 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -642,69 +641,7 @@ impl Array<Struct> {
         Self::try_new_with_dtype(children, new_fields, self.len(), self.validity()?)
     }
 
-    pub fn names(&self) -> &FieldNames {
-        StructArrayExt::names(self)
-    }
-
-    pub fn iter_unmasked_fields(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        StructArrayExt::iter_unmasked_fields(self)
-    }
-
-    pub fn unmasked_fields(&self) -> Arc<[ArrayRef]> {
-        StructArrayExt::unmasked_fields(self)
-    }
-
-    pub fn unmasked_field(&self, idx: usize) -> &ArrayRef {
-        StructArrayExt::unmasked_field(self, idx)
-    }
-
-    pub fn unmasked_field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
-        StructArrayExt::unmasked_field_by_name(self, name)
-    }
-
-    pub fn unmasked_field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
-        StructArrayExt::unmasked_field_by_name_opt(self, name)
-    }
-
-    pub fn struct_fields(&self) -> StructFields {
-        StructArrayExt::struct_fields(self)
-    }
-
     pub fn remove_column_owned(&self, name: impl Into<FieldName>) -> Option<(Self, ArrayRef)> {
         self.remove_column(name)
-    }
-}
-
-impl ArrayView<'_, Struct> {
-    pub fn names(&self) -> &FieldNames {
-        StructArrayExt::names(self)
-    }
-
-    pub fn iter_unmasked_fields(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        StructArrayExt::iter_unmasked_fields(self)
-    }
-
-    pub fn unmasked_field(&self, idx: usize) -> &ArrayRef {
-        StructArrayExt::unmasked_field(self, idx)
-    }
-
-    pub fn unmasked_field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
-        StructArrayExt::unmasked_field_by_name(self, name)
-    }
-
-    pub fn unmasked_field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
-        StructArrayExt::unmasked_field_by_name_opt(self, name)
-    }
-
-    pub fn unmasked_fields(&self) -> Arc<[ArrayRef]> {
-        StructArrayExt::unmasked_fields(self)
-    }
-
-    pub fn struct_fields(&self) -> StructFields {
-        StructArrayExt::struct_fields(self)
-    }
-
-    pub fn struct_validity(&self) -> Validity {
-        StructArrayExt::struct_validity(self)
     }
 }

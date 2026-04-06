@@ -148,7 +148,6 @@ impl DeltaData {
         );
         Ok(())
     }
-
 }
 
 pub(crate) fn lane_count(ptype: PType) -> usize {

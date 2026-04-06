@@ -31,6 +31,7 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
+use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;

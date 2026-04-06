@@ -15,6 +15,7 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;

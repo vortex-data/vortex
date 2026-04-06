@@ -19,6 +19,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::filter::FilterKernel;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;

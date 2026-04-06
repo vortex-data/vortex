@@ -12,7 +12,6 @@ use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::arrays::Dict;
 use crate::dtype::DType;
@@ -189,29 +188,6 @@ pub trait DictArrayExt: TypedArrayRef<Dict> {
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
 
 impl Array<Dict> {
-    #[inline]
-    pub fn codes(&self) -> &ArrayRef {
-        DictArrayExt::codes(self)
-    }
-
-    #[inline]
-    pub fn values(&self) -> &ArrayRef {
-        DictArrayExt::values(self)
-    }
-
-    #[inline]
-    pub fn has_all_values_referenced(&self) -> bool {
-        DictArrayExt::has_all_values_referenced(self)
-    }
-
-    pub fn validate_all_values_referenced(&self) -> VortexResult<()> {
-        DictArrayExt::validate_all_values_referenced(self)
-    }
-
-    pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
-        DictArrayExt::compute_referenced_values_mask(self, referenced)
-    }
-
     /// Build a new `DictArray` from its components, `codes` and `values`.
     pub fn new(codes: ArrayRef, values: ArrayRef) -> Self {
         let dtype = values
@@ -274,31 +250,6 @@ impl Array<Dict> {
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data).with_slots(slots))
         }
-    }
-}
-
-impl ArrayView<'_, Dict> {
-    #[inline]
-    pub fn codes(&self) -> &ArrayRef {
-        DictArrayExt::codes(self)
-    }
-
-    #[inline]
-    pub fn values(&self) -> &ArrayRef {
-        DictArrayExt::values(self)
-    }
-
-    #[inline]
-    pub fn has_all_values_referenced(&self) -> bool {
-        DictArrayExt::has_all_values_referenced(self)
-    }
-
-    pub fn validate_all_values_referenced(&self) -> VortexResult<()> {
-        DictArrayExt::validate_all_values_referenced(self)
-    }
-
-    pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
-        DictArrayExt::compute_referenced_values_mask(self, referenced)
     }
 }
 

@@ -5,6 +5,7 @@ use crate::ArrayRef;
 use crate::array::ArrayView;
 use crate::array::ValidityChild;
 use crate::arrays::Extension;
+use crate::arrays::extension::ExtensionArrayExt;
 
 impl ValidityChild<Extension> for Extension {
     fn validity_child(array: ArrayView<'_, Extension>) -> ArrayRef {

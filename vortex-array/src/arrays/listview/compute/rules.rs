@@ -10,6 +10,7 @@ use crate::arrays::Filter;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::dict::TakeReduceAdaptor;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;

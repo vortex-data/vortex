@@ -28,6 +28,7 @@ use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::error::VortexExpect;
 use vortex::layout::layouts::flat::Flat;
 use vortex::layout::layouts::zoned::Zoned;

@@ -12,6 +12,7 @@ use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -121,6 +122,7 @@ mod test {
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::dtype::FieldNames;

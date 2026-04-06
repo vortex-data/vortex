@@ -185,7 +185,13 @@ impl VTable for RLE {
             Some(indices.clone()),
             Some(values_idx_offsets.clone()),
         ];
-        RLEData::validate(&values, &indices, &values_idx_offsets, metadata.offset as usize, len)?;
+        RLEData::validate(
+            &values,
+            &indices,
+            &values_idx_offsets,
+            metadata.offset as usize,
+            len,
+        )?;
         let data = RLEData::try_new(metadata.offset as usize)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -221,11 +227,7 @@ impl RLE {
     ) -> VortexResult<RLEArray> {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
         RLEData::validate(&values, &indices, &values_idx_offsets, offset, length)?;
-        let slots = vec![
-            Some(values),
-            Some(indices),
-            Some(values_idx_offsets),
-        ];
+        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = RLEData::try_new(offset)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
@@ -244,11 +246,7 @@ impl RLE {
         length: usize,
     ) -> RLEArray {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        let slots = vec![
-            Some(values),
-            Some(indices),
-            Some(values_idx_offsets),
-        ];
+        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = unsafe { RLEData::new_unchecked(offset) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))

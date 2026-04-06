@@ -42,7 +42,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::arrays::PrimitiveArray;
-    use crate::arrays::primitive::array::PrimitiveArrayExt;
+    use crate::arrays::primitive::PrimitiveArrayExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;

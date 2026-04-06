@@ -16,6 +16,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;

@@ -12,6 +12,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::dtype::DType;
 use crate::stream::ArrayStream;
 use crate::stream::ArrayStreamAdapter;

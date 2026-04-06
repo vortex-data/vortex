@@ -47,7 +47,13 @@ impl FoRData {
         encoded_len: usize,
         reference: Scalar,
     ) -> VortexResult<Self> {
-        Self::validate_parts(encoded_dtype, encoded_len, &reference, reference.dtype(), encoded_len)?;
+        Self::validate_parts(
+            encoded_dtype,
+            encoded_len,
+            &reference,
+            reference.dtype(),
+            encoded_len,
+        )?;
 
         Ok(Self { reference })
     }

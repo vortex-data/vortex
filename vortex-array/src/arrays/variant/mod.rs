@@ -10,7 +10,6 @@ pub use self::vtable::VariantArray;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::dtype::DType;
 
@@ -38,10 +37,6 @@ pub trait VariantArrayExt: TypedArrayRef<Variant> {
 impl<T: TypedArrayRef<Variant>> VariantArrayExt for T {}
 
 impl Array<Variant> {
-    pub fn child(&self) -> &ArrayRef {
-        VariantArrayExt::child(self)
-    }
-
     /// Creates a new `VariantArray`.
     pub fn new(child: ArrayRef) -> Self {
         let dtype = DType::Variant(child.dtype().nullability());
@@ -53,11 +48,5 @@ impl Array<Variant> {
             )
         }
         .with_stats_set(stats)
-    }
-}
-
-impl ArrayView<'_, Variant> {
-    pub fn child(&self) -> &ArrayRef {
-        VariantArrayExt::child(self)
     }
 }

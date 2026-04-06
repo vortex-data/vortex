@@ -51,10 +51,7 @@ impl TurboQuantData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented
     /// in [`new_unchecked`](Self::new_unchecked).
-    pub fn try_new(
-        dtype: &DType,
-        centroids_len: usize,
-    ) -> VortexResult<Self> {
+    pub fn try_new(dtype: &DType, centroids_len: usize) -> VortexResult<Self> {
         // SAFETY: we validate that the inputs are valid above.
         Ok(unsafe { Self::new_unchecked(dtype, centroids_len) })
     }
@@ -78,10 +75,7 @@ impl TurboQuantData {
     /// - For degenerate (empty) arrays: all children must be empty.
     ///
     /// Violating these invariants may produce incorrect results during decompression.
-    pub unsafe fn new_unchecked(
-        dtype: &DType,
-        centroids_len: usize,
-    ) -> Self {
+    pub unsafe fn new_unchecked(dtype: &DType, centroids_len: usize) -> Self {
         let dimension = dtype
             .as_extension_opt()
             .and_then(|ext| extension_list_size(ext).ok())

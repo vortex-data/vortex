@@ -10,6 +10,7 @@ use crate::array::ArrayView;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::dict::TakeReduce;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;

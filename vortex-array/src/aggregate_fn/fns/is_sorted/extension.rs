@@ -7,6 +7,7 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
 use crate::arrays::ExtensionArray;
+use crate::arrays::extension::ExtensionArrayExt;
 
 pub(super) fn check_extension_sorted(
     array: &ExtensionArray,

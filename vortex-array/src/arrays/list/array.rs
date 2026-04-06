@@ -17,7 +17,6 @@ use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -315,6 +314,31 @@ pub trait ListArrayExt: TypedArrayRef<List> {
         let end = self.offset_at(self.as_ref().len())?;
         self.elements().slice(start..end)
     }
+
+    fn element_dtype(&self) -> &DType {
+        self.elements().dtype()
+    }
+
+    fn reset_offsets(&self, recurse: bool) -> VortexResult<Array<List>> {
+        let mut elements = self.sliced_elements()?;
+        if recurse && elements.is_canonical() {
+            elements = elements.to_canonical()?.compact()?.into_array();
+        } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
+            elements = child_list_array
+                .into_owned()
+                .reset_offsets(recurse)?
+                .into_array();
+        }
+
+        let offsets = self.offsets();
+        let first_offset = offsets.scalar_at(0)?;
+        let adjusted_offsets = offsets.clone().binary(
+            ConstantArray::new(first_offset, offsets.len()).into_array(),
+            Operator::Sub,
+        )?;
+
+        Array::<List>::try_new(elements, adjusted_offsets, self.list_validity())
+    }
 }
 impl<T: TypedArrayRef<List>> ListArrayExt for T {}
 
@@ -360,38 +384,6 @@ impl Array<List> {
         }
     }
 
-    pub fn elements(&self) -> &ArrayRef {
-        ListArrayExt::elements(self)
-    }
-
-    pub fn offsets(&self) -> &ArrayRef {
-        ListArrayExt::offsets(self)
-    }
-
-    pub fn offset_at(&self, index: usize) -> VortexResult<usize> {
-        ListArrayExt::offset_at(self, index)
-    }
-
-    pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
-        ListArrayExt::list_elements_at(self, index)
-    }
-
-    pub fn sliced_elements(&self) -> VortexResult<ArrayRef> {
-        ListArrayExt::sliced_elements(self)
-    }
-
-    pub fn element_dtype(&self) -> &DType {
-        self.elements().dtype()
-    }
-
-    pub fn list_validity(&self) -> Validity {
-        ListArrayExt::list_validity(self)
-    }
-
-    pub fn list_validity_mask(&self) -> vortex_mask::Mask {
-        ListArrayExt::list_validity_mask(self)
-    }
-
     pub fn into_data_parts(self) -> ListDataParts {
         let dtype = self.dtype().clone();
         let elements = self.slots()[ELEMENTS_SLOT]
@@ -407,64 +399,5 @@ impl Array<List> {
             validity,
             dtype,
         }
-    }
-
-    pub fn reset_offsets(&self, recurse: bool) -> VortexResult<Self> {
-        let mut elements = self.sliced_elements()?;
-        if recurse && elements.is_canonical() {
-            elements = elements.to_canonical()?.compact()?.into_array();
-        } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
-            elements = child_list_array
-                .into_owned()
-                .reset_offsets(recurse)?
-                .into_array();
-        }
-
-        let offsets = self.offsets();
-        let first_offset = offsets.scalar_at(0)?;
-        let adjusted_offsets = offsets.clone().binary(
-            ConstantArray::new(first_offset, offsets.len()).into_array(),
-            Operator::Sub,
-        )?;
-
-        Self::try_new(elements, adjusted_offsets, self.list_validity())
-    }
-}
-
-impl ArrayView<'_, List> {
-    pub fn elements(&self) -> &ArrayRef {
-        ListArrayExt::elements(self)
-    }
-
-    pub fn offsets(&self) -> &ArrayRef {
-        ListArrayExt::offsets(self)
-    }
-
-    pub fn offset_at(&self, index: usize) -> VortexResult<usize> {
-        ListArrayExt::offset_at(self, index)
-    }
-
-    pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
-        ListArrayExt::list_elements_at(self, index)
-    }
-
-    pub fn sliced_elements(&self) -> VortexResult<ArrayRef> {
-        ListArrayExt::sliced_elements(self)
-    }
-
-    pub fn reset_offsets(&self, recurse: bool) -> VortexResult<Array<List>> {
-        self.into_owned().reset_offsets(recurse)
-    }
-
-    pub fn element_dtype(&self) -> &DType {
-        self.elements().dtype()
-    }
-
-    pub fn list_validity(&self) -> Validity {
-        ListArrayExt::list_validity(self)
-    }
-
-    pub fn list_validity_mask(&self) -> vortex_mask::Mask {
-        ListArrayExt::list_validity_mask(self)
     }
 }

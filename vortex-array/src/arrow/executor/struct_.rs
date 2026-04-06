@@ -19,6 +19,7 @@ use crate::arrays::Chunked;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::struct_::StructDataParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;

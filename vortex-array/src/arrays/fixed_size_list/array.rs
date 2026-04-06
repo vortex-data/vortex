@@ -10,7 +10,6 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -226,6 +225,24 @@ pub trait FixedSizeListArrayExt: TypedArrayRef<FixedSizeList> {
     fn fixed_size_list_validity_mask(&self) -> vortex_mask::Mask {
         self.fixed_size_list_validity().to_mask(self.as_ref().len())
     }
+
+    fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
+        debug_assert!(
+            index < self.as_ref().len(),
+            "index {} out of bounds: the len is {}",
+            index,
+            self.as_ref().len(),
+        );
+        debug_assert!(
+            self.fixed_size_list_validity()
+                .is_valid(index)
+                .unwrap_or(false)
+        );
+
+        let start = self.list_size() as usize * index;
+        let end = self.list_size() as usize * (index + 1);
+        self.elements().slice(start..end)
+    }
 }
 impl<T: TypedArrayRef<FixedSizeList>> FixedSizeListArrayExt for T {}
 
@@ -292,22 +309,6 @@ impl Array<FixedSizeList> {
         }
     }
 
-    pub fn elements(&self) -> &ArrayRef {
-        FixedSizeListArrayExt::elements(self)
-    }
-
-    pub fn list_size(&self) -> u32 {
-        FixedSizeListArrayExt::list_size(self)
-    }
-
-    pub fn fixed_size_list_validity(&self) -> Validity {
-        FixedSizeListArrayExt::fixed_size_list_validity(self)
-    }
-
-    pub fn fixed_size_list_validity_mask(&self) -> vortex_mask::Mask {
-        FixedSizeListArrayExt::fixed_size_list_validity_mask(self)
-    }
-
     pub fn into_data_parts(self) -> FixedSizeListDataParts {
         let dtype = self.dtype().clone();
         let elements = self.slots()[ELEMENTS_SLOT]
@@ -319,61 +320,5 @@ impl Array<FixedSizeList> {
             validity,
             dtype,
         }
-    }
-}
-
-impl Array<FixedSizeList> {
-    pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
-        debug_assert!(
-            index < Array::len(self),
-            "index {} out of bounds: the len is {}",
-            index,
-            Array::len(self),
-        );
-        debug_assert!(
-            self.fixed_size_list_validity()
-                .is_valid(index)
-                .unwrap_or(false)
-        );
-
-        let start = self.list_size() as usize * index;
-        let end = self.list_size() as usize * (index + 1);
-        self.elements().slice(start..end)
-    }
-}
-
-impl ArrayView<'_, FixedSizeList> {
-    pub fn elements(&self) -> &ArrayRef {
-        FixedSizeListArrayExt::elements(self)
-    }
-
-    pub fn list_size(&self) -> u32 {
-        FixedSizeListArrayExt::list_size(self)
-    }
-
-    pub fn fixed_size_list_validity(&self) -> Validity {
-        FixedSizeListArrayExt::fixed_size_list_validity(self)
-    }
-
-    pub fn fixed_size_list_validity_mask(&self) -> vortex_mask::Mask {
-        FixedSizeListArrayExt::fixed_size_list_validity_mask(self)
-    }
-
-    pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
-        debug_assert!(
-            index < ArrayView::len(self),
-            "index {} out of bounds: the len is {}",
-            index,
-            ArrayView::len(self),
-        );
-        debug_assert!(
-            self.fixed_size_list_validity()
-                .is_valid(index)
-                .unwrap_or(false)
-        );
-
-        let start = self.list_size() as usize * index;
-        let end = self.list_size() as usize * (index + 1);
-        self.elements().slice(start..end)
     }
 }

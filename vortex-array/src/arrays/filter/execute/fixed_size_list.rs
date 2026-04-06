@@ -10,6 +10,7 @@ use vortex_mask::MaskValues;
 
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::filter::execute::filter_validity;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 
 /// Density threshold for choosing between indices and slices representation when expanding masks.
 ///

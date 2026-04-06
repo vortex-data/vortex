@@ -168,11 +168,7 @@ impl VTable for DateTimeParts {
             len,
         )?;
 
-        let slots = vec![
-            Some(days),
-            Some(seconds),
-            Some(subseconds),
-        ];
+        let slots = vec![Some(days), Some(seconds), Some(subseconds)];
         let data = DateTimePartsData {};
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -254,11 +250,7 @@ impl DateTimeParts {
     ) -> VortexResult<DateTimePartsArray> {
         let len = days.len();
         DateTimePartsData::validate(&dtype, &days, &seconds, &subseconds, len)?;
-        let slots = vec![
-            Some(days),
-            Some(seconds),
-            Some(subseconds),
-        ];
+        let slots = vec![Some(days), Some(seconds), Some(subseconds)];
         let data = DateTimePartsData {};
         Ok(unsafe {
             Array::from_parts_unchecked(
@@ -314,7 +306,6 @@ impl DateTimePartsData {
 
         Ok(())
     }
-
 }
 
 impl ValidityChild<DateTimeParts> for DateTimeParts {

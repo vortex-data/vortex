@@ -10,6 +10,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for FixedSizeList {

@@ -192,8 +192,7 @@ impl VTable for ALPRD {
                 )
             })
             .transpose()?;
-        let left_parts_patches =
-            ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
+        let left_parts_patches = ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
 
         ALPRDData::validate_parts(
             dtype,
@@ -351,8 +350,7 @@ impl ALPRD {
         left_parts_patches: Option<Patches>,
     ) -> VortexResult<ALPRDArray> {
         let len = left_parts.len();
-        let left_parts_patches =
-            ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
+        let left_parts_patches = ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
         ALPRDData::validate_parts(
             &dtype,
             len,
@@ -361,12 +359,9 @@ impl ALPRD {
             left_parts_patches.as_ref(),
         )?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
-        let data =
-            ALPRDData::try_new(left_parts_dictionary, right_bit_width, left_parts_patches)?;
+        let data = ALPRDData::try_new(left_parts_dictionary, right_bit_width, left_parts_patches)?;
         Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots),
-            )
+            Array::from_parts_unchecked(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
         })
     }
 

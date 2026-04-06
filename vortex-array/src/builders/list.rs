@@ -15,6 +15,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::ListArray;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
@@ -318,6 +319,8 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::list::ListArrayExt;
+    use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListArray;

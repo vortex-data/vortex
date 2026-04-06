@@ -10,6 +10,7 @@
 //! [`DType::FixedSizeList`]: vortex_array::dtype::DType::FixedSizeList
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 

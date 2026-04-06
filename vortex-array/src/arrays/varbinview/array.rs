@@ -18,7 +18,6 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -697,14 +696,6 @@ impl Array<VarBinView> {
         Self::from_prevalidated_data(dtype, data, slots)
     }
 
-    pub fn varbinview_validity(&self) -> Validity {
-        VarBinViewArrayExt::varbinview_validity(self)
-    }
-
-    pub fn varbinview_validity_mask(&self) -> Mask {
-        VarBinViewArrayExt::varbinview_validity_mask(self)
-    }
-
     pub fn into_data_parts(self) -> VarBinViewDataParts {
         let dtype = self.dtype().clone();
         let validity = self.varbinview_validity();
@@ -715,16 +706,6 @@ impl Array<VarBinView> {
             views: data.views,
             validity,
         }
-    }
-}
-
-impl ArrayView<'_, VarBinView> {
-    pub fn varbinview_validity(&self) -> Validity {
-        VarBinViewArrayExt::varbinview_validity(self)
-    }
-
-    pub fn varbinview_validity_mask(&self) -> Mask {
-        VarBinViewArrayExt::varbinview_validity_mask(self)
     }
 }
 

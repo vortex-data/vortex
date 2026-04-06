@@ -7,6 +7,7 @@ use pyo3::PyResult;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use vortex::array::arrays::Struct;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::error::VortexExpect;
 
 use crate::arrays::PyArrayRef;

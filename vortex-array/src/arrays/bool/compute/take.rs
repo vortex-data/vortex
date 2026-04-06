@@ -15,6 +15,7 @@ use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::dict::TakeExecute;
 use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
@@ -86,6 +87,7 @@ mod test {
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::validity::Validity;

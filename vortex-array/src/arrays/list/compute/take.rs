@@ -12,6 +12,7 @@ use crate::arrays::ListArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::list::ListArrayExt;
 use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;

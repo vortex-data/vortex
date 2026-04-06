@@ -21,7 +21,6 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::arrays::Chunked;
 use crate::arrays::PrimitiveArray;
@@ -115,70 +114,6 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
     }
 }
 impl<T: TypedArrayRef<Chunked>> ChunkedArrayExt for T {}
-
-impl Array<Chunked> {
-    pub fn chunk_offsets_array(&self) -> &ArrayRef {
-        <Self as ChunkedArrayExt>::chunk_offsets_array(self)
-    }
-
-    pub fn chunk_offsets(&self) -> Buffer<u64> {
-        <Self as ChunkedArrayExt>::chunk_offsets(self)
-    }
-
-    pub fn nchunks(&self) -> usize {
-        <Self as ChunkedArrayExt>::nchunks(self)
-    }
-
-    pub fn chunk(&self, idx: usize) -> &ArrayRef {
-        <Self as ChunkedArrayExt>::chunk(self, idx)
-    }
-
-    pub fn iter_chunks(&self) -> Box<dyn Iterator<Item = &ArrayRef> + '_> {
-        <Self as ChunkedArrayExt>::iter_chunks(self)
-    }
-
-    pub fn chunks(&self) -> Vec<ArrayRef> {
-        <Self as ChunkedArrayExt>::chunks(self)
-    }
-
-    pub fn non_empty_chunks(&self) -> Box<dyn Iterator<Item = &ArrayRef> + '_> {
-        <Self as ChunkedArrayExt>::non_empty_chunks(self)
-    }
-}
-
-impl ArrayView<'_, Chunked> {
-    pub fn chunk_offsets_array(&self) -> &ArrayRef {
-        <Self as ChunkedArrayExt>::chunk_offsets_array(self)
-    }
-
-    pub fn chunk_offsets(&self) -> Buffer<u64> {
-        <Self as ChunkedArrayExt>::chunk_offsets(self)
-    }
-
-    pub fn nchunks(&self) -> usize {
-        <Self as ChunkedArrayExt>::nchunks(self)
-    }
-
-    pub fn chunk(&self, idx: usize) -> &ArrayRef {
-        <Self as ChunkedArrayExt>::chunk(self, idx)
-    }
-
-    pub fn iter_chunks(&self) -> Box<dyn Iterator<Item = &ArrayRef> + '_> {
-        <Self as ChunkedArrayExt>::iter_chunks(self)
-    }
-
-    pub fn chunks(&self) -> Vec<ArrayRef> {
-        <Self as ChunkedArrayExt>::chunks(self)
-    }
-
-    pub fn non_empty_chunks(&self) -> Box<dyn Iterator<Item = &ArrayRef> + '_> {
-        <Self as ChunkedArrayExt>::non_empty_chunks(self)
-    }
-
-    pub(crate) fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
-        <Self as ChunkedArrayExt>::find_chunk_idx(self, index)
-    }
-}
 
 impl ChunkedData {
     pub(super) fn make_slots(chunks: &[ArrayRef]) -> Vec<Option<ArrayRef>> {
@@ -309,6 +244,7 @@ mod test {
     use crate::IntoArray;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

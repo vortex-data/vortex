@@ -349,6 +349,7 @@ mod tests {
     use parquet_variant_compute::VariantArrayBuilder;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Variant;
+    use vortex_array::arrays::variant::VariantArrayExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;

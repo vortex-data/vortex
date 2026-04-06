@@ -26,6 +26,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::chunked::ChunkedData;
 use crate::arrays::chunked::array::CHUNK_OFFSETS_SLOT;
 use crate::arrays::chunked::array::CHUNKS_OFFSET;

@@ -17,7 +17,6 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -565,56 +564,6 @@ impl Array<Decimal> {
                 ArrayParts::new(Decimal, dtype, len, data).with_slots(slots),
             )
         })
-    }
-
-    pub fn decimal_dtype(&self) -> DecimalDType {
-        DecimalArrayExt::decimal_dtype(self)
-    }
-
-    pub fn values_type(&self) -> DecimalType {
-        DecimalArrayExt::values_type(self)
-    }
-
-    pub fn precision(&self) -> u8 {
-        DecimalArrayExt::precision(self)
-    }
-
-    pub fn scale(&self) -> i8 {
-        DecimalArrayExt::scale(self)
-    }
-
-    pub fn buffer_handle(&self) -> &BufferHandle {
-        DecimalArrayExt::buffer_handle(self)
-    }
-
-    pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
-        DecimalArrayExt::buffer(self)
-    }
-}
-
-impl ArrayView<'_, Decimal> {
-    pub fn decimal_dtype(&self) -> DecimalDType {
-        DecimalArrayExt::decimal_dtype(self)
-    }
-
-    pub fn values_type(&self) -> DecimalType {
-        DecimalArrayExt::values_type(self)
-    }
-
-    pub fn precision(&self) -> u8 {
-        DecimalArrayExt::precision(self)
-    }
-
-    pub fn scale(&self) -> i8 {
-        DecimalArrayExt::scale(self)
-    }
-
-    pub fn buffer_handle(&self) -> &BufferHandle {
-        DecimalArrayExt::buffer_handle(self)
-    }
-
-    pub fn buffer<T: NativeDecimalType>(&self) -> Buffer<T> {
-        DecimalArrayExt::buffer(self)
     }
 }
 

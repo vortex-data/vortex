@@ -7,7 +7,6 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::arrays::Extension;
 use crate::dtype::DType;
@@ -128,11 +127,6 @@ pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
 impl<T: TypedArrayRef<Extension>> ExtensionArrayExt for T {}
 
 impl Array<Extension> {
-    #[inline]
-    pub fn storage_array(&self) -> &ArrayRef {
-        ExtensionArrayExt::storage_array(self)
-    }
-
     /// Constructs a new `ExtensionArray`.
     ///
     /// # Panics
@@ -159,12 +153,5 @@ impl Array<Extension> {
                 ArrayParts::new(Extension, dtype, len, data).with_slots(vec![Some(storage_array)]),
             )
         })
-    }
-}
-
-impl ArrayView<'_, Extension> {
-    #[inline]
-    pub fn storage_array(&self) -> &ArrayRef {
-        ExtensionArrayExt::storage_array(self)
     }
 }

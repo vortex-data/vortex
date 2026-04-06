@@ -9,6 +9,7 @@ use crate::array::ArrayView;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -61,7 +62,9 @@ mod tests {
     use crate::arrays::ExtensionArray;
     use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::extension::ExtensionArrayExt;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
+    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;

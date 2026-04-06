@@ -9,6 +9,7 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayView;
 use crate::array::ValidityVTable;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::vtable::ArrayExpr;
 use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;

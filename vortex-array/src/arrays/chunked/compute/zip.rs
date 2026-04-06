@@ -9,6 +9,8 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::chunked::paired_chunks::PairedChunksExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 
@@ -54,6 +56,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
+    use crate::arrays::chunked::ChunkedArrayExt;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;

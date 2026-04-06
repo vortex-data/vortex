@@ -9,6 +9,7 @@ use itertools::Itertools;
 use vortex_error::VortexResult;
 
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 
 /// Check that a named metadata matches its previous versioning.
 ///

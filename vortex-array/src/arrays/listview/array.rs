@@ -14,7 +14,6 @@ use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -374,6 +373,15 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         let size = self.size_at(index);
         self.elements().slice(offset..offset + size)
     }
+
+    fn verify_is_zero_copy_to_list(&self) -> bool {
+        validate_zctl(
+            self.elements(),
+            self.offsets().to_primitive(),
+            self.sizes().to_primitive(),
+        )
+        .is_ok()
+    }
 }
 impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}
 
@@ -382,13 +390,7 @@ impl Array<ListView> {
     pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
-        let slots = ListViewData::make_slots(
-            &elements,
-            &offsets,
-            &sizes,
-            &validity,
-            len,
-        );
+        let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
         ListViewData::validate(&elements, &offsets, &sizes, &validity)
             .vortex_expect("`ListViewArray` construction failed");
         let data = ListViewData::new();
@@ -408,13 +410,7 @@ impl Array<ListView> {
     ) -> VortexResult<Self> {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
-        let slots = ListViewData::make_slots(
-            &elements,
-            &offsets,
-            &sizes,
-            &validity,
-            len,
-        );
+        let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
         ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
         let data = ListViewData::try_new()?;
         Ok(unsafe {
@@ -437,13 +433,7 @@ impl Array<ListView> {
     ) -> Self {
         let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
         let len = offsets.len();
-        let slots = ListViewData::make_slots(
-            &elements,
-            &offsets,
-            &sizes,
-            &validity,
-            len,
-        );
+        let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
         let data = unsafe { ListViewData::new_unchecked() };
         unsafe {
             Array::from_parts_unchecked(
@@ -477,47 +467,6 @@ impl Array<ListView> {
         }
     }
 
-    pub fn verify_is_zero_copy_to_list(&self) -> bool {
-        validate_zctl(
-            self.elements(),
-            self.offsets().to_primitive(),
-            self.sizes().to_primitive(),
-        )
-        .is_ok()
-    }
-
-    pub fn elements(&self) -> &ArrayRef {
-        ListViewArrayExt::elements(self)
-    }
-
-    pub fn offsets(&self) -> &ArrayRef {
-        ListViewArrayExt::offsets(self)
-    }
-
-    pub fn sizes(&self) -> &ArrayRef {
-        ListViewArrayExt::sizes(self)
-    }
-
-    pub fn offset_at(&self, index: usize) -> usize {
-        ListViewArrayExt::offset_at(self, index)
-    }
-
-    pub fn size_at(&self, index: usize) -> usize {
-        ListViewArrayExt::size_at(self, index)
-    }
-
-    pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
-        ListViewArrayExt::list_elements_at(self, index)
-    }
-
-    pub fn listview_validity(&self) -> Validity {
-        ListViewArrayExt::listview_validity(self)
-    }
-
-    pub fn listview_validity_mask(&self) -> vortex_mask::Mask {
-        ListViewArrayExt::listview_validity_mask(self)
-    }
-
     pub fn into_data_parts(self) -> ListViewDataParts {
         let elements = self.slots()[ELEMENTS_SLOT]
             .clone()
@@ -536,49 +485,6 @@ impl Array<ListView> {
             sizes,
             validity,
         }
-    }
-}
-
-impl ArrayView<'_, ListView> {
-    pub fn elements(&self) -> &ArrayRef {
-        ListViewArrayExt::elements(self)
-    }
-
-    pub fn offsets(&self) -> &ArrayRef {
-        ListViewArrayExt::offsets(self)
-    }
-
-    pub fn sizes(&self) -> &ArrayRef {
-        ListViewArrayExt::sizes(self)
-    }
-
-    pub fn offset_at(&self, index: usize) -> usize {
-        ListViewArrayExt::offset_at(self, index)
-    }
-
-    pub fn size_at(&self, index: usize) -> usize {
-        ListViewArrayExt::size_at(self, index)
-    }
-
-    pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
-        ListViewArrayExt::list_elements_at(self, index)
-    }
-
-    pub fn listview_validity(&self) -> Validity {
-        ListViewArrayExt::listview_validity(self)
-    }
-
-    pub fn listview_validity_mask(&self) -> vortex_mask::Mask {
-        ListViewArrayExt::listview_validity_mask(self)
-    }
-
-    pub fn verify_is_zero_copy_to_list(&self) -> bool {
-        validate_zctl(
-            self.elements(),
-            self.offsets().to_primitive(),
-            self.sizes().to_primitive(),
-        )
-        .is_ok()
     }
 }
 

@@ -42,6 +42,7 @@ use crate::arrays::Primitive;
 use crate::arrays::SliceArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
+use crate::arrays::bool::BoolArrayExt;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;

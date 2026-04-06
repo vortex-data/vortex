@@ -20,6 +20,7 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -225,13 +226,7 @@ impl Sparse {
         fill_value: Scalar,
     ) -> VortexResult<SparseArray> {
         let dtype = fill_value.dtype().clone();
-        let patches = Patches::new(
-            len,
-            0,
-            indices,
-            values,
-            None,
-        )?;
+        let patches = Patches::new(len, 0, indices, values, None)?;
         let slots = SparseData::make_slots(&patches);
         let data = SparseData::try_new_from_patches(patches, fill_value)?;
         Ok(unsafe {

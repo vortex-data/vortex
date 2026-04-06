@@ -14,6 +14,8 @@ use crate::arrays::ListArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;

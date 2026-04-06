@@ -13,7 +13,6 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -224,33 +223,11 @@ impl Array<Bool> {
     }
 
     /// Returns the underlying [`BitBuffer`] of the array, consuming self.
-    pub fn to_bit_buffer(&self) -> BitBuffer {
-        BoolArrayExt::to_bit_buffer(self)
-    }
-
-    /// Returns the underlying [`BitBuffer`] of the array, consuming self.
     pub fn into_bit_buffer(self) -> BitBuffer {
         let len = self.len();
         let data = self.into_data();
         let buffer = data.bits.unwrap_host();
         BitBuffer::new_with_offset(buffer, len, data.offset)
-    }
-    pub fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
-        BoolArrayExt::maybe_to_mask(self)
-    }
-
-    pub fn to_mask(&self) -> Mask {
-        BoolArrayExt::to_mask(self)
-    }
-
-    pub fn to_mask_fill_null_false(&self) -> Mask {
-        BoolArrayExt::to_mask_fill_null_false(self)
-    }
-}
-
-impl ArrayView<'_, Bool> {
-    pub fn to_bit_buffer(&self) -> BitBuffer {
-        BoolArrayExt::to_bit_buffer(self)
     }
 }
 
@@ -375,6 +352,7 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
     use crate::validity::Validity;

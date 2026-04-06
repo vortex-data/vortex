@@ -16,6 +16,7 @@ use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
@@ -122,6 +123,7 @@ impl ScalarFnVTable for Not {
 mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::bool::BoolArrayExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::expr::col;

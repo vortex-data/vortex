@@ -9,6 +9,7 @@ use crate::array::ArrayView;
 use crate::array::ValidityVTable;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::validity::Validity;

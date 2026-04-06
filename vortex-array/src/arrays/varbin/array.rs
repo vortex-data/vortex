@@ -13,7 +13,6 @@ use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -68,8 +67,7 @@ impl VarBinData {
         dtype: DType,
         validity: Validity,
     ) -> Self {
-        Self::try_build_from_handle(offset, bytes, dtype, validity)
-            .vortex_expect("VarBinArray new")
+        Self::try_build_from_handle(offset, bytes, dtype, validity).vortex_expect("VarBinArray new")
     }
 
     pub(crate) fn make_slots(
@@ -414,23 +412,6 @@ impl Array<VarBin> {
         Self::from_iter(value, DType::Binary(Nullability::Nullable))
     }
 
-    #[inline]
-    pub fn offsets(&self) -> &ArrayRef {
-        VarBinArrayExt::offsets(self)
-    }
-
-    pub fn offset_at(&self, index: usize) -> usize {
-        VarBinArrayExt::offset_at(self, index)
-    }
-
-    pub fn bytes_at(&self, index: usize) -> ByteBuffer {
-        VarBinArrayExt::bytes_at(self, index)
-    }
-
-    pub fn sliced_bytes(&self) -> ByteBuffer {
-        VarBinArrayExt::sliced_bytes(self)
-    }
-
     pub fn into_data_parts(self) -> VarBinDataParts {
         let dtype = self.dtype().clone();
         let validity = self.varbin_validity();
@@ -442,33 +423,6 @@ impl Array<VarBin> {
             offsets,
             validity,
         }
-    }
-}
-
-impl ArrayView<'_, VarBin> {
-    #[inline]
-    pub fn offsets(&self) -> &ArrayRef {
-        VarBinArrayExt::offsets(self)
-    }
-
-    pub fn offset_at(&self, index: usize) -> usize {
-        VarBinArrayExt::offset_at(self, index)
-    }
-
-    pub fn bytes_at(&self, index: usize) -> ByteBuffer {
-        VarBinArrayExt::bytes_at(self, index)
-    }
-
-    pub fn sliced_bytes(&self) -> ByteBuffer {
-        VarBinArrayExt::sliced_bytes(self)
-    }
-
-    pub fn varbin_validity(&self) -> Validity {
-        VarBinArrayExt::varbin_validity(self)
-    }
-
-    pub fn varbin_validity_mask(&self) -> Mask {
-        VarBinArrayExt::varbin_validity_mask(self)
     }
 }
 

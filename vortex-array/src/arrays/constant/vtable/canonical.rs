@@ -326,7 +326,10 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
+    use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use crate::arrays::listview::ListViewArrayExt;
     use crate::arrays::listview::ListViewRebuildMode;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;

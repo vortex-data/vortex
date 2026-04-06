@@ -362,8 +362,7 @@ impl ALPData {
         exponents: Exponents,
         patches: Option<Patches>,
     ) -> Self {
-        Self::try_new(encoded_dtype, encoded_len, exponents, patches)
-            .vortex_expect("ALPArray new")
+        Self::try_new(encoded_dtype, encoded_len, exponents, patches).vortex_expect("ALPArray new")
     }
 
     /// Build a new `ALPArray` from components:
@@ -440,8 +439,7 @@ impl ALPData {
                         patches.array_len(),
                         encoded_len
                     );
-                    let expected_type =
-                        DType::Primitive(PType::F32, encoded_dtype.nullability());
+                    let expected_type = DType::Primitive(PType::F32, encoded_dtype.nullability());
                     vortex_ensure!(
                         patches.dtype() == &expected_type,
                         "Expected patches type {expected_type}, actual {}",
@@ -459,8 +457,7 @@ impl ALPData {
                         patches.array_len(),
                         encoded_len
                     );
-                    let expected_type =
-                        DType::Primitive(PType::F64, encoded_dtype.nullability());
+                    let expected_type = DType::Primitive(PType::F64, encoded_dtype.nullability());
                     vortex_ensure!(
                         patches.dtype() == &expected_type,
                         "Expected patches type {expected_type}, actual {}",
@@ -514,7 +511,7 @@ impl ALP {
                     len,
                     ALPData::new(encoded.dtype(), encoded.len(), exponents, patches),
                 )
-                    .with_slots(slots),
+                .with_slots(slots),
             )
         }
     }

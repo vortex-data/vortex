@@ -440,9 +440,7 @@ impl RunEndData {
         if let Some(parray) = array.as_opt::<Primitive>() {
             let (_ends, _values) = runend_encode(parray);
             // SAFETY: runend_encode handles this
-            unsafe {
-                Ok(Self::new_unchecked(0))
-            }
+            unsafe { Ok(Self::new_unchecked(0)) }
         } else {
             vortex_bail!("REE can only encode primitive arrays")
         }

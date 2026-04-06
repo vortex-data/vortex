@@ -5,7 +5,7 @@ use vortex_error::VortexResult;
 
 use crate::array::ArrayView;
 use crate::array::ValidityVTable;
-use crate::arrays::bool::array::BoolArrayExt;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::bool::vtable::Bool;
 use crate::validity::Validity;
 

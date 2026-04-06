@@ -10,6 +10,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::FieldName;

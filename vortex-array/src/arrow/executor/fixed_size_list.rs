@@ -11,6 +11,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 

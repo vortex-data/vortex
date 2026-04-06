@@ -122,6 +122,7 @@ impl<O: IntegerPType> VarBinBuilder<O> {
 mod tests {
     use vortex_error::VortexResult;
 
+    use crate::arrays::varbin::VarBinArrayExt;
     use crate::arrays::varbin::builder::VarBinBuilder;
     use crate::dtype::DType;
     use crate::dtype::Nullability::Nullable;

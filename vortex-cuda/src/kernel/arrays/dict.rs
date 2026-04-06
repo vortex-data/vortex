@@ -16,6 +16,7 @@ use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::decimal::DecimalDataParts;
+use vortex::array::arrays::dict::DictArrayExt;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;

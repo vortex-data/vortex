@@ -14,6 +14,7 @@ use crate::array::ArrayView;
 use crate::arrays::Chunked;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::filter::FilterKernel;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;

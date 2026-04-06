@@ -20,6 +20,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::assert_arrays_eq;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::conformance::mask::test_mask_conformance;

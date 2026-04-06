@@ -18,7 +18,6 @@ use crate::ToCanonical;
 use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
-use crate::array::ArrayView;
 use crate::array::TypedArrayRef;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
@@ -42,6 +41,7 @@ use crate::ArrayRef;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
+use crate::arrays::bool::BoolArrayExt;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
 
@@ -588,25 +588,5 @@ impl PrimitiveData {
         }
         let buffer = Buffer::<T>::from_byte_buffer(self.buffer.into_host_sync());
         buffer.try_into_mut()
-    }
-}
-
-impl Array<Primitive> {
-    pub fn ptype(&self) -> PType {
-        PrimitiveArrayExt::ptype(self)
-    }
-
-    pub fn buffer_handle(&self) -> &BufferHandle {
-        PrimitiveArrayExt::buffer_handle(self)
-    }
-}
-
-impl ArrayView<'_, Primitive> {
-    pub fn ptype(&self) -> PType {
-        PrimitiveArrayExt::ptype(self)
-    }
-
-    pub fn buffer_handle(&self) -> &BufferHandle {
-        PrimitiveArrayExt::buffer_handle(self)
     }
 }

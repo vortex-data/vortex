@@ -26,6 +26,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::scalar_fn::array::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::array::ScalarFnData;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
@@ -164,7 +165,7 @@ impl VTable for ScalarFnVTable {
 }
 
 /// Array factory functions for scalar functions.
-pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
+pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
     fn try_new_array(
         &self,
         len: usize,
@@ -195,7 +196,7 @@ pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
         .into_array())
     }
 }
-impl<V: scalar_fn::ScalarFnVTable> ScalarFnArrayExt for V {}
+impl<V: scalar_fn::ScalarFnVTable> ScalarFnFactoryExt for V {}
 
 /// A matcher that matches any scalar function expression.
 #[derive(Debug)]
