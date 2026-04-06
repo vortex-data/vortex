@@ -90,7 +90,7 @@ impl VTable for RLE {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate_against_slots(
+        validate_parts(
             slots[VALUES_SLOT]
                 .as_ref()
                 .vortex_expect("RLEArray values slot must be populated"),
@@ -100,6 +100,7 @@ impl VTable for RLE {
             slots[VALUES_IDX_OFFSETS_SLOT]
                 .as_ref()
                 .vortex_expect("RLEArray values_idx_offsets slot must be populated"),
+            data.offset,
             dtype,
             len,
         )
@@ -181,17 +182,10 @@ impl VTable for RLE {
         )?;
 
         let slots = vec![
-            Some(values.clone()),
-            Some(indices.clone()),
-            Some(values_idx_offsets.clone()),
+            Some(values),
+            Some(indices),
+            Some(values_idx_offsets),
         ];
-        RLEData::validate(
-            &values,
-            &indices,
-            &values_idx_offsets,
-            metadata.offset as usize,
-            len,
-        )?;
         let data = RLEData::try_new(metadata.offset as usize)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -226,12 +220,9 @@ impl RLE {
         length: usize,
     ) -> VortexResult<RLEArray> {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        RLEData::validate(&values, &indices, &values_idx_offsets, offset, length)?;
         let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = RLEData::try_new(offset)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
-        })
+        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
     }
 
     /// Create a new RLE array without validation.
@@ -257,6 +248,70 @@ impl RLE {
     pub fn encode(array: &PrimitiveArray) -> VortexResult<RLEArray> {
         RLEData::encode(array)
     }
+}
+
+fn validate_parts(
+    values: &ArrayRef,
+    indices: &ArrayRef,
+    values_idx_offsets: &ArrayRef,
+    offset: usize,
+    dtype: &DType,
+    length: usize,
+) -> VortexResult<()> {
+    vortex_ensure!(
+        matches!(
+            values.dtype(),
+            DType::Primitive(_, Nullability::NonNullable)
+        ),
+        "RLE values must be a non-nullable primitive type, got {}",
+        values.dtype()
+    );
+
+    vortex_ensure!(
+        matches!(indices.dtype().as_ptype(), PType::U8 | PType::U16),
+        "RLE indices must be u8 or u16, got {}",
+        indices.dtype()
+    );
+
+    vortex_ensure!(
+        values_idx_offsets.dtype().is_unsigned_int() && !values_idx_offsets.dtype().is_nullable(),
+        "RLE value idx offsets must be non-nullable unsigned integer, got {}",
+        values_idx_offsets.dtype()
+    );
+
+    vortex_ensure!(
+        indices.len().is_multiple_of(crate::FL_CHUNK_SIZE),
+        "RLE indices length must be a multiple of {}, got {}",
+        crate::FL_CHUNK_SIZE,
+        indices.len()
+    );
+
+    vortex_ensure!(
+        offset + length <= indices.len(),
+        "RLE offset + length, {offset} + {length}, must not exceed the indices length {}",
+        indices.len()
+    );
+
+    vortex_ensure!(
+        indices.len().div_ceil(crate::FL_CHUNK_SIZE) == values_idx_offsets.len(),
+        "RLE must have one value idx offset per chunk, got {}",
+        values_idx_offsets.len()
+    );
+
+    vortex_ensure!(
+        indices.len() >= values.len(),
+        "RLE must have at least as many indices as values, got {} indices and {} values",
+        indices.len(),
+        values.len()
+    );
+
+    let expected_dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
+    vortex_ensure!(
+        dtype == &expected_dtype,
+        "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]

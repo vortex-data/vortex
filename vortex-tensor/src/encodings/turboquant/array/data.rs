@@ -51,9 +51,20 @@ impl TurboQuantData {
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented
     /// in [`new_unchecked`](Self::new_unchecked).
-    pub fn try_new(dtype: &DType, centroids_len: usize) -> VortexResult<Self> {
-        // SAFETY: we validate that the inputs are valid above.
-        Ok(unsafe { Self::new_unchecked(dtype, centroids_len) })
+    pub fn try_new(dimension: u32, bit_width: u8) -> VortexResult<Self> {
+        vortex_ensure!(
+            dimension >= TurboQuant::MIN_DIMENSION,
+            "TurboQuant requires dimension >= {}, got {dimension}",
+            TurboQuant::MIN_DIMENSION
+        );
+        vortex_ensure!(
+            bit_width <= 8,
+            "bit_width is expected to be between 0 and 8, got {bit_width}"
+        );
+        Ok(Self {
+            dimension,
+            bit_width,
+        })
     }
 
     /// Build a TurboQuant array without validation.
@@ -75,22 +86,7 @@ impl TurboQuantData {
     /// - For degenerate (empty) arrays: all children must be empty.
     ///
     /// Violating these invariants may produce incorrect results during decompression.
-    pub unsafe fn new_unchecked(dtype: &DType, centroids_len: usize) -> Self {
-        let dimension = dtype
-            .as_extension_opt()
-            .and_then(|ext| extension_list_size(ext).ok())
-            .vortex_expect("dtype must be a Vector extension type with FixedSizeList storage");
-
-        let bit_width = if centroids_len == 0 {
-            0
-        } else {
-            // Guaranteed to be 1-8 by validate().
-            #[expect(clippy::cast_possible_truncation)]
-            {
-                centroids_len.trailing_zeros() as u8
-            }
-        };
-
+    pub unsafe fn new_unchecked(dimension: u32, bit_width: u8) -> Self {
         Self {
             dimension,
             bit_width,
@@ -184,59 +180,6 @@ impl TurboQuantData {
             rotation_signs.len(),
             3 * padded_dim as usize,
             "rotation_signs length does not match expected 3 * {padded_dim}",
-        );
-
-        Ok(())
-    }
-
-    pub(crate) fn validate_against_outer(
-        &self,
-        dtype: &DType,
-        len: usize,
-        slots: &[Option<ArrayRef>],
-    ) -> VortexResult<()> {
-        vortex_ensure_eq!(
-            slots.len(),
-            Slot::COUNT,
-            "TurboQuantArray expects {} slots, got {}",
-            Slot::COUNT,
-            slots.len()
-        );
-
-        let codes = slots[Slot::Codes as usize]
-            .as_ref()
-            .vortex_expect("TurboQuantArray codes slot");
-        let norms = slots[Slot::Norms as usize]
-            .as_ref()
-            .vortex_expect("TurboQuantArray norms slot");
-        let centroids = slots[Slot::Centroids as usize]
-            .as_ref()
-            .vortex_expect("TurboQuantArray centroids slot");
-        let rotation_signs = slots[Slot::RotationSigns as usize]
-            .as_ref()
-            .vortex_expect("TurboQuantArray rotation_signs slot");
-
-        Self::validate(dtype, codes, norms, centroids, rotation_signs)?;
-        vortex_ensure_eq!(
-            norms.len(),
-            len,
-            "TurboQuant norms length does not match outer length",
-        );
-        vortex_ensure_eq!(
-            self.dimension,
-            extension_list_size(TurboQuant::validate_dtype(dtype)?)?
-        );
-
-        let expected_bit_width = if centroids.is_empty() {
-            0
-        } else {
-            u8::try_from(centroids.len().trailing_zeros())
-                .vortex_expect("centroids bit_width fits in u8")
-        };
-        vortex_ensure_eq!(
-            self.bit_width,
-            expected_bit_width,
-            "TurboQuant bit_width does not match centroids slot",
         );
 
         Ok(())

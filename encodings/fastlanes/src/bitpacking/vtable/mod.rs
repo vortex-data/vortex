@@ -124,7 +124,15 @@ impl VTable for BitPacked {
             }
             _ => None,
         };
-        data.validate_against_slots(dtype, len, &validity, patches.as_ref())
+        BitPackedData::validate(
+            &data.packed,
+            dtype.as_ptype(),
+            &validity,
+            patches.as_ref(),
+            data.bit_width,
+            len,
+            data.offset,
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -238,8 +246,6 @@ impl VTable for BitPacked {
         };
         let data = BitPackedData::try_new(
             packed,
-            PType::try_from(dtype)?,
-            validity,
             patches,
             u8::try_from(metadata.bit_width).map_err(|_| {
                 vortex_err!(
@@ -247,7 +253,6 @@ impl VTable for BitPacked {
                     metadata.bit_width
                 )
             })?,
-            len,
             u16::try_from(metadata.offset).map_err(|_| {
                 vortex_err!(
                     "BitPackedMetadata offset {} does not fit in u16",
@@ -333,13 +338,8 @@ impl BitPacked {
             let validity_slot = validity_to_child(&validity, len);
             vec![pi, pv, pco, validity_slot]
         };
-        let data =
-            BitPackedData::try_new(packed, ptype, validity, patches, bit_width, len, offset)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots),
-            )
-        })
+        let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
+        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
     }
 
     pub fn into_parts(array: BitPackedArray) -> BitPackedDataParts {

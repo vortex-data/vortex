@@ -87,28 +87,6 @@ impl BitPackedData {
     ///
     /// See also the [`encode`][Self::encode] method on this type for a safe path to create a new
     /// bit-packed array.
-    pub(crate) unsafe fn new_unchecked(
-        packed: BufferHandle,
-        _validity: Validity,
-        patches: Option<Patches>,
-        bit_width: u8,
-        _len: usize,
-        offset: u16,
-    ) -> Self {
-        let (patch_offset, patch_offset_within_chunk) = match &patches {
-            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
-            None => (None, None),
-        };
-
-        Self {
-            offset,
-            bit_width,
-            packed,
-            patch_offset,
-            patch_offset_within_chunk,
-        }
-    }
-
     /// A safe constructor for a `BitPackedArray` from its components:
     ///
     /// * `packed` is ByteBuffer holding the compressed data that was packed with FastLanes
@@ -132,50 +110,31 @@ impl BitPackedData {
     /// Any violation of these preconditions will result in an error.
     pub fn try_new(
         packed: BufferHandle,
-        ptype: PType,
-        validity: Validity,
         patches: Option<Patches>,
         bit_width: u8,
-        length: usize,
         offset: u16,
     ) -> VortexResult<Self> {
-        Self::validate(
-            &packed,
-            ptype,
-            &validity,
-            patches.as_ref(),
-            bit_width,
-            length,
+        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
+        vortex_ensure!(
+            offset < 1024,
+            "Offset must be less than the full block i.e., 1024, got {offset}"
+        );
+
+        let (patch_offset, patch_offset_within_chunk) = match &patches {
+            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
+            None => (None, None),
+        };
+
+        Ok(Self {
             offset,
-        )?;
-
-        // SAFETY: all components validated above
-        unsafe {
-            Ok(Self::new_unchecked(
-                packed, validity, patches, bit_width, length, offset,
-            ))
-        }
+            bit_width,
+            packed,
+            patch_offset,
+            patch_offset_within_chunk,
+        })
     }
 
-    pub(crate) fn validate_against_slots(
-        &self,
-        dtype: &DType,
-        len: usize,
-        validity: &Validity,
-        patches: Option<&Patches>,
-    ) -> VortexResult<()> {
-        Self::validate(
-            &self.packed,
-            dtype.as_ptype(),
-            validity,
-            patches,
-            self.bit_width,
-            len,
-            self.offset,
-        )
-    }
-
-    fn validate(
+    pub(crate) fn validate(
         packed: &BufferHandle,
         ptype: PType,
         validity: &Validity,
@@ -193,12 +152,6 @@ impl BitPackedData {
                 "BitPackedArray validity length {validity_len} != array length {length}",
             );
         }
-
-        // Validate offset for sliced arrays
-        vortex_ensure!(
-            offset < 1024,
-            "Offset must be less than the full block i.e., 1024, got {offset}"
-        );
 
         // Validate patches
         if let Some(patches) = patches {

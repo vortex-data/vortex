@@ -93,7 +93,7 @@ impl VTable for RunEnd {
         let values = slots[VALUES_SLOT]
             .as_ref()
             .vortex_expect("RunEndArray values slot");
-        RunEndData::validate(ends, values, data.offset, len)?;
+        RunEndData::validate_parts(ends, values, data.offset, len)?;
         vortex_ensure!(
             values.dtype() == dtype,
             "expected dtype {}, got {}",
@@ -142,10 +142,8 @@ impl VTable for RunEnd {
         let ends = children.get(0, &ends_dtype, runs)?;
 
         let values = children.get(1, dtype, runs)?;
-        let slots = vec![Some(ends.clone()), Some(values.clone())];
-
         let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
-        RunEndData::validate(&ends, &values, offset, len)?;
+        let slots = vec![Some(ends), Some(values)];
         let data = RunEndData::new(offset);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -246,7 +244,7 @@ impl RunEnd {
     ) -> RunEndArray {
         let dtype = values.dtype().clone();
         let slots = vec![Some(ends.clone()), Some(values.clone())];
-        RunEndData::validate(&ends, &values, offset, length)
+        RunEndData::validate_parts(&ends, &values, offset, length)
             .vortex_expect("RunEndArray validation failed");
         let data = unsafe { RunEndData::new_unchecked(offset) };
         unsafe {
@@ -260,12 +258,9 @@ impl RunEnd {
     pub fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<RunEndArray> {
         let len = RunEndData::logical_len_from_ends(&ends)?;
         let dtype = values.dtype().clone();
-        let slots = vec![Some(ends.clone()), Some(values.clone())];
-        RunEndData::validate(&ends, &values, 0, len)?;
+        let slots = vec![Some(ends), Some(values)];
         let data = RunEndData::new(0);
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
-        })
+        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
     }
 
     /// Build a new [`RunEndArray`] from ends, values, offset, and length.
@@ -276,14 +271,9 @@ impl RunEnd {
         length: usize,
     ) -> VortexResult<RunEndArray> {
         let dtype = values.dtype().clone();
-        let slots = vec![Some(ends.clone()), Some(values.clone())];
-        RunEndData::validate(&ends, &values, offset, length)?;
+        let slots = vec![Some(ends), Some(values)];
         let data = RunEndData::new(offset);
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots),
-            )
-        })
+        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots))
     }
 
     /// Build a new [`RunEndArray`] from ends and values (panics on invalid input).
@@ -298,14 +288,9 @@ impl RunEnd {
             let ends = ends.into_array();
             let len = array.len();
             let dtype = values.dtype().clone();
-            let slots = vec![Some(ends.clone()), Some(values.clone())];
-            RunEndData::validate(&ends, &values, 0, len)?;
+            let slots = vec![Some(ends), Some(values)];
             let data = unsafe { RunEndData::new_unchecked(0) };
-            Ok(unsafe {
-                Array::from_parts_unchecked(
-                    ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots),
-                )
-            })
+            Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
         } else {
             vortex_bail!("REE can only encode primitive arrays")
         }
@@ -322,6 +307,15 @@ impl RunEndData {
     }
 
     pub(crate) fn validate(
+        ends: &ArrayRef,
+        values: &ArrayRef,
+        offset: usize,
+        length: usize,
+    ) -> VortexResult<()> {
+        Self::validate_parts(ends, values, offset, length)
+    }
+
+    fn validate_parts(
         ends: &ArrayRef,
         values: &ArrayRef,
         offset: usize,

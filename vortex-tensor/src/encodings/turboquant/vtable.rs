@@ -89,7 +89,15 @@ impl TurboQuant {
     ) -> VortexResult<TurboQuantArray> {
         let len = norms.len();
         TurboQuantData::validate(&dtype, &codes, &norms, &centroids, &rotation_signs)?;
-        let data = TurboQuantData::try_new(&dtype, centroids.len())?;
+        let ext = TurboQuant::validate_dtype(&dtype)?;
+        let dimension = extension_list_size(ext)?;
+        let bit_width = if centroids.is_empty() {
+            0
+        } else {
+            u8::try_from(centroids.len().trailing_zeros())
+                .map_err(|_| vortex_err!("centroids bit_width does not fit in u8"))?
+        };
+        let data = TurboQuantData::try_new(dimension, bit_width)?;
         let parts = ArrayParts::new(TurboQuant, dtype, len, data).with_slots(
             TurboQuantData::make_slots(codes, norms, centroids, rotation_signs),
         );
@@ -129,7 +137,51 @@ impl VTable for TurboQuant {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate_against_outer(dtype, len, slots)
+        vortex_ensure_eq!(
+            slots.len(),
+            Slot::COUNT,
+            "TurboQuantArray expects {} slots, got {}",
+            Slot::COUNT,
+            slots.len()
+        );
+
+        let codes = slots[Slot::Codes as usize]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("TurboQuantArray codes slot"))?;
+        let norms = slots[Slot::Norms as usize]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("TurboQuantArray norms slot"))?;
+        let centroids = slots[Slot::Centroids as usize]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("TurboQuantArray centroids slot"))?;
+        let rotation_signs = slots[Slot::RotationSigns as usize]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("TurboQuantArray rotation_signs slot"))?;
+
+        TurboQuantData::validate(dtype, codes, norms, centroids, rotation_signs)?;
+        vortex_ensure_eq!(
+            norms.len(),
+            len,
+            "TurboQuant norms length does not match outer length",
+        );
+        vortex_ensure_eq!(
+            data.dimension,
+            extension_list_size(TurboQuant::validate_dtype(dtype)?)?
+        );
+
+        let expected_bit_width = if centroids.is_empty() {
+            0
+        } else {
+            u8::try_from(centroids.len().trailing_zeros())
+                .map_err(|_| vortex_err!("centroids bit_width does not fit in u8"))?
+        };
+        vortex_ensure_eq!(
+            data.bit_width,
+            expected_bit_width,
+            "TurboQuant bit_width does not match centroids slot",
+        );
+
+        Ok(())
     }
 
     fn nbuffers(_array: ArrayView<Self>) -> usize {

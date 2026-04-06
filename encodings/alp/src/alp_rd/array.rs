@@ -100,7 +100,19 @@ impl VTable for ALPRD {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate_against_outer(dtype, len, slots)
+        validate_parts(
+            dtype,
+            len,
+            left_parts_from_slots(slots),
+            right_parts_from_slots(slots),
+            patches_from_slots(
+                slots,
+                data.patch_offset,
+                data.patch_offset_within_chunk,
+                len,
+            )
+            .as_ref(),
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -193,16 +205,8 @@ impl VTable for ALPRD {
             })
             .transpose()?;
         let left_parts_patches = ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
-
-        ALPRDData::validate_parts(
-            dtype,
-            len,
-            &left_parts,
-            &right_parts,
-            left_parts_patches.as_ref(),
-        )?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
-        let data = ALPRDData::try_new(
+        let data = ALPRDData::new(
             left_parts_dictionary,
             u8::try_from(metadata.right_bit_width).map_err(|_| {
                 vortex_err!(
@@ -211,7 +215,7 @@ impl VTable for ALPRD {
                 )
             })?,
             left_parts_patches,
-        )?;
+        );
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -351,18 +355,9 @@ impl ALPRD {
     ) -> VortexResult<ALPRDArray> {
         let len = left_parts.len();
         let left_parts_patches = ALPRDData::canonicalize_patches(&left_parts, left_parts_patches)?;
-        ALPRDData::validate_parts(
-            &dtype,
-            len,
-            &left_parts,
-            &right_parts,
-            left_parts_patches.as_ref(),
-        )?;
         let slots = ALPRDData::make_slots(&left_parts, &right_parts, &left_parts_patches);
-        let data = ALPRDData::try_new(left_parts_dictionary, right_bit_width, left_parts_patches)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
-        })
+        let data = ALPRDData::new(left_parts_dictionary, right_bit_width, left_parts_patches);
+        Array::try_from_parts(ArrayParts::new(ALPRD, dtype, len, data).with_slots(slots))
     }
 
     /// # Safety
@@ -407,116 +402,23 @@ impl ALPRDData {
             .transpose()
     }
 
-    fn validate_parts(
-        dtype: &DType,
-        len: usize,
-        left_parts: &ArrayRef,
-        right_parts: &ArrayRef,
-        left_parts_patches: Option<&Patches>,
-    ) -> VortexResult<()> {
-        if !dtype.is_float() {
-            vortex_bail!("ALPRDArray given invalid DType ({dtype})");
-        }
-
-        vortex_ensure!(
-            left_parts.len() == len,
-            "left_parts len {} != outer len {len}",
-            left_parts.len(),
-        );
-        vortex_ensure!(
-            right_parts.len() == len,
-            "right_parts len {} != outer len {len}",
-            right_parts.len(),
-        );
-
-        if !left_parts.dtype().is_unsigned_int() {
-            vortex_bail!("left_parts dtype must be uint");
-        }
-        // we delegate array validity to the left_parts child
-        if dtype.is_nullable() != left_parts.dtype().is_nullable() {
-            vortex_bail!(
-                "ALPRDArray dtype nullability ({}) must match left_parts dtype nullability ({})",
-                dtype,
-                left_parts.dtype()
-            );
-        }
-
-        let expected_right_parts_dtype = match dtype {
-            DType::Primitive(PType::F32, _) => {
-                DType::Primitive(PType::U32, Nullability::NonNullable)
-            }
-            DType::Primitive(PType::F64, _) => {
-                DType::Primitive(PType::U64, Nullability::NonNullable)
-            }
-            _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
-        };
-        vortex_ensure!(
-            right_parts.dtype() == &expected_right_parts_dtype,
-            "right_parts dtype {} does not match expected {}",
-            right_parts.dtype(),
-            expected_right_parts_dtype,
-        );
-
-        if let Some(patches) = left_parts_patches {
-            vortex_ensure!(
-                patches.array_len() == len,
-                "patches array_len {} != outer len {len}",
-                patches.array_len(),
-            );
-            vortex_ensure!(
-                patches.dtype().eq_ignore_nullability(left_parts.dtype()),
-                "patches dtype {} does not match left_parts dtype {}",
-                patches.dtype(),
-                left_parts.dtype(),
-            );
-            vortex_ensure!(
-                patches.values().all_valid()?,
-                "patches must be all valid: {}",
-                patches.values()
-            );
-        }
-
-        Ok(())
-    }
-
-    fn validate_against_outer(
-        &self,
-        dtype: &DType,
-        len: usize,
-        slots: &[Option<ArrayRef>],
-    ) -> VortexResult<()> {
-        Self::validate_parts(
-            dtype,
-            len,
-            left_parts_from_slots(slots),
-            right_parts_from_slots(slots),
-            patches_from_slots(
-                slots,
-                self.patch_offset,
-                self.patch_offset_within_chunk,
-                len,
-            )
-            .as_ref(),
-        )
-    }
-
     /// Build a new `ALPRDArray` from components.
-    pub fn try_new(
+    pub fn new(
         left_parts_dictionary: Buffer<u16>,
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
-    ) -> VortexResult<Self> {
+    ) -> Self {
         let (patch_offset, patch_offset_within_chunk) = match &left_parts_patches {
             Some(patches) => (Some(patches.offset()), patches.offset_within_chunk()),
             None => (None, None),
         };
 
-        Ok(Self {
+        Self {
             patch_offset,
             patch_offset_within_chunk,
             left_parts_dictionary,
             right_bit_width,
-        })
+        }
     }
 
     /// Build a new `ALPRDArray` from components. This does not perform any validation, and instead
@@ -526,14 +428,7 @@ impl ALPRDData {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> Self {
-        Self {
-            patch_offset: left_parts_patches.as_ref().map(Patches::offset),
-            patch_offset_within_chunk: left_parts_patches
-                .as_ref()
-                .and_then(Patches::offset_within_chunk),
-            left_parts_dictionary,
-            right_bit_width,
-        }
+        Self::new(left_parts_dictionary, right_bit_width, left_parts_patches)
     }
 
     fn make_slots(
@@ -614,6 +509,73 @@ fn patches_from_slots(
         }
         _ => None,
     }
+}
+
+fn validate_parts(
+    dtype: &DType,
+    len: usize,
+    left_parts: &ArrayRef,
+    right_parts: &ArrayRef,
+    left_parts_patches: Option<&Patches>,
+) -> VortexResult<()> {
+    if !dtype.is_float() {
+        vortex_bail!("ALPRDArray given invalid DType ({dtype})");
+    }
+
+    vortex_ensure!(
+        left_parts.len() == len,
+        "left_parts len {} != outer len {len}",
+        left_parts.len(),
+    );
+    vortex_ensure!(
+        right_parts.len() == len,
+        "right_parts len {} != outer len {len}",
+        right_parts.len(),
+    );
+
+    if !left_parts.dtype().is_unsigned_int() {
+        vortex_bail!("left_parts dtype must be uint");
+    }
+    if dtype.is_nullable() != left_parts.dtype().is_nullable() {
+        vortex_bail!(
+            "ALPRDArray dtype nullability ({}) must match left_parts dtype nullability ({})",
+            dtype,
+            left_parts.dtype()
+        );
+    }
+
+    let expected_right_parts_dtype = match dtype {
+        DType::Primitive(PType::F32, _) => DType::Primitive(PType::U32, Nullability::NonNullable),
+        DType::Primitive(PType::F64, _) => DType::Primitive(PType::U64, Nullability::NonNullable),
+        _ => vortex_bail!("Expected f32 or f64 dtype, got {:?}", dtype),
+    };
+    vortex_ensure!(
+        right_parts.dtype() == &expected_right_parts_dtype,
+        "right_parts dtype {} does not match expected {}",
+        right_parts.dtype(),
+        expected_right_parts_dtype,
+    );
+
+    if let Some(patches) = left_parts_patches {
+        vortex_ensure!(
+            patches.array_len() == len,
+            "patches array_len {} != outer len {len}",
+            patches.array_len(),
+        );
+        vortex_ensure!(
+            patches.dtype().eq_ignore_nullability(left_parts.dtype()),
+            "patches dtype {} does not match left_parts dtype {}",
+            patches.dtype(),
+            left_parts.dtype(),
+        );
+        vortex_ensure!(
+            patches.values().all_valid()?,
+            "patches must be all valid: {}",
+            patches.values()
+        );
+    }
+
+    Ok(())
 }
 
 pub trait ALPRDArrayExt: TypedArrayRef<ALPRD> {

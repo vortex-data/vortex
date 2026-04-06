@@ -23,6 +23,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
+use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -33,6 +34,11 @@ use vortex_session::VortexSession;
 
 use crate::array::ParquetVariantArrayExt;
 use crate::array::ParquetVariantData;
+use crate::array::METADATA_SLOT;
+use crate::array::TYPED_VALUE_SLOT;
+use crate::array::VALIDITY_SLOT;
+use crate::array::VALUE_SLOT;
+use crate::array::validate_parts;
 use crate::array::SLOT_NAMES;
 use crate::kernel::PARENT_KERNELS;
 
@@ -76,7 +82,18 @@ impl VTable for ParquetVariant {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let _ = data;
-        ParquetVariantData::validate_slots(dtype, len, slots)
+        let validity = child_to_validity(&slots[VALIDITY_SLOT], dtype.nullability());
+        let metadata = slots[METADATA_SLOT]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("ParquetVariantArray metadata slot"))?;
+        validate_parts(
+            &validity,
+            metadata,
+            slots[VALUE_SLOT].as_ref(),
+            slots[TYPED_VALUE_SLOT].as_ref(),
+            dtype,
+            len,
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {

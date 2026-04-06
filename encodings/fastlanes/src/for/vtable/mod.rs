@@ -77,7 +77,7 @@ impl VTable for FoR {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let encoded = slots[0].as_ref().vortex_expect("FoRArray encoded slot");
-        FoRData::validate_parts(encoded.dtype(), encoded.len(), &data.reference, dtype, len)
+        validate_parts(encoded.dtype(), encoded.len(), &data.reference, dtype, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -127,9 +127,9 @@ impl VTable for FoR {
         let scalar_value = ScalarValue::from_proto_bytes(metadata, dtype, session)?;
         let reference = Scalar::try_new(dtype.clone(), scalar_value)?;
         let encoded = children.get(0, dtype, len)?;
-        let slots = vec![Some(encoded.clone())];
+        let slots = vec![Some(encoded)];
 
-        let data = FoRData::try_new(encoded.dtype(), encoded.len(), reference)?;
+        let data = FoRData::try_new(reference)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -169,17 +169,41 @@ impl FoR {
             .with_nullability(encoded.dtype().nullability());
         let reference = reference.cast(&dtype)?;
         let len = encoded.len();
-        let slots = vec![Some(encoded.clone())];
-        let data = FoRData::try_new(encoded.dtype(), encoded.len(), reference)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
-        })
+        let data = FoRData::try_new(reference)?;
+        let slots = vec![Some(encoded)];
+        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
     }
 
     /// Encode a primitive array using Frame of Reference encoding.
     pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
         FoRData::encode(array)
     }
+}
+
+fn validate_parts(
+    encoded_dtype: &DType,
+    encoded_len: usize,
+    reference: &Scalar,
+    dtype: &DType,
+    len: usize,
+) -> VortexResult<()> {
+    vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
+    vortex_ensure!(
+        reference.dtype() == dtype,
+        "FoR reference dtype mismatch: expected {dtype}, got {}",
+        reference.dtype()
+    );
+    vortex_ensure!(
+        encoded_dtype == dtype,
+        "FoR encoded dtype mismatch: expected {dtype}, got {}",
+        encoded_dtype
+    );
+    vortex_ensure!(
+        encoded_len == len,
+        "FoR encoded length mismatch: expected {len}, got {}",
+        encoded_len
+    );
+    Ok(())
 }
 
 #[cfg(test)]

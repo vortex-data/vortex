@@ -4,7 +4,6 @@
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
@@ -86,67 +85,9 @@ pub trait DeltaArrayExt: TypedArrayRef<crate::Delta> {
 impl<T: TypedArrayRef<crate::Delta>> DeltaArrayExt for T {}
 
 impl DeltaData {
-    /// Create a DeltaArray from the given `bases` and `deltas` arrays
-    /// with given `offset` into first chunk and `logical_len` length.
     pub fn try_new(offset: usize) -> VortexResult<Self> {
         vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
         Ok(Self { offset })
-    }
-
-    pub(crate) fn validate_against_slots(
-        &self,
-        bases: &ArrayRef,
-        deltas: &ArrayRef,
-        dtype: &DType,
-        len: usize,
-    ) -> VortexResult<()> {
-        Self::validate_parts(bases, deltas, self.offset, len)?;
-        let expected_dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"
-        );
-        Ok(())
-    }
-
-    pub(crate) fn validate_parts(
-        bases: &ArrayRef,
-        deltas: &ArrayRef,
-        offset: usize,
-        len: usize,
-    ) -> VortexResult<()> {
-        vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
-        vortex_ensure!(
-            offset + len <= deltas.len(),
-            "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
-            deltas.len()
-        );
-        vortex_ensure!(
-            bases.dtype().eq_ignore_nullability(deltas.dtype()),
-            "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
-            bases.dtype(),
-            deltas.dtype()
-        );
-
-        vortex_ensure!(
-            bases.dtype().is_unsigned_int(),
-            "DeltaArray: dtype must be an unsigned integer, got {}",
-            bases.dtype()
-        );
-
-        let lanes = lane_count(bases.dtype().as_ptype());
-
-        vortex_ensure!(
-            deltas.len().is_multiple_of(1024),
-            "deltas length ({}) must be a multiple of 1024",
-            deltas.len(),
-        );
-        vortex_ensure!(
-            bases.len().is_multiple_of(lanes),
-            "bases length ({}) must be a multiple of LANES ({lanes})",
-            bases.len(),
-        );
-        Ok(())
     }
 }
 

@@ -3,7 +3,6 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
-use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexExpect as _;
@@ -42,47 +41,14 @@ pub trait FoRArrayExt: TypedArrayRef<crate::FoR> {
 impl<T: TypedArrayRef<crate::FoR>> FoRArrayExt for T {}
 
 impl FoRData {
-    pub(crate) fn try_new(
-        encoded_dtype: &DType,
-        encoded_len: usize,
-        reference: Scalar,
-    ) -> VortexResult<Self> {
-        Self::validate_parts(
-            encoded_dtype,
-            encoded_len,
-            &reference,
-            reference.dtype(),
-            encoded_len,
-        )?;
-
-        Ok(Self { reference })
-    }
-
-    pub(crate) fn validate_parts(
-        encoded_dtype: &DType,
-        encoded_len: usize,
-        reference: &Scalar,
-        dtype: &DType,
-        len: usize,
-    ) -> VortexResult<()> {
+    pub(crate) fn try_new(reference: Scalar) -> VortexResult<Self> {
         vortex_ensure!(!reference.is_null(), "Reference value cannot be null");
-        vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
         vortex_ensure!(
-            reference.dtype() == dtype,
-            "FoR reference dtype mismatch: expected {dtype}, got {}",
+            reference.dtype().is_int(),
+            "FoR requires an integer reference dtype, got {}",
             reference.dtype()
         );
-        vortex_ensure!(
-            encoded_dtype == dtype,
-            "FoR encoded dtype mismatch: expected {dtype}, got {}",
-            encoded_dtype
-        );
-        vortex_ensure!(
-            encoded_len == len,
-            "FoR encoded length mismatch: expected {len}, got {}",
-            encoded_len
-        );
-        Ok(())
+        Ok(Self { reference })
     }
 
     #[inline]

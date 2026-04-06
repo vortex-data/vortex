@@ -37,6 +37,7 @@ use crate::delta::array::BASES_SLOT;
 use crate::delta::array::DELTAS_SLOT;
 use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::SLOT_NAMES;
+use crate::delta::array::lane_count;
 use crate::delta::array::delta_decompress::delta_decompress;
 
 mod operations;
@@ -84,16 +85,13 @@ impl VTable for Delta {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate_against_slots(
-            slots[BASES_SLOT]
-                .as_ref()
-                .vortex_expect("DeltaArray bases slot"),
-            slots[DELTAS_SLOT]
-                .as_ref()
-                .vortex_expect("DeltaArray deltas slot"),
-            dtype,
-            len,
-        )
+        let bases = slots[BASES_SLOT]
+            .as_ref()
+            .vortex_expect("DeltaArray bases slot");
+        let deltas = slots[DELTAS_SLOT]
+            .as_ref()
+            .vortex_expect("DeltaArray deltas slot");
+        validate_parts(bases, deltas, data.offset, dtype, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -163,9 +161,8 @@ impl VTable for Delta {
         let bases = children.get(0, dtype, bases_len)?;
         let deltas = children.get(1, dtype, deltas_len)?;
 
-        let slots = vec![Some(bases.clone()), Some(deltas.clone())];
-        DeltaData::validate_parts(&bases, &deltas, metadata.offset as usize, len)?;
         let data = DeltaData::try_new(metadata.offset as usize)?;
+        let slots = vec![Some(bases), Some(deltas)];
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -189,12 +186,9 @@ impl Delta {
         len: usize,
     ) -> VortexResult<DeltaArray> {
         let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
-        let slots = vec![Some(bases.clone()), Some(deltas.clone())];
-        DeltaData::validate_parts(&bases, &deltas, offset, len)?;
         let data = DeltaData::try_new(offset)?;
-        Ok(unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Delta, dtype, len, data).with_slots(slots))
-        })
+        let slots = vec![Some(bases), Some(deltas)];
+        Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data).with_slots(slots))
     }
 
     /// Compress a primitive array using Delta encoding.
@@ -206,6 +200,52 @@ impl Delta {
         let (bases, deltas) = crate::delta::array::delta_compress::delta_compress(array, ctx)?;
         Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
     }
+}
+
+fn validate_parts(
+    bases: &ArrayRef,
+    deltas: &ArrayRef,
+    offset: usize,
+    dtype: &DType,
+    len: usize,
+) -> VortexResult<()> {
+    vortex_ensure!(
+        offset + len <= deltas.len(),
+        "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
+        deltas.len()
+    );
+    vortex_ensure!(
+        bases.dtype().eq_ignore_nullability(deltas.dtype()),
+        "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
+        bases.dtype(),
+        deltas.dtype()
+    );
+
+    vortex_ensure!(
+        bases.dtype().is_unsigned_int(),
+        "DeltaArray: dtype must be an unsigned integer, got {}",
+        bases.dtype()
+    );
+
+    let expected_dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
+    vortex_ensure!(
+        dtype == &expected_dtype,
+        "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"
+    );
+
+    let lanes = lane_count(bases.dtype().as_ptype());
+
+    vortex_ensure!(
+        deltas.len().is_multiple_of(1024),
+        "deltas length ({}) must be a multiple of 1024",
+        deltas.len(),
+    );
+    vortex_ensure!(
+        bases.len().is_multiple_of(lanes),
+        "bases length ({}) must be a multiple of LANES ({lanes})",
+        bases.len(),
+    );
+    Ok(())
 }
 
 #[cfg(test)]

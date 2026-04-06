@@ -3,14 +3,9 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-
-use crate::FL_CHUNK_SIZE;
 
 pub mod rle_compress;
 pub mod rle_decompress;
@@ -39,95 +34,6 @@ pub struct RLEData {
 }
 
 impl RLEData {
-    pub(crate) fn validate(
-        values: &ArrayRef,
-        indices: &ArrayRef,
-        value_idx_offsets: &ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<()> {
-        Self::validate_parts(values, indices, value_idx_offsets, offset, length)?;
-        Ok(())
-    }
-
-    pub(crate) fn validate_against_slots(
-        &self,
-        values: &ArrayRef,
-        indices: &ArrayRef,
-        value_idx_offsets: &ArrayRef,
-        dtype: &DType,
-        length: usize,
-    ) -> VortexResult<()> {
-        Self::validate_parts(values, indices, value_idx_offsets, self.offset, length)?;
-        let expected_dtype =
-            DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
-        );
-        Ok(())
-    }
-
-    fn validate_parts(
-        values: &ArrayRef,
-        indices: &ArrayRef,
-        value_idx_offsets: &ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<()> {
-        vortex_ensure!(
-            offset < 1024,
-            "Offset must be smaller than 1024, got {}",
-            offset
-        );
-
-        vortex_ensure!(
-            matches!(
-                values.dtype(),
-                DType::Primitive(_, Nullability::NonNullable)
-            ),
-            "RLE values must be a non-nullable primitive type, got {}",
-            values.dtype()
-        );
-
-        vortex_ensure!(
-            matches!(indices.dtype().as_ptype(), PType::U8 | PType::U16),
-            "RLE indices must be u8 or u16, got {}",
-            indices.dtype()
-        );
-
-        vortex_ensure!(
-            value_idx_offsets.dtype().is_unsigned_int() && !value_idx_offsets.dtype().is_nullable(),
-            "RLE value idx offsets must be non-nullable unsigned integer, got {}",
-            value_idx_offsets.dtype()
-        );
-        vortex_ensure!(
-            indices.len().is_multiple_of(FL_CHUNK_SIZE),
-            "RLE indices length must be a multiple of {FL_CHUNK_SIZE}, got {}",
-            indices.len()
-        );
-        vortex_ensure!(
-            offset + length <= indices.len(),
-            "RLE offset + length, {offset} + {length}, must not exceed the indices length {}",
-            indices.len()
-        );
-
-        vortex_ensure!(
-            indices.len().div_ceil(FL_CHUNK_SIZE) == value_idx_offsets.len(),
-            "RLE must have one value idx offset per chunk, got {}",
-            value_idx_offsets.len()
-        );
-
-        vortex_ensure!(
-            indices.len() >= values.len(),
-            "RLE must have at least as many indices as values, got {} indices and {} values",
-            indices.len(),
-            values.len()
-        );
-
-        Ok(())
-    }
-
     /// Create a new chunk-based RLE array from its components.
     ///
     /// # Arguments
