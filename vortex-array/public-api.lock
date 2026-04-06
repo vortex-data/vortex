@@ -18370,7 +18370,7 @@ impl<S: vortex_session::SessionExt> vortex_array::session::ArraySessionExt for S
 
 pub fn S::arrays(&self) -> vortex_session::Ref<'_, vortex_array::session::ArraySession>
 
-pub type vortex_array::session::ArrayRegistry = vortex_session::registry::Registry<vortex_array::DynVTableRef>
+pub type vortex_array::session::ArrayRegistry = vortex_session::registry::Registry<vortex_array::ArrayPluginRef>
 
 pub mod vortex_array::stats
 
@@ -18859,6 +18859,18 @@ pub struct vortex_array::vtable::ValidityVTableFromValiditySliceHelper
 impl<V: vortex_array::VTable> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromValiditySliceHelper where <V as vortex_array::VTable>::ArrayData: vortex_array::ValiditySliceHelper
 
 pub fn vortex_array::ValidityVTableFromValiditySliceHelper::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+pub trait vortex_array::vtable::ArrayPlugin: 'static + core::marker::Send + core::marker::Sync
+
+pub fn vortex_array::vtable::ArrayPlugin::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::vtable::ArrayPlugin::id(&self) -> vortex_array::ArrayId
+
+impl<V: vortex_array::VTable> vortex_array::ArrayPlugin for V
+
+pub fn V::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
+
+pub fn V::id(&self) -> arcref::ArcRef<str>
 
 pub trait vortex_array::vtable::ArrayVTable: 'static + core::clone::Clone + core::marker::Sized + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
@@ -19783,38 +19795,6 @@ pub fn vortex_array::arrays::slice::Slice::serialize(_array: vortex_array::Array
 pub fn vortex_array::arrays::slice::Slice::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
 pub fn vortex_array::arrays::slice::Slice::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
-
-pub trait vortex_array::vtable::DynVTable: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
-
-pub fn vortex_array::vtable::DynVTable::build(&self, id: vortex_array::ArrayId, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::vtable::DynVTable::clone_boxed(&self) -> alloc::boxed::Box<dyn vortex_array::DynVTable>
-
-pub fn vortex_array::vtable::DynVTable::execute(&self, array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
-
-pub fn vortex_array::vtable::DynVTable::execute_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::vtable::DynVTable::reduce(&self, array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::vtable::DynVTable::reduce_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::vtable::DynVTable::with_slots(&self, array: vortex_array::ArrayRef, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-impl<V: vortex_array::VTable> vortex_array::DynVTable for V
-
-pub fn V::build(&self, _id: arcref::ArcRef<str>, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
-
-pub fn V::clone_boxed(&self) -> alloc::boxed::Box<dyn vortex_array::DynVTable>
-
-pub fn V::execute(&self, array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> core::result::Result<vortex_array::ExecutionResult, vortex_error::VortexError>
-
-pub fn V::execute_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> core::result::Result<core::option::Option<vortex_array::ArrayRef>, vortex_error::VortexError>
-
-pub fn V::reduce(&self, array: &vortex_array::ArrayRef) -> core::result::Result<core::option::Option<vortex_array::ArrayRef>, vortex_error::VortexError>
-
-pub fn V::reduce_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> core::result::Result<core::option::Option<vortex_array::ArrayRef>, vortex_error::VortexError>
-
-pub fn V::with_slots(&self, array: vortex_array::ArrayRef, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
 
 pub trait vortex_array::vtable::OperationsVTable<V: vortex_array::VTable>
 
@@ -20960,7 +20940,7 @@ pub fn vortex_array::vtable::validity_nchildren(validity: &vortex_array::validit
 
 pub fn vortex_array::vtable::validity_to_child(validity: &vortex_array::validity::Validity, len: usize) -> core::option::Option<vortex_array::ArrayRef>
 
-pub type vortex_array::vtable::DynVTableRef = alloc::sync::Arc<dyn vortex_array::DynVTable>
+pub type vortex_array::vtable::ArrayPluginRef = alloc::sync::Arc<dyn vortex_array::ArrayPlugin>
 
 pub macro vortex_array::field_path!
 
@@ -21710,6 +21690,8 @@ pub fn vortex_array::ArrayRef::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::ArrayRef::encoding_id(&self) -> vortex_array::ArrayId
 
+pub fn vortex_array::ArrayRef::execute_parent(&self, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::ArrayRef::filter(&self, mask: vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 pub fn vortex_array::ArrayRef::into_canonical(self) -> vortex_error::VortexResult<vortex_array::Canonical>
@@ -21750,6 +21732,10 @@ pub fn vortex_array::ArrayRef::nchildren(&self) -> usize
 
 pub fn vortex_array::ArrayRef::nth_child(&self, idx: usize) -> core::option::Option<vortex_array::ArrayRef>
 
+pub fn vortex_array::ArrayRef::reduce(&self) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub fn vortex_array::ArrayRef::reduce_parent(&self, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 pub fn vortex_array::ArrayRef::scalar_at(&self, index: usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::ArrayRef::slice(&self, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -21772,9 +21758,9 @@ pub fn vortex_array::ArrayRef::validity(&self) -> vortex_error::VortexResult<vor
 
 pub fn vortex_array::ArrayRef::validity_mask(&self) -> vortex_error::VortexResult<vortex_mask::Mask>
 
-pub fn vortex_array::ArrayRef::vtable(&self) -> &dyn vortex_array::DynVTable
-
 pub fn vortex_array::ArrayRef::with_slot(self, slot_idx: usize, replacement: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::ArrayRef::with_slots(self, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 impl vortex_array::ArrayRef
 
@@ -22599,6 +22585,30 @@ pub fn vortex_buffer::buffer::Buffer<T>::array_hash<H: core::hash::Hasher>(&self
 impl<T: vortex_array::ArrayHash> vortex_array::ArrayHash for core::option::Option<T>
 
 pub fn core::option::Option<T>::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::Precision)
+
+pub trait vortex_array::ArrayPlugin: 'static + core::marker::Send + core::marker::Sync
+
+pub trait vortex_array::ArrayPlugin: 'static + core::marker::Send + core::marker::Sync
+
+pub fn vortex_array::ArrayPlugin::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::ArrayPlugin::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::ArrayPlugin::id(&self) -> vortex_array::ArrayId
+
+pub fn vortex_array::ArrayPlugin::id(&self) -> vortex_array::ArrayId
+
+impl<V: vortex_array::VTable> vortex_array::ArrayPlugin for V
+
+impl<V: vortex_array::VTable> vortex_array::ArrayPlugin for V
+
+pub fn V::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
+
+pub fn V::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
+
+pub fn V::id(&self) -> arcref::ArcRef<str>
+
+pub fn V::id(&self) -> arcref::ArcRef<str>
 
 pub trait vortex_array::ArrayVTable: 'static + core::clone::Clone + core::marker::Sized + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
@@ -23563,38 +23573,6 @@ pub fn vortex_array::DynArrayHash::dyn_array_hash(&self, state: &mut dyn core::h
 impl<T: vortex_array::ArrayHash + ?core::marker::Sized> vortex_array::DynArrayHash for T
 
 pub fn T::dyn_array_hash(&self, state: &mut dyn core::hash::Hasher, precision: vortex_array::Precision)
-
-pub trait vortex_array::DynVTable: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
-
-pub fn vortex_array::DynVTable::build(&self, id: vortex_array::ArrayId, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-pub fn vortex_array::DynVTable::clone_boxed(&self) -> alloc::boxed::Box<dyn vortex_array::DynVTable>
-
-pub fn vortex_array::DynVTable::execute(&self, array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
-
-pub fn vortex_array::DynVTable::execute_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::DynVTable::reduce(&self, array: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::DynVTable::reduce_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-pub fn vortex_array::DynVTable::with_slots(&self, array: vortex_array::ArrayRef, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-
-impl<V: vortex_array::VTable> vortex_array::DynVTable for V
-
-pub fn V::build(&self, _id: arcref::ArcRef<str>, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
-
-pub fn V::clone_boxed(&self) -> alloc::boxed::Box<dyn vortex_array::DynVTable>
-
-pub fn V::execute(&self, array: vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> core::result::Result<vortex_array::ExecutionResult, vortex_error::VortexError>
-
-pub fn V::execute_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> core::result::Result<core::option::Option<vortex_array::ArrayRef>, vortex_error::VortexError>
-
-pub fn V::reduce(&self, array: &vortex_array::ArrayRef) -> core::result::Result<core::option::Option<vortex_array::ArrayRef>, vortex_error::VortexError>
-
-pub fn V::reduce_parent(&self, array: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> core::result::Result<core::option::Option<vortex_array::ArrayRef>, vortex_error::VortexError>
-
-pub fn V::with_slots(&self, array: vortex_array::ArrayRef, slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> core::result::Result<vortex_array::ArrayRef, vortex_error::VortexError>
 
 pub trait vortex_array::Executable: core::marker::Sized
 
@@ -24956,10 +24934,12 @@ pub fn vortex_array::validity_nchildren(validity: &vortex_array::validity::Valid
 
 pub fn vortex_array::validity_to_child(validity: &vortex_array::validity::Validity, len: usize) -> core::option::Option<vortex_array::ArrayRef>
 
-pub type vortex_array::ArrayContext = vortex_session::registry::Context<vortex_array::DynVTableRef>
+pub type vortex_array::ArrayContext = vortex_session::registry::Context<vortex_array::ArrayPluginRef>
 
 pub type vortex_array::ArrayId = arcref::ArcRef<str>
 
-pub type vortex_array::DonePredicate = fn(&vortex_array::ArrayRef) -> bool
+pub type vortex_array::ArrayPluginRef = alloc::sync::Arc<dyn vortex_array::ArrayPlugin>
 
-pub type vortex_array::DynVTableRef = alloc::sync::Arc<dyn vortex_array::DynVTable>
+pub type vortex_array::ArrayPluginRef = alloc::sync::Arc<dyn vortex_array::ArrayPlugin>
+
+pub type vortex_array::DonePredicate = fn(&vortex_array::ArrayRef) -> bool

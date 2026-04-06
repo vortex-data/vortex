@@ -45,7 +45,7 @@ fn try_optimize(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         }
         loop_counter += 1;
 
-        if let Some(new_array) = current_array.vtable().reduce(&current_array)? {
+        if let Some(new_array) = current_array.reduce()? {
             current_array = new_array;
             any_optimizations = true;
             continue;
@@ -55,11 +55,7 @@ fn try_optimize(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         // Its important to take all slots here, as `current_array` can change inside the loop.
         for (slot_idx, slot) in current_array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
-            if let Some(new_array) =
-                child
-                    .vtable()
-                    .reduce_parent(child, &current_array, slot_idx)?
-            {
+            if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
                 // If the parent was replaced, then we attempt to reduce it again.
                 current_array = new_array;
                 any_optimizations = true;
@@ -106,8 +102,7 @@ fn try_optimize_recursive(array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
     }
 
     if any_slot_optimized {
-        let vtable = current_array.vtable().clone_boxed();
-        current_array = vtable.with_slots(current_array, new_slots)?;
+        current_array = current_array.with_slots(new_slots)?;
         any_optimizations = true;
     }
 

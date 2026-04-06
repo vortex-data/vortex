@@ -63,8 +63,7 @@ mod test {
         let array_ref = array.clone().into_array();
         let slice_array = SliceArray::new(array_ref.clone(), range);
         let sliced = array_ref
-            .vtable()
-            .reduce_parent(&array_ref, &slice_array.into_array(), 0)
+            .reduce_parent(&slice_array.into_array(), 0)
             .expect("execute_parent failed")
             .expect("expected slice kernel to execute");
         sliced.as_::<BitPacked>().into_owned()

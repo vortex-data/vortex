@@ -62,8 +62,7 @@ mod tests {
 
         let bitpacked_ref = bitpacked.into_array();
         let reduced = bitpacked_ref
-            .vtable()
-            .reduce_parent(&bitpacked_ref, &slice_array.into_array(), 0)?
+            .reduce_parent(&slice_array.into_array(), 0)?
             .expect("expected slice kernel to execute");
 
         assert!(reduced.is::<BitPacked>());

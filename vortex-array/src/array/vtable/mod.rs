@@ -3,16 +3,15 @@
 
 //! This module contains the VTable definitions for a Vortex encoding.
 
-mod dyn_;
 mod operations;
 mod validity;
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
 
-pub use dyn_::*;
 pub use operations::*;
 pub use validity::*;
+pub use crate::array::plugin::*;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -43,11 +42,11 @@ use crate::validity::Validity;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// From this [`VTable`] trait, we derive implementations for the sealed `DynArray` and [`DynVTable`]
-/// traits.
+/// From this [`VTable`] trait, we derive implementations for the sealed `DynArray` trait and the
+/// public [`ArrayPlugin`] registry trait.
 ///
 /// The functions defined in these vtable traits will typically document their pre- and
-/// post-conditions. The pre-conditions are validated inside the `DynArray` and [`DynVTable`]
+/// post-conditions. The pre-conditions are validated inside the `DynArray` and [`ArrayRef`]
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.

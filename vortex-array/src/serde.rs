@@ -323,7 +323,7 @@ impl SerializedArray {
         let encoding_id = ctx
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
-        let vtable = session
+        let plugin = session
             .arrays()
             .registry()
             .find(&encoding_id)
@@ -337,15 +337,8 @@ impl SerializedArray {
 
         let buffers = self.collect_buffers()?;
 
-        let decoded = vtable.build(
-            encoding_id.clone(),
-            dtype,
-            len,
-            self.metadata(),
-            &buffers,
-            &children,
-            session,
-        )?;
+        let decoded =
+            plugin.deserialize(dtype, len, self.metadata(), &buffers, &children, session)?;
 
         assert_eq!(
             decoded.len(),

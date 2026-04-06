@@ -22,7 +22,6 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayView;
 use crate::Canonical;
-use crate::DynVTable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
@@ -144,12 +143,6 @@ impl ArrayRef {
     #[inline]
     pub fn dtype(&self) -> &DType {
         self.0.dtype()
-    }
-
-    /// Returns the vtable of the array.
-    #[inline]
-    pub fn vtable(&self) -> &dyn DynVTable {
-        self.0.vtable()
     }
 
     /// Returns the encoding ID of the array.
@@ -436,8 +429,75 @@ impl ArrayRef {
         );
         let mut slots = slots;
         slots[slot_idx] = Some(replacement);
-        let vtable = self.vtable().clone_boxed();
-        vtable.with_slots(self, slots)
+        self.with_slots(slots)
+    }
+
+    /// Returns a new array with the provided slots.
+    ///
+    /// This is only valid for physical rewrites: slot count, presence, logical `DType`, and
+    /// logical `len` must remain unchanged.
+    pub fn with_slots(self, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+        let old_slots = self.slots();
+        vortex_ensure!(
+            old_slots.len() == slots.len(),
+            "slot count changed from {} to {} during physical rewrite",
+            old_slots.len(),
+            slots.len()
+        );
+        for (idx, (old_slot, new_slot)) in old_slots.iter().zip(slots.iter()).enumerate() {
+            vortex_ensure!(
+                old_slot.is_some() == new_slot.is_some(),
+                "slot {} presence changed during physical rewrite",
+                idx
+            );
+            if let (Some(old_slot), Some(new_slot)) = (old_slot.as_ref(), new_slot.as_ref()) {
+                vortex_ensure!(
+                    old_slot.dtype() == new_slot.dtype(),
+                    "slot {} dtype changed from {} to {} during physical rewrite",
+                    idx,
+                    old_slot.dtype(),
+                    new_slot.dtype()
+                );
+                vortex_ensure!(
+                    old_slot.len() == new_slot.len(),
+                    "slot {} len changed from {} to {} during physical rewrite",
+                    idx,
+                    old_slot.len(),
+                    new_slot.len()
+                );
+            }
+        }
+        let inner = Arc::clone(&self.0);
+        inner.with_slots(self, slots)
+    }
+
+    pub fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
+        self.0.reduce(self)
+    }
+
+    pub fn reduce_parent(
+        &self,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        self.0.reduce_parent(self, parent, child_idx)
+    }
+
+    pub(crate) fn execute_encoding(
+        self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<crate::ExecutionResult> {
+        let inner = Arc::clone(&self.0);
+        inner.execute(self, ctx)
+    }
+
+    pub fn execute_parent(
+        &self,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        self.0.execute_parent(self, parent, child_idx, ctx)
     }
 
     // ArrayVisitor delegation methods

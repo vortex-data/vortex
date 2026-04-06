@@ -103,8 +103,7 @@ impl ZstdBuffers {
             })?;
 
         let children: Vec<ArrayRef> = array.slots().iter().flatten().cloned().collect();
-        inner_vtable.build(
-            array.data().inner_encoding_id.clone(),
+        inner_vtable.deserialize(
             array.dtype(),
             array.len(),
             &array.data().inner_metadata,

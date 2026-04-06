@@ -277,7 +277,7 @@ impl Executable for ArrayRef {
         }
 
         // 1. reduce (metadata-only rewrites)
-        if let Some(reduced) = array.vtable().reduce(&array)? {
+        if let Some(reduced) = array.reduce()? {
             ctx.log(format_args!("reduce: rewrote {} -> {}", array, reduced));
             reduced.statistics().inherit_from(array.statistics());
             return Ok(reduced);
@@ -288,7 +288,7 @@ impl Executable for ArrayRef {
             let Some(child) = slot else {
                 continue;
             };
-            if let Some(reduced_parent) = child.vtable().reduce_parent(child, &array, slot_idx)? {
+            if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
                 ctx.log(format_args!(
                     "reduce_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -306,10 +306,7 @@ impl Executable for ArrayRef {
             let Some(child) = slot else {
                 continue;
             };
-            if let Some(executed_parent) = child
-                .vtable()
-                .execute_parent(child, &array, slot_idx, ctx)?
-            {
+            if let Some(executed_parent) = child.execute_parent(&array, slot_idx, ctx)? {
                 ctx.log(format_args!(
                     "execute_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -348,8 +345,7 @@ impl Executable for ArrayRef {
 ///
 /// Extracts the vtable before consuming the array to avoid borrow conflicts.
 fn execute_step(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-    let vtable = array.vtable().clone_boxed();
-    vtable.execute(array, ctx)
+    array.execute_encoding(ctx)
 }
 
 /// Try execute_parent on each occupied slot of the array.
@@ -358,7 +354,7 @@ fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
         let Some(child) = slot else {
             continue;
         };
-        if let Some(result) = child.vtable().execute_parent(child, array, slot_idx, ctx)? {
+        if let Some(result) = child.execute_parent(array, slot_idx, ctx)? {
             result.statistics().inherit_from(array.statistics());
             return Ok(Some(result));
         }
