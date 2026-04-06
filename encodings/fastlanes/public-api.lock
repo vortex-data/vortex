@@ -212,7 +212,7 @@ pub fn vortex_fastlanes::BitPackedData::packed_slice<T: vortex_array::dtype::pty
 
 pub fn vortex_fastlanes::BitPackedData::ptype(&self, dtype: &vortex_array::dtype::DType) -> vortex_array::dtype::ptype::PType
 
-pub fn vortex_fastlanes::BitPackedData::try_new(packed: vortex_array::buffer::BufferHandle, ptype: vortex_array::dtype::ptype::PType, validity: vortex_array::validity::Validity, patches: core::option::Option<vortex_array::patches::Patches>, bit_width: u8, length: usize, offset: u16) -> vortex_error::VortexResult<Self>
+pub fn vortex_fastlanes::BitPackedData::try_new(packed: vortex_array::buffer::BufferHandle, patches: core::option::Option<vortex_array::patches::Patches>, bit_width: u8, offset: u16) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_fastlanes::BitPackedData::unpacked_chunks<T: vortex_fastlanes::unpack_iter::BitPacked>(&self, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<vortex_fastlanes::unpack_iter::BitUnpackedChunks<T>>
 

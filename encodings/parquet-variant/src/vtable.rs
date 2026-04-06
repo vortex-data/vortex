@@ -32,14 +32,14 @@ use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 
+use crate::array::METADATA_SLOT;
 use crate::array::ParquetVariantArrayExt;
 use crate::array::ParquetVariantData;
-use crate::array::METADATA_SLOT;
+use crate::array::SLOT_NAMES;
 use crate::array::TYPED_VALUE_SLOT;
 use crate::array::VALIDITY_SLOT;
 use crate::array::VALUE_SLOT;
 use crate::array::validate_parts;
-use crate::array::SLOT_NAMES;
 use crate::kernel::PARENT_KERNELS;
 
 /// VTable for [`ParquetVariantArray`].

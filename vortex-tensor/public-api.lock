@@ -96,11 +96,11 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuantData::bit_width(&self) ->
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::dimension(&self) -> u32
 
-pub unsafe fn vortex_tensor::encodings::turboquant::TurboQuantData::new_unchecked(dtype: &vortex_array::dtype::DType, centroids_len: usize) -> Self
+pub unsafe fn vortex_tensor::encodings::turboquant::TurboQuantData::new_unchecked(dimension: u32, bit_width: u8) -> Self
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::padded_dim(&self) -> u32
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantData::try_new(dtype: &vortex_array::dtype::DType, centroids_len: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_tensor::encodings::turboquant::TurboQuantData::try_new(dimension: u32, bit_width: u8) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::validate(dtype: &vortex_array::dtype::DType, codes: &vortex_array::array::erased::ArrayRef, norms: &vortex_array::array::erased::ArrayRef, centroids: &vortex_array::array::erased::ArrayRef, rotation_signs: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 

@@ -37,8 +37,8 @@ use crate::delta::array::BASES_SLOT;
 use crate::delta::array::DELTAS_SLOT;
 use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::SLOT_NAMES;
-use crate::delta::array::lane_count;
 use crate::delta::array::delta_decompress::delta_decompress;
+use crate::delta::array::lane_count;
 
 mod operations;
 mod rules;

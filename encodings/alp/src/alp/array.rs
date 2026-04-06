@@ -328,7 +328,7 @@ impl ALPData {
 impl ALPData {
     /// Build a new `ALPArray` from components, panicking on validation failure.
     ///
-    /// See [`ALPData::try_new`] for reference on preconditions that must pass before
+    /// See [`ALP::try_new`] for reference on preconditions that must pass before
     /// calling this method.
     pub fn new(exponents: Exponents, patches: Option<Patches>) -> Self {
         let (patch_offset, patch_offset_within_chunk) = match &patches {
@@ -366,13 +366,8 @@ impl ALP {
         let slots = ALPData::make_slots(&encoded, &patches);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(
-                    ALP,
-                    dtype,
-                    len,
-                    ALPData::new(exponents, patches),
-                )
-                .with_slots(slots),
+                ArrayParts::new(ALP, dtype, len, ALPData::new(exponents, patches))
+                    .with_slots(slots),
             )
         }
     }
@@ -390,7 +385,7 @@ impl ALP {
     }
 
     /// # Safety
-    /// See [`ALPData::try_new`] for preconditions.
+    /// See [`ALP::try_new`] for preconditions.
     pub unsafe fn new_unchecked(
         encoded: ArrayRef,
         exponents: Exponents,

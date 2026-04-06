@@ -181,11 +181,7 @@ impl VTable for RLE {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        let slots = vec![
-            Some(values),
-            Some(indices),
-            Some(values_idx_offsets),
-        ];
+        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = RLEData::try_new(metadata.offset as usize)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
