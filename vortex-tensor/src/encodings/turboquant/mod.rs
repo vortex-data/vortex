@@ -97,6 +97,8 @@ pub use array::scheme::TurboQuantScheme;
 
 pub(crate) mod compute;
 
+mod metadata;
+
 mod vtable;
 pub use vtable::TurboQuant;
 pub use vtable::TurboQuantArray;
