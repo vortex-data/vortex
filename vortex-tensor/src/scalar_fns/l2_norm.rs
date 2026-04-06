@@ -32,9 +32,9 @@ use vortex_error::vortex_err;
 use crate::encodings::turboquant::TurboQuant;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
-use crate::utils::extension_element_ptype;
-use crate::utils::extension_list_size;
 use crate::utils::extract_flat_elements;
+use crate::utils::tensor_element_ptype;
+use crate::utils::tensor_list_size;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
 ///
@@ -109,7 +109,7 @@ impl ScalarFnVTable for L2Norm {
             "L2Norm input must be an `AnyTensor`, got {input_dtype}"
         );
 
-        let ptype = extension_element_ptype(ext)?;
+        let ptype = tensor_element_ptype(ext)?;
         vortex_ensure!(
             ptype.is_float(),
             "L2Norm element dtype must be a float primitive, got {ptype}"
@@ -144,7 +144,7 @@ impl ScalarFnVTable for L2Norm {
 
         // Get element ptype and list size from the dtype (validated by `return_dtype`).
         let ext = input.dtype().as_extension();
-        let list_size = extension_list_size(ext)? as usize;
+        let list_size = tensor_list_size(ext)? as usize;
 
         let storage = input.data().storage_array();
         let flat = extract_flat_elements(storage, list_size, ctx)?;
