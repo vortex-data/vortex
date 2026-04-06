@@ -25,6 +25,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::arrays::primitive::compute::take::TakeImpl;
 use crate::arrays::primitive::vtable::Primitive;
 use crate::dtype::NativePType;
