@@ -13,16 +13,23 @@ n_failures=0
 
 while (( n_failures < 100 )); do
     current_etag=$(aws s3api head-object --bucket "$bucket" --key "$key" --query ETag --output text 2>/dev/null) || {
-        # File doesn't exist yet, create it fresh
+        # File doesn't exist yet, try to create it fresh
         echo "File does not exist in S3, creating new file."
         if [[ "$key" =~ \.gz$ ]]; then
             gzip -c "$local_file_to_concatenate" > "$local_concatenated"
         else
             cp "$local_file_to_concatenate" "$local_concatenated"
         fi
-        aws s3api put-object --bucket "$bucket" --key "$key" --body "$local_concatenated"
-        echo "File created and uploaded successfully."
-        exit 0
+        # Use --if-none-match to avoid race with concurrent writers
+        aws s3api put-object --bucket "$bucket" --key "$key" --body "$local_concatenated" --if-none-match "*" && {
+            echo "File created and uploaded successfully."
+            exit 0
+        }
+        # Another writer created the file first, retry to concatenate with it
+        echo "File was created by another writer, retrying to concatenate."
+        n_failures=$(( n_failures + 1 ))
+        sleep 0.1
+        continue
     }
     if [[ "$current_etag" == "null" ]]; then
         echo "Failed to retrieve ETag. Exiting."
