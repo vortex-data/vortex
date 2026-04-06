@@ -24,7 +24,7 @@ use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantArrayExt;
 use crate::encodings::turboquant::array::float_from_f32;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
-use crate::utils::extension_element_ptype;
+use crate::utils::tensor_element_ptype;
 
 /// Decompress a `TurboQuantArray` into a [`Vector`] extension array.
 ///
@@ -40,7 +40,7 @@ pub fn execute_decompress(
     let padded_dim = array.padded_dim() as usize;
     let num_rows = array.norms().len();
     let ext_dtype = array.dtype().as_extension().clone();
-    let element_ptype = extension_element_ptype(&ext_dtype)?;
+    let element_ptype = tensor_element_ptype(&ext_dtype)?;
 
     if num_rows == 0 {
         let fsl_validity = Validity::from(ext_dtype.storage_dtype().nullability());

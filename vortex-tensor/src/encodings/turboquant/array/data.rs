@@ -15,8 +15,8 @@ use vortex_error::vortex_ensure_eq;
 
 use crate::encodings::turboquant::array::slots::Slot;
 use crate::encodings::turboquant::vtable::TurboQuant;
-use crate::utils::extension_element_ptype;
-use crate::utils::extension_list_size;
+use crate::utils::tensor_element_ptype;
+use crate::utils::tensor_list_size;
 
 /// TurboQuant array data.
 ///
@@ -104,7 +104,7 @@ impl TurboQuantData {
         rotation_signs: &ArrayRef,
     ) -> VortexResult<()> {
         let ext = TurboQuant::validate_dtype(dtype)?;
-        let dimension = extension_list_size(ext)?;
+        let dimension = tensor_list_size(ext)?;
         let padded_dim = dimension.next_power_of_two();
 
         // Codes must be a non-nullable FixedSizeList<u8> with list_size == padded_dim.
@@ -159,7 +159,7 @@ impl TurboQuantData {
 
         // Norms dtype must match the element ptype of the Vector, with the parent's nullability.
         // Norms carry the validity of the entire TurboQuant array.
-        let element_ptype = extension_element_ptype(ext)?;
+        let element_ptype = tensor_element_ptype(ext)?;
         let expected_norms_dtype = DType::Primitive(element_ptype, dtype.nullability());
         vortex_ensure_eq!(
             *norms.dtype(),

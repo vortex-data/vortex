@@ -34,7 +34,7 @@ use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::inner_product::InnerProduct;
 use crate::scalar_fns::l2_norm::L2Norm;
-use crate::utils::extension_element_ptype;
+use crate::utils::tensor_element_ptype;
 
 /// Cosine similarity between two columns.
 ///
@@ -128,7 +128,7 @@ impl ScalarFnVTable for CosineSimilarity {
             "CosineSimilarity inputs must be an `AnyTensor`, got {lhs}"
         );
 
-        let ptype = extension_element_ptype(lhs_ext)?;
+        let ptype = tensor_element_ptype(lhs_ext)?;
         vortex_ensure!(
             ptype.is_float(),
             "CosineSimilarity element dtype must be a float primitive, got {ptype}"

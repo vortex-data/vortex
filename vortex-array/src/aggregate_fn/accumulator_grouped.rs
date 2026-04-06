@@ -238,7 +238,7 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             if validity.value(offset) {
                 let group = elements.slice(offset..offset + size)?;
                 accumulator.accumulate(&group, ctx)?;
-                states.append_scalar(&accumulator.finish()?)?;
+                states.append_scalar(&accumulator.flush()?)?;
             } else {
                 states.append_null()
             }

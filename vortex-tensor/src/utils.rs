@@ -21,7 +21,7 @@ use vortex_error::vortex_err;
 /// Extracts the list size from a tensor-like extension dtype.
 ///
 /// The storage dtype must be a `FixedSizeList`.
-pub fn extension_list_size(ext: &ExtDTypeRef) -> VortexResult<u32> {
+pub fn tensor_list_size(ext: &ExtDTypeRef) -> VortexResult<u32> {
     let DType::FixedSizeList(_, list_size, _) = ext.storage_dtype() else {
         vortex_bail!(
             "expected FixedSizeList storage dtype, got {}",
@@ -35,7 +35,7 @@ pub fn extension_list_size(ext: &ExtDTypeRef) -> VortexResult<u32> {
 /// Extracts the float element [`PType`] from a tensor-like extension dtype.
 ///
 /// The storage dtype must be a `FixedSizeList` of non-nullable primitives.
-pub fn extension_element_ptype(ext: &ExtDTypeRef) -> VortexResult<PType> {
+pub fn tensor_element_ptype(ext: &ExtDTypeRef) -> VortexResult<PType> {
     let element_dtype = ext
         .storage_dtype()
         .as_fixed_size_list_element_opt()
