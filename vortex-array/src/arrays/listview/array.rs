@@ -71,6 +71,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "sizes"
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// # use vortex_array::arrays::{ListViewArray, PrimitiveArray};
+/// # use vortex_array::arrays::listview::ListViewArrayExt;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_array::IntoArray;
 /// # use vortex_buffer::buffer;

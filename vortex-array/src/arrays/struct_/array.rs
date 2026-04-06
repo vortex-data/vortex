@@ -84,6 +84,7 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 ///
 /// ```
 /// use vortex_array::arrays::StructArray;
+/// use vortex_array::arrays::struct_::StructArrayExt;
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
@@ -124,6 +125,7 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 ///
 /// ```
 /// use vortex_array::arrays::{StructArray, PrimitiveArray};
+/// use vortex_array::arrays::struct_::StructArrayExt;
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;

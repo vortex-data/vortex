@@ -55,6 +55,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "validity"];
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::{FixedSizeListArray, PrimitiveArray};
+/// use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 /// use vortex_array::validity::Validity;
 /// use vortex_array::IntoArray;
 /// use vortex_buffer::buffer;
