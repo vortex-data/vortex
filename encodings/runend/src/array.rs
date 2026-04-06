@@ -306,7 +306,7 @@ impl RunEndData {
         }
     }
 
-    fn validate_parts(
+    pub(crate) fn validate_parts(
         ends: &ArrayRef,
         values: &ArrayRef,
         offset: usize,

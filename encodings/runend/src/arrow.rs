@@ -53,7 +53,7 @@ where
         };
 
         // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees.
-        RunEndData::validate(&ends_slice, &values_slice, offset, len)?;
+        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len)?;
         Ok(unsafe { RunEndData::new_unchecked(offset) })
     }
 }
