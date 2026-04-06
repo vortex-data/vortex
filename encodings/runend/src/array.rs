@@ -306,15 +306,6 @@ impl RunEndData {
         }
     }
 
-    pub(crate) fn validate(
-        ends: &ArrayRef,
-        values: &ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<()> {
-        Self::validate_parts(ends, values, offset, length)
-    }
-
     fn validate_parts(
         ends: &ArrayRef,
         values: &ArrayRef,
