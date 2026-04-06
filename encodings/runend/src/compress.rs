@@ -11,6 +11,8 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -288,7 +290,7 @@ pub fn runend_decode_varbinview(
         )
     });
 
-    let parts = values.into_data().into_parts();
+    let parts = values.into_data_parts();
     let view_handle = BufferHandle::new_host(decoded_views.into_byte_buffer());
 
     // SAFETY: we are expanding views from a valid VarBinViewArray with the same

@@ -12,6 +12,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -30,6 +31,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::TurboQuantArrayExt;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extract_flat_elements;
@@ -146,7 +148,7 @@ impl ScalarFnVTable for L2Norm {
         let ext = input.dtype().as_extension();
         let list_size = tensor_list_size(ext)? as usize;
 
-        let storage = input.data().storage_array();
+        let storage = input.storage_array();
         let flat = extract_flat_elements(storage, list_size, ctx)?;
 
         match_each_float_ptype!(flat.ptype(), |T| {

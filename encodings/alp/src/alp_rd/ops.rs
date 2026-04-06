@@ -10,6 +10,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
+use crate::ALPRDArrayExt;
 
 impl OperationsVTable<ALPRD> for ALPRD {
     fn scalar_at(
@@ -69,6 +70,7 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::scalar::Scalar;
 
+    use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 

@@ -17,6 +17,7 @@ use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrays::listview::recursive_list_from_list_view;
 use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;

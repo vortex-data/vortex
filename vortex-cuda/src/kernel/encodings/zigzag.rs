@@ -16,6 +16,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::ZigZagArray;
+use vortex::encodings::zigzag::ZigZagArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
@@ -31,7 +32,7 @@ pub(crate) struct ZigZagExecutor;
 
 impl ZigZagExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZigZagArray> {
-        array.try_into::<ZigZag>().ok()
+        array.try_downcast::<ZigZag>().ok()
     }
 }
 
@@ -72,7 +73,7 @@ where
     let primitive = canonical.into_primitive();
     let PrimitiveDataParts {
         buffer, validity, ..
-    } = primitive.into_data().into_parts();
+    } = primitive.into_data_parts();
 
     let device_buffer = ctx.ensure_on_device(buffer).await?;
 

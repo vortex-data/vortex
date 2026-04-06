@@ -50,7 +50,7 @@ pub(crate) fn new_exporter(
         offsets,
         validity,
         dtype,
-    } = array.into_data().into_parts();
+    } = array.into_data_parts();
     let num_elements = elements.len();
     let validity = validity.to_array(array_len).execute::<Mask>(ctx)?;
 

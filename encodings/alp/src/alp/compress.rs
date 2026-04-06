@@ -134,6 +134,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::alp::array::ALPArrayExt;
     use crate::decompress_into_array;
 
     #[test]

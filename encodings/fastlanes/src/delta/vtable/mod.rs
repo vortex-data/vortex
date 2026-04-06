@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use fastlanes::FastLanes;
 use prost::Message;
@@ -24,6 +25,7 @@ use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -31,9 +33,12 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::DeltaData;
-use crate::delta::array::NUM_SLOTS;
+use crate::delta::array::BASES_SLOT;
+use crate::delta::array::DELTAS_SLOT;
+use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::SLOT_NAMES;
 use crate::delta::array::delta_decompress::delta_decompress;
+use crate::delta::array::lane_count;
 
 mod operations;
 mod rules;
@@ -51,6 +56,18 @@ pub struct DeltaMetadata {
     offset: u32, // must be <1024
 }
 
+impl ArrayHash for DeltaData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.offset.hash(state);
+    }
+}
+
+impl ArrayEq for DeltaData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.offset == other.offset
+    }
+}
+
 impl VTable for Delta {
     type ArrayData = DeltaData;
 
@@ -61,20 +78,20 @@ impl VTable for Delta {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
-        data.validate(dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &DeltaData, state: &mut H, precision: Precision) {
-        array.offset().hash(state);
-        array.bases().array_hash(state, precision);
-        array.deltas().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &DeltaData, other: &DeltaData, precision: Precision) -> bool {
-        array.offset() == other.offset()
-            && array.bases().array_eq(other.bases(), precision)
-            && array.deltas().array_eq(other.deltas(), precision)
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let bases = slots[BASES_SLOT]
+            .as_ref()
+            .vortex_expect("DeltaArray bases slot");
+        let deltas = slots[DELTAS_SLOT]
+            .as_ref()
+            .vortex_expect("DeltaArray deltas slot");
+        validate_parts(bases, deltas, data.offset, dtype, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -97,23 +114,8 @@ impl VTable for Delta {
         rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "DeltaArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
@@ -134,7 +136,7 @@ impl VTable for Delta {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<DeltaData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
             "DeltaArray expects 0 buffers, got {}",
@@ -159,7 +161,9 @@ impl VTable for Delta {
         let bases = children.get(0, dtype, bases_len)?;
         let deltas = children.get(1, dtype, deltas_len)?;
 
-        DeltaData::try_new(bases, deltas, metadata.offset as usize, len)
+        let data = DeltaData::try_new(metadata.offset as usize)?;
+        let slots = vec![Some(bases), Some(deltas)];
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -182,8 +186,9 @@ impl Delta {
         len: usize,
     ) -> VortexResult<DeltaArray> {
         let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
-        let data = DeltaData::try_new(bases, deltas, offset, len)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Delta, dtype, len, data)) })
+        let data = DeltaData::try_new(offset)?;
+        let slots = vec![Some(bases), Some(deltas)];
+        Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data).with_slots(slots))
     }
 
     /// Compress a primitive array using Delta encoding.
@@ -195,6 +200,52 @@ impl Delta {
         let (bases, deltas) = crate::delta::array::delta_compress::delta_compress(array, ctx)?;
         Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
     }
+}
+
+fn validate_parts(
+    bases: &ArrayRef,
+    deltas: &ArrayRef,
+    offset: usize,
+    dtype: &DType,
+    len: usize,
+) -> VortexResult<()> {
+    vortex_ensure!(
+        offset + len <= deltas.len(),
+        "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
+        deltas.len()
+    );
+    vortex_ensure!(
+        bases.dtype().eq_ignore_nullability(deltas.dtype()),
+        "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
+        bases.dtype(),
+        deltas.dtype()
+    );
+
+    vortex_ensure!(
+        bases.dtype().is_unsigned_int(),
+        "DeltaArray: dtype must be an unsigned integer, got {}",
+        bases.dtype()
+    );
+
+    let expected_dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
+    vortex_ensure!(
+        dtype == &expected_dtype,
+        "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"
+    );
+
+    let lanes = lane_count(bases.dtype().as_ptype());
+
+    vortex_ensure!(
+        deltas.len().is_multiple_of(1024),
+        "deltas length ({}) must be a multiple of 1024",
+        deltas.len(),
+    );
+    vortex_ensure!(
+        bases.len().is_multiple_of(lanes),
+        "bases length ({}) must be a multiple of LANES ({lanes})",
+        bases.len(),
+    );
+    Ok(())
 }
 
 #[cfg(test)]

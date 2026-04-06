@@ -5,6 +5,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::error::VortexResult;
@@ -32,7 +33,7 @@ pub(crate) fn new_exporter(
         struct_fields,
         fields,
         ..
-    } = array.into_data().into_parts();
+    } = array.into_data_parts();
     let validity = validity.to_array(len).execute::<BoolArray>(ctx)?;
 
     if validity.to_bit_buffer().true_count() == 0 {

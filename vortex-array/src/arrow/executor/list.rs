@@ -21,6 +21,9 @@ use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::list::ListArrayExt;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrow::ArrowArrayExecutor;
@@ -53,7 +56,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     }
 
     // If the Vortex array is a ListViewArray, rebuild to ZCTL if needed and convert.
-    let array = match array.try_into::<ListView>() {
+    let array = match array.try_downcast::<ListView>() {
         Ok(array) => {
             let zctl = if array.is_zero_copy_to_list() {
                 array
@@ -139,7 +142,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         sizes,
         validity,
         ..
-    } = array.into_data().into_parts();
+    } = array.into_data_parts();
 
     // For ZCTL, we know that we only care about the final size.
     assert!(!sizes.is_empty());

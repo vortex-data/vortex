@@ -21,7 +21,13 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::list::ListArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::list_from_list_view;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
@@ -418,7 +424,7 @@ impl CascadingCompressor {
         )?;
 
         Ok(
-            ListArray::try_new(compressed_elems, compressed_offsets, list_array.validity())?
+            ListArray::try_new(compressed_elems, compressed_offsets, list_array.validity()?)?
                 .into_array(),
         )
     }

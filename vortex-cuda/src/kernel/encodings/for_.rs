@@ -13,12 +13,14 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::Slice;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
+use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::match_each_native_simd_ptype;
 use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::fastlanes::FoRArray;
+use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -36,7 +38,7 @@ pub(crate) struct FoRExecutor;
 
 impl FoRExecutor {
     fn try_specialize(array: ArrayRef) -> Option<FoRArray> {
-        array.try_into::<FoR>().ok()
+        array.try_downcast::<FoR>().ok()
     }
 }
 
@@ -98,7 +100,7 @@ where
     let primitive = canonical.into_primitive();
     let PrimitiveDataParts {
         buffer, validity, ..
-    } = primitive.into_data().into_parts();
+    } = primitive.into_data_parts();
 
     let device_buffer = ctx.ensure_on_device(buffer).await?;
 

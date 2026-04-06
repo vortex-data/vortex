@@ -6,6 +6,7 @@ use arrow_array::types::RunEndIndexType;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::scalar::PValue;
@@ -52,7 +53,8 @@ where
         };
 
         // SAFETY: arrow-rs enforces the RunEndArray invariants, we inherit their guarantees.
-        Ok(unsafe { RunEndData::new_unchecked(ends_slice, values_slice, offset, len) })
+        RunEndData::validate_parts(&ends_slice, &values_slice, offset, len)?;
+        Ok(unsafe { RunEndData::new_unchecked(offset) })
     }
 }
 
@@ -72,9 +74,11 @@ mod tests {
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::IntoArray as _;
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::arrow::ArrowArrayExecutor;
     use vortex_array::arrow::FromArrowArray;
     use vortex_array::assert_arrays_eq;
@@ -82,13 +86,18 @@ mod tests {
     use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::scalar::PValue;
+    use vortex_array::search_sorted::SearchSorted;
+    use vortex_array::search_sorted::SearchSortedSide;
     use vortex_array::session::ArraySession;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::RunEnd;
-    use crate::RunEndData;
+    use crate::ops::find_slice_end_index;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
@@ -100,13 +109,36 @@ mod tests {
     where
         R::Native: NativePType,
     {
-        let data = RunEndData::from_arrow(array, nullable)?;
-        RunEnd::try_new_offset_length(
-            data.ends().clone(),
-            data.values().clone(),
-            data.offset(),
-            array.len(),
+        let offset = array.run_ends().offset();
+        let len = array.run_ends().len();
+        let ends_buf =
+            Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().clone());
+        let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
+            .reinterpret_cast(R::Native::PTYPE.to_unsigned());
+        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
+
+        let ends_array = PrimitiveArray::from_buffer_handle(
+            ends.buffer_handle().clone(),
+            ends.ptype(),
+            ends.validity()?,
         )
+        .into_array();
+        let (ends_slice, values_slice) = if offset == 0 && len == array.run_ends().max_value() {
+            (ends_array, values)
+        } else {
+            let slice_begin = ends_array
+                .as_primitive_typed()
+                .search_sorted(&PValue::from(offset), SearchSortedSide::Right)?
+                .to_ends_index(ends_array.len());
+            let slice_end = find_slice_end_index(&ends_array, offset + len)?;
+
+            (
+                ends_array.slice(slice_begin..slice_end)?,
+                values.slice(slice_begin..slice_end)?,
+            )
+        };
+
+        RunEnd::try_new_offset_length(ends_slice, values_slice, offset, array.len())
     }
 
     #[test]
@@ -252,10 +284,7 @@ mod tests {
         )
     }
 
-    fn execute(
-        array: vortex_array::ArrayRef,
-        dt: &DataType,
-    ) -> VortexResult<arrow_array::ArrayRef> {
+    fn execute(array: ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
         array.execute_arrow(Some(dt), &mut SESSION.create_execution_ctx())
     }
 

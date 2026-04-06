@@ -31,13 +31,24 @@ use vortex_session::VortexSession;
 
 use crate::Precision;
 use crate::array::ArrayId;
-use crate::arrays::primitive::array::NUM_SLOTS;
 use crate::arrays::primitive::array::SLOT_NAMES;
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
 vtable!(Primitive, Primitive, PrimitiveData);
+
+impl ArrayHash for PrimitiveData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.buffer.array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for PrimitiveData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.buffer.array_eq(&other.buffer, precision)
+    }
+}
 
 impl VTable for Primitive {
     type ArrayData = PrimitiveData;
@@ -47,16 +58,6 @@ impl VTable for Primitive {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: Hasher>(array: &PrimitiveData, state: &mut H, precision: Precision) {
-        array.buffer.array_hash(state, precision);
-        array.validity().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &PrimitiveData, other: &PrimitiveData, precision: Precision) -> bool {
-        array.buffer.array_eq(&other.buffer, precision)
-            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -81,21 +82,31 @@ impl VTable for Primitive {
         Ok(Some(vec![]))
     }
 
-    fn validate(&self, data: &PrimitiveData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &PrimitiveData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let DType::Primitive(_, nullability) = dtype else {
+            vortex_bail!("Expected primitive dtype, got {dtype:?}");
+        };
         vortex_ensure!(
             data.len() == len,
             "PrimitiveArray length {} does not match outer length {}",
             data.len(),
             len
         );
-
-        let actual_dtype = data.dtype();
-        vortex_ensure!(
-            &actual_dtype == dtype,
-            "PrimitiveArray dtype {} does not match outer dtype {}",
-            actual_dtype,
-            dtype
-        );
+        let validity = crate::array::child_to_validity(&slots[0], *nullability);
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == len,
+                "PrimitiveArray validity len {} does not match outer length {}",
+                validity_len,
+                len
+            );
+        }
 
         Ok(())
     }
@@ -109,7 +120,7 @@ impl VTable for Primitive {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<PrimitiveData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "PrimitiveArray expects empty metadata, got {} bytes",
@@ -155,31 +166,13 @@ impl VTable for Primitive {
         );
 
         // SAFETY: checked ahead of time
-        unsafe {
-            Ok(PrimitiveData::new_unchecked_from_handle(
-                buffer, ptype, validity,
-            ))
-        }
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        let slots = PrimitiveData::make_slots(&validity, len);
+        let data = unsafe { PrimitiveData::new_unchecked_from_handle(buffer, ptype, validity) };
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "PrimitiveArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

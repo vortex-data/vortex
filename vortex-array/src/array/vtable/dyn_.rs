@@ -22,6 +22,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
+
 /// Reference-counted DynVTable
 pub type DynVTableRef = Arc<dyn DynVTable>;
 
@@ -41,7 +42,11 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
-    /// See [`VTable::with_slots`]
+
+    /// Rebuilds the array with the provided outer slots.
+    ///
+    /// This is only for physical rewrites of existing slots. Slot count, presence, logical dtype,
+    /// and logical len must remain unchanged.
     fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
 
     /// See [`VTable::reduce`]
@@ -83,30 +88,54 @@ impl<V: VTable> DynVTable for V {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let inner = self.deserialize(dtype, len, metadata, buffers, children, session)?;
-        Ok(
-            Array::<V>::try_from_parts(ArrayParts::new(self.clone(), dtype.clone(), len, inner))?
-                .into_array(),
-        )
+        Ok(Array::<V>::try_from_parts(
+            self.deserialize(dtype, len, metadata, buffers, children, session)?,
+        )?
+        .into_array())
     }
 
     fn with_slots(&self, array: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+        let old_slots = array.slots();
+        vortex_ensure!(
+            old_slots.len() == slots.len(),
+            "slot count changed from {} to {} during physical rewrite",
+            old_slots.len(),
+            slots.len()
+        );
+        for (idx, (old_slot, new_slot)) in old_slots.iter().zip(slots.iter()).enumerate() {
+            vortex_ensure!(
+                old_slot.is_some() == new_slot.is_some(),
+                "slot {} presence changed during physical rewrite",
+                idx
+            );
+            if let (Some(old_slot), Some(new_slot)) = (old_slot.as_ref(), new_slot.as_ref()) {
+                vortex_ensure!(
+                    old_slot.dtype() == new_slot.dtype(),
+                    "slot {} dtype changed from {} to {} during physical rewrite",
+                    idx,
+                    old_slot.dtype(),
+                    new_slot.dtype()
+                );
+                vortex_ensure!(
+                    old_slot.len() == new_slot.len(),
+                    "slot {} len changed from {} to {} during physical rewrite",
+                    idx,
+                    old_slot.len(),
+                    new_slot.len()
+                );
+            }
+        }
         let typed = array
             .as_opt::<V>()
             .vortex_expect("Failed to downcast array");
-        let mut data = typed.data().clone();
-        V::with_slots(&mut data, slots)?;
+        let data = typed.data().clone();
         let stats = array.statistics().to_owned();
-        Ok(unsafe {
-            Array::<V>::from_parts_unchecked(ArrayParts::new(
-                self.clone(),
-                array.dtype().clone(),
-                array.len(),
-                data,
-            ))
-            .with_stats_set(stats)
-            .into_array()
-        })
+        Ok(Array::<V>::try_from_parts(
+            ArrayParts::new(self.clone(), array.dtype().clone(), array.len(), data)
+                .with_slots(slots),
+        )?
+        .with_stats_set(stats)
+        .into_array())
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -155,7 +184,6 @@ impl<V: VTable> DynVTable for V {
     }
 
     fn execute(&self, array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // Capture metadata before the move for post-validation and stats inheritance.
         let len = array.len();
         let dtype = array.dtype().clone();
         let stats = array.statistics().to_owned();
@@ -179,7 +207,6 @@ impl<V: VTable> DynVTable for V {
                 );
             }
 
-            // TODO(ngates): do we want to do this on every execution? We used to in to_canonical.
             result.array().statistics().set_iter(stats.into_iter());
         }
 

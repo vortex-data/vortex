@@ -5,19 +5,19 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use num_traits::NumCast;
-use vortex_array::Array;
-use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::Decimal;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
@@ -478,10 +478,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
         }
     }
     let filled_array = builder.finish_into_decimal();
-    let dtype = filled_array.dtype().clone();
-    let len = filled_array.len();
-    let data = filled_array.into_data().patch(patches, ctx)?;
-    Ok(Array::try_from_parts(ArrayParts::new(Decimal, dtype, len, data))?.into_array())
+    Ok(filled_array.patch(patches, ctx)?.into_array())
 }
 
 fn execute_varbin(
@@ -556,6 +553,7 @@ mod test {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::listview::ListViewArrayExt;
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;

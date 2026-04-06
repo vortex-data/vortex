@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -25,11 +29,22 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 
-const NUM_SLOTS: usize = 0;
-
 pub(crate) mod compute;
 
 vtable!(Null, Null, NullData);
+
+impl ArrayHash for NullData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {
+        // len and dtype are hashed by ArrayInner; NullData has no additional fields.
+    }
+}
+
+impl ArrayEq for NullData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        // len, dtype, and slots are compared by ArrayInner; NullData has no additional fields.
+        true
+    }
+}
 
 impl VTable for Null {
     type ArrayData = NullData;
@@ -41,18 +56,15 @@ impl VTable for Null {
         Self::ID
     }
 
-    fn validate(&self, _data: &NullData, dtype: &DType, _len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        _data: &NullData,
+        dtype: &DType,
+        _len: usize,
+        _slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         vortex_ensure!(*dtype == DType::Null, "NullArray dtype must be DType::Null");
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(_array: &NullData, _state: &mut H, _precision: Precision) {
-        // len and dtype are hashed by ArrayInner; NullData has no additional fields.
-    }
-
-    fn array_eq(_array: &NullData, _other: &NullData, _precision: Precision) -> bool {
-        // len and dtype are compared by ArrayInner; NullData has no additional fields.
-        true
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -67,22 +79,8 @@ impl VTable for Null {
         None
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("NullArray slot_name index {idx} out of bounds")
-    }
-
-    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "NullArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        Ok(())
     }
 
     fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
@@ -91,20 +89,25 @@ impl VTable for Null {
 
     fn deserialize(
         &self,
-        _dtype: &DType,
-        _len: usize,
+        dtype: &DType,
+        len: usize,
         metadata: &[u8],
 
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<NullData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             metadata.is_empty(),
             "NullArray expects empty metadata, got {} bytes",
             metadata.len()
         );
-        Ok(NullData::new())
+        Ok(ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            NullData::new(),
+        ))
     }
 
     fn reduce_parent(
@@ -148,9 +151,7 @@ impl VTable for Null {
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct NullData {
-    slots: Vec<Option<ArrayRef>>,
-}
+pub struct NullData;
 
 #[derive(Clone, Debug)]
 pub struct Null;
@@ -175,7 +176,7 @@ impl Default for NullData {
 
 impl NullData {
     pub fn new() -> Self {
-        Self { slots: vec![] }
+        Self
     }
 }
 impl OperationsVTable<Null> for Null {

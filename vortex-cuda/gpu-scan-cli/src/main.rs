@@ -20,6 +20,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use vortex::VortexSessionDefault;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::Dict;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::buffer::ByteBufferMut;
 use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::error::VortexResult;

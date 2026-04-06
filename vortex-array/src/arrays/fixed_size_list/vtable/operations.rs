@@ -7,6 +7,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::FixedSizeList;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<FixedSizeList> for FixedSizeList {

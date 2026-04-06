@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
@@ -15,6 +16,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -33,11 +35,23 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::TemporalParts;
 use crate::canonical::decode_to_temporal;
 use crate::compute::kernel::PARENT_KERNELS;
 use crate::compute::rules::PARENT_RULES;
+use crate::split_temporal;
 
 vtable!(DateTimeParts, DateTimeParts, DateTimePartsData);
+
+impl ArrayHash for DateTimePartsData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for DateTimePartsData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]
@@ -79,28 +93,23 @@ impl VTable for DateTimeParts {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
-        DateTimePartsData::validate(dtype, data.days(), data.seconds(), data.subseconds(), len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &DateTimePartsData,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.days().array_hash(state, precision);
-        array.seconds().array_hash(state, precision);
-        array.subseconds().array_hash(state, precision);
-    }
-
-    fn array_eq(
-        array: &DateTimePartsData,
-        other: &DateTimePartsData,
-        precision: Precision,
-    ) -> bool {
-        array.days().array_eq(other.days(), precision)
-            && array.seconds().array_eq(other.seconds(), precision)
-            && array.subseconds().array_eq(other.subseconds(), precision)
+    fn validate(
+        &self,
+        _data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let days = slots[DAYS_SLOT]
+            .as_ref()
+            .vortex_expect("DateTimePartsArray days slot");
+        let seconds = slots[SECONDS_SLOT]
+            .as_ref()
+            .vortex_expect("DateTimePartsArray seconds slot");
+        let subseconds = slots[SUBSECONDS_SLOT]
+            .as_ref()
+            .vortex_expect("DateTimePartsArray subseconds slot");
+        DateTimePartsData::validate(dtype, days, seconds, subseconds, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -134,7 +143,7 @@ impl VTable for DateTimeParts {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<DateTimePartsData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = DateTimePartsMetadata::decode(metadata)?;
         if children.len() != 3 {
             vortex_bail!(
@@ -159,26 +168,13 @@ impl VTable for DateTimeParts {
             len,
         )?;
 
-        DateTimePartsData::try_new(dtype.clone(), days, seconds, subseconds)
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        let slots = vec![Some(days), Some(seconds), Some(subseconds)];
+        let data = DateTimePartsData {};
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "DateTimePartsArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -215,9 +211,29 @@ pub(super) const NUM_SLOTS: usize = 3;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["days", "seconds", "subseconds"];
 
 #[derive(Clone, Debug)]
-pub struct DateTimePartsData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
+pub struct DateTimePartsData {}
+
+pub trait DateTimePartsArrayExt: TypedArrayRef<DateTimeParts> {
+    fn days(&self) -> &ArrayRef {
+        self.as_ref().slots()[DAYS_SLOT]
+            .as_ref()
+            .vortex_expect("DateTimePartsArray days slot")
+    }
+
+    fn seconds(&self) -> &ArrayRef {
+        self.as_ref().slots()[SECONDS_SLOT]
+            .as_ref()
+            .vortex_expect("DateTimePartsArray seconds slot")
+    }
+
+    fn subseconds(&self) -> &ArrayRef {
+        self.as_ref().slots()[SUBSECONDS_SLOT]
+            .as_ref()
+            .vortex_expect("DateTimePartsArray subseconds slot")
+    }
 }
+
+impl<T: TypedArrayRef<DateTimeParts>> DateTimePartsArrayExt for T {}
 
 #[derive(Clone, Debug)]
 pub struct DateTimeParts;
@@ -232,25 +248,26 @@ impl DateTimeParts {
         seconds: ArrayRef,
         subseconds: ArrayRef,
     ) -> VortexResult<DateTimePartsArray> {
-        let data = DateTimePartsData::try_new(dtype.clone(), days, seconds, subseconds)?;
-        let len = data.len();
-        Ok(
-            unsafe {
-                Array::from_parts_unchecked(ArrayParts::new(DateTimeParts, dtype, len, data))
-            },
-        )
+        let len = days.len();
+        DateTimePartsData::validate(&dtype, &days, &seconds, &subseconds, len)?;
+        let slots = vec![Some(days), Some(seconds), Some(subseconds)];
+        let data = DateTimePartsData {};
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(DateTimeParts, dtype, len, data).with_slots(slots),
+            )
+        })
     }
 
     /// Construct a [`DateTimePartsArray`] from a [`TemporalArray`].
     pub fn try_from_temporal(temporal: TemporalArray) -> VortexResult<DateTimePartsArray> {
         let dtype = temporal.dtype().clone();
-        let data = DateTimePartsData::try_from(temporal)?;
-        let len = data.len();
-        Ok(
-            unsafe {
-                Array::from_parts_unchecked(ArrayParts::new(DateTimeParts, dtype, len, data))
-            },
-        )
+        let TemporalParts {
+            days,
+            seconds,
+            subseconds,
+        } = split_temporal(temporal)?;
+        Self::try_new(dtype, days, seconds, subseconds)
     }
 }
 
@@ -289,50 +306,10 @@ impl DateTimePartsData {
 
         Ok(())
     }
-
-    pub(crate) fn try_new(
-        dtype: DType,
-        days: ArrayRef,
-        seconds: ArrayRef,
-        subseconds: ArrayRef,
-    ) -> VortexResult<Self> {
-        Self::validate(&dtype, &days, &seconds, &subseconds, days.len())?;
-        Ok(Self {
-            slots: vec![Some(days), Some(seconds), Some(subseconds)],
-        })
-    }
-
-    /// Returns the number of elements in the array.
-    pub fn len(&self) -> usize {
-        self.days().len()
-    }
-
-    /// Returns `true` if the array contains no elements.
-    pub fn is_empty(&self) -> bool {
-        self.days().len() == 0
-    }
-
-    pub fn days(&self) -> &ArrayRef {
-        self.slots[DAYS_SLOT]
-            .as_ref()
-            .vortex_expect("DateTimePartsArray days slot")
-    }
-
-    pub fn seconds(&self) -> &ArrayRef {
-        self.slots[SECONDS_SLOT]
-            .as_ref()
-            .vortex_expect("DateTimePartsArray seconds slot")
-    }
-
-    pub fn subseconds(&self) -> &ArrayRef {
-        self.slots[SUBSECONDS_SLOT]
-            .as_ref()
-            .vortex_expect("DateTimePartsArray subseconds slot")
-    }
 }
 
 impl ValidityChild<DateTimeParts> for DateTimeParts {
-    fn validity_child(array: &DateTimePartsData) -> &ArrayRef {
-        array.days()
+    fn validity_child(array: ArrayView<'_, DateTimeParts>) -> ArrayRef {
+        array.days().clone()
     }
 }

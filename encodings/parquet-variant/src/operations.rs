@@ -26,6 +26,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::ParquetVariantArrayExt;
 use crate::vtable::ParquetVariant;
 
 impl OperationsVTable<ParquetVariant> for ParquetVariant {
@@ -348,6 +349,7 @@ mod tests {
     use parquet_variant_compute::VariantArrayBuilder;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::Variant;
+    use vortex_array::arrays::variant::VariantArrayExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
@@ -355,6 +357,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::ParquetVariant;
+    use crate::ParquetVariantArrayExt;
     use crate::ParquetVariantData;
     use crate::operations::parquet_variant_to_scalar;
 

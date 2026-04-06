@@ -127,9 +127,6 @@ impl CudaExecutionCtx {
 
         let events = launch_cuda_kernel_impl(&mut launcher, self.strategy.event_flags(), len)?;
         self.strategy.on_complete(&events, len)?;
-
-        drop(events);
-
         Ok(())
     }
 
@@ -151,9 +148,6 @@ impl CudaExecutionCtx {
         let events =
             launch_cuda_kernel_with_config(&mut launcher, cfg, self.strategy.event_flags())?;
         self.strategy.on_complete(&events, len)?;
-
-        drop(events);
-
         Ok(())
     }
 
@@ -365,7 +359,7 @@ impl CudaArrayExt for ArrayRef {
                 struct_fields,
                 validity,
                 ..
-            } = self.try_into::<Struct>().unwrap().into_data().into_parts();
+            } = self.try_downcast::<Struct>().unwrap().into_data_parts();
 
             let mut cuda_fields = Vec::with_capacity(fields.len());
             for field in fields.iter() {

@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+use std::sync::Arc;
+
 use prost::Message;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -17,6 +23,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::list::ListArrayExt;
 use crate::arrays::list::ListData;
 use crate::arrays::list::array::NUM_SLOTS;
 use crate::arrays::list::array::SLOT_NAMES;
@@ -27,8 +34,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -44,6 +49,16 @@ pub struct ListMetadata {
     offset_ptype: i32,
 }
 
+impl ArrayHash for ListData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for ListData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 impl VTable for List {
     type ArrayData = ListData;
 
@@ -52,18 +67,6 @@ impl VTable for List {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ListData, state: &mut H, precision: Precision) {
-        array.elements().array_hash(state, precision);
-        array.offsets().array_hash(state, precision);
-        array.validity().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ListData, other: &ListData, precision: Precision) -> bool {
-        array.elements().array_eq(other.elements(), precision)
-            && array.offsets().array_eq(other.offsets(), precision)
-            && array.validity().array_eq(&other.validity(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -96,15 +99,32 @@ impl VTable for List {
         ))
     }
 
-    fn validate(&self, data: &ListData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        _data: &ListData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         vortex_ensure!(
-            data.len() == len,
+            slots.len() == NUM_SLOTS,
+            "ListArray expected {NUM_SLOTS} slots, found {}",
+            slots.len()
+        );
+        let elements = slots[crate::arrays::list::array::ELEMENTS_SLOT]
+            .as_ref()
+            .vortex_expect("ListArray elements slot");
+        let offsets = slots[crate::arrays::list::array::OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("ListArray offsets slot");
+        vortex_ensure!(
+            offsets.len().saturating_sub(1) == len,
             "ListArray length {} does not match outer length {}",
-            data.len(),
+            offsets.len().saturating_sub(1),
             len
         );
 
-        let actual_dtype = data.dtype();
+        let actual_dtype = DType::List(Arc::new(elements.dtype().clone()), dtype.nullability());
         vortex_ensure!(
             &actual_dtype == dtype,
             "ListArray dtype {} does not match outer dtype {}",
@@ -124,7 +144,7 @@ impl VTable for List {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<ListData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         let metadata = ListMetadata::decode(metadata)?;
         let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
@@ -150,26 +170,13 @@ impl VTable for List {
             len + 1,
         )?;
 
-        ListData::try_new(elements, offsets, validity)
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        let data = ListData::try_build(elements.clone(), offsets.clone(), validity.clone())?;
+        let slots = ListData::make_slots(&elements, &offsets, &validity, len);
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ListArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

@@ -7,6 +7,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Masked;
+use crate::arrays::masked::MaskedArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Masked> for Masked {

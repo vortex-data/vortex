@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::FoR;
+use crate::r#for::array::FoRArrayExt;
 
 impl TakeExecute for FoR {
     fn take(

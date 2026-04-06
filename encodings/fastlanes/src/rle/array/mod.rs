@@ -2,14 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
+use vortex_array::TypedArrayRef;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-
-use crate::FL_CHUNK_SIZE;
 
 pub mod rle_compress;
 pub mod rle_decompress;
@@ -33,102 +29,11 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["values", "indices", "values_i
 
 #[derive(Clone, Debug)]
 pub struct RLEData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
     // Offset relative to the start of the chunk.
     pub(super) offset: usize,
 }
 
 impl RLEData {
-    fn validate(
-        values: &ArrayRef,
-        indices: &ArrayRef,
-        value_idx_offsets: &ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<()> {
-        Self::validate_parts(values, indices, value_idx_offsets, offset, length)?;
-        Ok(())
-    }
-
-    pub(crate) fn validate_against_outer(&self, dtype: &DType, length: usize) -> VortexResult<()> {
-        Self::validate_parts(
-            self.values(),
-            self.indices(),
-            self.values_idx_offsets(),
-            self.offset,
-            length,
-        )?;
-        let expected_dtype = DType::Primitive(
-            self.values().dtype().as_ptype(),
-            self.indices().dtype().nullability(),
-        );
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
-        );
-        Ok(())
-    }
-
-    fn validate_parts(
-        values: &ArrayRef,
-        indices: &ArrayRef,
-        value_idx_offsets: &ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<()> {
-        vortex_ensure!(
-            offset < 1024,
-            "Offset must be smaller than 1024, got {}",
-            offset
-        );
-
-        vortex_ensure!(
-            matches!(
-                values.dtype(),
-                DType::Primitive(_, Nullability::NonNullable)
-            ),
-            "RLE values must be a non-nullable primitive type, got {}",
-            values.dtype()
-        );
-
-        vortex_ensure!(
-            matches!(indices.dtype().as_ptype(), PType::U8 | PType::U16),
-            "RLE indices must be u8 or u16, got {}",
-            indices.dtype()
-        );
-
-        vortex_ensure!(
-            value_idx_offsets.dtype().is_unsigned_int() && !value_idx_offsets.dtype().is_nullable(),
-            "RLE value idx offsets must be non-nullable unsigned integer, got {}",
-            value_idx_offsets.dtype()
-        );
-        vortex_ensure!(
-            indices.len().is_multiple_of(FL_CHUNK_SIZE),
-            "RLE indices length must be a multiple of {FL_CHUNK_SIZE}, got {}",
-            indices.len()
-        );
-        vortex_ensure!(
-            offset + length <= indices.len(),
-            "RLE offset + length, {offset} + {length}, must not exceed the indices length {}",
-            indices.len()
-        );
-
-        vortex_ensure!(
-            indices.len().div_ceil(FL_CHUNK_SIZE) == value_idx_offsets.len(),
-            "RLE must have one value idx offset per chunk, got {}",
-            value_idx_offsets.len()
-        );
-
-        vortex_ensure!(
-            indices.len() >= values.len(),
-            "RLE must have at least as many indices as values, got {} indices and {} values",
-            indices.len(),
-            values.len()
-        );
-
-        Ok(())
-    }
-
     /// Create a new chunk-based RLE array from its components.
     ///
     /// # Arguments
@@ -138,19 +43,13 @@ impl RLEData {
     /// * `values_idx_offsets` - Start indices for each value chunk.
     /// * `offset` - Offset into the first chunk
     /// * `length` - Array length
-    pub fn try_new(
-        values: ArrayRef,
-        indices: ArrayRef,
-        values_idx_offsets: ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<Self> {
-        Self::validate(&values, &indices, &values_idx_offsets, offset, length)?;
-
-        Ok(Self {
-            slots: vec![Some(values), Some(indices), Some(values_idx_offsets)],
-            offset,
-        })
+    pub fn try_new(offset: usize) -> VortexResult<Self> {
+        vortex_ensure!(
+            offset < 1024,
+            "Offset must be smaller than 1024, got {}",
+            offset
+        );
+        Ok(Self { offset })
     }
 
     /// Create a new RLEArray without validation.
@@ -160,35 +59,34 @@ impl RLEData {
     /// - `offset + length` does not exceed the length of the indices array
     /// - The `indices` array contains valid indices into chunks of the `values` array
     /// - The `values_idx_offsets` array contains valid chunk start offsets
-    pub unsafe fn new_unchecked(
-        values: ArrayRef,
-        indices: ArrayRef,
-        values_idx_offsets: ArrayRef,
-        offset: usize,
-    ) -> Self {
-        Self {
-            slots: vec![Some(values), Some(indices), Some(values_idx_offsets)],
-            offset,
-        }
+    pub unsafe fn new_unchecked(offset: usize) -> Self {
+        Self { offset }
     }
 
     #[inline]
-    pub fn values(&self) -> &ArrayRef {
-        self.slots[VALUES_SLOT]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+}
+
+pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
+    #[inline]
+    fn values(&self) -> &ArrayRef {
+        self.as_ref().slots()[VALUES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values slot must be populated")
     }
 
     #[inline]
-    pub fn indices(&self) -> &ArrayRef {
-        self.slots[INDICES_SLOT]
+    fn indices(&self) -> &ArrayRef {
+        self.as_ref().slots()[INDICES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray indices slot must be populated")
     }
 
     #[inline]
-    pub fn values_idx_offsets(&self) -> &ArrayRef {
-        self.slots[VALUES_IDX_OFFSETS_SLOT]
+    fn values_idx_offsets(&self) -> &ArrayRef {
+        self.as_ref().slots()[VALUES_IDX_OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values_idx_offsets slot must be populated")
     }
@@ -202,7 +100,7 @@ impl RLEData {
         clippy::expect_used,
         reason = "expect is safe here as scalar_at returns a valid primitive"
     )]
-    pub(crate) fn values_idx_offset(&self, chunk_idx: usize) -> usize {
+    fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets()
             .scalar_at(chunk_idx)
             .expect("index must be in bounds")
@@ -220,10 +118,12 @@ impl RLEData {
 
     /// Index offset into the array
     #[inline]
-    pub fn offset(&self) -> usize {
+    fn offset(&self) -> usize {
         self.offset
     }
 }
+
+impl<T: TypedArrayRef<crate::RLE>> RLEArrayExt for T {}
 
 #[cfg(test)]
 mod tests {
@@ -233,6 +133,7 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -249,6 +150,7 @@ mod tests {
     use crate::FL_CHUNK_SIZE;
     use crate::RLE;
     use crate::RLEData;
+    use crate::rle::array::RLEArrayExt;
     use crate::test::SESSION;
 
     #[test]

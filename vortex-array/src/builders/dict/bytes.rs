@@ -207,6 +207,7 @@ mod test {
     use crate::ToCanonical;
     use crate::accessor::ArrayAccessor;
     use crate::arrays::VarBinArray;
+    use crate::arrays::dict::DictArrayExt;
     use crate::builders::dict::dict_encode;
 
     #[test]

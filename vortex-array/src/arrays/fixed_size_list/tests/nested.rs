@@ -10,6 +10,7 @@ use crate::ToCanonical;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
 use crate::dtype::DType;

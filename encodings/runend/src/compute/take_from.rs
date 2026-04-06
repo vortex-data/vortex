@@ -6,11 +6,13 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::dict::DictArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::array::RunEndArrayExt;
 
 #[derive(Debug)]
 pub(crate) struct RunEndTakeFrom;
@@ -63,6 +65,7 @@ mod tests {
 
     use crate::RunEnd;
     use crate::RunEndArray;
+    use crate::array::RunEndArrayExt;
     use crate::compute::take_from::RunEndTakeFrom;
 
     /// Build a DictArray whose codes are run-end encoded.

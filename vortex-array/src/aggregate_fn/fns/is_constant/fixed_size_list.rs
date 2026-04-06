@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use super::arrays_value_equal;
 use crate::ExecutionCtx;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 
 /// Check if a fixed-size list array is constant by comparing each list's elements.
 ///

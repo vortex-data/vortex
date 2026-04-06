@@ -9,7 +9,6 @@ mod validity;
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::hash::Hasher;
 
 pub use dyn_::*;
 pub use operations::*;
@@ -25,7 +24,6 @@ use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionResult;
 use crate::IntoArray;
-use crate::Precision;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::Constant;
 use crate::buffer::BufferHandle;
@@ -33,6 +31,8 @@ use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::executor::ExecutionCtx;
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
 use crate::patches::Patches;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
@@ -52,7 +52,7 @@ use crate::validity::Validity;
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
-    type ArrayData: 'static + Send + Sync + Clone + Debug;
+    type ArrayData: 'static + Send + Sync + Clone + Debug + ArrayHash + ArrayEq;
 
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
@@ -61,13 +61,13 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     fn id(&self) -> ArrayId;
 
     /// Validates that externally supplied logical metadata matches the array data.
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()>;
-
-    /// Hashes the array contents.
-    fn array_hash<H: Hasher>(array: &Self::ArrayData, state: &mut H, precision: Precision);
-
-    /// Compares two arrays of the same type for equality.
-    fn array_eq(array: &Self::ArrayData, other: &Self::ArrayData, precision: Precision) -> bool;
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()>;
 
     /// Returns the number of buffers in the array.
     fn nbuffers(array: ArrayView<'_, Self>) -> usize;
@@ -85,7 +85,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     ///
     /// The default counts non-None slots.
     fn nchildren(array: ArrayView<'_, Self>) -> usize {
-        Self::slots(array).iter().filter(|s| s.is_some()).count()
+        array.slots().iter().filter(|s| s.is_some()).count()
     }
 
     /// Returns the child at the given index.
@@ -95,7 +95,8 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
     fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
-        Self::slots(array)
+        array
+            .slots()
             .iter()
             .filter_map(|s| s.clone())
             .nth(idx)
@@ -109,7 +110,8 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// # Panics
     /// Panics if `idx >= nchildren(array)`.
     fn child_name(array: ArrayView<'_, Self>, idx: usize) -> String {
-        Self::slots(array)
+        array
+            .slots()
             .iter()
             .enumerate()
             .filter(|(_, s)| s.is_some())
@@ -139,7 +141,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<Self::ArrayData>;
+    ) -> VortexResult<crate::array::ArrayParts<Self>>;
 
     /// Writes the array into a canonical builder.
     fn append_to_builder(
@@ -156,35 +158,11 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         Ok(())
     }
 
-    /// Returns the slots of the array as a slice.
-    ///
-    /// Slots provide fixed-position storage for child arrays. Each encoding defines named
-    /// constants (e.g. `VALIDITY_SLOT`, `ELEMENTS_SLOT`) that index into this slice, so child
-    /// access is a direct index rather than a dynamic lookup.
-    ///
-    /// Slots are `Option<ArrayRef>` to allow individual children to be _taken_ (moved out)
-    /// without invalidating the indices of other slots. For example, removing the validity
-    /// child leaves a `None` at `VALIDITY_SLOT` while all other slot indices remain stable.
-    ///
-    /// The backing storage is a `Vec` (rather than a fixed-size array) so that it can be
-    /// moved out of an `ArrayData` into the concrete `Array` type during deserialization
-    /// without copying.
-    ///
-    /// TODO: once no encodings rely on side-effects in [`Self::with_slots`], replace the
-    /// `slots`/`with_slots` pair with a single `slots_mut` returning `&mut [Option<ArrayRef>]`.
-    fn slots<'a>(array: ArrayView<'a, Self>) -> &'a [Option<ArrayRef>];
-
     /// Returns the name of the slot at the given index.
     ///
     /// # Panics
     /// Panics if `idx >= slots(array).len()`.
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String;
-
-    /// Replaces the slots in `array` with the given `slots` vec.
-    ///
-    /// Some encodings use this to perform side-effects (e.g. cache invalidation) when
-    /// slots change. Once those are removed, this will be replaced by `slots_mut`.
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()>;
 
     /// Execute this array by returning an [`ExecutionResult`].
     ///

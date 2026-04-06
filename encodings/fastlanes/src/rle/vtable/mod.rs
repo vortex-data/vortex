@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
@@ -23,12 +24,17 @@ use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::RLEData;
+use crate::rle::array::INDICES_SLOT;
+use crate::rle::array::RLEArrayExt;
+use crate::rle::array::VALUES_IDX_OFFSETS_SLOT;
+use crate::rle::array::VALUES_SLOT;
 use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::kernel::PARENT_KERNELS;
 use crate::rle::vtable::rules::RULES;
@@ -55,6 +61,18 @@ pub struct RLEMetadata {
     pub offset: u64,
 }
 
+impl ArrayHash for RLEData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.offset.hash(state);
+    }
+}
+
+impl ArrayEq for RLEData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.offset == other.offset
+    }
+}
+
 impl VTable for RLE {
     type ArrayData = RLEData;
 
@@ -65,24 +83,27 @@ impl VTable for RLE {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
-        data.validate_against_outer(dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &RLEData, state: &mut H, precision: Precision) {
-        array.values().array_hash(state, precision);
-        array.indices().array_hash(state, precision);
-        array.values_idx_offsets().array_hash(state, precision);
-        array.offset().hash(state);
-    }
-
-    fn array_eq(array: &RLEData, other: &RLEData, precision: Precision) -> bool {
-        array.values().array_eq(other.values(), precision)
-            && array.indices().array_eq(other.indices(), precision)
-            && array
-                .values_idx_offsets()
-                .array_eq(other.values_idx_offsets(), precision)
-            && array.offset() == other.offset()
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        validate_parts(
+            slots[VALUES_SLOT]
+                .as_ref()
+                .vortex_expect("RLEArray values slot must be populated"),
+            slots[INDICES_SLOT]
+                .as_ref()
+                .vortex_expect("RLEArray indices slot must be populated"),
+            slots[VALUES_IDX_OFFSETS_SLOT]
+                .as_ref()
+                .vortex_expect("RLEArray values_idx_offsets slot must be populated"),
+            data.offset,
+            dtype,
+            len,
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -105,23 +126,8 @@ impl VTable for RLE {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         crate::rle::array::SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == crate::rle::array::NUM_SLOTS,
-            "RLEArray expects {} slots, got {}",
-            crate::rle::array::NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
@@ -147,7 +153,7 @@ impl VTable for RLE {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<RLEData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
             "RLEArray expects 0 buffers, got {}",
@@ -175,13 +181,9 @@ impl VTable for RLE {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        RLEData::try_new(
-            values,
-            indices,
-            values_idx_offsets,
-            metadata.offset as usize,
-            len,
-        )
+        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let data = RLEData::try_new(metadata.offset as usize)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn execute_parent(
@@ -214,14 +216,15 @@ impl RLE {
         length: usize,
     ) -> VortexResult<RLEArray> {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        let data = RLEData::try_new(values, indices, values_idx_offsets, offset, length)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data)) })
+        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let data = RLEData::try_new(offset)?;
+        Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
     }
 
     /// Create a new RLE array without validation.
     ///
     /// # Safety
-    /// See [`RLEData::new_unchecked`] for preconditions.
+    /// See [`RLE::validate`] for preconditions.
     pub unsafe fn new_unchecked(
         values: ArrayRef,
         indices: ArrayRef,
@@ -230,14 +233,81 @@ impl RLE {
         length: usize,
     ) -> RLEArray {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        let data = unsafe { RLEData::new_unchecked(values, indices, values_idx_offsets, offset) };
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data)) }
+        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let data = unsafe { RLEData::new_unchecked(offset) };
+        unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
+        }
     }
 
     /// Encode a primitive array using FastLanes RLE.
     pub fn encode(array: &PrimitiveArray) -> VortexResult<RLEArray> {
         RLEData::encode(array)
     }
+}
+
+fn validate_parts(
+    values: &ArrayRef,
+    indices: &ArrayRef,
+    values_idx_offsets: &ArrayRef,
+    offset: usize,
+    dtype: &DType,
+    length: usize,
+) -> VortexResult<()> {
+    vortex_ensure!(
+        matches!(
+            values.dtype(),
+            DType::Primitive(_, Nullability::NonNullable)
+        ),
+        "RLE values must be a non-nullable primitive type, got {}",
+        values.dtype()
+    );
+
+    vortex_ensure!(
+        matches!(indices.dtype().as_ptype(), PType::U8 | PType::U16),
+        "RLE indices must be u8 or u16, got {}",
+        indices.dtype()
+    );
+
+    vortex_ensure!(
+        values_idx_offsets.dtype().is_unsigned_int() && !values_idx_offsets.dtype().is_nullable(),
+        "RLE value idx offsets must be non-nullable unsigned integer, got {}",
+        values_idx_offsets.dtype()
+    );
+
+    vortex_ensure!(
+        indices.len().is_multiple_of(crate::FL_CHUNK_SIZE),
+        "RLE indices length must be a multiple of {}, got {}",
+        crate::FL_CHUNK_SIZE,
+        indices.len()
+    );
+
+    vortex_ensure!(
+        offset + length <= indices.len(),
+        "RLE offset + length, {offset} + {length}, must not exceed the indices length {}",
+        indices.len()
+    );
+
+    vortex_ensure!(
+        indices.len().div_ceil(crate::FL_CHUNK_SIZE) == values_idx_offsets.len(),
+        "RLE must have one value idx offset per chunk, got {}",
+        values_idx_offsets.len()
+    );
+
+    vortex_ensure!(
+        indices.len() >= values.len(),
+        "RLE must have at least as many indices as values, got {} indices and {} values",
+        indices.len(),
+        values.len()
+    );
+
+    let expected_dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
+    vortex_ensure!(
+        dtype == &expected_dtype,
+        "RLE dtype mismatch: expected {expected_dtype}, got {dtype}"
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]

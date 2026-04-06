@@ -14,6 +14,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::filter::FilterReduce;
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.

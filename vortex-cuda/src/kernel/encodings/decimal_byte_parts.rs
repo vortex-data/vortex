@@ -10,7 +10,7 @@ use vortex::array::Canonical;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::encodings::decimal_byte_parts::DecimalByteParts;
-use vortex::encodings::decimal_byte_parts::DecimalBytePartsDataParts;
+use vortex::encodings::decimal_byte_parts::DecimalBytePartsArrayExt;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -31,7 +31,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let Ok(array) = array.try_into::<DecimalByteParts>() else {
+        let Ok(array) = array.try_downcast::<DecimalByteParts>() else {
             vortex_bail!("cannot downcast to DecimalBytePartsArray")
         };
 
@@ -39,7 +39,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
             .dtype()
             .as_decimal_opt()
             .vortex_expect("DecimalBytePartsArray dtype must be decimal");
-        let DecimalBytePartsDataParts { msp, .. } = array.into_data().into_parts();
+        let msp = array.msp().clone();
         let PrimitiveDataParts {
             buffer,
             ptype,
@@ -49,8 +49,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
             .execute_cuda(ctx)
             .await?
             .into_primitive()
-            .into_data()
-            .into_parts();
+            .into_data_parts();
 
         // SAFETY: The primitive array's buffer is already validated with correct type.
         // The decimal dtype matches the array's dtype, and validity is preserved.

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+pub use array::ListArrayExt;
 pub use array::ListData;
 pub use array::ListDataParts;
 pub use vtable::ListArray;

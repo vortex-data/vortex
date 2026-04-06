@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use prost::Message;
 use vortex_array::Array;
@@ -16,6 +17,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
@@ -56,6 +58,18 @@ pub struct RunEndMetadata {
     pub offset: u64,
 }
 
+impl ArrayHash for RunEndData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.offset.hash(state);
+    }
+}
+
+impl ArrayEq for RunEndData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.offset == other.offset
+    }
+}
+
 impl VTable for RunEnd {
     type ArrayData = RunEndData;
 
@@ -66,27 +80,27 @@ impl VTable for RunEnd {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
-        RunEndData::validate(data.ends(), data.values(), data.offset, len)?;
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let ends = slots[ENDS_SLOT]
+            .as_ref()
+            .vortex_expect("RunEndArray ends slot");
+        let values = slots[VALUES_SLOT]
+            .as_ref()
+            .vortex_expect("RunEndArray values slot");
+        RunEndData::validate_parts(ends, values, data.offset, len)?;
         vortex_ensure!(
-            data.values().dtype() == dtype,
+            values.dtype() == dtype,
             "expected dtype {}, got {}",
             dtype,
-            data.values().dtype()
+            values.dtype()
         );
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &RunEndData, state: &mut H, precision: Precision) {
-        array.ends().array_hash(state, precision);
-        array.values().array_hash(state, precision);
-        array.offset.hash(state);
-    }
-
-    fn array_eq(array: &RunEndData, other: &RunEndData, precision: Precision) -> bool {
-        array.ends().array_eq(other.ends(), precision)
-            && array.values().array_eq(other.values(), precision)
-            && array.offset == other.offset
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -121,39 +135,21 @@ impl VTable for RunEnd {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<RunEndData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = RunEndMetadata::decode(metadata)?;
         let ends_dtype = DType::Primitive(metadata.ends_ptype(), Nullability::NonNullable);
         let runs = usize::try_from(metadata.num_runs).vortex_expect("Must be a valid usize");
         let ends = children.get(0, &ends_dtype, runs)?;
 
         let values = children.get(1, dtype, runs)?;
-
-        RunEndData::try_new_offset_length(
-            ends,
-            values,
-            usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
-            len,
-        )
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
+        let slots = vec![Some(ends), Some(values)];
+        let data = RunEndData::new(offset);
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "RunEndArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn reduce_parent(
@@ -187,7 +183,6 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["ends", "values"];
 
 #[derive(Clone, Debug)]
 pub struct RunEndData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
     offset: usize,
 }
 
@@ -196,6 +191,40 @@ pub struct RunEndDataParts {
     pub values: ArrayRef,
     pub offset: usize,
 }
+
+pub trait RunEndArrayExt: TypedArrayRef<RunEnd> {
+    fn offset(&self) -> usize {
+        self.offset
+    }
+
+    fn ends(&self) -> &ArrayRef {
+        self.as_ref().slots()[ENDS_SLOT]
+            .as_ref()
+            .vortex_expect("RunEndArray ends slot")
+    }
+
+    fn values(&self) -> &ArrayRef {
+        self.as_ref().slots()[VALUES_SLOT]
+            .as_ref()
+            .vortex_expect("RunEndArray values slot")
+    }
+
+    fn dtype(&self) -> &DType {
+        self.values().dtype()
+    }
+
+    fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
+        Ok(self
+            .ends()
+            .as_primitive_typed()
+            .search_sorted(
+                &PValue::from(index + self.offset()),
+                SearchSortedSide::Right,
+            )?
+            .to_ends_index(self.ends().len()))
+    }
+}
+impl<T: TypedArrayRef<RunEnd>> RunEndArrayExt for T {}
 
 #[derive(Clone, Debug)]
 pub struct RunEnd;
@@ -213,17 +242,25 @@ impl RunEnd {
         offset: usize,
         length: usize,
     ) -> RunEndArray {
-        let data = unsafe { RunEndData::new_unchecked(ends, values, offset, length) };
-        let dtype = data.dtype().clone();
-        unsafe { Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, length, data)) }
+        let dtype = values.dtype().clone();
+        let slots = vec![Some(ends.clone()), Some(values.clone())];
+        RunEndData::validate_parts(&ends, &values, offset, length)
+            .vortex_expect("RunEndArray validation failed");
+        let data = unsafe { RunEndData::new_unchecked(offset) };
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots),
+            )
+        }
     }
 
     /// Build a new [`RunEndArray`] from ends and values.
     pub fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<RunEndArray> {
         let len = RunEndData::logical_len_from_ends(&ends)?;
-        let data = RunEndData::try_new_offset_length(ends, values, 0, len)?;
-        let dtype = data.dtype().clone();
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, len, data)) })
+        let dtype = values.dtype().clone();
+        let slots = vec![Some(ends), Some(values)];
+        let data = RunEndData::new(0);
+        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
     }
 
     /// Build a new [`RunEndArray`] from ends, values, offset, and length.
@@ -233,9 +270,10 @@ impl RunEnd {
         offset: usize,
         length: usize,
     ) -> VortexResult<RunEndArray> {
-        let data = RunEndData::try_new_offset_length(ends, values, offset, length)?;
-        let dtype = data.dtype().clone();
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, length, data)) })
+        let dtype = values.dtype().clone();
+        let slots = vec![Some(ends), Some(values)];
+        let data = RunEndData::new(offset);
+        Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots))
     }
 
     /// Build a new [`RunEndArray`] from ends and values (panics on invalid input).
@@ -245,10 +283,17 @@ impl RunEnd {
 
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<RunEndArray> {
-        let len = array.len();
-        let data = RunEndData::encode(array)?;
-        let dtype = data.dtype().clone();
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(RunEnd, dtype, len, data)) })
+        if let Some(parray) = array.as_opt::<Primitive>() {
+            let (ends, values) = runend_encode(parray);
+            let ends = ends.into_array();
+            let len = array.len();
+            let dtype = values.dtype().clone();
+            let slots = vec![Some(ends), Some(values)];
+            let data = unsafe { RunEndData::new_unchecked(0) };
+            Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
+        } else {
+            vortex_bail!("REE can only encode primitive arrays")
+        }
     }
 }
 
@@ -261,7 +306,7 @@ impl RunEndData {
         }
     }
 
-    fn validate(
+    pub(crate) fn validate_parts(
         ends: &ArrayRef,
         values: &ArrayRef,
         offset: usize,
@@ -358,35 +403,8 @@ impl RunEndData {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn new(ends: ArrayRef, values: ArrayRef) -> Self {
-        Self::try_new(ends, values).vortex_expect("RunEndArray new")
-    }
-
-    /// Build a new `RunEndArray` from components.
-    ///
-    /// # Validation
-    ///
-    /// The `ends` must be non-nullable unsigned integers.
-    pub(crate) fn try_new(ends: ArrayRef, values: ArrayRef) -> VortexResult<Self> {
-        let length = Self::logical_len_from_ends(&ends)?;
-        Self::try_new_offset_length(ends, values, 0, length)
-    }
-
-    /// Construct a new sliced `RunEndArray` with the provided offset and length.
-    ///
-    /// This performs all the same validation as [`RunEnd::try_new_offset_length`].
-    pub(crate) fn try_new_offset_length(
-        ends: ArrayRef,
-        values: ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<Self> {
-        Self::validate(&ends, &values, offset, length)?;
-
-        Ok(Self {
-            slots: vec![Some(ends), Some(values)],
-            offset,
-        })
+    pub fn new(offset: usize) -> Self {
+        Self { offset }
     }
 
     /// Build a new `RunEndArray` without validation.
@@ -398,92 +416,25 @@ impl RunEndData {
     /// satisfied before calling this function.
     ///
     /// See [`RunEnd::try_new_offset_length`] for the preconditions needed to build a new array.
-    pub unsafe fn new_unchecked(
-        ends: ArrayRef,
-        values: ArrayRef,
-        offset: usize,
-        _length: usize,
-    ) -> Self {
-        Self {
-            slots: vec![Some(ends), Some(values)],
-            offset,
-        }
-    }
-
-    /// Convert the given logical index to an index into the `values` array
-    pub fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
-        Ok(self
-            .ends()
-            .as_primitive_typed()
-            .search_sorted(
-                &PValue::from(index + self.offset()),
-                SearchSortedSide::Right,
-            )?
-            .to_ends_index(self.ends().len()))
+    pub unsafe fn new_unchecked(offset: usize) -> Self {
+        Self { offset }
     }
 
     /// Run the array through run-end encoding.
     pub fn encode(array: ArrayRef) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<Primitive>() {
-            let (ends, values) = runend_encode(parray);
+            let (_ends, _values) = runend_encode(parray);
             // SAFETY: runend_encode handles this
-            unsafe {
-                Ok(Self::new_unchecked(
-                    ends.into_array(),
-                    values,
-                    0,
-                    array.len(),
-                ))
-            }
+            unsafe { Ok(Self::new_unchecked(0)) }
         } else {
             vortex_bail!("REE can only encode primitive arrays")
         }
     }
 
-    /// Returns the logical data type of the array.
-    #[inline]
-    pub fn dtype(&self) -> &DType {
-        self.values().dtype()
-    }
-
-    /// The offset that the `ends` is relative to.
-    ///
-    /// This is generally zero for a "new" array, and non-zero after a slicing operation.
-    #[inline]
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
-
-    /// The encoded "ends" of value runs.
-    ///
-    /// The `i`-th element indicates that there is a run of the same value, beginning
-    /// at `ends[i]` (inclusive) and terminating at `ends[i+1]` (exclusive).
-    #[inline]
-    pub fn ends(&self) -> &ArrayRef {
-        self.slots[ENDS_SLOT]
-            .as_ref()
-            .vortex_expect("RunEndArray ends slot")
-    }
-
-    /// The scalar values.
-    ///
-    /// The `i`-th element is the scalar value for the `i`-th repeated run. The run begins
-    /// at `ends[i]` (inclusive) and terminates at `ends[i+1]` (exclusive).
-    #[inline]
-    pub fn values(&self) -> &ArrayRef {
-        self.slots[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("RunEndArray values slot")
-    }
-
-    pub fn into_parts(mut self) -> RunEndDataParts {
+    pub fn into_parts(self, ends: ArrayRef, values: ArrayRef) -> RunEndDataParts {
         RunEndDataParts {
-            ends: self.slots[ENDS_SLOT]
-                .take()
-                .vortex_expect("RunEndArray ends slot"),
-            values: self.slots[VALUES_SLOT]
-                .take()
-                .vortex_expect("RunEndArray values slot"),
+            ends,
+            values,
             offset: self.offset,
         }
     }

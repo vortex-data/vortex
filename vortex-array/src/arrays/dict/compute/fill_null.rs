@@ -12,6 +12,8 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArrayExt;
+use crate::arrays::dict::DictArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;

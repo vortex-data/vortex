@@ -9,6 +9,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::List;
+use crate::arrays::list::ListArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<List> for List {

@@ -11,6 +11,8 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::DictArray;
+use vortex_array::arrays::dict::DictArrayExt;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::builders::dict::dict_encode;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;

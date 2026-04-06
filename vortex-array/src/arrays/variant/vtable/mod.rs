@@ -6,6 +6,7 @@ mod validity;
 
 use std::hash::Hasher;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -20,7 +21,6 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::variant::NUM_SLOTS;
 use crate::arrays::variant::SLOT_NAMES;
 use crate::arrays::variant::VariantData;
 use crate::buffer::BufferHandle;
@@ -37,6 +37,16 @@ impl Variant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.variant");
 }
 
+impl ArrayHash for VariantData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for VariantData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 impl VTable for Variant {
     type ArrayData = VariantData;
 
@@ -48,32 +58,37 @@ impl VTable for Variant {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        _data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots[0].is_some(),
+            "VariantArray child slot must be present"
+        );
+        let child = slots[0]
+            .as_ref()
+            .vortex_expect("validated child slot presence");
         vortex_ensure!(
             matches!(dtype, DType::Variant(_)),
             "Expected Variant DType, got {dtype}"
         );
         vortex_ensure!(
-            data.child().dtype() == dtype,
+            child.dtype() == dtype,
             "VariantArray child dtype {} does not match outer dtype {}",
-            data.child().dtype(),
+            child.dtype(),
             dtype
         );
         vortex_ensure!(
-            data.len() == len,
+            child.len() == len,
             "VariantArray length {} does not match outer length {}",
-            data.len(),
+            child.len(),
             len
         );
         Ok(())
-    }
-
-    fn array_hash<H: Hasher>(array: &VariantData, state: &mut H, precision: Precision) {
-        array.child().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &VariantData, other: &VariantData, precision: Precision) -> bool {
-        array.child().array_eq(other.child(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -101,7 +116,7 @@ impl VTable for Variant {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::ArrayData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_ensure!(
             metadata.is_empty(),
             "VariantArray expects empty metadata, got {} bytes",
@@ -115,11 +130,10 @@ impl VTable for Variant {
         );
         // The child carries the nullability for the whole VariantArray.
         let child = children.get(0, dtype, len)?;
-        Ok(VariantData::new(child))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        Ok(
+            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, VariantData)
+                .with_slots(vec![Some(child)]),
+        )
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -129,44 +143,10 @@ impl VTable for Variant {
         }
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VariantArray expects exactly {} slot, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        vortex_ensure!(
-            slots[0].is_some(),
-            "VariantArray child slot must be present"
-        );
-        array.slots = slots;
-        Ok(())
-    }
-
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::IntoArray;
-    use crate::arrays::ConstantArray;
-    use crate::dtype::DType;
-    use crate::dtype::Nullability;
-    use crate::scalar::Scalar;
-
-    #[test]
-    fn with_slots_rejects_missing_child() {
-        let child =
-            ConstantArray::new(Scalar::null(DType::Variant(Nullability::Nullable)), 3).into_array();
-        let array = VariantArray::new(child);
-        let mut data = array.into_data();
-
-        let err = <Variant as VTable>::with_slots(&mut data, vec![None]).unwrap_err();
-
-        assert!(err.to_string().contains("child slot must be present"));
-    }
-}
+mod tests {}

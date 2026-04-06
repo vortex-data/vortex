@@ -24,7 +24,7 @@ where
 {
     let PrimitiveDataParts {
         buffer, validity, ..
-    } = array.into_data().into_parts();
+    } = array.into_data_parts();
 
     let filtered_validity = validity.filter(&mask)?;
     let filtered_values = filter_sized::<T>(buffer, mask, ctx).await?;

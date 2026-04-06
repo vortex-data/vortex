@@ -9,6 +9,7 @@ use crate::array::ArrayView;
 use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
 use crate::arrays::dict::TakeReduce;
+use crate::arrays::masked::MaskedArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 

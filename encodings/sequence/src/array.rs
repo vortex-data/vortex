@@ -2,10 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use num_traits::cast::FromPrimitive;
 use prost::Message;
 use vortex_array::Array;
+use vortex_array::ArrayEq;
+use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
@@ -63,7 +66,6 @@ pub(super) const SLOT_NAMES: [&str; 0] = [];
 pub struct SequenceData {
     base: PValue,
     multiplier: PValue,
-    pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
 pub struct SequenceDataParts {
@@ -144,11 +146,7 @@ impl SequenceData {
     /// - `base` and `multiplier` are both normalized to the same integer `ptype`.
     /// - they are logically compatible with the outer dtype and len.
     pub(crate) unsafe fn new_unchecked(base: PValue, multiplier: PValue) -> Self {
-        Self {
-            base,
-            multiplier,
-            slots: vec![],
-        }
+        Self { base, multiplier }
     }
 
     pub fn ptype(&self) -> PType {
@@ -205,6 +203,19 @@ impl SequenceData {
     }
 }
 
+impl ArrayHash for SequenceData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.base.hash(state);
+        self.multiplier.hash(state);
+    }
+}
+
+impl ArrayEq for SequenceData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.base == other.base && self.multiplier == other.multiplier
+    }
+}
+
 impl VTable for Sequence {
     type ArrayData = SequenceData;
 
@@ -215,21 +226,14 @@ impl VTable for Sequence {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        _slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         SequenceData::validate(data.base, data.multiplier, dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &SequenceData,
-        state: &mut H,
-        _precision: Precision,
-    ) {
-        array.base.hash(state);
-        array.multiplier.hash(state);
-    }
-
-    fn array_eq(array: &SequenceData, other: &SequenceData, _precision: Precision) -> bool {
-        array.base == other.base && array.multiplier == other.multiplier
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -261,7 +265,7 @@ impl VTable for Sequence {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<Self::ArrayData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
             "SequenceArray expects 0 buffers, got {}",
@@ -301,25 +305,12 @@ impl VTable for Sequence {
         .pvalue()
         .vortex_expect("sequence array multiplier should be a non-nullable primitive");
 
-        SequenceData::try_new(base, multiplier, ptype, dtype.nullability(), len)
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        let data = SequenceData::try_new(base, multiplier, ptype, dtype.nullability(), len)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.is_empty(),
-            "SequenceArray expects 0 slots, got {}",
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

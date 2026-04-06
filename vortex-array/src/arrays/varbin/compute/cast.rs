@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 

@@ -28,15 +28,11 @@ pub type vortex_sparse::Sparse::OperationsVTable = vortex_sparse::Sparse
 
 pub type vortex_sparse::Sparse::ValidityVTable = vortex_sparse::Sparse
 
-pub fn vortex_sparse::Sparse::array_eq(array: &vortex_sparse::SparseData, other: &vortex_sparse::SparseData, precision: vortex_array::hash::Precision) -> bool
-
-pub fn vortex_sparse::Sparse::array_hash<H: core::hash::Hasher>(array: &vortex_sparse::SparseData, state: &mut H, precision: vortex_array::hash::Precision)
-
 pub fn vortex_sparse::Sparse::buffer(array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
 pub fn vortex_sparse::Sparse::buffer_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> core::option::Option<alloc::string::String>
 
-pub fn vortex_sparse::Sparse::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::ArrayData>
+pub fn vortex_sparse::Sparse::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
 
 pub fn vortex_sparse::Sparse::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
@@ -52,11 +48,7 @@ pub fn vortex_sparse::Sparse::serialize(array: vortex_array::array::view::ArrayV
 
 pub fn vortex_sparse::Sparse::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_sparse::Sparse::slots(array: vortex_array::array::view::ArrayView<'_, Self>) -> &[core::option::Option<vortex_array::array::erased::ArrayRef>]
-
-pub fn vortex_sparse::Sparse::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
-
-pub fn vortex_sparse::Sparse::with_slots(array: &mut Self::ArrayData, slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> vortex_error::VortexResult<()>
+pub fn vortex_sparse::Sparse::validate(&self, data: &Self::ArrayData, dtype: &vortex_array::dtype::DType, len: usize, _slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_sparse::Sparse> for vortex_sparse::Sparse
 
@@ -104,8 +96,6 @@ pub fn vortex_sparse::SparseData::patches(&self) -> &vortex_array::patches::Patc
 
 pub fn vortex_sparse::SparseData::resolved_patches(&self) -> vortex_error::VortexResult<vortex_array::patches::Patches>
 
-pub fn vortex_sparse::SparseData::try_new(indices: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, len: usize, fill_value: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
-
 pub fn vortex_sparse::SparseData::try_new_from_patches(patches: vortex_array::patches::Patches, fill_value: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_sparse::SparseData::validate(patches: &vortex_array::patches::Patches, fill_value: &vortex_array::scalar::Scalar, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<()>
@@ -117,6 +107,14 @@ pub fn vortex_sparse::SparseData::clone(&self) -> vortex_sparse::SparseData
 impl core::fmt::Debug for vortex_sparse::SparseData
 
 pub fn vortex_sparse::SparseData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_sparse::SparseData
+
+pub fn vortex_sparse::SparseData::array_eq(&self, other: &Self, precision: vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_sparse::SparseData
+
+pub fn vortex_sparse::SparseData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, precision: vortex_array::hash::Precision)
 
 #[repr(C)] pub struct vortex_sparse::SparseMetadata
 

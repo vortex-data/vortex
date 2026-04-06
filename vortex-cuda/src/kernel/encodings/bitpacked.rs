@@ -37,7 +37,7 @@ pub(crate) struct BitPackedExecutor;
 
 impl BitPackedExecutor {
     fn try_specialize(array: ArrayRef) -> Option<BitPackedArray> {
-        array.try_into::<BitPacked>().ok()
+        array.try_downcast::<BitPacked>().ok()
     }
 }
 
@@ -175,6 +175,7 @@ mod tests {
     use vortex::array::dtype::NativePType;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
+    use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
 
@@ -199,7 +200,7 @@ mod tests {
 
         // Last two items should be patched
         let bp_with_patches = BitPacked::encode(&array.into_array(), bw)?;
-        assert!(bp_with_patches.patches(bp_with_patches.len()).is_some());
+        assert!(bp_with_patches.patches().is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
 
@@ -230,7 +231,7 @@ mod tests {
 
         // Last two items should be patched
         let bp_with_patches = BitPacked::encode(&array.into_array(), 9)?;
-        assert!(bp_with_patches.patches(bp_with_patches.len()).is_some());
+        assert!(bp_with_patches.patches().is_some());
 
         let cpu_result = bp_with_patches.to_canonical()?.into_array();
 

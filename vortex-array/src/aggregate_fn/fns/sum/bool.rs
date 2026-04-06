@@ -10,6 +10,7 @@ use vortex_mask::AllOr;
 use super::SumState;
 use super::checked_add_u64;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 
 pub(super) fn accumulate_bool(inner: &mut SumState, b: &BoolArray) -> VortexResult<bool> {
     let SumState::Unsigned(acc) = inner else {

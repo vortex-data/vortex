@@ -29,6 +29,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ExtensionArray;
 use crate::arrays::PrimitiveArray as VortexPrimitiveArray;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::dtype::NativePType;
 use crate::extension::datetime::AnyTemporal;

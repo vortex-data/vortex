@@ -3,7 +3,7 @@
 
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
-use vortex_array::dtype::DType;
+use vortex_array::TypedArrayRef;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
@@ -62,110 +62,32 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 #[derive(Clone, Debug)]
 pub struct DeltaData {
     pub(super) offset: usize,
-    pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
-impl DeltaData {
-    /// Create a DeltaArray from the given `bases` and `deltas` arrays
-    /// with given `offset` into first chunk and `logical_len` length.
-    pub fn try_new(
-        bases: ArrayRef,
-        deltas: ArrayRef,
-        offset: usize,
-        len: usize,
-    ) -> VortexResult<Self> {
-        Self::validate_parts(&bases, &deltas, offset, len)?;
-
-        // SAFETY: validation done above
-        Ok(unsafe { Self::new_unchecked(bases, deltas, offset) })
-    }
-
-    pub(crate) fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
-        Self::validate_parts(self.bases(), self.deltas(), self.offset, len)?;
-        let expected_dtype = self
-            .bases()
-            .dtype()
-            .with_nullability(self.deltas().dtype().nullability());
-        vortex_ensure!(
-            dtype == &expected_dtype,
-            "DeltaArray dtype mismatch: expected {expected_dtype}, got {dtype}"
-        );
-        Ok(())
-    }
-
-    fn validate_parts(
-        bases: &ArrayRef,
-        deltas: &ArrayRef,
-        offset: usize,
-        len: usize,
-    ) -> VortexResult<()> {
-        vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
-        vortex_ensure!(
-            offset + len <= deltas.len(),
-            "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
-            deltas.len()
-        );
-        vortex_ensure!(
-            bases.dtype().eq_ignore_nullability(deltas.dtype()),
-            "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
-            bases.dtype(),
-            deltas.dtype()
-        );
-
-        vortex_ensure!(
-            bases.dtype().is_unsigned_int(),
-            "DeltaArray: dtype must be an unsigned integer, got {}",
-            bases.dtype()
-        );
-
-        let lanes = lane_count(bases.dtype().as_ptype());
-
-        vortex_ensure!(
-            deltas.len().is_multiple_of(1024),
-            "deltas length ({}) must be a multiple of 1024",
-            deltas.len(),
-        );
-        vortex_ensure!(
-            bases.len().is_multiple_of(lanes),
-            "bases length ({}) must be a multiple of LANES ({lanes})",
-            bases.len(),
-        );
-        Ok(())
-    }
-
-    pub(crate) unsafe fn new_unchecked(bases: ArrayRef, deltas: ArrayRef, offset: usize) -> Self {
-        Self {
-            offset,
-            slots: vec![Some(bases), Some(deltas)],
-        }
-    }
-
-    #[inline]
-    pub fn bases(&self) -> &ArrayRef {
-        self.slots[BASES_SLOT]
+pub trait DeltaArrayExt: TypedArrayRef<crate::Delta> {
+    fn bases(&self) -> &ArrayRef {
+        self.as_ref().slots()[BASES_SLOT]
             .as_ref()
             .vortex_expect("DeltaArray bases slot")
     }
 
-    #[inline]
-    pub fn deltas(&self) -> &ArrayRef {
-        self.slots[DELTAS_SLOT]
+    fn deltas(&self) -> &ArrayRef {
+        self.as_ref().slots()[DELTAS_SLOT]
             .as_ref()
             .vortex_expect("DeltaArray deltas slot")
     }
 
-    #[inline]
-    /// The logical offset into the first chunk of [`Self::deltas`].
-    pub fn offset(&self) -> usize {
+    fn offset(&self) -> usize {
         self.offset
     }
+}
 
-    pub(crate) fn bases_len(&self) -> usize {
-        self.bases().len()
-    }
+impl<T: TypedArrayRef<crate::Delta>> DeltaArrayExt for T {}
 
-    pub(crate) fn deltas_len(&self) -> usize {
-        self.deltas().len()
+impl DeltaData {
+    pub fn try_new(offset: usize) -> VortexResult<Self> {
+        vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
+        Ok(Self { offset })
     }
 }
 

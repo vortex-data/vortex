@@ -1,18 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::arrays::Constant;
 use crate::scalar::Scalar;
 
-pub(super) const NUM_SLOTS: usize = 0;
-
 #[derive(Clone, Debug)]
 pub struct ConstantData {
     pub(super) scalar: Scalar,
-    pub(super) slots: Vec<Option<ArrayRef>>,
 }
 
 impl ConstantData {
@@ -21,10 +17,7 @@ impl ConstantData {
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        Self {
-            scalar,
-            slots: vec![],
-        }
+        Self { scalar }
     }
 
     /// Returns the [`Scalar`] value of this constant array.

@@ -7,6 +7,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::VarBin;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::varbin_scalar;
 use crate::scalar::Scalar;
 

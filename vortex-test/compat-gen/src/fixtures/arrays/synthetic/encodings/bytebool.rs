@@ -6,6 +6,7 @@ use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::bytebool::ByteBool;

@@ -8,11 +8,10 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Masked;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
 use crate::validity::Validity;
 
 /// The underlying child array being masked.
@@ -23,66 +22,55 @@ pub(super) const NUM_SLOTS: usize = 2;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child", "validity"];
 
 #[derive(Clone, Debug)]
-pub struct MaskedData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
+pub struct MaskedData;
+
+pub trait MaskedArrayExt: TypedArrayRef<Masked> {
+    fn child(&self) -> &ArrayRef {
+        self.as_ref().slots()[CHILD_SLOT]
+            .as_ref()
+            .vortex_expect("validated masked child slot")
+    }
+
+    fn validity_child(&self) -> Option<&ArrayRef> {
+        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
+    }
+
+    fn masked_validity(&self) -> Validity {
+        child_to_validity(
+            &self.as_ref().slots()[VALIDITY_SLOT],
+            self.as_ref().dtype().nullability(),
+        )
+    }
+
+    fn masked_validity_mask(&self) -> vortex_mask::Mask {
+        self.masked_validity().to_mask(self.as_ref().len())
+    }
 }
+impl<T: TypedArrayRef<Masked>> MaskedArrayExt for T {}
 
 impl MaskedData {
-    pub(crate) fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
+    pub(crate) fn try_new(
+        child_len: usize,
+        child_all_valid: bool,
+        validity: Validity,
+    ) -> VortexResult<Self> {
         if matches!(validity, Validity::NonNullable) {
             vortex_bail!("MaskedArray must have nullable validity, got {validity:?}")
         }
 
-        if !child.all_valid()? {
+        if !child_all_valid {
             vortex_bail!("MaskedArray children must not have nulls");
         }
 
         if let Some(validity_len) = validity.maybe_len()
-            && validity_len != child.len()
+            && validity_len != child_len
         {
             vortex_bail!("Validity must be the same length as a MaskedArray's child");
         }
 
         // MaskedArray's nullability is determined solely by its validity, not the child's dtype.
         // The child can have nullable dtype but must not have any actual null values.
-        let len = child.len();
-        let validity_slot = validity_to_child(&validity, len);
-
-        Ok(Self {
-            slots: vec![Some(child), validity_slot],
-        })
-    }
-
-    /// Returns the dtype of the array.
-    pub fn dtype(&self) -> DType {
-        self.child().dtype().as_nullable()
-    }
-
-    /// Returns the length of the array.
-    pub fn len(&self) -> usize {
-        self.child().len()
-    }
-
-    /// Returns `true` if the array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns the validity of the array.
-    #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], Nullability::Nullable)
-    }
-
-    /// Returns the validity as a [`Mask`](vortex_mask::Mask).
-    pub fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.len())
-    }
-
-    pub fn child(&self) -> &ArrayRef {
-        self.slots[CHILD_SLOT]
-            .as_ref()
-            .vortex_expect("MaskedArray child slot")
+        Ok(Self)
     }
 }
 
@@ -91,7 +79,13 @@ impl Array<Masked> {
     pub fn try_new(child: ArrayRef, validity: Validity) -> VortexResult<Self> {
         let dtype = child.dtype().as_nullable();
         let len = child.len();
-        let data = MaskedData::try_new(child, validity)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Masked, dtype, len, data)) })
+        let validity_slot = validity_to_child(&validity, len);
+        let data = MaskedData::try_new(len, child.all_valid()?, validity)?;
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Masked, dtype, len, data)
+                    .with_slots(vec![Some(child), validity_slot]),
+            )
+        })
     }
 }

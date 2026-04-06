@@ -21,6 +21,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::RunEnd;
+use crate::array::RunEndArrayExt;
 use crate::compute::take::take_indices_unchecked;
 const FILTER_TAKE_THRESHOLD: f64 = 0.1;
 
@@ -38,7 +39,7 @@ impl FilterKernel for RunEnd {
 
         if runs_ratio < FILTER_TAKE_THRESHOLD || mask_values.true_count() < 25 {
             Ok(Some(take_indices_unchecked(
-                &array,
+                array,
                 mask_values.indices(),
                 &Validity::NonNullable,
             )?))

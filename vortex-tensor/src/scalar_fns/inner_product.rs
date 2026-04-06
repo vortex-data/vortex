@@ -12,6 +12,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -172,8 +173,8 @@ impl ScalarFnVTable for InnerProduct {
 
         // Extract the storage array from each extension input. We pass the storage (FSL) rather
         // than the extension array to avoid canonicalizing the extension wrapper.
-        let lhs_storage = lhs.data().storage_array();
-        let rhs_storage = rhs.data().storage_array();
+        let lhs_storage = lhs.storage_array();
+        let rhs_storage = rhs.storage_array();
 
         let lhs_flat = extract_flat_elements(lhs_storage, list_size, ctx)?;
         let rhs_flat = extract_flat_elements(rhs_storage, list_size, ctx)?;

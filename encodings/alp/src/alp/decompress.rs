@@ -15,6 +15,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
+use crate::ALPArrayOwnedExt;
 use crate::ALPFloat;
 use crate::Exponents;
 use crate::match_each_alp_float_ptype;
@@ -29,7 +30,7 @@ pub fn decompress_into_array(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
     let dtype = array.dtype().clone();
-    let (encoded, exponents, patches) = array.into_data().into_parts();
+    let (encoded, exponents, patches) = ALPArrayOwnedExt::into_parts(array);
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
@@ -62,7 +63,7 @@ pub fn decompress_into_array(
 /// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
 pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     let dtype = array.dtype().clone();
-    let (encoded, exponents, patches) = array.into_data().into_parts();
+    let (encoded, exponents, patches) = ALPArrayOwnedExt::into_parts(array);
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {

@@ -31,6 +31,7 @@ pub struct ArrayParts<V: VTable> {
     pub dtype: DType,
     pub len: usize,
     pub data: V::ArrayData,
+    pub slots: Vec<Option<ArrayRef>>,
 }
 
 impl<V: VTable> ArrayParts<V> {
@@ -40,9 +41,31 @@ impl<V: VTable> ArrayParts<V> {
             dtype,
             len,
             data,
+            slots: Vec::new(),
         }
     }
+
+    pub fn with_slots(mut self, slots: Vec<Option<ArrayRef>>) -> Self {
+        self.slots = slots;
+        self
+    }
 }
+
+/// Shared bound for helpers that should work over both owned [`Array<V>`] and borrowed
+/// [`ArrayView<V>`].
+///
+/// Extension traits use this to share typed array logic while still exposing the backing
+/// [`ArrayRef`] and the encoding-specific [`VTable::ArrayData`].
+pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::ArrayData> {
+    /// Returns an owned [`Array<V>`] from the reference.
+    fn to_owned(&self) -> Array<V> {
+        self.as_ref().clone().downcast()
+    }
+}
+
+impl<V: VTable> TypedArrayRef<V> for Array<V> {}
+
+impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {}
 // =============================================================================
 // ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
 // =============================================================================
@@ -58,6 +81,7 @@ pub(crate) struct ArrayInner<V: VTable> {
     pub(crate) dtype: DType,
     pub(crate) len: usize,
     pub(crate) data: V::ArrayData,
+    pub(crate) slots: Vec<Option<ArrayRef>>,
     pub(crate) stats: ArrayStats,
 }
 
@@ -65,13 +89,15 @@ impl<V: VTable> ArrayInner<V> {
     /// Create a new inner array from explicit construction parameters.
     #[doc(hidden)]
     pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
-        new.vtable.validate(&new.data, &new.dtype, new.len)?;
+        new.vtable
+            .validate(&new.data, &new.dtype, new.len, &new.slots)?;
         Ok(unsafe {
             Self::from_data_unchecked(
                 new.vtable,
                 new.dtype,
                 new.len,
                 new.data,
+                new.slots,
                 ArrayStats::default(),
             )
         })
@@ -86,6 +112,7 @@ impl<V: VTable> ArrayInner<V> {
         dtype: DType,
         len: usize,
         data: V::ArrayData,
+        slots: Vec<Option<ArrayRef>>,
         stats: ArrayStats,
     ) -> Self {
         Self {
@@ -93,6 +120,7 @@ impl<V: VTable> ArrayInner<V> {
             dtype,
             len,
             data,
+            slots,
             stats,
         }
     }
@@ -118,6 +146,7 @@ impl<V: VTable> Clone for ArrayInner<V> {
             dtype: self.dtype.clone(),
             len: self.len,
             data: self.data.clone(),
+            slots: self.slots.clone(),
             stats: self.stats.clone(),
         }
     }
@@ -130,6 +159,7 @@ impl<V: VTable> Debug for ArrayInner<V> {
             .field("dtype", &self.dtype)
             .field("len", &self.len)
             .field("inner", &self.data)
+            .field("slots", &self.slots)
             .finish()
     }
 }
@@ -185,6 +215,7 @@ impl<V: VTable> Array<V> {
                 new.dtype,
                 new.len,
                 new.data,
+                new.slots,
                 ArrayStats::default(),
             )
         }));
@@ -248,14 +279,25 @@ impl<V: VTable> Array<V> {
         &self.downcast_inner().data
     }
 
-    /// Returns the full typed array construction parts.
-    pub fn into_parts(self) -> ArrayParts<V> {
-        let inner = self.downcast_inner();
-        ArrayParts {
-            vtable: inner.vtable.clone(),
-            dtype: inner.dtype.clone(),
-            len: inner.len,
-            data: inner.data.clone(),
+    /// Returns the full typed array construction parts if this handle owns the allocation.
+    pub fn try_into_parts(self) -> Result<ArrayParts<V>, Self> {
+        let Self { inner, _phantom } = self;
+        let any = inner.into_inner().into_any_arc();
+        let inner = Arc::downcast::<ArrayInner<V>>(any)
+            .unwrap_or_else(|_| unreachable!("typed array must contain ArrayInner for its vtable"));
+
+        match Arc::try_unwrap(inner) {
+            Ok(inner) => Ok(ArrayParts {
+                vtable: inner.vtable,
+                dtype: inner.dtype,
+                len: inner.len,
+                data: inner.data,
+                slots: inner.slots,
+            }),
+            Err(inner) => Err(Self {
+                inner: ArrayRef::from_inner(inner),
+                _phantom: PhantomData,
+            }),
         }
     }
 
@@ -267,6 +309,11 @@ impl<V: VTable> Array<V> {
     /// Returns a clone of the inner encoding-specific data.
     pub fn into_data(self) -> V::ArrayData {
         self.downcast_inner().data.clone()
+    }
+
+    /// Returns the array slots.
+    pub fn slots(&self) -> &[Option<ArrayRef>] {
+        &self.downcast_inner().slots
     }
 
     /// Returns the internal [`ArrayRef`].
@@ -451,11 +498,24 @@ mod tests {
     #[test]
     fn typed_array_into_parts_roundtrips() {
         let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
-        let expected = array.clone();
+        let expected = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
 
-        let parts = array.into_parts();
+        let parts = array.try_into_parts().unwrap();
         let rebuilt = Array::<Primitive>::try_from_parts(parts).unwrap();
 
         assert_arrays_eq!(rebuilt, expected);
+    }
+
+    #[test]
+    fn typed_array_try_into_parts_requires_unique_owner() {
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
+        let alias = array.clone();
+
+        let array = match array.try_into_parts() {
+            Ok(_) => panic!("aliased arrays should not move out their backing parts"),
+            Err(array) => array,
+        };
+
+        assert_arrays_eq!(array, alias);
     }
 }

@@ -8,6 +8,7 @@ use super::MinMaxResult;
 use super::min_max;
 use crate::ExecutionCtx;
 use crate::arrays::ExtensionArray;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 

@@ -15,6 +15,7 @@ use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::decimal::DecimalDataParts;
+use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::arrays::varbinview::BinaryView;
@@ -45,7 +46,7 @@ impl CanonicalCudaExt for Canonical {
                     struct_fields,
                     validity,
                     ..
-                } = struct_array.into_data().into_parts();
+                } = struct_array.into_data_parts();
 
                 let mut host_fields = vec![];
                 for field in fields.iter() {
@@ -63,13 +64,11 @@ impl CanonicalCudaExt for Canonical {
             Canonical::Bool(bool) => {
                 // NOTE: update to copy to host when adding buffer handle.
                 // Also update other method to copy validity to host.
+                let len = bool.len();
+                let validity = bool.validity()?;
                 let BoolDataParts {
-                    bits,
-                    validity,
-                    offset,
-                    len,
-                    ..
-                } = bool.into_data().into_parts();
+                    bits, offset, len, ..
+                } = bool.into_data().into_parts(len);
 
                 let bits = BitBuffer::new_with_offset(bits.try_into_host()?.await?, offset, len);
                 Ok(Canonical::Bool(BoolArray::new(bits, validity)))
@@ -80,7 +79,7 @@ impl CanonicalCudaExt for Canonical {
                     buffer,
                     validity,
                     ..
-                } = prim.into_data().into_parts();
+                } = prim.into_data_parts();
                 Ok(Canonical::Primitive(PrimitiveArray::from_byte_buffer(
                     buffer.try_into_host()?.await?,
                     ptype,
@@ -94,7 +93,7 @@ impl CanonicalCudaExt for Canonical {
                     values_type,
                     validity,
                     ..
-                } = decimal.into_data().into_parts();
+                } = decimal.into_data_parts();
                 Ok(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(
                         BufferHandle::new_host(values.try_into_host()?.await?),
@@ -110,7 +109,7 @@ impl CanonicalCudaExt for Canonical {
                     buffers,
                     validity,
                     dtype,
-                } = varbinview.into_data().into_parts();
+                } = varbinview.into_data_parts();
 
                 // Copy all device views to host
                 let host_views = views.try_into_host()?.await?;

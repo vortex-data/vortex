@@ -9,6 +9,7 @@ use vortex_mask::MaskValues;
 use crate::arrays::ListViewArray;
 use crate::arrays::filter::execute::filter_validity;
 use crate::arrays::filter::execute::values_to_mask;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
@@ -88,6 +89,7 @@ mod test {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::filter::execute::ConstantArray;
+    use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::validity::Validity;

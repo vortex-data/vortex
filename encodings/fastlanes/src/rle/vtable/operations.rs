@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 
 use super::RLE;
 use crate::FL_CHUNK_SIZE;
+use crate::rle::RLEArrayExt;
 
 impl OperationsVTable<RLE> for RLE {
     fn scalar_at(

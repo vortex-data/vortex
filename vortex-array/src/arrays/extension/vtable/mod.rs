@@ -5,13 +5,18 @@ mod kernel;
 mod operations;
 mod validity;
 
+use std::hash::Hasher;
+
 use kernel::PARENT_KERNELS;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -22,17 +27,25 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityVTableFromChild;
 use crate::arrays::extension::ExtensionData;
-use crate::arrays::extension::array::NUM_SLOTS;
 use crate::arrays::extension::array::SLOT_NAMES;
+use crate::arrays::extension::array::STORAGE_SLOT;
 use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 
 vtable!(Extension, Extension, ExtensionData);
+
+impl ArrayHash for ExtensionData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for ExtensionData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
 
 impl VTable for Extension {
     type ArrayData = ExtensionData;
@@ -42,20 +55,6 @@ impl VTable for Extension {
 
     fn id(&self) -> ArrayId {
         Self::ID
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &ExtensionData,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.storage_array().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &ExtensionData, other: &ExtensionData, precision: Precision) -> bool {
-        array
-            .storage_array()
-            .array_eq(other.storage_array(), precision)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -70,10 +69,6 @@ impl VTable for Extension {
         None
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
@@ -82,15 +77,25 @@ impl VTable for Extension {
         Ok(Some(vec![]))
     }
 
-    fn validate(&self, data: &ExtensionData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &ExtensionData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        _ = data;
+        let storage = slots[STORAGE_SLOT]
+            .as_ref()
+            .vortex_expect("ExtensionArray storage slot");
         vortex_ensure!(
-            data.len() == len,
+            storage.len() == len,
             "ExtensionArray length {} does not match outer length {}",
-            data.len(),
+            storage.len(),
             len
         );
 
-        let actual_dtype = data.dtype();
+        let actual_dtype = DType::Extension(data.ext_dtype.clone());
         vortex_ensure!(
             &actual_dtype == dtype,
             "ExtensionArray dtype {} does not match outer dtype {}",
@@ -110,7 +115,7 @@ impl VTable for Extension {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<ExtensionData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "ExtensionArray expects empty metadata, got {} bytes",
@@ -124,18 +129,13 @@ impl VTable for Extension {
             vortex_bail!("Expected 1 child, got {}", children.len());
         }
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
-        Ok(ExtensionData::new(ext_dtype.clone(), storage))
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ExtensionArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
+        Ok(crate::array::ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            ExtensionData::new(ext_dtype.clone(), storage.dtype()),
+        )
+        .with_slots(vec![Some(storage)]))
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

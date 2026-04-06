@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+pub use array::DecimalArrayExt;
 pub use array::DecimalData;
 pub use array::DecimalDataParts;
 pub use vtable::DecimalArray;

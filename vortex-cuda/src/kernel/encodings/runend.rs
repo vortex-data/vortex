@@ -21,7 +21,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArray;
-use vortex::encodings::runend::RunEndDataParts;
+use vortex::encodings::runend::RunEndArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -40,7 +40,7 @@ pub(crate) struct RunEndExecutor;
 
 impl RunEndExecutor {
     fn try_specialize(array: ArrayRef) -> Option<RunEndArray> {
-        array.try_into::<RunEnd>().ok()
+        array.try_downcast::<RunEnd>().ok()
     }
 }
 
@@ -61,7 +61,8 @@ impl CudaExecute for RunEndExecutor {
 
         let offset = array.offset();
         let output_len = array.len();
-        let RunEndDataParts { ends, values, .. } = array.into_data().into_parts();
+        let ends = array.ends().clone();
+        let values = array.values().clone();
 
         let values_ptype = PType::try_from(values.dtype())?;
         let ends_ptype = PType::try_from(ends.dtype())?;
@@ -110,12 +111,12 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
         buffer: values_buffer,
         validity: values_validity,
         ..
-    } = values.into_data().into_parts();
+    } = values.into_data_parts();
 
     let PrimitiveDataParts {
         buffer: ends_buffer,
         ..
-    } = ends.into_data().into_parts();
+    } = ends.into_data_parts();
 
     // Set up device buffers.
     let ends_device = ctx.ensure_on_device(ends_buffer).await?;

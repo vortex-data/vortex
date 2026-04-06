@@ -7,9 +7,10 @@ use vortex_array::vtable::ValidityVTable;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
+use crate::BitPackedArrayExt;
 
 impl ValidityVTable<BitPacked> for BitPacked {
     fn validity(array: ArrayView<'_, BitPacked>) -> VortexResult<Validity> {
-        Ok(array.data().validity(array.dtype().nullability()))
+        Ok(BitPackedArrayExt::validity(&array))
     }
 }

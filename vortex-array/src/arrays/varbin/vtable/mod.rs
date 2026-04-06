@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::hash::Hasher;
+
 use prost::Message;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -16,6 +18,7 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbin::VarBinData;
 use crate::arrays::varbin::array::NUM_SLOTS;
 use crate::arrays::varbin::array::SLOT_NAMES;
@@ -48,6 +51,18 @@ pub struct VarBinMetadata {
     pub(crate) offsets_ptype: i32,
 }
 
+impl ArrayHash for VarBinData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.bytes().array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for VarBinData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.bytes().array_eq(other.bytes(), precision)
+    }
+}
+
 impl VTable for VarBin {
     type ArrayData = VarBinData;
 
@@ -58,34 +73,34 @@ impl VTable for VarBin {
         Self::ID
     }
 
-    fn array_hash<H: std::hash::Hasher>(array: &VarBinData, state: &mut H, precision: Precision) {
-        array.bytes().array_hash(state, precision);
-        array.offsets().array_hash(state, precision);
-        array.validity().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &VarBinData, other: &VarBinData, precision: Precision) -> bool {
-        array.bytes().array_eq(other.bytes(), precision)
-            && array.offsets().array_eq(other.offsets(), precision)
-            && array.validity().array_eq(&other.validity(), precision)
-    }
-
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         1
     }
 
-    fn validate(&self, data: &VarBinData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        _data: &VarBinData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         vortex_ensure!(
-            data.len() == len,
+            slots.len() == NUM_SLOTS,
+            "VarBinArray expected {NUM_SLOTS} slots, found {}",
+            slots.len()
+        );
+        let offsets = slots[crate::arrays::varbin::array::OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("VarBinArray offsets slot");
+        vortex_ensure!(
+            offsets.len().saturating_sub(1) == len,
             "VarBinArray length {} does not match outer length {}",
-            data.len(),
+            offsets.len().saturating_sub(1),
             len
         );
         vortex_ensure!(
-            data.dtype() == *dtype,
-            "VarBinArray dtype {} does not match outer dtype {}",
-            data.dtype(),
-            dtype
+            matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
+            "VarBinArray dtype must be binary or utf8, got {dtype}"
         );
         Ok(())
     }
@@ -123,7 +138,7 @@ impl VTable for VarBin {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<VarBinData> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         let metadata = VarBinMetadata::decode(metadata)?;
         let validity = if children.len() == 1 {
             Validity::from(dtype.nullability())
@@ -145,26 +160,13 @@ impl VTable for VarBin {
         }
         let bytes = buffers[0].clone().try_to_host_sync()?;
 
-        VarBinData::try_new(offsets, bytes, dtype.clone(), validity)
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        let data = VarBinData::try_build(offsets.clone(), bytes, dtype.clone(), validity.clone())?;
+        let slots = VarBinData::make_slots(offsets, &validity, len);
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VarBinArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn reduce_parent(

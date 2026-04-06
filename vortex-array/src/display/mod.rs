@@ -607,7 +607,9 @@ impl ArrayRef {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in struct_.iter_unmasked_fields() {
+                        for field_array in
+                            crate::arrays::struct_::StructArrayExt::iter_unmasked_fields(&struct_)
+                        {
                             let value = field_array
                                 .scalar_at(row_idx)
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());

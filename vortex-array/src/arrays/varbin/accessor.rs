@@ -8,6 +8,7 @@ use vortex_error::VortexExpect;
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::VarBinArray;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 

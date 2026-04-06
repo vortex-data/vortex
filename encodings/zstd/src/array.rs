@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -81,6 +82,52 @@ type ViewLen = u32;
 
 vtable!(Zstd, Zstd, ZstdData);
 
+impl ArrayHash for ZstdData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        match &self.dictionary {
+            Some(dict) => {
+                true.hash(state);
+                dict.array_hash(state, precision);
+            }
+            None => {
+                false.hash(state);
+            }
+        }
+        for frame in &self.frames {
+            frame.array_hash(state, precision);
+        }
+        self.unsliced_validity.array_hash(state, precision);
+        self.unsliced_n_rows.hash(state);
+        self.slice_start.hash(state);
+        self.slice_stop.hash(state);
+    }
+}
+
+impl ArrayEq for ZstdData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        if !match (&self.dictionary, &other.dictionary) {
+            (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
+            (None, None) => true,
+            _ => false,
+        } {
+            return false;
+        }
+        if self.frames.len() != other.frames.len() {
+            return false;
+        }
+        for (a, b) in self.frames.iter().zip(&other.frames) {
+            if !a.array_eq(b, precision) {
+                return false;
+            }
+        }
+        self.unsliced_validity
+            .array_eq(&other.unsliced_validity, precision)
+            && self.unsliced_n_rows == other.unsliced_n_rows
+            && self.slice_start == other.slice_start
+            && self.slice_stop == other.slice_stop
+    }
+}
+
 impl VTable for Zstd {
     type ArrayData = ZstdData;
 
@@ -91,51 +138,14 @@ impl VTable for Zstd {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        _slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         data.validate(dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &ZstdData, state: &mut H, precision: Precision) {
-        match &array.dictionary {
-            Some(dict) => {
-                true.hash(state);
-                dict.array_hash(state, precision);
-            }
-            None => {
-                false.hash(state);
-            }
-        }
-        for frame in &array.frames {
-            frame.array_hash(state, precision);
-        }
-        array.unsliced_validity.array_hash(state, precision);
-        array.unsliced_n_rows.hash(state);
-        array.slice_start.hash(state);
-        array.slice_stop.hash(state);
-    }
-
-    fn array_eq(array: &ZstdData, other: &ZstdData, precision: Precision) -> bool {
-        if !match (&array.dictionary, &other.dictionary) {
-            (Some(d1), Some(d2)) => d1.array_eq(d2, precision),
-            (None, None) => true,
-            _ => false,
-        } {
-            return false;
-        }
-        if array.frames.len() != other.frames.len() {
-            return false;
-        }
-        for (a, b) in array.frames.iter().zip(&other.frames) {
-            if !a.array_eq(b, precision) {
-                return false;
-            }
-        }
-        array
-            .unsliced_validity
-            .array_eq(&other.unsliced_validity, precision)
-            && array.unsliced_n_rows == other.unsliced_n_rows
-            && array.slice_start == other.slice_start
-            && array.slice_stop == other.slice_stop
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {
@@ -177,7 +187,7 @@ impl VTable for Zstd {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<ZstdData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ZstdMetadata::decode(metadata)?;
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
@@ -208,38 +218,19 @@ impl VTable for Zstd {
             )
         };
 
-        Ok(ZstdData::new(
+        let slots = vec![validity_to_child(&validity, len)];
+        let data = ZstdData::new(
             dictionary_buffer,
             compressed_buffers,
             metadata,
             len,
             validity,
-        ))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        );
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ZstdArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        array.unsliced_validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.unsliced_validity.nullability()),
-        };
-
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -266,7 +257,13 @@ impl Zstd {
     pub fn try_new(dtype: DType, data: ZstdData) -> VortexResult<ZstdArray> {
         let len = data.len();
         data.validate(&dtype, len)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data)) })
+        let slots = vec![validity_to_child(
+            &data.unsliced_validity,
+            data.unsliced_n_rows,
+        )];
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data).with_slots(slots))
+        })
     }
 
     /// Compress a [`VarBinViewArray`] using Zstd without a dictionary.
@@ -311,7 +308,6 @@ impl Zstd {
 }
 
 /// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
@@ -322,7 +318,6 @@ pub struct ZstdData {
     pub(crate) metadata: ZstdMetadata,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
-    pub(super) slots: Vec<Option<ArrayRef>>,
     slice_start: usize,
     slice_stop: usize,
 }
@@ -443,14 +438,12 @@ impl ZstdData {
         n_rows: usize,
         validity: Validity,
     ) -> Self {
-        let validity_slot = validity_to_child(&validity, n_rows);
         Self {
             dictionary,
             frames,
             metadata,
             unsliced_validity: validity,
             unsliced_n_rows: n_rows,
-            slots: vec![validity_slot],
             slice_start: 0,
             slice_stop: n_rows,
         }

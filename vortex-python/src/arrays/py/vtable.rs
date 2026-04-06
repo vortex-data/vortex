@@ -5,7 +5,10 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use vortex::array::Array;
+use vortex::array::ArrayEq;
+use vortex::array::ArrayHash;
 use vortex::array::ArrayId;
+use vortex::array::ArrayParts;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayView;
 use vortex::array::ExecutionCtx;
@@ -35,6 +38,18 @@ pub struct PythonVTable {
     pub id: ArrayId,
 }
 
+impl ArrayHash for PythonArray {
+    fn array_hash<H: std::hash::Hasher>(&self, state: &mut H, _precision: Precision) {
+        Arc::as_ptr(&self.object).hash(state);
+    }
+}
+
+impl ArrayEq for PythonArray {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        Arc::ptr_eq(&self.object, &other.object)
+    }
+}
+
 impl VTable for PythonVTable {
     type ArrayData = PythonArray;
 
@@ -45,19 +60,17 @@ impl VTable for PythonVTable {
         self.id.clone()
     }
 
-    fn validate(&self, data: &PythonArray, dtype: &DType, len: usize) -> VortexResult<()> {
+    fn validate(
+        &self,
+        data: &PythonArray,
+        dtype: &DType,
+        len: usize,
+        _slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
         vortex_ensure!(data.vtable.id == self.id, "PythonArray vtable id mismatch");
         vortex_ensure!(&data.dtype == dtype, "PythonArray dtype mismatch");
         vortex_ensure!(data.len == len, "PythonArray len mismatch");
         Ok(())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
-        Arc::as_ptr(&array.object).hash(state);
-    }
-
-    fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
-        Arc::ptr_eq(&array.object, &other.object)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -96,26 +109,13 @@ impl VTable for PythonVTable {
         _buffers: &[BufferHandle],
         _children: &dyn vortex::array::serde::ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<PythonArray> {
+    ) -> VortexResult<ArrayParts<Self>> {
         _ = bytes;
         vortex_bail!("PythonArray deserialization is not supported");
     }
 
-    fn slots(_array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &[]
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, _idx: usize) -> String {
         vortex_panic!("PythonArray has no slots")
-    }
-
-    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.is_empty(),
-            "PythonArray has no slots, got {}",
-            slots.len()
-        );
-        Ok(())
     }
 
     fn execute(_array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

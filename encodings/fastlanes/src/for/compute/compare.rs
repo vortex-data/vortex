@@ -23,6 +23,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 
 use crate::FoR;
+use crate::r#for::array::FoRArrayExt;
 
 impl CompareKernel for FoR {
     fn compare(

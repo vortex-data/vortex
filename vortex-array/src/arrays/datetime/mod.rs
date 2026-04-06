@@ -14,6 +14,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::dtype::DType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::extension::datetime::AnyTemporal;

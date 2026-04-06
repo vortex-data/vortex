@@ -6,6 +6,7 @@ use fastlanes::RLE as FastLanesRLE;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_native_ptype;
@@ -149,6 +150,7 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::*;
+    use crate::rle::array::RLEArrayExt;
 
     #[test]
     fn test_encode_decode() {

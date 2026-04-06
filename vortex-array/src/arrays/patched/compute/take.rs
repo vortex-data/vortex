@@ -12,6 +12,7 @@ use crate::array::ArrayView;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::primitive::PrimitiveDataParts;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
@@ -39,7 +40,7 @@ impl TakeExecute for Patched {
             buffer,
             validity,
             ptype,
-        } = inner.into_data().into_parts();
+        } = inner.into_data_parts();
 
         let indices_ptype = indices.dtype().as_ptype();
 
@@ -62,9 +63,9 @@ impl TakeExecute for Patched {
                 take_map(
                     output.as_mut(),
                     indices.as_slice::<I>(),
-                    array.offset,
+                    array.offset(),
                     array.len(),
-                    array.n_lanes,
+                    array.n_lanes(),
                     lane_offsets.as_slice::<u32>(),
                     patch_indices.as_slice::<u16>(),
                     patch_values.as_slice::<V>(),
@@ -136,7 +137,7 @@ mod tests {
     use crate::ArrayRef;
     use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::arrays::PatchedArray;
+    use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
@@ -159,7 +160,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        PatchedArray::from_array_and_patches(values, &patches, &mut ctx)?
+        Patched::from_array_and_patches(values, &patches, &mut ctx)?
             .into_array()
             .slice(slice)
     }

@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -24,6 +25,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -31,7 +33,7 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::FoRData;
-use crate::r#for::array::NUM_SLOTS;
+use crate::r#for::array::FoRArrayExt;
 use crate::r#for::array::SLOT_NAMES;
 use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::kernels::PARENT_KERNELS;
@@ -45,6 +47,18 @@ mod validity;
 
 vtable!(FoR, FoR, FoRData);
 
+impl ArrayHash for FoRData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.reference.hash(state);
+    }
+}
+
+impl ArrayEq for FoRData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.reference == other.reference
+    }
+}
+
 impl VTable for FoR {
     type ArrayData = FoRData;
 
@@ -55,18 +69,15 @@ impl VTable for FoR {
         Self::ID
     }
 
-    fn validate(&self, data: &Self::ArrayData, dtype: &DType, len: usize) -> VortexResult<()> {
-        data.validate(dtype, len)
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &FoRData, state: &mut H, precision: Precision) {
-        array.encoded().array_hash(state, precision);
-        array.reference_scalar().hash(state);
-    }
-
-    fn array_eq(array: &FoRData, other: &FoRData, precision: Precision) -> bool {
-        array.encoded().array_eq(other.encoded(), precision)
-            && array.reference_scalar() == other.reference_scalar()
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let encoded = slots[0].as_ref().vortex_expect("FoRArray encoded slot");
+        validate_parts(encoded.dtype(), encoded.len(), &data.reference, dtype, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -81,23 +92,8 @@ impl VTable for FoR {
         None
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "FoRArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
@@ -115,7 +111,7 @@ impl VTable for FoR {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<FoRData> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
             "FoRArray expects 0 buffers, got {}",
@@ -131,8 +127,10 @@ impl VTable for FoR {
         let scalar_value = ScalarValue::from_proto_bytes(metadata, dtype, session)?;
         let reference = Scalar::try_new(dtype.clone(), scalar_value)?;
         let encoded = children.get(0, dtype, len)?;
+        let slots = vec![Some(encoded)];
 
-        FoRData::try_new(encoded, reference)
+        let data = FoRData::try_new(reference)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn reduce_parent(
@@ -171,14 +169,41 @@ impl FoR {
             .with_nullability(encoded.dtype().nullability());
         let reference = reference.cast(&dtype)?;
         let len = encoded.len();
-        let data = FoRData::try_new(encoded, reference)?;
-        Ok(unsafe { Array::from_parts_unchecked(ArrayParts::new(FoR, dtype, len, data)) })
+        let data = FoRData::try_new(reference)?;
+        let slots = vec![Some(encoded)];
+        Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
     }
 
     /// Encode a primitive array using Frame of Reference encoding.
     pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
         FoRData::encode(array)
     }
+}
+
+fn validate_parts(
+    encoded_dtype: &DType,
+    encoded_len: usize,
+    reference: &Scalar,
+    dtype: &DType,
+    len: usize,
+) -> VortexResult<()> {
+    vortex_ensure!(dtype.is_int(), "FoR requires an integer dtype, got {dtype}");
+    vortex_ensure!(
+        reference.dtype() == dtype,
+        "FoR reference dtype mismatch: expected {dtype}, got {}",
+        reference.dtype()
+    );
+    vortex_ensure!(
+        encoded_dtype == dtype,
+        "FoR encoded dtype mismatch: expected {dtype}, got {}",
+        encoded_dtype
+    );
+    vortex_ensure!(
+        encoded_len == len,
+        "FoR encoded length mismatch: expected {len}, got {}",
+        encoded_len
+    );
+    Ok(())
 }
 
 #[cfg(test)]

@@ -36,7 +36,7 @@ impl CudaExecute for SequenceExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let array = array
-            .try_into::<Sequence>()
+            .try_downcast::<Sequence>()
             .map_err(|_| vortex_err!("SequenceExecutor can only accept SequenceArray"))?;
 
         let len = array.len();

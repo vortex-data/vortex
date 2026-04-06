@@ -186,6 +186,7 @@ mod test {
     use vortex_mask::Mask;
 
     use crate::BitPackedData;
+    use crate::bitpacking::array::BitPackedArrayExt;
 
     #[test]
     fn take_indices() {
@@ -275,7 +276,7 @@ mod test {
         let unpacked = PrimitiveArray::from_iter(values.clone());
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
         assert!(
-            bitpacked.patches(bitpacked.len()).is_some(),
+            bitpacked.patches().is_some(),
             "Expected patches for values exceeding bit width"
         );
 
@@ -307,7 +308,7 @@ mod test {
         let unpacked = PrimitiveArray::from_iter(values.clone());
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
         assert!(
-            bitpacked.patches(bitpacked.len()).is_some(),
+            bitpacked.patches().is_some(),
             "Expected patches for values exceeding bit width"
         );
 

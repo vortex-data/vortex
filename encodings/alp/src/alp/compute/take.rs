@@ -9,6 +9,7 @@ use vortex_array::arrays::dict::TakeExecute;
 use vortex_error::VortexResult;
 
 use crate::ALP;
+use crate::ALPArrayExt;
 
 impl TakeExecute for ALP {
     fn take(

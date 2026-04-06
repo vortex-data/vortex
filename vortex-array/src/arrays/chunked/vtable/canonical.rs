@@ -15,7 +15,10 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -199,6 +202,7 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::dtype::DType::List;
     use crate::dtype::DType::Primitive;
     use crate::dtype::Nullability::NonNullable;
