@@ -105,7 +105,12 @@ impl TurboQuant {
             u8::try_from(centroids.len().trailing_zeros())
                 .map_err(|_| vortex_err!("centroids bit_width does not fit in u8"))?
         };
-        let data = TurboQuantData::try_new(vector_metadata.dimensions(), bit_width)?;
+
+        // Derive num_rounds from the FSL rotation_signs length (0 for degenerate arrays).
+        let num_rounds = u8::try_from(rotation_signs.len())
+            .map_err(|_| vortex_err!("rotation_signs num_rounds does not fit in u8"))?;
+
+        let data = TurboQuantData::try_new(vector_metadata.dimensions(), bit_width, num_rounds)?;
         let parts = ArrayParts::new(TurboQuant, dtype, len, data).with_slots(
             TurboQuantData::make_slots(codes, norms, centroids, rotation_signs),
         );
@@ -176,6 +181,15 @@ impl VTable for TurboQuant {
             "TurboQuant bit_width does not match centroids slot",
         );
 
+        // Verify num_rounds matches the rotation_signs FSL length.
+        let expected_num_rounds = u8::try_from(rotation_signs.len())
+            .map_err(|_| vortex_err!("rotation_signs num_rounds does not fit in u8"))?;
+        vortex_ensure_eq!(
+            data.num_rounds,
+            expected_num_rounds,
+            "TurboQuant num_rounds does not match rotation_signs slot",
+        );
+
         Ok(())
     }
 
@@ -193,7 +207,7 @@ impl VTable for TurboQuant {
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
-            TurboQuantMetadata::new(array.bit_width).encode_to_vec(),
+            TurboQuantMetadata::new(array.bit_width, array.num_rounds).encode_to_vec(),
         ))
     }
 
@@ -208,12 +222,16 @@ impl VTable for TurboQuant {
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = TurboQuantMetadata::decode(metadata)?;
         let bit_width = metadata.bit_width()?;
+        let num_rounds = metadata.num_rounds()?;
 
-        // bit_width == 0 is only valid for degenerate (empty) arrays. A non-empty array with
-        // bit_width == 0 would have zero centroids while codes reference centroid indices.
+        // bit_width == 0 and num_rounds == 0 are only valid for degenerate (empty) arrays.
         vortex_ensure!(
             bit_width > 0 || len == 0,
             "bit_width == 0 is only valid for empty arrays, got len={len}"
+        );
+        vortex_ensure!(
+            num_rounds > 0 || len == 0,
+            "num_rounds == 0 is only valid for empty arrays, got len={len}"
         );
 
         // Validate and derive dimension and element ptype from the Vector extension dtype.
@@ -244,9 +262,13 @@ impl VTable for TurboQuant {
         let centroids_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
         let centroids = children.get(2, &centroids_dtype, num_centroids)?;
 
-        // Get the rotation array.
-        let signs_len = if len == 0 { 0 } else { 3 * padded_dim as usize };
-        let signs_dtype = DType::Primitive(PType::U8, Nullability::NonNullable);
+        // Get the rotation signs array (FixedSizeList<u8> with list_size = padded_dim).
+        let signs_len = if len == 0 { 0 } else { num_rounds as usize };
+        let signs_dtype = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
+            padded_dim,
+            Nullability::NonNullable,
+        );
         let rotation_signs = children.get(3, &signs_dtype, signs_len)?;
 
         Ok(ArrayParts::new(
@@ -256,6 +278,7 @@ impl VTable for TurboQuant {
             TurboQuantData {
                 dimension: dimensions,
                 bit_width,
+                num_rounds,
             },
         )
         .with_slots(TurboQuantData::make_slots(
@@ -301,11 +324,14 @@ impl ArrayHash for TurboQuantData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
         self.dimension.hash(state);
         self.bit_width.hash(state);
+        self.num_rounds.hash(state);
     }
 }
 
 impl ArrayEq for TurboQuantData {
     fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
-        self.dimension == other.dimension && self.bit_width == other.bit_width
+        self.dimension == other.dimension
+            && self.bit_width == other.bit_width
+            && self.num_rounds == other.num_rounds
     }
 }

@@ -36,6 +36,11 @@ pub struct TurboQuantData {
     ///
     /// This is 0 for degenerate empty arrays.
     pub(crate) bit_width: u8,
+
+    /// The number of sign-diagonal + WHT rounds in the structured rotation.
+    ///
+    /// This is 0 for degenerate empty arrays.
+    pub(crate) num_rounds: u8,
 }
 
 impl TurboQuantData {
@@ -46,7 +51,7 @@ impl TurboQuantData {
     /// Returns an error if:
     /// - `dimension` is less than [`MIN_DIMENSION`](TurboQuant::MIN_DIMENSION).
     /// - `bit_width` is greater than [`MAX_BIT_WIDTH`](TurboQuant::MAX_BIT_WIDTH).
-    pub fn try_new(dimension: u32, bit_width: u8) -> VortexResult<Self> {
+    pub fn try_new(dimension: u32, bit_width: u8, num_rounds: u8) -> VortexResult<Self> {
         vortex_ensure!(
             dimension >= TurboQuant::MIN_DIMENSION,
             "TurboQuant requires dimension >= {}, got {dimension}",
@@ -61,6 +66,7 @@ impl TurboQuantData {
         Ok(Self {
             dimension,
             bit_width,
+            num_rounds,
         })
     }
 
@@ -72,12 +78,14 @@ impl TurboQuantData {
     ///
     /// - `dimension` is >= [`MIN_DIMENSION`](TurboQuant::MIN_DIMENSION).
     /// - `bit_width` is in the range `[0, MAX_BIT_WIDTH]`.
+    /// - `num_rounds` is >= 1 (or 0 for degenerate empty arrays).
     ///
     /// Violating these invariants may produce incorrect results during decompression.
-    pub unsafe fn new_unchecked(dimension: u32, bit_width: u8) -> Self {
+    pub unsafe fn new_unchecked(dimension: u32, bit_width: u8, num_rounds: u8) -> Self {
         Self {
             dimension,
             bit_width,
+            num_rounds,
         }
     }
 
@@ -168,11 +176,21 @@ impl TurboQuantData {
             "centroids dtype must be non-nullable f32",
         );
 
-        // Rotation signs count must be 3 * padded_dim.
+        // Rotation signs must be a FixedSizeList<u8> with list_size == padded_dim. The FSL length
+        // is the number of rotation rounds.
+        let expected_signs_dtype = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
+            padded_dim,
+            Nullability::NonNullable,
+        );
         vortex_ensure_eq!(
-            rotation_signs.len(),
-            3 * padded_dim as usize,
-            "rotation_signs length does not match expected 3 * {padded_dim}",
+            *rotation_signs.dtype(),
+            expected_signs_dtype,
+            "rotation_signs dtype does not match expected {expected_signs_dtype}",
+        );
+        vortex_ensure!(
+            !rotation_signs.is_empty(),
+            "rotation_signs must have at least 1 round"
         );
 
         Ok(())
@@ -203,6 +221,11 @@ impl TurboQuantData {
         self.bit_width
     }
 
+    /// The number of sign-diagonal + WHT rounds in the structured rotation.
+    pub fn num_rounds(&self) -> u8 {
+        self.num_rounds
+    }
+
     /// Padded dimension (next power of 2 >= [`dimension`](Self::dimension)).
     ///
     /// The current Walsh-Hadamard-based structured rotation requires power-of-2 input, so
@@ -213,18 +236,6 @@ impl TurboQuantData {
 }
 
 pub trait TurboQuantArrayExt: TypedArrayRef<TurboQuant> {
-    fn dimension(&self) -> u32 {
-        std::ops::Deref::deref(self).dimension()
-    }
-
-    fn bit_width(&self) -> u8 {
-        std::ops::Deref::deref(self).bit_width()
-    }
-
-    fn padded_dim(&self) -> u32 {
-        std::ops::Deref::deref(self).padded_dim()
-    }
-
     fn codes(&self) -> &ArrayRef {
         self.as_ref().slots()[Slot::Codes as usize]
             .as_ref()

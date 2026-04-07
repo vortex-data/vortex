@@ -41,6 +41,8 @@ pub struct TurboQuantConfig {
     pub bit_width: u8,
     /// Optional seed for the rotation matrix. If None, the default seed is used.
     pub seed: Option<u64>,
+    /// Number of sign-diagonal + WHT rounds in the structured rotation (default 3).
+    pub num_rounds: u8,
 }
 
 impl Default for TurboQuantConfig {
@@ -48,6 +50,7 @@ impl Default for TurboQuantConfig {
         Self {
             bit_width: TurboQuant::MAX_BIT_WIDTH,
             seed: Some(42),
+            num_rounds: 3,
         }
     }
 }
@@ -108,6 +111,7 @@ fn turboquant_quantize_core(
     fsl: &FixedSizeListArray,
     seed: u64,
     bit_width: u8,
+    num_rounds: u8,
     validity: &Validity,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<QuantizationResult> {
@@ -134,7 +138,7 @@ fn turboquant_quantize_core(
             .collect()
     });
 
-    let rotation = RotationMatrix::try_new(seed, dimension)?;
+    let rotation = RotationMatrix::try_new(seed, dimension, num_rounds as usize)?;
     let padded_dim = rotation.padded_dim();
     let padded_dim_u32 =
         u32::try_from(padded_dim).vortex_expect("padded_dim stays representable as u32");
@@ -264,7 +268,12 @@ pub fn turboquant_encode(
         });
 
         let empty_centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
-        let empty_signs = PrimitiveArray::empty::<u8>(Nullability::NonNullable);
+        let empty_signs = FixedSizeListArray::try_new(
+            PrimitiveArray::empty::<u8>(Nullability::NonNullable).into_array(),
+            padded_dim,
+            Validity::NonNullable,
+            0,
+        )?;
         return Ok(TurboQuant::try_new_array(
             ext_dtype,
             empty_codes.into_array(),
@@ -277,20 +286,39 @@ pub fn turboquant_encode(
 
     let validity = ext.as_ref().validity()?;
     let seed = config.seed.unwrap_or(42);
-    let core = turboquant_quantize_core(ext, &fsl, seed, config.bit_width, &validity, ctx)?;
+    let core = turboquant_quantize_core(
+        ext,
+        &fsl,
+        seed,
+        config.bit_width,
+        config.num_rounds,
+        &validity,
+        ctx,
+    )?;
 
     Ok(build_turboquant(&fsl, core, ext_dtype)?.into_array())
 }
 
-/// Export rotation signs as a 1-bit `BitPackedArray` for efficient storage.
+/// Export rotation signs as a `FixedSizeListArray` wrapping a 1-bit [`BitPackedArray`].
 ///
-/// The rotation matrix's 3 x padded_dim sign values are exported as 0/1 u8
-/// values in inverse application order, then bitpacked to 1 bit per sign.
-/// On decode, FastLanes SIMD-unpacks back to `&[u8]` of 0/1 values.
+/// The rotation matrix's `num_rounds * padded_dim` sign values are exported as 0/1 u8 values in
+/// inverse application order, bitpacked to 1 bit per sign, then wrapped in a
+/// `FixedSizeListArray` with `list_size = padded_dim` and `len = num_rounds`.
 fn bitpack_rotation_signs(rotation: &RotationMatrix) -> VortexResult<ArrayRef> {
     let signs_u8 = rotation.export_inverse_signs_u8();
+    let num_rounds = rotation.num_rounds();
+    let padded_dim = u32::try_from(rotation.padded_dim()).vortex_expect("padded_dim fits in u32");
+
     let mut buf = BufferMut::<u8>::with_capacity(signs_u8.len());
     buf.extend_from_slice(&signs_u8);
     let prim = PrimitiveArray::new::<u8>(buf.freeze(), Validity::NonNullable);
-    Ok(bitpack_encode(&prim, 1, None)?.into_array())
+    let bitpacked = bitpack_encode(&prim, 1, None)?;
+
+    let fsl = FixedSizeListArray::try_new(
+        bitpacked.into_array(),
+        padded_dim,
+        Validity::NonNullable,
+        num_rounds,
+    )?;
+    Ok(fsl.into_array())
 }

@@ -78,6 +78,8 @@ pub struct vortex_tensor::encodings::turboquant::TurboQuantConfig
 
 pub vortex_tensor::encodings::turboquant::TurboQuantConfig::bit_width: u8
 
+pub vortex_tensor::encodings::turboquant::TurboQuantConfig::num_rounds: u8
+
 pub vortex_tensor::encodings::turboquant::TurboQuantConfig::seed: core::option::Option<u64>
 
 impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuantConfig
@@ -100,11 +102,13 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuantData::bit_width(&self) ->
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::dimension(&self) -> u32
 
-pub unsafe fn vortex_tensor::encodings::turboquant::TurboQuantData::new_unchecked(dimension: u32, bit_width: u8) -> Self
+pub unsafe fn vortex_tensor::encodings::turboquant::TurboQuantData::new_unchecked(dimension: u32, bit_width: u8, num_rounds: u8) -> Self
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuantData::num_rounds(&self) -> u8
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::padded_dim(&self) -> u32
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantData::try_new(dimension: u32, bit_width: u8) -> vortex_error::VortexResult<Self>
+pub fn vortex_tensor::encodings::turboquant::TurboQuantData::try_new(dimension: u32, bit_width: u8, num_rounds: u8) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::validate(dtype: &vortex_array::dtype::DType, codes: &vortex_array::array::erased::ArrayRef, norms: &vortex_array::array::erased::ArrayRef, centroids: &vortex_array::array::erased::ArrayRef, rotation_signs: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
@@ -156,33 +160,21 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::scheme_name(&self
 
 pub trait vortex_tensor::encodings::turboquant::TurboQuantArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_tensor::encodings::turboquant::TurboQuant>
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::bit_width(&self) -> u8
-
 pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::centroids(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::codes(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::dimension(&self) -> u32
-
 pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::norms(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::padded_dim(&self) -> u32
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::rotation_signs(&self) -> &vortex_array::array::erased::ArrayRef
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_tensor::encodings::turboquant::TurboQuant>> vortex_tensor::encodings::turboquant::TurboQuantArrayExt for T
 
-pub fn T::bit_width(&self) -> u8
-
 pub fn T::centroids(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn T::codes(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn T::dimension(&self) -> u32
-
 pub fn T::norms(&self) -> &vortex_array::array::erased::ArrayRef
-
-pub fn T::padded_dim(&self) -> u32
 
 pub fn T::rotation_signs(&self) -> &vortex_array::array::erased::ArrayRef
 

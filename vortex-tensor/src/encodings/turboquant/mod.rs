@@ -96,7 +96,7 @@
 //! let ext = ExtensionArray::new(ext_dtype, fsl.into_array());
 //!
 //! // Quantize at 2 bits per coordinate.
-//! let config = TurboQuantConfig { bit_width: 2, seed: Some(42) };
+//! let config = TurboQuantConfig { bit_width: 2, seed: Some(42), num_rounds: 3 };
 //! let session = VortexSession::empty().with::<ArraySession>();
 //! let mut ctx = session.create_execution_ctx();
 //! let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx).unwrap();
