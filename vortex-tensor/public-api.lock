@@ -182,7 +182,7 @@ pub fn T::padded_dim(&self) -> u32
 
 pub fn T::rotation_signs(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_tensor::encodings::turboquant::turboquant_encode(ext: &vortex_array::arrays::extension::vtable::ExtensionArray, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_tensor::encodings::turboquant::turboquant_encode(ext: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::extension::vtable::Extension>, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub type vortex_tensor::encodings::turboquant::TurboQuantArray = vortex_array::array::typed::Array<vortex_tensor::encodings::turboquant::TurboQuant>
 

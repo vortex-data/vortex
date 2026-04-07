@@ -44,7 +44,7 @@ use vortex_error::vortex_ensure_eq;
 
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantArrayExt;
-use crate::encodings::turboquant::array::float_from_f32;
+use crate::encodings::turboquant::compute::float_from_f32;
 use crate::vector::AnyVector;
 
 /// Compute the per-row unit-norm dot products in f32 (centroids are always f32).

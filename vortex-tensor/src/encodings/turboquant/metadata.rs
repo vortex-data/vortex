@@ -11,7 +11,7 @@ use vortex_error::vortex_err;
 /// Serialized metadata for TurboQuant arrays.
 #[derive(Clone, PartialEq, Message)]
 pub(super) struct TurboQuantMetadata {
-    /// The number of bits per coordinate.
+    /// The number of bits per coordinate, which must be <= 8.
     #[prost(uint32, required, tag = "1")]
     bit_width: u32,
 }

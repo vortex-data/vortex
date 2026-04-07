@@ -32,7 +32,7 @@ pub struct TurboQuantData {
     /// Stored as a convenience field to avoid repeatedly extracting it from `dtype`.
     pub(crate) dimension: u32,
 
-    /// The number of bits per coordinate (1-8), derived from `log2(centroids.len())`.
+    /// The number of bits per coordinate (0-8), derived from `log2(centroids.len())`.
     ///
     /// This is 0 for degenerate empty arrays.
     pub(crate) bit_width: u8,
@@ -56,6 +56,7 @@ impl TurboQuantData {
             bit_width <= 8,
             "bit_width is expected to be between 0 and 8, got {bit_width}"
         );
+
         Ok(Self {
             dimension,
             bit_width,

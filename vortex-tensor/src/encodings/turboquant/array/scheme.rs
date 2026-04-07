@@ -5,6 +5,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::arrays::Extension;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::scheme::Scheme;
@@ -75,11 +76,13 @@ impl Scheme for TurboQuantScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        // TODO(connor): Fix this once we ensure that the data array is always canonical.
-        let ext_array = data.array().to_canonical()?.into_extension();
+        let ext_array = data
+            .array()
+            .as_opt::<Extension>()
+            .vortex_expect("expected an extension array");
 
         let config = TurboQuantConfig::default();
-        turboquant_encode(&ext_array, &config, &mut compressor.execution_ctx())
+        turboquant_encode(ext_array, &config, &mut compressor.execution_ctx())
     }
 }
 
