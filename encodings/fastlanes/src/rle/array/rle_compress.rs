@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem;
+
 use fastlanes::RLE as FastLanesRLE;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -57,34 +59,32 @@ where
 
     let (chunks, remainder) = values.as_chunks::<FL_CHUNK_SIZE>();
 
-    let mut process_chunk = |input: &[T; FL_CHUNK_SIZE], rle_idxs: &mut [u16; FL_CHUNK_SIZE]| {
-        // SAFETY: NativeValue is repr(transparent)
-        let input: &[NativeValue<T>; FL_CHUNK_SIZE] = unsafe { std::mem::transmute(input) };
+    let mut process_chunk =
+        |input: &[T; FL_CHUNK_SIZE], rle_idxs: &mut [mem::MaybeUninit<u16>; FL_CHUNK_SIZE]| {
+            // SAFETY: NativeValue is repr(transparent)
+            let input: &[NativeValue<T>; FL_CHUNK_SIZE] = unsafe { mem::transmute(input) };
+            let rle_idxs: &mut [u16; FL_CHUNK_SIZE] = unsafe { mem::transmute(rle_idxs) };
 
-        // SAFETY: `MaybeUninit<NativeValue<T>>` and `NativeValue<T>` have the same layout.
-        let rle_vals: &mut [NativeValue<T>] =
-            unsafe { std::mem::transmute(&mut values_uninit[value_count_acc..][..FL_CHUNK_SIZE]) };
+            // SAFETY: `MaybeUninit<NativeValue<T>>` and `NativeValue<T>` have the same layout.
+            let rle_vals: &mut [NativeValue<T>] =
+                unsafe { mem::transmute(&mut values_uninit[value_count_acc..][..FL_CHUNK_SIZE]) };
 
-        // Capture chunk start indices. This is necessary as indices
-        // returned from `T::encode` are relative to the chunk.
-        values_idx_offsets.push(value_count_acc as u64);
+            // Capture chunk start indices. This is necessary as indices
+            // returned from `T::encode` are relative to the chunk.
+            values_idx_offsets.push(value_count_acc as u64);
 
-        let value_count = NativeValue::<T>::encode(
-            input,
-            unsafe { &mut *(rle_vals.as_mut_ptr() as *mut [_; FL_CHUNK_SIZE]) },
-            rle_idxs,
-        );
+            let value_count = NativeValue::<T>::encode(
+                input,
+                unsafe { &mut *(rle_vals.as_mut_ptr() as *mut [_; FL_CHUNK_SIZE]) },
+                rle_idxs,
+            );
 
-        value_count_acc += value_count;
-    };
+            value_count_acc += value_count;
+        };
 
     for (chunk_slice, rle_idxs) in chunks.iter().zip(indices_uninit.iter_mut()) {
         // SAFETY: `MaybeUninit<u16>` and `u16` have the same layout.
-        process_chunk(chunk_slice, unsafe {
-            std::mem::transmute::<&mut [std::mem::MaybeUninit<u16>; 1024], &mut [u16; 1024]>(
-                rle_idxs,
-            )
-        });
+        process_chunk(chunk_slice, rle_idxs);
     }
 
     if !remainder.is_empty() {
@@ -95,11 +95,7 @@ where
         let last_idx_chunk = indices_uninit
             .last_mut()
             .vortex_expect("Must have the trailing chunk");
-        process_chunk(&padded_chunk, unsafe {
-            std::mem::transmute::<&mut [std::mem::MaybeUninit<u16>; 1024], &mut [u16; 1024]>(
-                last_idx_chunk,
-            )
-        });
+        process_chunk(&padded_chunk, last_idx_chunk);
     }
 
     unsafe {
@@ -372,7 +368,7 @@ mod tests {
 
         // Use a simple deterministic "random" sequence.
         let mut rng_state: u32 = 0xDEAD_BEEF;
-        let validity = indices_prim.validity();
+        let validity = indices_prim.validity()?;
         for (i, idx) in indices_data.iter_mut().enumerate() {
             if !validity.is_valid(i).unwrap_or(true) {
                 // xorshift32
@@ -384,18 +380,15 @@ mod tests {
         }
 
         let clobbered_indices =
-            PrimitiveArray::new(Buffer::from(indices_data), indices_prim.validity()).into_array();
+            PrimitiveArray::new(Buffer::from(indices_data), indices_prim.validity()?).into_array();
 
-        unsafe {
-            RLEArray::try_from_data(RLEData::new_unchecked(
-                rle.values().clone(),
-                clobbered_indices,
-                rle.values_idx_offsets().clone(),
-                rle.dtype().clone(),
-                rle.offset(),
-                rle.len(),
-            ))
-        }
+        RLE::try_new(
+            rle.values().clone(),
+            clobbered_indices,
+            rle.values_idx_offsets().clone(),
+            rle.offset(),
+            rle.len(),
+        )
     }
 
     #[test]
