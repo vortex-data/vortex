@@ -54,7 +54,7 @@ impl ScalarFnVTable for Pack {
     type Options = PackOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.pack")
+        ScalarFnId::from("vortex.pack")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

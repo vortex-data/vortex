@@ -51,7 +51,7 @@ impl ScalarFnVTable for Merge {
     type Options = DuplicateHandling;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.merge")
+        ScalarFnId::from("vortex.merge")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

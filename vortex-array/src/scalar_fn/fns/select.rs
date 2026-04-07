@@ -48,7 +48,7 @@ impl ScalarFnVTable for Select {
     type Options = FieldSelection;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.select")
+        ScalarFnId::from("vortex.select")
     }
 
     fn serialize(&self, instance: &FieldSelection) -> VortexResult<Option<Vec<u8>>> {

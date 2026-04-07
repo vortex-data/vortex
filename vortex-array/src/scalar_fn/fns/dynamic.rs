@@ -46,7 +46,7 @@ impl ScalarFnVTable for DynamicComparison {
     type Options = DynamicComparisonExpr;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.dynamic")
+        ScalarFnId::from("vortex.dynamic")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
