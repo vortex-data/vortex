@@ -192,4 +192,27 @@ mod tests {
         };
         Ok(())
     }
+
+    #[test]
+    fn test_append_after_in_progress_buffer() -> VortexResult<()> {
+        let dtype = DType::Binary(Nullability::NonNullable);
+        let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), 2);
+        builder.append_value(b"long enough!!!");
+
+        let varbin = VarBinArray::from_iter(
+            [Some(b"long enough too".to_vec().into_boxed_slice())],
+            dtype,
+        );
+        let fsst_array = fsst_compress(
+            &varbin,
+            varbin.len(),
+            varbin.dtype(),
+            &fsst_train_compressor(&varbin),
+        )
+        .into_array();
+        fsst_array.append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())?;
+
+        let _result = builder.finish_into_varbinview();
+        Ok(())
+    }
 }

@@ -7868,6 +7868,8 @@ pub fn vortex_array::builders::VarBinViewBuilder::completed_block_count(&self) -
 
 pub fn vortex_array::builders::VarBinViewBuilder::finish_into_varbinview(&mut self) -> vortex_array::arrays::VarBinViewArray
 
+pub fn vortex_array::builders::VarBinViewBuilder::in_progress(&self) -> bool
+
 pub fn vortex_array::builders::VarBinViewBuilder::new(dtype: vortex_array::dtype::DType, capacity: usize, completed: vortex_array::builders::CompletedBuffers, growth_strategy: vortex_array::builders::BufferGrowthStrategy, compaction_threshold: f64) -> Self
 
 pub fn vortex_array::builders::VarBinViewBuilder::push_buffer_and_adjusted_views(&mut self, buffers: &[vortex_buffer::ByteBuffer], views: &vortex_buffer::buffer::Buffer<vortex_array::arrays::varbinview::BinaryView>, validity_mask: vortex_mask::Mask)

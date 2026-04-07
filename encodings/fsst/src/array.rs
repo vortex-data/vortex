@@ -278,8 +278,10 @@ impl VTable for FSST {
         };
 
         // Decompress the whole block of data into a new buffer, and create some views
-        // from it instead.
-        let (buffers, views) = fsst_decode_views(array, builder.completed_block_count(), ctx)?;
+        // from it instead. The new buffer lands after any pending in-progress
+        // buffer that push_buffer_and_adjusted_views will flush first.
+        let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
+        let (buffers, views) = fsst_decode_views(array, next_buffer_index, ctx)?;
 
         builder.push_buffer_and_adjusted_views(&buffers, &views, array.array().validity_mask()?);
         Ok(())
