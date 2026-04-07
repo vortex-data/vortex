@@ -442,6 +442,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         let stats = this.statistics().to_owned();
 
         let typed = Array::<V>::try_from_array_ref(this)
+            .map_err(|_| vortex_err!(""))
             .vortex_expect("Failed to downcast array for execute");
         let result = V::execute(typed, ctx)?;
 
