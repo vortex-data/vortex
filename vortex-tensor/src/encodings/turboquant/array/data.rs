@@ -20,7 +20,7 @@ use crate::encodings::turboquant::vtable::TurboQuant;
 ///
 /// TurboQuant is a lossy vector quantization encoding for [`Vector`](crate::vector::Vector)
 /// extension arrays. It stores quantized coordinate codes and per-vector norms, along with shared
-/// codebook centroids and SRHT rotation signs.
+/// codebook centroids and the parameters of the current structured rotation.
 ///
 /// See the [module docs](crate::encodings::turboquant) for algorithmic details.
 ///
@@ -203,8 +203,8 @@ impl TurboQuantData {
 
     /// Padded dimension (next power of 2 >= [`dimension`](Self::dimension)).
     ///
-    /// The SRHT rotation requires power-of-2 input, so non-power-of-2 dimensions are
-    /// zero-padded to this value.
+    /// The current Walsh-Hadamard-based structured rotation requires power-of-2 input, so
+    /// non-power-of-2 dimensions are zero-padded to this value.
     pub fn padded_dim(&self) -> u32 {
         self.dimension.next_power_of_two()
     }

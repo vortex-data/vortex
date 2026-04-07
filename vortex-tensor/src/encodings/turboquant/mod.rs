@@ -3,17 +3,29 @@
 
 //! TurboQuant vector quantization encoding for Vortex.
 //!
-//! Implements the TurboQuant algorithm ([arXiv:2504.19874]) for lossy compression of
-//! high-dimensional vector data. The encoding operates on [`Vector`] extension arrays,
-//! compressing their `FixedSizeList` storage into quantized codes with an SRHT rotation.
+//! Implements a Stage 1 TurboQuant encoding ([arXiv:2504.19874], [RFC 0033]) for lossy
+//! compression of high-dimensional vector data. The encoding operates on [`Vector`] extension
+//! arrays, compressing their `FixedSizeList` storage into quantized codes after a structured
+//! orthogonal surrogate rotation.
 //!
 //! [arXiv:2504.19874]: https://arxiv.org/abs/2504.19874
+//! [RFC 0033]: https://vortex-data.github.io/rfcs/rfc/0033.html
 //! [`Vector`]: crate::vector::Vector
 //!
 //! # Overview
 //!
 //! TurboQuant minimizes mean-squared reconstruction error (1-8 bits per coordinate)
-//! using MSE-optimal scalar quantization with an SRHT rotation for coordinate independence.
+//! using MSE-optimal scalar quantization on coordinates of a rotated unit vector.
+//!
+//! The TurboQuant paper analyzes a full random orthogonal rotation. The current Vortex
+//! implementation instead uses a fixed 3-round Walsh-Hadamard-based structured transform with
+//! random sign diagonals. This is a practical approximation chosen for encode/decode efficiency,
+//! and should be understood as an implementation choice rather than the exact construction used in
+//! the paper's proofs.
+//!
+//! The current encoding is also intentionally MSE-only. It does not yet implement the paper's QJL
+//! residual correction for unbiased inner-product estimation, and it still uses internal
+//! power-of-2 padding rather than the block decomposition proposed in RFC 0033.
 //!
 //! # Theoretical error bounds
 //!
@@ -35,9 +47,12 @@
 //!
 //! # Compression ratios
 //!
-//! Each vector is stored as `padded_dim * bit_width / 8` bytes of quantized codes plus a
-//! 4-byte f32 norm. Non-power-of-2 dimensions are padded to the next power of 2 for the
-//! Walsh-Hadamard transform, which reduces the effective ratio for those dimensions.
+//! Each vector is stored as `padded_dim * bit_width / 8` bytes of quantized codes plus one stored
+//! norm. In the current implementation, that norm uses the vector's element float type, not a
+//! separate fixed storage precision. Non-power-of-2 dimensions are padded to the next power of 2
+//! for the structured rotation, which reduces the effective ratio for those dimensions.
+//!
+//! The table below assumes f32 input, so the stored norm is 4 bytes.
 //!
 //! | dim  | padded | bits | f32 bytes | TQ bytes | ratio  |
 //! |------|--------|------|-----------|----------|--------|

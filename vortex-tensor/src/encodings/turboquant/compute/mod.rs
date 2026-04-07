@@ -3,8 +3,6 @@
 
 //! Compute pushdown implementations for TurboQuant.
 
-pub(crate) mod cosine_similarity;
-
 mod ops;
 mod slice;
 mod take;

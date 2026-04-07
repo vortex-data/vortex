@@ -62,9 +62,9 @@ pub fn execute_decompress(
     let centroids_prim = array.centroids().clone().execute::<PrimitiveArray>(ctx)?;
     let centroids = centroids_prim.as_slice::<f32>();
 
-    // FastLanes SIMD-unpacks the 1-bit bitpacked rotation signs into u8 0/1 values,
-    // then we expand to u32 XOR masks once (amortized over all rows). This enables
-    // branchless XOR-based sign application in the per-row SRHT hot loop.
+    // FastLanes SIMD-unpacks the 1-bit bitpacked rotation signs into u8 0/1 values, then we expand
+    // to u32 XOR masks once (amortized over all rows). This enables branchless XOR-based sign
+    // application in the per-row structured-rotation hot loop.
     let signs_prim = array
         .rotation_signs()
         .clone()

@@ -31,8 +31,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::encodings::turboquant::TurboQuant;
-use crate::encodings::turboquant::compute::cosine_similarity;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extract_flat_elements;
@@ -143,34 +141,21 @@ impl ScalarFnVTable for InnerProduct {
 
     fn execute(
         &self,
-        options: &Self::Options,
+        _options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let lhs_ref = args.get(0)?;
-        let rhs_ref = args.get(1)?;
+        let lhs: ExtensionArray = args.get(0)?.execute(ctx)?;
+        let rhs: ExtensionArray = args.get(1)?.execute(ctx)?;
 
         let row_count = args.row_count();
 
         // We validated that both inputs have the same type.
-        let ext = lhs_ref.dtype().as_extension();
+        let ext = lhs.dtype().as_extension();
         let tensor_match = ext
             .metadata_opt::<AnyTensor>()
             .vortex_expect("we already validated this in `return_dtype`");
         let dimensions = tensor_match.list_size();
-
-        // TurboQuant approximate path: check encoding before executing.
-        if options.is_approx()
-            && let (Some(lhs_tq), Some(rhs_tq)) = (
-                lhs_ref.as_opt::<TurboQuant>(),
-                rhs_ref.as_opt::<TurboQuant>(),
-            )
-        {
-            return cosine_similarity::dot_product_quantized_column(lhs_tq, rhs_tq, ctx);
-        }
-
-        let lhs: ExtensionArray = lhs_ref.execute(ctx)?;
-        let rhs: ExtensionArray = rhs_ref.execute(ctx)?;
 
         // Compute combined validity.
         let rhs_validity = rhs.as_ref().validity()?;
