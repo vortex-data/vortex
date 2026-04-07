@@ -114,6 +114,29 @@ def main():
     # Sort by pct_change descending (largest increases first)
     comparisons.sort(key=lambda x: x["pct_change"], reverse=True)
 
+    # Build summary line for collapsible header
+    total_base = sum(format_totals[fmt]["base"] for fmt in format_totals)
+    total_head = sum(format_totals[fmt]["head"] for fmt in format_totals)
+    if total_base > 0:
+        overall_pct = (total_head / total_base - 1) * 100
+        overall_pct_str = format_pct_change(overall_pct)
+    else:
+        overall_pct_str = "new"
+
+    increases = sum(1 for c in comparisons if c["change"] > 0)
+    decreases = sum(1 for c in comparisons if c["change"] < 0)
+
+    # Output collapsible markdown
+    print("<details>")
+    summary = (
+        f"<summary>File Size Changes ({len(comparisons)} files changed, "
+        f"{overall_pct_str} overall, {increases}↑ {decreases}↓)</summary>"
+    )
+    print(summary)
+    print("")
+    print("<br>")
+    print("")
+
     # Output markdown table
     print("| File | Scale | Format | Base | HEAD | Change | % |")
     print("|------|-------|--------|------|------|--------|---|")
@@ -139,6 +162,9 @@ def main():
         else:
             pct_str = ""
         print(f"- {fmt}: {format_size(base_total)} \u2192 {format_size(head_total)}{pct_str}")
+
+    print("")
+    print("</details>")
 
 
 if __name__ == "__main__":

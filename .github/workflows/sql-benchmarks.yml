@@ -154,6 +154,11 @@ jobs:
           # Extract all unique formats from targets (e.g., "datafusion:parquet,duckdb:vortex" -> "parquet,vortex")
           all_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | sed 's/^[^:]*://' | sort -u | tr '\n' ',' | sed 's/,$//')
 
+          # Append extra data formats if specified (for file size tracking without benchmarking)
+          if [ -n "${{ matrix.extra_data_formats }}" ]; then
+            all_formats="$all_formats,${{ matrix.extra_data_formats }}"
+          fi
+
           # Build options string if scale_factor is set
           opts=""
           if [ -n "${{ matrix.scale_factor }}" ]; then
