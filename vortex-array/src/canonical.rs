@@ -995,17 +995,17 @@ impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
     fn matches(array: &ArrayRef) -> bool {
-        array.is::<Null>()
-            || array.is::<Bool>()
-            || array.is::<Primitive>()
-            || array.is::<Decimal>()
-            || array.is::<Struct>()
-            || array.is::<ListView>()
-            || array.is::<FixedSizeList>()
-            || array.is::<VarBinView>()
-            || array.is::<Variant>()
-            || array.is::<Extension>()
-            || array.is::<Variant>()
+        let id = array.encoding_id();
+        id == Null::ID
+            || id == Bool::ID
+            || id == Primitive::ID
+            || id == Decimal::ID
+            || id == Struct::ID
+            || id == ListView::ID
+            || id == FixedSizeList::ID
+            || id == VarBinView::ID
+            || id == Variant::ID
+            || id == Extension::ID
     }
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<Self::Match<'a>> {
