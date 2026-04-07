@@ -291,29 +291,3 @@ pub fn patches_child_name(idx: usize) -> &'static str {
     }
 }
 
-/// vtable! macro — adds a deprecated `to_array()` helper on legacy array types.
-///
-/// Two forms:
-/// - `vtable!(Foo)` — short for `vtable!(Foo, Foo)`
-/// - `vtable!(Foo, FooVT)` — where `FooArray` is the inner struct name
-#[macro_export]
-macro_rules! vtable {
-    ($V:ident) => {
-        $crate::vtable!($V, $V);
-    };
-    // Legacy form: FooArray is the inner struct name, no type alias generated.
-    ($Base:ident, $VT:ident) => {
-        $crate::aliases::paste::paste! {
-            impl [<$Base Array>] {
-                #[deprecated(note = "use `.into_array()` (owned) or `.clone().into_array()` (ref) to make clones explicit")]
-                pub fn to_array(&self) -> $crate::ArrayRef
-                where
-                    Self: Clone + $crate::IntoArray,
-                {
-                    use $crate::IntoArray;
-                    self.clone().into_array()
-                }
-            }
-        }
-    };
-}
