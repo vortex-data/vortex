@@ -86,6 +86,11 @@ pub fn field_path_stat_field_name(field_path: &FieldPath, stat: Stat) -> FieldNa
 /// cannot hold, and false if it cannot be determined from stats alone whether the positions can
 /// be pruned.
 ///
+/// Some rewrites, such as `is_not_null(...)`, emit
+/// [`row_count`][crate::expr::row_count] placeholders. The evaluation layer must
+/// replace those placeholders with the row count for its current scope before
+/// executing the returned expression.
+///
 /// If the falsification logic attempts to access an unknown stat,
 /// this function will return `None`.
 pub fn checked_pruning_expr(

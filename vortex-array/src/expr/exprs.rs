@@ -9,6 +9,9 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnVTableExt;
+use crate::aggregate_fn::fns::row_count::RowCount;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
@@ -46,6 +49,7 @@ use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::stats_expression::StatsExpression;
 use crate::scalar_fn::fns::zip::Zip;
 
 // ---- Root ----
@@ -700,4 +704,22 @@ pub fn dynamic(
 /// ```
 pub fn list_contains(list: Expression, value: Expression) -> Expression {
     ListContains.new_expr(EmptyOptions, [list, value])
+}
+
+// ---- StatsExpression ----
+
+/// Creates a placeholder expression for an aggregate-derived scope statistic.
+///
+/// The caller that owns the evaluation scope must substitute the placeholder
+/// before execution; see [`StatsExpression`].
+pub fn stats_expression(agg: AggregateFnRef) -> Expression {
+    StatsExpression.new_expr(agg, [])
+}
+
+/// Creates a placeholder for the current evaluation scope's row count.
+///
+/// This is used by pruning rewrites that need to compare a stored statistic with
+/// the number of rows in the file, zone, or other scope being evaluated.
+pub fn row_count() -> Expression {
+    stats_expression(RowCount.bind(crate::aggregate_fn::EmptyOptions))
 }

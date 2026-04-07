@@ -11,14 +11,17 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::BoolBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
@@ -26,15 +29,14 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
 use vortex_array::scalar::upper_bound;
+use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::layouts::zoned::schema::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::schema::MIN_IS_TRUNCATED;
-use crate::layouts::zoned::zone_map::ZoneMap;
 
 /// Accumulates write-time statistics for each logical zone.
 pub struct StatsAccumulator {
@@ -88,14 +90,9 @@ impl StatsAccumulator {
         Ok(())
     }
 
-    /// Finishes the accumulator into a [`ZoneMap`].
-    ///
-    /// Returns `None` if none of the requested statistics can be computed, for example they are
-    /// not applicable to the column's data type.
-    pub fn as_stats_table(&mut self) -> VortexResult<Option<ZoneMap>> {
+    pub fn as_array(&mut self) -> VortexResult<Option<StructArray>> {
         let mut names = Vec::new();
         let mut fields = Vec::new();
-        let mut stats = Vec::new();
 
         for builder in self
             .builders
@@ -110,7 +107,6 @@ impl StatsAccumulator {
                 continue;
             }
 
-            stats.push(builder.stat());
             names.extend(values.names);
             fields.extend(values.arrays);
         }
@@ -119,15 +115,49 @@ impl StatsAccumulator {
             return Ok(None);
         }
 
-        let array = StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
-            .vortex_expect("Failed to create zone map");
-        let stats = stats.into();
+        StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable).map(Some)
+    }
 
-        // SAFETY: `StatsAccumulator` builds the struct fields from `stats_builder_with_capacity`
-        // using the same field-ordering and truncation-column rules as `stats_table_dtype`.
-        // The `stats` list is collected in that same sorted order, so the resulting struct array
-        // matches the expected zoned stats-table dtype by construction.
-        Ok(Some(unsafe { ZoneMap::new_unchecked(array, stats) }))
+    /// Returns an aggregated stats set for the table.
+    pub fn as_stats_set(
+        &mut self,
+        stats: &[Stat],
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<StatsSet> {
+        let mut stats_set = StatsSet::default();
+        let Some(array) = self.as_array()? else {
+            return Ok(stats_set);
+        };
+
+        for &stat in stats {
+            let Some(array) = array.unmasked_field_by_name_opt(stat.name()) else {
+                continue;
+            };
+
+            // Different stats need different aggregations
+            match stat {
+                // For stats that are associative, we can just compute them over the stat column
+                Stat::Min | Stat::Max | Stat::Sum => {
+                    if let Some(s) = array.statistics().compute_stat(stat, ctx)?
+                        && let Some(v) = s.into_value()
+                    {
+                        stats_set.set(stat, Precision::exact(v))
+                    }
+                }
+                // These stats sum up
+                Stat::NullCount | Stat::NaNCount | Stat::UncompressedSizeInBytes => {
+                    if let Some(sum_value) = sum(array, ctx)?
+                        .cast(&DType::Primitive(PType::U64, Nullability::Nullable))?
+                        .into_value()
+                    {
+                        stats_set.set(stat, Precision::exact(sum_value));
+                    }
+                }
+                // We could implement these aggregations in the future, but for now they're unused
+                Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => {}
+            }
+        }
+        Ok(stats_set)
     }
 }
 
@@ -385,12 +415,9 @@ mod tests {
             .vortex_expect("push_chunk should succeed for test data");
         acc.push_chunk(&builder2.finish(), &mut ctx)
             .vortex_expect("push_chunk should succeed for test data");
-        let stats_table = acc
-            .as_stats_table()
-            .unwrap()
-            .expect("Must have stats table");
+        let stats_table = acc.as_array().unwrap().expect("Must have stats table");
         assert_eq!(
-            stats_table.array().names().as_ref(),
+            stats_table.names().as_ref(),
             &[
                 Stat::Max.name(),
                 MAX_IS_TRUNCATED,
@@ -399,7 +426,6 @@ mod tests {
             ]
         );
         let field1_bool = stats_table
-            .array()
             .unmasked_field(1)
             .clone()
             .execute::<BoolArray>(&mut ctx)
@@ -409,7 +435,6 @@ mod tests {
             BitBuffer::from(vec![false, true])
         );
         let field3_bool = stats_table
-            .array()
             .unmasked_field(3)
             .clone()
             .execute::<BoolArray>(&mut ctx)
@@ -427,12 +452,9 @@ mod tests {
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array, &mut ctx)
             .vortex_expect("push_chunk should succeed for test array");
-        let stats_table = acc
-            .as_stats_table()
-            .unwrap()
-            .expect("Must have stats table");
+        let stats_table = acc.as_array().unwrap().expect("Must have stats table");
         assert_eq!(
-            stats_table.array().names().as_ref(),
+            stats_table.names().as_ref(),
             &[
                 Stat::Max.name(),
                 MAX_IS_TRUNCATED,
@@ -442,14 +464,12 @@ mod tests {
             ]
         );
         let field1_bool = stats_table
-            .array()
             .unmasked_field(1)
             .clone()
             .execute::<BoolArray>(&mut ctx)
             .unwrap();
         assert_eq!(field1_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
         let field3_bool = stats_table
-            .array()
             .unmasked_field(3)
             .clone()
             .execute::<BoolArray>(&mut ctx)

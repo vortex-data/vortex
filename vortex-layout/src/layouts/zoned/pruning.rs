@@ -40,6 +40,8 @@ type PredicateCache = Arc<OnceLock<Option<Expression>>>;
 
 pub(super) struct PruningState {
     zone_count: usize,
+    row_count: u64,
+    zone_len: u64,
     present_stats: Arc<[Stat]>,
     lazy_children: Arc<LazyReaderChildren>,
     session: VortexSession,
@@ -57,6 +59,8 @@ impl PruningState {
     ) -> Self {
         Self {
             zone_count: layout.nzones(),
+            row_count: layout.row_count(),
+            zone_len: layout.zone_len() as u64,
             present_stats: Arc::clone(layout.present_stats()),
             lazy_children,
             session,
@@ -131,7 +135,6 @@ impl PruningState {
         self.zone_map
             .get_or_init(move || {
                 let zone_count = self.zone_count;
-                let present_stats = Arc::clone(&self.present_stats);
                 let zones_eval = self
                     .lazy_children
                     .get(1)
@@ -143,13 +146,15 @@ impl PruningState {
                     )
                     .vortex_expect("Failed construct zone map evaluation");
                 let session = self.session.clone();
+                let zone_len = self.zone_len;
+                let row_count = self.row_count;
 
                 async move {
                     let mut ctx = session.create_execution_ctx();
                     let zones_array = zones_eval.await?.execute::<StructArray>(&mut ctx)?;
                     // SAFETY: zoned layout validation ensures the zones child matches the expected
                     // stats-table schema for `present_stats`.
-                    Ok(unsafe { ZoneMap::new_unchecked(zones_array, present_stats) })
+                    Ok(unsafe { ZoneMap::new_unchecked(zones_array, zone_len, row_count) })
                 }
                 .map_err(Arc::new)
                 .boxed()

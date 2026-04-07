@@ -818,7 +818,7 @@ pub unsafe fn vortex_layout::layouts::zoned::zone_map::ZoneMap::new_unchecked(ar
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::present_stats(&self) -> &alloc::sync::Arc<[vortex_array::expr::stats::Stat]>
 
-pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::prune(&self, predicate: &vortex_array::expr::expression::Expression, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_mask::Mask>
+pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::prune(&self, predicate: &vortex_array::expr::expression::Expression, zone_len: u64, row_count: u64, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_mask::Mask>
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::to_stats_set(&self, stats: &[vortex_array::expr::stats::Stat], ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::stats::stats_set::StatsSet>
 

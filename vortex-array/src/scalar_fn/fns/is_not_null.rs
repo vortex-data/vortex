@@ -14,10 +14,8 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
-use crate::expr::and;
 use crate::expr::eq;
-use crate::expr::gt;
-use crate::expr::lit;
+use crate::expr::row_count;
 use crate::expr::stats::Stat;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
@@ -106,20 +104,10 @@ impl ScalarFnVTable for IsNotNull {
         expr: &Expression,
         catalog: &dyn StatsCatalog,
     ) -> Option<Expression> {
-        // is_not_null is falsified when ALL values are null, i.e. null_count == len.
-        // Since there is no len stat in the zone map, we approximate using IsConstant:
-        // if the zone is constant and has any nulls, then all values must be null.
-        //
-        // TODO(#7187): Add a len stat to enable the more general falsification:
-        //   null_count == len => is_not_null is all false.
-        let null_count_expr = expr.child(0).stat_expression(Stat::NullCount, catalog)?;
-        let is_constant_expr = expr.child(0).stat_expression(Stat::IsConstant, catalog)?;
-        // If the zone is constant (is_constant == true) and has nulls (null_count > 0),
-        // then all values must be null, so is_not_null is all false.
-        Some(and(
-            eq(is_constant_expr, lit(true)),
-            gt(null_count_expr, lit(0u64)),
-        ))
+        // is_not_null is falsified when ALL values are null, i.e. null_count == row_count.
+        let child = expr.child(0);
+        let null_count_expr = child.stat_expression(Stat::NullCount, catalog)?;
+        Some(eq(null_count_expr, row_count()))
     }
 }
 
@@ -267,38 +255,27 @@ mod tests {
         use crate::dtype::Field;
         use crate::dtype::FieldPath;
         use crate::dtype::FieldPathSet;
-        use crate::expr::and;
         use crate::expr::col;
         use crate::expr::eq;
-        use crate::expr::gt;
-        use crate::expr::lit;
         use crate::expr::pruning::checked_pruning_expr;
+        use crate::expr::row_count;
         use crate::expr::stats::Stat;
 
         let expr = is_not_null(col("a"));
 
         let (pruning_expr, st) = checked_pruning_expr(
             &expr,
-            &FieldPathSet::from_iter([
-                FieldPath::from_iter([Field::Name("a".into()), Field::Name("null_count".into())]),
-                FieldPath::from_iter([Field::Name("a".into()), Field::Name("is_constant".into())]),
-            ]),
+            &FieldPathSet::from_iter([FieldPath::from_iter([
+                Field::Name("a".into()),
+                Field::Name("null_count".into()),
+            ])]),
         )
         .unwrap();
 
-        assert_eq!(
-            &pruning_expr,
-            &and(
-                eq(col("a_is_constant"), lit(true)),
-                gt(col("a_null_count"), lit(0u64)),
-            )
-        );
+        assert_eq!(&pruning_expr, &eq(col("a_null_count"), row_count()));
         assert_eq!(
             st.map(),
-            &HashMap::from_iter([(
-                FieldPath::from_name("a"),
-                HashSet::from([Stat::NullCount, Stat::IsConstant])
-            )])
+            &HashMap::from_iter([(FieldPath::from_name("a"), HashSet::from([Stat::NullCount]))])
         );
     }
 }
