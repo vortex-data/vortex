@@ -39,6 +39,15 @@ impl VortexSession {
     ///
     /// If a variable of that type already exists.
     pub fn with<V: SessionVar + Default>(self) -> Self {
+        self.with_some(V::default())
+    }
+
+    /// Inserts a new session variable of type `V`.
+    ///
+    /// # Panics
+    ///
+    /// If a variable of that type already exists.
+    pub fn with_some<V: SessionVar>(self, var: V) -> Self {
         match self.0.entry(TypeId::of::<V>()) {
             Entry::Occupied(_) => {
                 vortex_panic!(
@@ -47,7 +56,7 @@ impl VortexSession {
                 );
             }
             Entry::Vacant(e) => {
-                e.insert(Box::new(V::default()));
+                e.insert(Box::new(var));
             }
         }
         self
