@@ -319,6 +319,7 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
 pub struct FSSTData {
     symbols: Buffer<Symbol>,
     symbol_lengths: Buffer<u8>,
+    // TODO(joe): this was broken by a previous pr. This will not be updated if a slot is replaced.
     codes: VarBinArray,
 
     /// Memoized compressor used for push-down of compute by compressing the RHS.

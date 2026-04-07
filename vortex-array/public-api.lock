@@ -18846,12 +18846,6 @@ impl<V: vortex_array::VTable> vortex_array::ValidityVTable<V> for vortex_array::
 
 pub fn vortex_array::ValidityVTableFromChildSliceHelper::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
-pub struct vortex_array::vtable::ValidityVTableFromValiditySliceHelper
-
-impl<V: vortex_array::VTable> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromValiditySliceHelper where <V as vortex_array::VTable>::ArrayData: vortex_array::ValiditySliceHelper
-
-pub fn vortex_array::ValidityVTableFromValiditySliceHelper::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
 pub trait vortex_array::vtable::ArrayPlugin: 'static + core::marker::Send + core::marker::Sync
 
 pub fn vortex_array::vtable::ArrayPlugin::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -20822,12 +20816,6 @@ pub fn vortex_array::vtable::ValidityChildSliceHelper::sliced_child_array(&self)
 
 pub fn vortex_array::vtable::ValidityChildSliceHelper::unsliced_child_and_slice(&self) -> (&vortex_array::ArrayRef, usize, usize)
 
-pub trait vortex_array::vtable::ValiditySliceHelper
-
-pub fn vortex_array::vtable::ValiditySliceHelper::sliced_validity(&self) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
-pub fn vortex_array::vtable::ValiditySliceHelper::unsliced_validity_and_slice(&self) -> (&vortex_array::validity::Validity, usize, usize)
-
 pub trait vortex_array::vtable::ValidityVTable<V: vortex_array::VTable>
 
 pub fn vortex_array::vtable::ValidityVTable::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
@@ -20911,10 +20899,6 @@ pub fn vortex_array::arrays::slice::Slice::validity(array: vortex_array::ArrayVi
 impl<V: vortex_array::VTable> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromChildSliceHelper where <V as vortex_array::VTable>::ArrayData: vortex_array::ValidityChildSliceHelper
 
 pub fn vortex_array::ValidityVTableFromChildSliceHelper::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
-impl<V: vortex_array::VTable> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromValiditySliceHelper where <V as vortex_array::VTable>::ArrayData: vortex_array::ValiditySliceHelper
-
-pub fn vortex_array::ValidityVTableFromValiditySliceHelper::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 impl<V> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromChild where V: vortex_array::ValidityChild<V> + vortex_array::VTable
 
@@ -22329,12 +22313,6 @@ pub struct vortex_array::ValidityVTableFromChildSliceHelper
 impl<V: vortex_array::VTable> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromChildSliceHelper where <V as vortex_array::VTable>::ArrayData: vortex_array::ValidityChildSliceHelper
 
 pub fn vortex_array::ValidityVTableFromChildSliceHelper::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
-pub struct vortex_array::ValidityVTableFromValiditySliceHelper
-
-impl<V: vortex_array::VTable> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromValiditySliceHelper where <V as vortex_array::VTable>::ArrayData: vortex_array::ValiditySliceHelper
-
-pub fn vortex_array::ValidityVTableFromValiditySliceHelper::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 pub static vortex_array::LEGACY_SESSION: std::sync::lazy_lock::LazyLock<vortex_session::VortexSession>
 
@@ -24808,12 +24786,6 @@ pub fn vortex_array::ValidityChildSliceHelper::sliced_child_array(&self) -> vort
 
 pub fn vortex_array::ValidityChildSliceHelper::unsliced_child_and_slice(&self) -> (&vortex_array::ArrayRef, usize, usize)
 
-pub trait vortex_array::ValiditySliceHelper
-
-pub fn vortex_array::ValiditySliceHelper::sliced_validity(&self) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
-pub fn vortex_array::ValiditySliceHelper::unsliced_validity_and_slice(&self) -> (&vortex_array::validity::Validity, usize, usize)
-
 pub trait vortex_array::ValidityVTable<V: vortex_array::VTable>
 
 pub fn vortex_array::ValidityVTable::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
@@ -24897,10 +24869,6 @@ pub fn vortex_array::arrays::slice::Slice::validity(array: vortex_array::ArrayVi
 impl<V: vortex_array::VTable> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromChildSliceHelper where <V as vortex_array::VTable>::ArrayData: vortex_array::ValidityChildSliceHelper
 
 pub fn vortex_array::ValidityVTableFromChildSliceHelper::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
-
-impl<V: vortex_array::VTable> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromValiditySliceHelper where <V as vortex_array::VTable>::ArrayData: vortex_array::ValiditySliceHelper
-
-pub fn vortex_array::ValidityVTableFromValiditySliceHelper::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 impl<V> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromChild where V: vortex_array::ValidityChild<V> + vortex_array::VTable
 
