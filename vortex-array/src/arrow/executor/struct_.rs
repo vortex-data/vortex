@@ -320,6 +320,53 @@ mod tests {
         Ok(())
     }
 
+    /// Test that converting a struct to Arrow with fewer target fields (field
+    /// pruning) works by falling through to the cast path.
+    #[test]
+    fn struct_to_arrow_with_field_pruning() -> VortexResult<()> {
+        let array = StructArray::from_fields(
+            vec![
+                (
+                    "a",
+                    PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array(),
+                ),
+                (
+                    "b",
+                    arrays::varbinview::VarBinViewArray::from_iter_str(vec!["x", "y", "z"])
+                        .into_array(),
+                ),
+                (
+                    "c",
+                    PrimitiveArray::new(buffer![10i64, 20, 30], Validity::AllValid).into_array(),
+                ),
+            ]
+            .as_slice(),
+        )?;
+
+        // Request only field "b" — fewer fields than the struct has.
+        let target_fields = vec![Field::new("b", DataType::Utf8View, true)];
+        let arrow_dt = DataType::Struct(target_fields.into());
+
+        let result = array.into_array().into_arrow(&arrow_dt)?;
+        let struct_arr = result
+            .as_any()
+            .downcast_ref::<ArrowStructArray>()
+            .expect("should be a StructArray");
+
+        assert_eq!(struct_arr.num_columns(), 1);
+        assert_eq!(struct_arr.column_names(), vec!["b"]);
+        let col = struct_arr
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringViewArray>()
+            .expect("should be StringViewArray");
+        assert_eq!(col.value(0), "x");
+        assert_eq!(col.value(1), "y");
+        assert_eq!(col.value(2), "z");
+
+        Ok(())
+    }
+
     #[test]
     fn to_arrow_with_non_nullable_fields() -> VortexResult<()> {
         let array = StructArray::from_fields(
