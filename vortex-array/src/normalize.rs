@@ -140,7 +140,7 @@ mod tests {
             SliceArray::new(PrimitiveArray::from_iter(10i32..20).into_array(), 2..6).into_array();
         let array = StructArray::try_new(
             ["lhs", "rhs"].into(),
-            vec![unchanged.clone(), sliced.clone()],
+            vec![unchanged.clone(), sliced],
             unchanged.len(),
             Validity::NonNullable,
         )?
