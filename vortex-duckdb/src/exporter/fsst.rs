@@ -15,8 +15,8 @@ use vortex::array::match_each_integer_ptype;
 use vortex::buffer::ByteBuffer;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::FSSTArrayExt;
-use vortex::error::vortex_err;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
 use crate::cpp;
 use crate::duckdb::LogicalType;
