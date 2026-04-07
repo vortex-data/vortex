@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use crate::ArrayRef;
+use crate::DynArray;
 use crate::arrays::Chunked;
 use crate::display::extractor::IndentedFormatter;
 use crate::display::extractor::TreeContext;
@@ -35,17 +35,17 @@ use crate::display::extractors::StatsExtractor;
 ///     .with(NbytesExtractor)
 ///     .with(MetadataExtractor);
 /// ```
-pub struct TreeDisplay {
-    array: ArrayRef,
+pub struct TreeDisplay<'a> {
+    array: &'a dyn DynArray,
     extractors: Vec<Box<dyn TreeExtractor>>,
 }
 
-impl TreeDisplay {
+impl<'a> TreeDisplay<'a> {
     /// Create a new tree display for the given array with no extractors.
     ///
     /// With no extractors, only node names and the tree structure are shown.
     /// Use [`Self::default_display`] for the standard set of all built-in extractors.
-    pub fn new(array: ArrayRef) -> Self {
+    pub fn new(array: &'a dyn DynArray) -> Self {
         Self {
             array,
             extractors: Vec::new(),
@@ -54,7 +54,7 @@ impl TreeDisplay {
 
     /// Create a tree display with all built-in extractors: encoding summary, nbytes, stats,
     /// metadata, and buffers.
-    pub fn default_display(array: ArrayRef) -> Self {
+    pub fn default_display(array: &'a dyn DynArray) -> Self {
         Self::new(array)
             .with(EncodingSummaryExtractor)
             .with(NbytesExtractor)
@@ -79,7 +79,7 @@ impl TreeDisplay {
     fn write_node(
         &self,
         name: &str,
-        array: &ArrayRef,
+        array: &dyn DynArray,
         ctx: &mut TreeContext,
         indent: &str,
         f: &mut fmt::Formatter<'_>,
@@ -87,7 +87,7 @@ impl TreeDisplay {
         // Header line: "{indent}{name}:{annotations...}\n"
         write!(f, "{indent}{name}:")?;
         for extractor in &self.extractors {
-            extractor.write_header(array.as_ref(), ctx, f)?;
+            extractor.write_header(array, ctx, f)?;
         }
         writeln!(f)?;
 
@@ -96,7 +96,7 @@ impl TreeDisplay {
         {
             let mut indented = IndentedFormatter::new(f, &child_indent);
             for extractor in &self.extractors {
-                extractor.write_details(array.as_ref(), ctx, &mut indented)?;
+                extractor.write_details(array, ctx, &mut indented)?;
             }
         }
 
@@ -110,7 +110,7 @@ impl TreeDisplay {
 
         // Recurse into children
         for (child_name, child) in array.children_names().into_iter().zip(array.children()) {
-            self.write_node(&child_name, &child, ctx, &child_indent, f)?;
+            self.write_node(&child_name, child.as_ref(), ctx, &child_indent, f)?;
         }
 
         ctx.pop();
@@ -119,9 +119,9 @@ impl TreeDisplay {
     }
 }
 
-impl fmt::Display for TreeDisplay {
+impl fmt::Display for TreeDisplay<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut ctx = TreeContext::new();
-        self.write_node("root", &self.array, &mut ctx, "", f)
+        self.write_node("root", self.array, &mut ctx, "", f)
     }
 }

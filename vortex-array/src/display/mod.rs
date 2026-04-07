@@ -400,7 +400,7 @@ impl dyn DynArray + '_ {
     /// ";
     /// assert_eq!(format!("{}", array.display_tree_encodings_only()), expected);
     /// ```
-    pub fn display_tree_encodings_only(&self) -> TreeDisplay {
+    pub fn display_tree_encodings_only(&self) -> TreeDisplay<'_> {
         self.tree_display_builder().with(EncodingSummaryExtractor)
     }
 
@@ -423,8 +423,8 @@ impl dyn DynArray + '_ {
     /// ";
     /// assert_eq!(format!("{}", array.display_tree()), expected);
     /// ```
-    pub fn display_tree(&self) -> TreeDisplay {
-        TreeDisplay::default_display(self.to_array())
+    pub fn display_tree(&self) -> TreeDisplay<'_> {
+        TreeDisplay::default_display(self)
     }
 
     /// Create a tree display with all built-in extractors (nbytes, stats, metadata, buffers).
@@ -443,8 +443,8 @@ impl dyn DynArray + '_ {
     /// ";
     /// assert_eq!(array.tree_display().to_string(), expected);
     /// ```
-    pub fn tree_display(&self) -> TreeDisplay {
-        TreeDisplay::default_display(self.to_array())
+    pub fn tree_display(&self) -> TreeDisplay<'_> {
+        TreeDisplay::default_display(self)
     }
 
     /// Create a composable tree display builder with no extractors.
@@ -483,8 +483,8 @@ impl dyn DynArray + '_ {
     /// let expected = "root: vortex.primitive(i16, len=5)\n  metadata: EmptyMetadata\n  buffer: values host 10 B (align=2)\n";
     /// assert_eq!(detailed, expected);
     /// ```
-    pub fn tree_display_builder(&self) -> TreeDisplay {
-        TreeDisplay::new(self.to_array())
+    pub fn tree_display_builder(&self) -> TreeDisplay<'_> {
+        TreeDisplay::new(self)
     }
 
     /// Display the array as a formatted table.
@@ -567,7 +567,7 @@ impl dyn DynArray + '_ {
                         }),
                     ),
                 ];
-                let mut display = TreeDisplay::new(self.to_array());
+                let mut display = TreeDisplay::new(self);
                 for (enabled, extractor) in extractors {
                     if enabled {
                         display = display.with_boxed(extractor);

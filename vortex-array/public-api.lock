@@ -10504,21 +10504,21 @@ impl vortex_array::display::TreeContext
 
 pub fn vortex_array::display::TreeContext::parent_total_size(&self) -> core::option::Option<u64>
 
-pub struct vortex_array::display::TreeDisplay
+pub struct vortex_array::display::TreeDisplay<'a>
 
-impl vortex_array::display::TreeDisplay
+impl<'a> vortex_array::display::TreeDisplay<'a>
 
-pub fn vortex_array::display::TreeDisplay::default_display(array: vortex_array::ArrayRef) -> Self
+pub fn vortex_array::display::TreeDisplay<'a>::default_display(array: &'a dyn vortex_array::DynArray) -> Self
 
-pub fn vortex_array::display::TreeDisplay::new(array: vortex_array::ArrayRef) -> Self
+pub fn vortex_array::display::TreeDisplay<'a>::new(array: &'a dyn vortex_array::DynArray) -> Self
 
-pub fn vortex_array::display::TreeDisplay::with<E: vortex_array::display::TreeExtractor + 'static>(self, extractor: E) -> Self
+pub fn vortex_array::display::TreeDisplay<'a>::with<E: vortex_array::display::TreeExtractor + 'static>(self, extractor: E) -> Self
 
-pub fn vortex_array::display::TreeDisplay::with_boxed(self, extractor: alloc::boxed::Box<dyn vortex_array::display::TreeExtractor>) -> Self
+pub fn vortex_array::display::TreeDisplay<'a>::with_boxed(self, extractor: alloc::boxed::Box<dyn vortex_array::display::TreeExtractor>) -> Self
 
-impl core::fmt::Display for vortex_array::display::TreeDisplay
+impl core::fmt::Display for vortex_array::display::TreeDisplay<'_>
 
-pub fn vortex_array::display::TreeDisplay::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_array::display::TreeDisplay<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub trait vortex_array::display::TreeExtractor: core::marker::Send + core::marker::Sync
 
