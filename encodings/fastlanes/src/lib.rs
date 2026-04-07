@@ -3,6 +3,9 @@
 
 #![allow(clippy::cast_possible_truncation)]
 
+use std::env;
+use std::sync::LazyLock;
+
 pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;
@@ -31,9 +34,17 @@ use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
+/// Check if we're using experimental patches deserialization
+static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
+    LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok());
+
 /// Initialize fastlanes encodings in the given session.
 pub fn initialize(session: &VortexSession) {
-    session.arrays().register(BitPacked);
+    if *USE_EXPERIMENTAL_PATCHES {
+        session.arrays().register(BitPackedPatchedPlugin);
+    } else {
+        session.arrays().register(BitPacked);
+    }
     session.arrays().register(Delta);
     session.arrays().register(FoR);
     session.arrays().register(RLE);

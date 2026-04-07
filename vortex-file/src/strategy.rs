@@ -3,13 +3,10 @@
 
 //! This module defines the default layout strategy for a Vortex file.
 
-use std::env;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_alp::ALP;
-// Compressed encodings from encoding crates
-// Canonical array encodings from vortex-array
 use vortex_alp::ALPRD;
 use vortex_array::ArrayId;
 use vortex_array::VTable;
@@ -68,10 +65,6 @@ use vortex_zstd::Zstd;
 use vortex_zstd::ZstdBuffers;
 
 const ONE_MEG: u64 = 1 << 20;
-
-/// Check if we're using experimental patches deserialization
-static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
-    LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok());
 
 /// Static registry of all allowed array encodings for file writing.
 ///
