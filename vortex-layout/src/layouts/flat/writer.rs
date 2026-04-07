@@ -4,6 +4,7 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::ArrayContext;
+use vortex_array::ArrayId;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
@@ -15,7 +16,6 @@ use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
 use vortex_array::scalar::upper_bound;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::session::ArrayRegistry;
 use vortex_array::stats::StatsSetRef;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
@@ -24,6 +24,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
 use vortex_session::registry::ReadContext;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
@@ -42,7 +43,7 @@ pub struct FlatLayoutStrategy {
     pub max_variable_length_statistics_size: usize,
     /// Optional set of allowed array encodings for normalization.
     /// If None, then all are allowed.
-    pub allowed_encodings: Option<ArrayRegistry>,
+    pub allowed_encodings: Option<HashSet<ArrayId>>,
 }
 
 impl Default for FlatLayoutStrategy {
@@ -69,7 +70,7 @@ impl FlatLayoutStrategy {
     }
 
     /// Set the allowed array encodings for normalization.
-    pub fn with_allow_encodings(mut self, allow_encodings: ArrayRegistry) -> Self {
+    pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
         self.allowed_encodings = Some(allow_encodings);
         self
     }
@@ -202,7 +203,6 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::DictArray;
-    use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -216,9 +216,7 @@ mod tests {
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
-    use vortex_array::session::ArrayRegistry;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ArrayPluginRef;
     use vortex_array::vtable::VTable;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
@@ -227,6 +225,7 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
     use vortex_mask::Mask;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -425,9 +424,8 @@ mod tests {
             let (layout, _segments) = {
                 let segments = Arc::new(TestSegments::default());
                 let (ptr, eof) = SequenceId::root().split();
-                // Only allow primitive encodings - filter arrays should fail.
-                let allowed = ArrayRegistry::default();
-                allowed.register(Primitive::ID, Arc::new(Primitive) as ArrayPluginRef);
+                // Disallow all encodings so filter arrays fail normalization immediately.
+                let allowed = HashSet::default();
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
                     .write_stream(
@@ -466,10 +464,9 @@ mod tests {
             let (layout, _segments) = {
                 let segments = Arc::new(TestSegments::default());
                 let (ptr, eof) = SequenceId::root().split();
-                // Only allow primitive encodings - filter arrays should fail.
-                let allowed = ArrayRegistry::default();
-                allowed.register(Primitive.id(), Arc::new(Primitive) as ArrayPluginRef);
-                allowed.register(Dict.id(), Arc::new(Dict) as ArrayPluginRef);
+                // Only allow the dict encoding; canonical primitive children remain permitted.
+                let mut allowed = HashSet::default();
+                allowed.insert(Dict.id());
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
                     .write_stream(

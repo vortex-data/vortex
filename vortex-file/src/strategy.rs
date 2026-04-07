@@ -10,6 +10,8 @@ use vortex_alp::ALP;
 // Compressed encodings from encoding crates
 // Canonical array encodings from vortex-array
 use vortex_alp::ALPRD;
+use vortex_array::ArrayId;
+use vortex_array::VTable;
 use vortex_array::arrays::Bool;
 use vortex_array::arrays::Chunked;
 use vortex_array::arrays::Constant;
@@ -26,8 +28,6 @@ use vortex_array::arrays::Struct;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::FieldPath;
-use vortex_array::session::ArrayRegistry;
-use vortex_array::session::ArraySession;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_btrblocks::SchemeExt;
 use vortex_btrblocks::schemes::integer::IntDictScheme;
@@ -59,6 +59,7 @@ use vortex_sparse::Sparse;
 #[cfg(feature = "unstable_encodings")]
 use vortex_tensor::encodings::turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_utils::aliases::hash_set::HashSet;
 use vortex_zigzag::ZigZag;
 #[cfg(feature = "zstd")]
 use vortex_zstd::Zstd;
@@ -71,51 +72,51 @@ const ONE_MEG: u64 = 1 << 20;
 ///
 /// This includes all canonical encodings from vortex-array plus all compressed
 /// encodings from the various encoding crates.
-pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
-    let session = ArraySession::empty();
+pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
+    let mut allowed = HashSet::new();
 
     // Canonical encodings from vortex-array
-    session.register(Null);
-    session.register(Bool);
-    session.register(Primitive);
-    session.register(Decimal);
-    session.register(VarBin);
-    session.register(VarBinView);
-    session.register(List);
-    session.register(ListView);
-    session.register(FixedSizeList);
-    session.register(Struct);
-    session.register(Extension);
-    session.register(Chunked);
-    session.register(Constant);
-    session.register(Masked);
-    session.register(Dict);
+    allowed.insert(Null.id());
+    allowed.insert(Bool.id());
+    allowed.insert(Primitive.id());
+    allowed.insert(Decimal.id());
+    allowed.insert(VarBin.id());
+    allowed.insert(VarBinView.id());
+    allowed.insert(List.id());
+    allowed.insert(ListView.id());
+    allowed.insert(FixedSizeList.id());
+    allowed.insert(Struct.id());
+    allowed.insert(Extension.id());
+    allowed.insert(Chunked.id());
+    allowed.insert(Constant.id());
+    allowed.insert(Masked.id());
+    allowed.insert(Dict.id());
 
     // Compressed encodings from encoding crates
-    session.register(ALP);
-    session.register(ALPRD);
-    session.register(BitPacked);
-    session.register(ByteBool);
-    session.register(DateTimeParts);
-    session.register(DecimalByteParts);
-    session.register(Delta);
-    session.register(FoR);
-    session.register(FSST);
-    session.register(Pco);
-    session.register(RLE);
-    session.register(RunEnd);
-    session.register(Sequence);
-    session.register(Sparse);
+    allowed.insert(ALP.id());
+    allowed.insert(ALPRD.id());
+    allowed.insert(BitPacked.id());
+    allowed.insert(ByteBool.id());
+    allowed.insert(DateTimeParts.id());
+    allowed.insert(DecimalByteParts.id());
+    allowed.insert(Delta.id());
+    allowed.insert(FoR.id());
+    allowed.insert(FSST.id());
+    allowed.insert(Pco.id());
+    allowed.insert(RLE.id());
+    allowed.insert(RunEnd.id());
+    allowed.insert(Sequence.id());
+    allowed.insert(Sparse.id());
     #[cfg(feature = "unstable_encodings")]
-    session.register(TurboQuant);
-    session.register(ZigZag);
+    allowed.insert(TurboQuant.id());
+    allowed.insert(ZigZag.id());
 
     #[cfg(feature = "zstd")]
-    session.register(Zstd);
+    allowed.insert(Zstd.id());
     #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
-    session.register(ZstdBuffers);
+    allowed.insert(ZstdBuffers.id());
 
-    session.registry().clone()
+    allowed
 });
 
 /// How the compressor was configured on [`WriteStrategyBuilder`].
@@ -138,7 +139,7 @@ pub struct WriteStrategyBuilder {
     compressor: CompressorConfig,
     row_block_size: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
-    allow_encodings: Option<ArrayRegistry>,
+    allow_encodings: Option<HashSet<ArrayId>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
 }
 
@@ -175,7 +176,7 @@ impl WriteStrategyBuilder {
     }
 
     /// Override the allowed array encodings for normalization.
-    pub fn with_allow_encodings(mut self, allow_encodings: ArrayRegistry) -> Self {
+    pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
         self.allow_encodings = Some(allow_encodings);
         self
     }

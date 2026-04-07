@@ -344,7 +344,7 @@ impl vortex_file::WriteStrategyBuilder
 
 pub fn vortex_file::WriteStrategyBuilder::build(self) -> alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>
 
-pub fn vortex_file::WriteStrategyBuilder::with_allow_encodings(self, allow_encodings: vortex_array::session::ArrayRegistry) -> Self
+pub fn vortex_file::WriteStrategyBuilder::with_allow_encodings(self, allow_encodings: vortex_utils::aliases::hash_set::HashSet<vortex_array::array::ArrayId>) -> Self
 
 pub fn vortex_file::WriteStrategyBuilder::with_btrblocks_builder(self, builder: vortex_btrblocks::builder::BtrBlocksCompressorBuilder) -> Self
 
@@ -396,7 +396,7 @@ pub const vortex_file::VERSION: u16
 
 pub const vortex_file::VORTEX_FILE_EXTENSION: &str
 
-pub static vortex_file::ALLOWED_ENCODINGS: std::sync::lazy_lock::LazyLock<vortex_array::session::ArrayRegistry>
+pub static vortex_file::ALLOWED_ENCODINGS: std::sync::lazy_lock::LazyLock<vortex_utils::aliases::hash_set::HashSet<vortex_array::array::ArrayId>>
 
 pub trait vortex_file::OpenOptionsSessionExt: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt
 

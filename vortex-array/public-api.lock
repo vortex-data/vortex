@@ -13264,15 +13264,17 @@ pub fn V::try_match<'a>(array: &'a vortex_array::ArrayRef) -> core::option::Opti
 
 pub mod vortex_array::normalize
 
-pub enum vortex_array::normalize::Operation
+pub enum vortex_array::normalize::Operation<'a>
 
 pub vortex_array::normalize::Operation::Error
 
+pub vortex_array::normalize::Operation::Execute(&'a mut vortex_array::ExecutionCtx)
+
 pub struct vortex_array::normalize::NormalizeOptions<'a>
 
-pub vortex_array::normalize::NormalizeOptions::allowed: &'a vortex_array::session::ArrayRegistry
+pub vortex_array::normalize::NormalizeOptions::allowed: &'a vortex_utils::aliases::hash_set::HashSet<vortex_session::registry::Id>
 
-pub vortex_array::normalize::NormalizeOptions::operation: vortex_array::normalize::Operation
+pub vortex_array::normalize::NormalizeOptions::operation: vortex_array::normalize::Operation<'a>
 
 pub mod vortex_array::optimizer
 

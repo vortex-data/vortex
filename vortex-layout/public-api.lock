@@ -414,7 +414,7 @@ pub mod vortex_layout::layouts::flat::writer
 
 pub struct vortex_layout::layouts::flat::writer::FlatLayoutStrategy
 
-pub vortex_layout::layouts::flat::writer::FlatLayoutStrategy::allowed_encodings: core::option::Option<vortex_array::session::ArrayRegistry>
+pub vortex_layout::layouts::flat::writer::FlatLayoutStrategy::allowed_encodings: core::option::Option<vortex_utils::aliases::hash_set::HashSet<vortex_array::array::ArrayId>>
 
 pub vortex_layout::layouts::flat::writer::FlatLayoutStrategy::include_padding: bool
 
@@ -422,7 +422,7 @@ pub vortex_layout::layouts::flat::writer::FlatLayoutStrategy::max_variable_lengt
 
 impl vortex_layout::layouts::flat::writer::FlatLayoutStrategy
 
-pub fn vortex_layout::layouts::flat::writer::FlatLayoutStrategy::with_allow_encodings(self, allow_encodings: vortex_array::session::ArrayRegistry) -> Self
+pub fn vortex_layout::layouts::flat::writer::FlatLayoutStrategy::with_allow_encodings(self, allow_encodings: vortex_utils::aliases::hash_set::HashSet<vortex_array::array::ArrayId>) -> Self
 
 pub fn vortex_layout::layouts::flat::writer::FlatLayoutStrategy::with_include_padding(self, include_padding: bool) -> Self
 
