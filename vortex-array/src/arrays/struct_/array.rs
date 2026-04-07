@@ -269,7 +269,7 @@ impl Array<Struct> {
         validity: Validity,
     ) -> Self {
         let fields = fields.into();
-        let outer_dtype = DType::Struct(dtype.clone(), validity.nullability());
+        let outer_dtype = DType::Struct(dtype, validity.nullability());
         let slots = make_struct_slots(&fields, &validity, length);
         unsafe {
             Array::from_parts_unchecked(
@@ -286,9 +286,11 @@ impl Array<Struct> {
         validity: Validity,
     ) -> VortexResult<Self> {
         let fields = fields.into();
-        let outer_dtype = DType::Struct(dtype.clone(), validity.nullability());
+        let outer_dtype = DType::Struct(dtype, validity.nullability());
         let slots = make_struct_slots(&fields, &validity, length);
-        Array::try_from_parts(ArrayParts::new(Struct, outer_dtype, length, StructData).with_slots(slots))
+        Array::try_from_parts(
+            ArrayParts::new(Struct, outer_dtype, length, StructData).with_slots(slots),
+        )
     }
 
     /// Construct a `StructArray` from named fields.

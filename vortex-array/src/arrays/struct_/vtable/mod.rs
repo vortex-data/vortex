@@ -179,7 +179,10 @@ impl VTable for Struct {
             .try_collect()?;
 
         let slots = make_struct_slots(&field_children, &validity, len);
-        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, StructData).with_slots(slots))
+        Ok(
+            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, StructData)
+                .with_slots(slots),
+        )
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {

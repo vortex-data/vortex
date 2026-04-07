@@ -41,7 +41,7 @@ pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray
         length,
         filtered_validity,
     )
-        .vortex_expect("filtered StructArray fields have consistent lengths")
+    .vortex_expect("filtered StructArray fields have consistent lengths")
 }
 
 #[cfg(test)]
