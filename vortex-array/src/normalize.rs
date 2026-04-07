@@ -36,7 +36,7 @@ impl ArrayRef {
                 // Note this takes ownership so we can at a later date remove non-allowed encodings.
                 Ok(self)
             }
-            Operation::Execute(ctx) => self.normalize_with_execution(options.allowed, *ctx),
+            Operation::Execute(ctx) => self.normalize_with_execution(options.allowed, ctx),
         }
     }
 
@@ -75,7 +75,7 @@ impl ArrayRef {
                         allowed,
                         operation: Operation::Execute(ctx),
                     })?;
-                    any_slot_changed |= !ArrayRef::ptr_eq(&child, &normalized_child);
+                    any_slot_changed |= !ArrayRef::ptr_eq(child, &normalized_child);
                     normalized_slots.push(Some(normalized_child));
                 }
                 None => normalized_slots.push(None),
@@ -94,13 +94,18 @@ impl ArrayRef {
 mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use super::NormalizeOptions;
     use super::Operation;
     use crate::ArrayRef;
     use crate::ExecutionCtx;
     use crate::IntoArray;
+    use crate::arrays::Dict;
+    use crate::arrays::DictArray;
+    use crate::arrays::Primitive;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::Slice;
     use crate::arrays::SliceArray;
     use crate::arrays::StructArray;
     use crate::assert_arrays_eq;
@@ -161,6 +166,41 @@ mod tests {
             &normalized_children[1]
         ));
         assert_arrays_eq!(normalized_children[1], PrimitiveArray::from_iter(12i32..16));
+
+        Ok(())
+    }
+
+    #[test]
+    fn normalize_slice_of_dict_returns_dict() -> VortexResult<()> {
+        let codes = PrimitiveArray::from_iter(vec![0u32, 1, 0, 1, 2]).into_array();
+        let values = PrimitiveArray::from_iter(vec![10i32, 20, 30]).into_array();
+        let dict = DictArray::try_new(codes, values)?.into_array();
+
+        // Slice the dict array to get a SliceArray wrapping a DictArray.
+        let sliced = SliceArray::new(dict, 1..4).into_array();
+        assert_eq!(sliced.encoding_id(), Slice::ID);
+
+        let allowed = HashSet::from_iter([Dict::ID, Primitive::ID]);
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+
+        println!("sliced {}", sliced.display_tree());
+
+        let normalized = sliced.normalize(&mut NormalizeOptions {
+            allowed: &allowed,
+            operation: Operation::Execute(&mut ctx),
+        })?;
+
+        println!("after {}", normalized.display_tree());
+
+        // The normalized result should be a DictArray, not a SliceArray.
+        assert_eq!(normalized.encoding_id(), Dict::ID);
+        assert_eq!(normalized.len(), 3);
+
+        // Verify the data: codes [1,0,1] -> values [20, 10, 20]
+        assert_arrays_eq!(
+            normalized.to_canonical()?,
+            PrimitiveArray::from_iter(vec![20i32, 10, 20])
+        );
 
         Ok(())
     }
