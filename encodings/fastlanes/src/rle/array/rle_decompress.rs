@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use arrayref::array_mut_ref;
-use arrayref::array_ref;
 use fastlanes::RLE;
 use num_traits::AsPrimitive;
+use num_traits::NumCast;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -13,6 +12,7 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -55,15 +55,16 @@ where
     let values = values.as_slice::<V>();
 
     let indices = array.indices().clone().execute::<PrimitiveArray>(ctx)?;
-    let indices = indices.as_slice::<I>();
     assert!(indices.len().is_multiple_of(FL_CHUNK_SIZE));
+    let has_invalid = !indices.all_valid()?;
+    let (indices_sl, _) = indices.as_slice::<I>().as_chunks::<FL_CHUNK_SIZE>();
 
     let chunk_start_idx = array.offset() / FL_CHUNK_SIZE;
     let chunk_end_idx = (array.offset() + array.len()).div_ceil(FL_CHUNK_SIZE);
     let num_chunks = chunk_end_idx - chunk_start_idx;
 
     let mut buffer = BufferMut::<V>::with_capacity(num_chunks * FL_CHUNK_SIZE);
-    let buffer_uninit = buffer.spare_capacity_mut();
+    let (out_buf, _) = buffer.spare_capacity_mut().as_chunks_mut::<FL_CHUNK_SIZE>();
 
     let values_idx_offsets = array
         .values_idx_offsets()
@@ -71,26 +72,46 @@ where
         .execute::<PrimitiveArray>(ctx)?;
     let values_idx_offsets = values_idx_offsets.as_slice::<O>();
 
-    for chunk_idx in 0..num_chunks {
+    for (chunk_idx, (chunk_indices, chunk_out)) in
+        indices_sl.iter().zip(out_buf.iter_mut()).enumerate()
+    {
         // Offsets in `values_idx_offsets` are absolute and need to be shifted
-        // by the offset of the first chunk, respective the current slice, in
-        // order to make them relative.
+        // by the offset of the first chunk, respective of the current slice,
+        // to make them relative.
         let value_idx_offset =
             (values_idx_offsets[chunk_idx].as_() - values_idx_offsets[0].as_()) as usize;
 
-        let chunk_values = &values[value_idx_offset..];
-        let chunk_indices = &indices[chunk_idx * FL_CHUNK_SIZE..];
+        let next_value_idx_offset = if chunk_idx + 1 < num_chunks {
+            (values_idx_offsets[chunk_idx + 1].as_() - values_idx_offsets[0].as_()) as usize
+        } else {
+            values.len()
+        };
+        let num_chunk_values = u16::try_from(next_value_idx_offset - value_idx_offset)
+            .vortex_expect("There can be at most 1024 values in RLE chunk");
 
         // SAFETY: `MaybeUninit<T>` and `T` have the same layout.
-        let buffer_values: &mut [V] = unsafe {
-            std::mem::transmute(&mut buffer_uninit[chunk_idx * FL_CHUNK_SIZE..][..FL_CHUNK_SIZE])
-        };
-
-        V::decode(
-            chunk_values,
-            array_ref![chunk_indices, 0, FL_CHUNK_SIZE],
-            array_mut_ref![buffer_values, 0, FL_CHUNK_SIZE],
-        );
+        let buffer_values: &mut [V; FL_CHUNK_SIZE] = unsafe { std::mem::transmute(chunk_out) };
+        let chunk_values = &values[value_idx_offset..];
+        if num_chunk_values == 1 {
+            // Single-value chunk: fill directly to avoid out-of-bounds index
+            // access. The indices may contain values other than 0 when they
+            // have been further compressed (e.g., as a masked constant).
+            buffer_values.fill(chunk_values[0]);
+        } else if has_invalid {
+            // When the indices array has invalid (null) positions, those
+            // positions may contain arbitrary garbage values after further
+            // compression. Clamp all indices into [0, num_chunk_values) to
+            // prevent out-of-bounds access in the fastlanes decoder.
+            let mut sanitized: [u16; FL_CHUNK_SIZE] = [0; FL_CHUNK_SIZE];
+            for (idx_out, idx) in sanitized.iter_mut().zip(chunk_indices) {
+                let idx: u16 =
+                    NumCast::from(*idx).vortex_expect("RLE indices are always less than u16");
+                *idx_out = idx.min(num_chunk_values - 1);
+            }
+            V::decode(chunk_values, &sanitized, buffer_values);
+        } else {
+            V::decode(chunk_values, chunk_indices, buffer_values);
+        }
     }
 
     unsafe {

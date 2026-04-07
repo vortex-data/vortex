@@ -10517,7 +10517,6 @@ dependencies = [
 name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
- "arrayref",
  "codspeed-divan-compat",
  "fastlanes",
  "itertools 0.14.0",
