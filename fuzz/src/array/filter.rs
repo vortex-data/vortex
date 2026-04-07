@@ -100,7 +100,7 @@ pub fn filter_canonical_array(array: &ArrayRef, filter: &[bool]) -> VortexResult
 
             StructArray::try_new_with_dtype(
                 filtered_children,
-                struct_array.struct_fields(),
+                struct_array.struct_fields().clone(),
                 filter.iter().filter(|b| **b).map(|b| *b as usize).sum(),
                 validity,
             )

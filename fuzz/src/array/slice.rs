@@ -69,7 +69,7 @@ pub fn slice_canonical_array(
                 .collect::<VortexResult<Vec<_>>>()?;
             StructArray::try_new_with_dtype(
                 sliced_children,
-                struct_array.struct_fields(),
+                struct_array.struct_fields().clone(),
                 stop - start,
                 validity,
             )
