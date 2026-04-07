@@ -61,8 +61,8 @@ impl<'a, V: VTable> ArrayView<'a, V> {
         self.array.len() == 0
     }
 
-    pub fn encoding_id(&self) -> ArrayId {
-        self.array.encoding_id()
+    pub fn encoding_id(&self) -> &ArrayId {
+        &self.array.encoding_id()
     }
 
     pub fn statistics(&self) -> StatsSetRef<'_> {

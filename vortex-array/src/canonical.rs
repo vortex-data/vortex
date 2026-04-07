@@ -996,16 +996,16 @@ impl Matcher for AnyCanonical {
 
     fn matches(array: &ArrayRef) -> bool {
         let id = array.encoding_id();
-        id == Null::ID
-            || id == Bool::ID
-            || id == Primitive::ID
-            || id == Decimal::ID
-            || id == Struct::ID
-            || id == ListView::ID
-            || id == FixedSizeList::ID
-            || id == VarBinView::ID
-            || id == Variant::ID
-            || id == Extension::ID
+        id == &Null::ID
+            || id == &Bool::ID
+            || id == &Primitive::ID
+            || id == &Decimal::ID
+            || id == &Struct::ID
+            || id == &ListView::ID
+            || id == &FixedSizeList::ID
+            || id == &VarBinView::ID
+            || id == &Variant::ID
+            || id == &Extension::ID
     }
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<Self::Match<'a>> {

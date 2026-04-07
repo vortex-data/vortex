@@ -274,8 +274,8 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns the encoding ID.
-    pub fn encoding_id(&self) -> ArrayId {
-        self.inner.encoding_id()
+    pub fn encoding_id(&self) -> &ArrayId {
+        &self.inner.encoding_id()
     }
 
     /// Returns the statistics.

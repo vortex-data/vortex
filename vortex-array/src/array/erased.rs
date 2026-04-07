@@ -147,8 +147,8 @@ impl ArrayRef {
 
     /// Returns the encoding ID of the array.
     #[inline]
-    pub fn encoding_id(&self) -> ArrayId {
-        self.0.encoding_id()
+    pub fn encoding_id(&self) -> &ArrayId {
+        self.inner().encoding_id()
     }
 
     /// Performs a constant-time slice of the array.

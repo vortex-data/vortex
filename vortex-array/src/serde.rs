@@ -358,7 +358,7 @@ impl SerializedArray {
         );
         assert_eq!(
             decoded.encoding_id(),
-            encoding_id,
+            &encoding_id,
             "Array decoded from {} has incorrect encoding {}",
             encoding_id,
             decoded.encoding_id(),

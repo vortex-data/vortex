@@ -68,7 +68,7 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     fn slots(&self) -> &[Option<ArrayRef>];
 
     /// Returns the encoding ID of the array.
-    fn encoding_id(&self) -> ArrayId;
+    fn encoding_id(&self) -> &ArrayId;
 
     /// Fetch the scalar at the given index.
     ///
@@ -210,8 +210,8 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         &self.slots
     }
 
-    fn encoding_id(&self) -> ArrayId {
-        self.encoding_id.clone()
+    fn encoding_id(&self) -> &ArrayId {
+        &self.encoding_id
     }
 
     fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar> {
@@ -367,7 +367,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
             .is_some_and(|other_inner| {
                 self.len == other.len()
                     && self.dtype == *other.dtype()
-                    && self.vtable.id() == other.encoding_id()
+                    && &self.vtable.id() == other.encoding_id()
                     && self.slots.len() == other_inner.slots.len()
                     && self
                         .slots

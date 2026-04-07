@@ -171,9 +171,10 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             }
 
             let kernels_r = kernels.read();
+            let elements_id = elements.encoding_id().clone();
             if let Some(result) = kernels_r
-                .get(&(elements.encoding_id(), Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
+                .get(&(elements_id.clone(), Some(self.aggregate_fn.id())))
+                .or_else(|| kernels_r.get(&(elements_id, None)))
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
                     let groups = unsafe {
@@ -263,9 +264,10 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
             }
 
             let kernels_r = kernels.read();
+            let elements_id = elements.encoding_id().clone();
             if let Some(result) = kernels_r
-                .get(&(elements.encoding_id(), Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
+                .get(&(elements_id.clone(), Some(self.aggregate_fn.id())))
+                .or_else(|| kernels_r.get(&(elements_id, None)))
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
                     let groups = unsafe {
