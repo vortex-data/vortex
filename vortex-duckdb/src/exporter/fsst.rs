@@ -15,6 +15,7 @@ use vortex::array::match_each_integer_ptype;
 use vortex::buffer::ByteBuffer;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::fsst::FSSTArrayExt;
+use vortex::error::vortex_err;
 use vortex::error::VortexResult;
 
 use crate::cpp;
@@ -102,7 +103,7 @@ impl ColumnExporter for FSSTExporter {
                 let start: usize = offsets[offset + row].as_();
                 let end: usize = offsets[offset + row + 1].as_();
                 let value = &bytes[start..end];
-                out[row] = PtrString::new(value);
+                out[row] = PtrString::new(value)?;
             }
         });
 
@@ -125,24 +126,25 @@ struct PtrString {
 }
 
 impl PtrString {
-    fn new(value: &[u8]) -> Self {
-        let length = u32::try_from(value.len()).expect("FSST code length must fit in u32");
+    fn new(value: &[u8]) -> VortexResult<Self> {
+        let length = u32::try_from(value.len())
+            .map_err(|_| vortex_err!("FSST code length {} exceeds u32", value.len()))?;
         if value.len() <= 12 {
             let mut inlined = [0_i8; 12];
             for (dst, src) in inlined.iter_mut().zip(value) {
                 *dst = *src as i8;
             }
-            Self {
+            Ok(Self {
                 value: PtrStringValue {
                     inlined: PtrStringInlined { length, inlined },
                 },
-            }
+            })
         } else {
             let mut prefix = [0_i8; 4];
             for (dst, src) in prefix.iter_mut().zip(value.iter().copied()) {
                 *dst = src as i8;
             }
-            Self {
+            Ok(Self {
                 value: PtrStringValue {
                     pointer: PtrStringPointer {
                         length,
@@ -150,7 +152,7 @@ impl PtrString {
                         ptr: value.as_ptr().cast_mut().cast::<c_char>(),
                     },
                 },
-            }
+            })
         }
     }
 }

@@ -109,6 +109,10 @@ extern "C" void duckdb_vx_fsst_vector_set(duckdb_vector ffi_vector,
         decoder->symbol[i] = symbols[i];
     }
 
+    // DuckDB can reuse vector instances across chunk exports. Replace the FSST auxiliary buffer
+    // on each export so heap references to prior compressed byte buffers are dropped instead of
+    // accumulating for the lifetime of the reused vector.
+    vector->SetAuxiliary(make_buffer<VectorFSSTStringBuffer>());
     FSSTVector::RegisterDecoder(*vector, decoder_buffer, string_block_limit);
 
     if (buffer) {

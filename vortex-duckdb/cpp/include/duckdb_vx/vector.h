@@ -55,15 +55,13 @@ void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t st
 
 // Finalize a vector as an FSST vector using externally managed compressed string data and a
 // symbol table owned by Vortex.
-void duckdb_vx_fsst_vector_set(
-    duckdb_vector ffi_vector,
-    const uint64_t *symbols,
-    const uint8_t *symbol_lengths,
-    idx_t symbol_count,
-    idx_t string_block_limit,
-    idx_t count,
-    duckdb_vx_vector_buffer buffer
-);
+void duckdb_vx_fsst_vector_set(duckdb_vector ffi_vector,
+                               const uint64_t *symbols,
+                               const uint8_t *symbol_lengths,
+                               idx_t symbol_count,
+                               idx_t string_block_limit,
+                               idx_t count,
+                               duckdb_vx_vector_buffer buffer);
 
 // Returns whether the vector is currently an FSST vector.
 bool duckdb_vx_vector_is_fsst(duckdb_vector ffi_vector);
