@@ -150,6 +150,7 @@ jobs:
         shell: bash
         env:
           RUST_BACKTRACE: full
+          VORTEX_EXPERIMENTAL_PATCHED_ARRAY: 1
         run: |
           # Extract all unique formats from targets (e.g., "datafusion:parquet,duckdb:vortex" -> "parquet,vortex")
           all_formats=$(echo "${{ matrix.targets }}" | tr ',' '\n' | sed 's/^[^:]*://' | sort -u | tr '\n' ',' | sed 's/,$//')
