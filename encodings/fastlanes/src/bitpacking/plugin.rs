@@ -34,6 +34,15 @@ impl ArrayPlugin for BitPackedPatchedPlugin {
         BitPacked::ID
     }
 
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        // delegate to BitPacked VTable for serialization
+        BitPacked.serialize(array, session)
+    }
+
     fn deserialize(
         &self,
         dtype: &DType,

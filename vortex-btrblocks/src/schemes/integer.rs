@@ -3,11 +3,17 @@
 
 //! Integer compression schemes.
 
+use std::env;
+use std::sync::LazyLock;
+
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::FloatDictScheme;
@@ -22,7 +28,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_fastlanes::BitPackedArrayExt;
+use vortex_fastlanes::BitPacked;
 #[cfg(feature = "unstable_encodings")]
 use vortex_fastlanes::Delta;
 use vortex_fastlanes::FoR;
@@ -292,6 +298,10 @@ impl Scheme for ZigZagScheme {
     }
 }
 
+// replicated from vortex-file
+static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
+    LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok());
+
 impl Scheme for BitPackingScheme {
     fn scheme_name(&self) -> &'static str {
         "vortex.int.bitpacking"
@@ -337,21 +347,49 @@ impl Scheme for BitPackingScheme {
 
         let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
-        let patches = packed.patches().map(compress_patches).transpose()?;
-        let mut parts = vortex_fastlanes::BitPacked::into_parts(packed);
-        parts.patches = patches;
+        let mut parts = BitPacked::into_parts(packed);
 
-        Ok(vortex_fastlanes::BitPacked::try_new(
-            parts.packed,
-            ptype,
-            parts.validity,
-            parts.patches,
-            parts.bit_width,
-            parts.len,
-            parts.offset,
-        )?
-        .with_stats_set(packed_stats)
-        .into_array())
+        let array = if *USE_EXPERIMENTAL_PATCHES {
+            let patches = parts.patches.take();
+            // Transpose patches into G-ALP style PatchedArray, wrapping an inner BitPackedArray.
+            let array = BitPacked::try_new(
+                parts.packed,
+                ptype,
+                parts.validity,
+                None,
+                parts.bit_width,
+                parts.len,
+                parts.offset,
+            )?
+            .into_array();
+
+            match patches {
+                None => array,
+                Some(p) => Patched::from_array_and_patches(
+                    array,
+                    &p,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .into_array(),
+            }
+        } else {
+            // Compress patches and place back into BitPackedArray.
+            let patches = parts.patches.take().map(compress_patches).transpose()?;
+            parts.patches = patches;
+            BitPacked::try_new(
+                parts.packed,
+                ptype,
+                parts.validity,
+                parts.patches,
+                parts.bit_width,
+                parts.len,
+                parts.offset,
+            )?
+            .with_stats_set(packed_stats)
+            .into_array()
+        };
+
+        Ok(array)
     }
 }
 
