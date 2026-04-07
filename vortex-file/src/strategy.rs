@@ -59,10 +59,8 @@ use vortex_sparse::Sparse;
 #[cfg(feature = "unstable_encodings")]
 use vortex_tensor::encodings::turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_zigzag::ZigZag;
-
-
 use vortex_utils::aliases::hash_set::HashSet;
+use vortex_zigzag::ZigZag;
 #[cfg(feature = "zstd")]
 use vortex_zstd::Zstd;
 #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]

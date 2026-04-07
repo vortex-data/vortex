@@ -10379,6 +10379,7 @@ dependencies = [
  "vortex-cuda-macros",
  "vortex-error",
  "vortex-nvcomp",
+ "vortex-utils",
 ]
 
 [[package]]
