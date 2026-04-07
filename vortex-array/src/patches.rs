@@ -656,7 +656,7 @@ impl Patches {
         let values = self.values().slice(slice_start_idx..slice_end_idx)?;
         let indices = self.indices().slice(slice_start_idx..slice_end_idx)?;
 
-        let chunk_offsets = self
+        let new_chunk_offsets = self
             .chunk_offsets
             .as_ref()
             .map(|chunk_offsets| -> VortexResult<ArrayRef> {
@@ -667,15 +667,17 @@ impl Patches {
             })
             .transpose()?;
 
-        let offset_within_chunk = chunk_offsets
+        let offset_within_chunk = new_chunk_offsets
             .as_ref()
-            .map(|chunk_offsets| -> VortexResult<usize> {
-                let base_offset = chunk_offsets
+            .map(|new_chunk_offsets| -> VortexResult<usize> {
+                let new_chunk_base = new_chunk_offsets
                     .scalar_at(0)?
                     .as_primitive()
                     .as_::<usize>()
                     .ok_or_else(|| vortex_err!("chunk offset does not fit in usize"))?;
-                Ok(slice_start_idx - base_offset)
+                let parent_chunk_base = self.chunk_offset_at(0)?;
+                let parent_within = self.offset_within_chunk.unwrap_or(0);
+                Ok(parent_chunk_base + parent_within + slice_start_idx - new_chunk_base)
             })
             .transpose()?;
 
@@ -684,7 +686,7 @@ impl Patches {
             offset: range.start + self.offset(),
             indices,
             values,
-            chunk_offsets,
+            chunk_offsets: new_chunk_offsets,
             offset_within_chunk,
         }))
     }
@@ -2149,6 +2151,20 @@ mod test {
             sliced2.search_index(150).unwrap(),
             SearchResult::NotFound(1)
         );
+    }
+
+    #[test]
+    fn test_nested_slice_with_dropped_first_chunk() {
+        // PATCH_CHUNK_SIZE = 1024, so the two patches land in different chunks.
+        let indices = buffer![0u64, 1024].into_array();
+        let values = buffer![1i32, 2].into_array();
+        let chunk_offsets = buffer![0u64, 1].into_array();
+        let patches = Patches::new(2048, 0, indices, values, Some(chunk_offsets)).unwrap();
+
+        // Drop chunk 0, then re-slice the result.
+        let dropped_first = patches.slice(1024..2048).unwrap().unwrap();
+        let resliced = dropped_first.slice(0..1024).unwrap().unwrap();
+        assert_eq!(resliced.num_patches(), 1);
     }
 
     #[test]
