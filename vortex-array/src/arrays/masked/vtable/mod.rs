@@ -4,24 +4,30 @@ mod canonical;
 mod operations;
 mod validity;
 
+use std::hash::Hasher;
+
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::constant::ConstantData;
+use crate::array::validity_to_child;
+use crate::arrays::ConstantArray;
+use crate::arrays::masked::MaskedArrayExt;
 use crate::arrays::masked::MaskedData;
-use crate::arrays::masked::array::NUM_SLOTS;
+use crate::arrays::masked::array::CHILD_SLOT;
 use crate::arrays::masked::array::SLOT_NAMES;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
@@ -29,11 +35,8 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::hash::ArrayEq;
-use crate::hash::ArrayHash;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 vtable!(Masked, Masked, MaskedData);
@@ -45,41 +48,46 @@ impl Masked {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
 }
 
+impl ArrayHash for MaskedData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for MaskedData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 impl VTable for Masked {
     type ArrayData = MaskedData;
 
-    type Metadata = EmptyMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Masked
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &MaskedData) -> usize {
-        array.child().len()
-    }
-
-    fn dtype(array: &MaskedData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &MaskedData) -> &ArrayStats {
-        &array.stats
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &MaskedData, state: &mut H, precision: Precision) {
-        array.child().array_hash(state, precision);
-        array.validity().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &MaskedData, other: &MaskedData, precision: Precision) -> bool {
-        array.child().array_eq(other.child(), precision)
-            && array.validity().array_eq(&other.validity(), precision)
+    fn validate(
+        &self,
+        _data: &MaskedData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots[CHILD_SLOT].is_some(),
+            "MaskedArray child slot must be present"
+        );
+        let child = slots[CHILD_SLOT]
+            .as_ref()
+            .vortex_expect("validated child slot");
+        vortex_ensure!(child.len() == len, "MaskedArray child length mismatch");
+        vortex_ensure!(
+            child.dtype().as_nullable() == *dtype,
+            "MaskedArray dtype does not match child and validity"
+        );
+        Ok(())
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -94,31 +102,26 @@ impl VTable for Masked {
         None
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &[u8],
+
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<MaskedData> {
+        _session: &VortexSession,
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+        if !metadata.is_empty() {
+            vortex_bail!(
+                "MaskedArray expects empty metadata, got {} bytes",
+                metadata.len()
+            );
+        }
         if !buffers.is_empty() {
             vortex_bail!("Expected 0 buffer, got {}", buffers.len());
         }
@@ -138,16 +141,21 @@ impl VTable for Masked {
             Validity::from(dtype.nullability())
         };
 
-        MaskedData::try_new(child, validity)
+        let validity_slot = validity_to_child(&validity, len);
+        let data = MaskedData::try_new(len, child.all_valid()?, validity)?;
+        Ok(
+            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
+                .with_slots(vec![Some(child), validity_slot]),
+        )
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let validity_mask = array.validity_mask()?;
+        let validity_mask = array.masked_validity_mask();
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
             return Ok(ExecutionResult::done(
-                ConstantData::new(Scalar::null(array.dtype().as_nullable()), array.len())
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
                     .into_array(),
             ));
         }
@@ -171,24 +179,8 @@ impl VTable for Masked {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "MaskedArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 }
 
@@ -208,8 +200,8 @@ mod tests {
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
     use crate::dtype::Nullability;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[rstest]
@@ -249,7 +241,7 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
             .decode(
                 &dtype,

@@ -15,6 +15,8 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::IntegerPType;
 use crate::executor::ExecutionCtx;
 use crate::match_each_integer_ptype;
@@ -61,7 +63,7 @@ fn take_with_indices<I: IntegerPType, E: IntegerPType>(
         );
 
         // Since there are no elements to take, we just need to take on the validity map.
-        let new_validity = array.validity().take(indices)?;
+        let new_validity = array.validity()?.take(indices)?;
         let new_len = indices_array.len();
 
         Ok(
@@ -146,7 +148,7 @@ fn take_nullable_fsl<I: IntegerPType, E: IntegerPType>(
     let indices: &[I] = indices_array.as_slice::<I>();
     let new_len = indices.len();
 
-    let array_validity = array.validity_mask();
+    let array_validity = array.fixed_size_list_validity_mask();
     let indices_validity = indices_array.validity_mask();
 
     // We must use placeholder zeros for null lists to maintain the array length without

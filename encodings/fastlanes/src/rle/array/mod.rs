@@ -2,14 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::dtype::DType;
-use vortex_array::dtype::PType;
-use vortex_array::stats::ArrayStats;
+use vortex_array::TypedArrayRef;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-
-use crate::FL_CHUNK_SIZE;
 
 pub mod rle_compress;
 pub mod rle_decompress;
@@ -33,61 +29,11 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["values", "indices", "values_i
 
 #[derive(Clone, Debug)]
 pub struct RLEData {
-    pub(super) dtype: DType,
-    pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats_set: ArrayStats,
     // Offset relative to the start of the chunk.
     pub(super) offset: usize,
-    pub(super) length: usize,
 }
 
 impl RLEData {
-    fn validate(
-        values: &ArrayRef,
-        indices: &ArrayRef,
-        value_idx_offsets: &ArrayRef,
-        offset: usize,
-    ) -> VortexResult<()> {
-        vortex_ensure!(
-            offset < 1024,
-            "Offset must be smaller than 1024, got {}",
-            offset
-        );
-
-        vortex_ensure!(
-            values.dtype().is_primitive(),
-            "RLE values must be a primitive type, got {}",
-            values.dtype()
-        );
-
-        vortex_ensure!(
-            matches!(indices.dtype().as_ptype(), PType::U8 | PType::U16),
-            "RLE indices must be u8 or u16, got {}",
-            indices.dtype()
-        );
-
-        vortex_ensure!(
-            value_idx_offsets.dtype().is_unsigned_int() && !value_idx_offsets.dtype().is_nullable(),
-            "RLE value idx offsets must be non-nullable unsigned integer, got {}",
-            value_idx_offsets.dtype()
-        );
-
-        vortex_ensure!(
-            indices.len().div_ceil(FL_CHUNK_SIZE) == value_idx_offsets.len(),
-            "RLE must have one value idx offset per chunk, got {}",
-            value_idx_offsets.len()
-        );
-
-        vortex_ensure!(
-            indices.len() >= values.len(),
-            "RLE must have at least as many indices as values, got {} indices and {} values",
-            indices.len(),
-            values.len()
-        );
-
-        Ok(())
-    }
-
     /// Create a new chunk-based RLE array from its components.
     ///
     /// # Arguments
@@ -97,26 +43,13 @@ impl RLEData {
     /// * `values_idx_offsets` - Start indices for each value chunk.
     /// * `offset` - Offset into the first chunk
     /// * `length` - Array length
-    pub fn try_new(
-        values: ArrayRef,
-        indices: ArrayRef,
-        values_idx_offsets: ArrayRef,
-        offset: usize,
-        length: usize,
-    ) -> VortexResult<Self> {
-        assert_eq!(indices.len() % FL_CHUNK_SIZE, 0);
-        Self::validate(&values, &indices, &values_idx_offsets, offset)?;
-
-        // Ensure that the DType has the same nullability as the indices array.
-        let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-
-        Ok(Self {
-            dtype,
-            slots: vec![Some(values), Some(indices), Some(values_idx_offsets)],
-            stats_set: ArrayStats::default(),
-            offset,
-            length,
-        })
+    pub fn try_new(offset: usize) -> VortexResult<Self> {
+        vortex_ensure!(
+            offset < 1024,
+            "Offset must be smaller than 1024, got {}",
+            offset
+        );
+        Ok(Self { offset })
     }
 
     /// Create a new RLEArray without validation.
@@ -124,59 +57,36 @@ impl RLEData {
     /// # Safety
     /// The caller must ensure that:
     /// - `offset + length` does not exceed the length of the indices array
-    /// - The `dtype` is consistent with the values array's primitive type and validity nullability
     /// - The `indices` array contains valid indices into chunks of the `values` array
     /// - The `values_idx_offsets` array contains valid chunk start offsets
-    /// - The `validity` array has the same length as `length`
-    pub unsafe fn new_unchecked(
-        values: ArrayRef,
-        indices: ArrayRef,
-        values_idx_offsets: ArrayRef,
-        dtype: DType,
-        offset: usize,
-        length: usize,
-    ) -> Self {
-        Self {
-            dtype,
-            slots: vec![Some(values), Some(indices), Some(values_idx_offsets)],
-            stats_set: ArrayStats::default(),
-            offset,
-            length,
-        }
+    pub unsafe fn new_unchecked(offset: usize) -> Self {
+        Self { offset }
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
-        self.length
+    pub fn offset(&self) -> usize {
+        self.offset
     }
+}
 
+pub trait RLEArrayExt: TypedArrayRef<crate::RLE> {
     #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.length == 0
-    }
-
-    #[inline]
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    #[inline]
-    pub fn values(&self) -> &ArrayRef {
-        self.slots[VALUES_SLOT]
+    fn values(&self) -> &ArrayRef {
+        self.as_ref().slots()[VALUES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values slot must be populated")
     }
 
     #[inline]
-    pub fn indices(&self) -> &ArrayRef {
-        self.slots[INDICES_SLOT]
+    fn indices(&self) -> &ArrayRef {
+        self.as_ref().slots()[INDICES_SLOT]
             .as_ref()
             .vortex_expect("RLEArray indices slot must be populated")
     }
 
     #[inline]
-    pub fn values_idx_offsets(&self) -> &ArrayRef {
-        self.slots[VALUES_IDX_OFFSETS_SLOT]
+    fn values_idx_offsets(&self) -> &ArrayRef {
+        self.as_ref().slots()[VALUES_IDX_OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("RLEArray values_idx_offsets slot must be populated")
     }
@@ -190,7 +100,7 @@ impl RLEData {
         clippy::expect_used,
         reason = "expect is safe here as scalar_at returns a valid primitive"
     )]
-    pub(crate) fn values_idx_offset(&self, chunk_idx: usize) -> usize {
+    fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets()
             .scalar_at(chunk_idx)
             .expect("index must be in bounds")
@@ -208,14 +118,12 @@ impl RLEData {
 
     /// Index offset into the array
     #[inline]
-    pub fn offset(&self) -> usize {
+    fn offset(&self) -> usize {
         self.offset
     }
-
-    pub(crate) fn stats_set(&self) -> &ArrayStats {
-        &self.stats_set
-    }
 }
+
+impl<T: TypedArrayRef<crate::RLE>> RLEArrayExt for T {}
 
 #[cfg(test)]
 mod tests {
@@ -225,12 +133,13 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::primitive::PrimitiveArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerializedArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
@@ -239,8 +148,9 @@ mod tests {
     use vortex_session::registry::ReadContext;
 
     use crate::FL_CHUNK_SIZE;
-    use crate::RLEArray;
+    use crate::RLE;
     use crate::RLEData;
+    use crate::rle::array::RLEArrayExt;
     use crate::test::SESSION;
 
     #[test]
@@ -252,10 +162,8 @@ mod tests {
             PrimitiveArray::from_iter([0u16, 0, 1, 1, 2].iter().cycle().take(1024).copied())
                 .into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64]).into_array();
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices, values_idx_offsets, 0, 5).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices, values_idx_offsets, 0, 5)
+            .vortex_expect("RLEData is always valid");
 
         assert_eq!(rle_array.len(), 5);
         assert_eq!(rle_array.values().len(), 3);
@@ -282,10 +190,8 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 3).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 3)
+            .vortex_expect("RLEData is always valid");
 
         assert_eq!(rle_array.len(), 3);
         assert_eq!(rle_array.values().len(), 2);
@@ -314,10 +220,8 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 5).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 5)
+            .vortex_expect("RLEData is always valid");
 
         let valid_slice = rle_array.slice(0..3).unwrap().to_primitive();
         // TODO(joe): replace with compute null count
@@ -347,10 +251,8 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 5).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 5)
+            .vortex_expect("RLEData is always valid");
 
         // TODO(joe): replace with compute null count
         let invalid_slice = rle_array
@@ -385,10 +287,8 @@ mod tests {
         )
         .into_array();
 
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices_with_validity, values_idx_offsets, 0, 4).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices_with_validity, values_idx_offsets, 0, 4)
+            .vortex_expect("RLEData is always valid");
 
         let sliced_array = rle_array.slice(1..4).unwrap();
         let validity_mask = sliced_array.validity_mask().unwrap();
@@ -408,15 +308,12 @@ mod tests {
         let values = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         let indices = PrimitiveArray::from_iter(Vec::<u16>::new()).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(
-                values,
-                indices.clone(),
-                values_idx_offsets,
-                0,
-                indices.len(),
-            )
-            .unwrap(),
+        let rle_array = RLE::try_new(
+            values,
+            indices.clone(),
+            values_idx_offsets,
+            0,
+            indices.len(),
         )
         .vortex_expect("RLEData is always valid");
 
@@ -429,10 +326,8 @@ mod tests {
         let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]).into_array();
         let indices = PrimitiveArray::from_iter([0u16, 1].repeat(1024)).into_array();
         let values_idx_offsets = PrimitiveArray::from_iter([0u64, 2]).into_array();
-        let rle_array = RLEArray::try_from_data(
-            RLEData::try_new(values, indices, values_idx_offsets, 0, 2048).unwrap(),
-        )
-        .vortex_expect("RLEData is always valid");
+        let rle_array = RLE::try_new(values, indices, values_idx_offsets, 0, 2048)
+            .vortex_expect("RLEData is always valid");
 
         assert_eq!(rle_array.len(), 2048);
         assert_eq!(rle_array.values().len(), 4);
@@ -461,7 +356,7 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
             .decode(
                 &DType::Primitive(PType::U32, Nullability::NonNullable),
@@ -481,15 +376,12 @@ mod tests {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
         let rle_array = RLEData::encode(&primitive).unwrap();
 
-        let sliced = RLEArray::try_from_data(
-            RLEData::try_new(
-                rle_array.values().clone(),
-                rle_array.indices().clone(),
-                rle_array.values_idx_offsets().clone(),
-                100,
-                100,
-            )
-            .unwrap(),
+        let sliced = RLE::try_new(
+            rle_array.values().clone(),
+            rle_array.indices().clone(),
+            rle_array.values_idx_offsets().clone(),
+            100,
+            100,
         )
         .vortex_expect("RLEData is always valid");
         assert_eq!(sliced.len(), 100);
@@ -507,7 +399,7 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
             .decode(
                 sliced.dtype(),
@@ -550,16 +442,15 @@ mod tests {
 
         // Reconstruct the outer RLE with re-encoded indices.
         // SAFETY: we only replace the indices child; all other invariants hold.
-        let reconstructed = RLEArray::try_from_data(unsafe {
-            RLEData::new_unchecked(
+        let reconstructed = unsafe {
+            RLE::new_unchecked(
                 rle.values().clone(),
                 re_encoded.into_array(),
                 rle.values_idx_offsets().clone(),
-                rle.dtype().clone(),
                 rle.offset(),
                 rle.len(),
             )
-        })?;
+        };
 
         // Decompress — panicked before the fill_forward_nulls chunk-boundary fix.
         let decoded = reconstructed.as_array().to_primitive();

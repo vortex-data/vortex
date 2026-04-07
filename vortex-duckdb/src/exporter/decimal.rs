@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use num_traits::ToPrimitive;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::DecimalArray;
-use vortex::array::arrays::decimal::DecimalArrayParts;
+use vortex::array::arrays::decimal::DecimalDataParts;
 use vortex::array::match_each_decimal_value_type;
 use vortex::buffer::Buffer;
 use vortex::dtype::BigCast;
@@ -42,12 +42,12 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let len = array.len();
-    let DecimalArrayParts {
+    let DecimalDataParts {
         validity,
         decimal_dtype,
         values_type,
         values,
-    } = array.into_data().into_parts();
+    } = array.into_data_parts();
     let dest_values_type = precision_to_duckdb_storage_size(&decimal_dtype)?;
     let nullability = validity.nullability();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;

@@ -11,6 +11,7 @@ use crate::array::ArrayView;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
 use crate::arrays::slice::SliceReduce;
+use crate::arrays::varbin::VarBinArrayExt;
 
 impl SliceReduce for VarBin {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -25,7 +26,7 @@ impl VarBin {
                 array.offsets().slice(range.start..range.end + 1)?,
                 array.bytes_handle().clone(),
                 array.dtype().clone(),
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array()
         })

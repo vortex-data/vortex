@@ -8,6 +8,7 @@ pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;

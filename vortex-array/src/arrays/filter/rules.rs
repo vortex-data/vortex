@@ -11,7 +11,8 @@ use crate::array::ArrayView;
 use crate::arrays::Filter;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
-use crate::arrays::struct_::StructArrayParts;
+use crate::arrays::filter::FilterArrayExt;
+use crate::arrays::struct_::StructDataParts;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -69,12 +70,12 @@ impl ArrayReduceRule<Filter> for FilterStructRule {
         };
 
         let len = mask.true_count();
-        let StructArrayParts {
+        let StructDataParts {
             fields,
             struct_fields,
             validity,
             ..
-        } = struct_array.into_owned().into_data().into_parts();
+        } = struct_array.into_owned().into_data_parts();
 
         let filtered_validity = validity.filter(mask)?;
 

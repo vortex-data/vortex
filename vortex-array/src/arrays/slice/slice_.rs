@@ -10,6 +10,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Slice;
 use crate::arrays::SliceArray;
+use crate::arrays::slice::SliceArrayExt;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Slice {

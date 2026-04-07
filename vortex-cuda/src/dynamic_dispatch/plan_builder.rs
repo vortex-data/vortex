@@ -12,15 +12,22 @@ use vortex::array::ArrayRef;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
 use vortex::array::arrays::Slice;
+use vortex::array::arrays::dict::DictArrayExt;
+use vortex::array::arrays::slice::SliceArrayExt;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
+use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::fastlanes::BitPacked;
+use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::FoR;
+use vortex::encodings::fastlanes::FoRArrayExt;
 use vortex::encodings::runend::RunEnd;
+use vortex::encodings::runend::RunEndArrayExt;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::zigzag::ZigZag;
+use vortex::encodings::zigzag::ZigZagArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -392,7 +399,7 @@ impl FusedPlan {
         let slice_arr = array.as_::<Slice>();
         let child = slice_arr.child().clone();
 
-        if let Some(reduced) = child.vtable().reduce_parent(&child, &array, 0)? {
+        if let Some(reduced) = child.reduce_parent(&array, 0)? {
             return self.walk(reduced, pending_subtrees);
         }
 

@@ -3,12 +3,12 @@
 
 //! Integer compression schemes.
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
@@ -19,7 +19,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_fastlanes::BitPackedArrayExt;
 use vortex_fastlanes::FoR;
+use vortex_fastlanes::FoRArrayExt;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
@@ -28,6 +30,7 @@ use vortex_runend::compress::runend_encode;
 use vortex_sequence::sequence_encode;
 use vortex_sparse::Sparse;
 use vortex_zigzag::ZigZag;
+use vortex_zigzag::ZigZagArrayExt;
 use vortex_zigzag::zigzag_encode;
 
 use crate::ArrayAndStats;
@@ -336,12 +339,23 @@ impl Scheme for BitPackingScheme {
             return Ok(stats.source().clone().into_array());
         }
         let packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
-        let mut packed_data = packed.into_data();
+        let packed_stats = packed.statistics().to_owned();
+        let ptype = packed.dtype().as_ptype();
+        let patches = packed.patches().map(compress_patches).transpose()?;
+        let mut parts = vortex_fastlanes::BitPacked::into_parts(packed);
+        parts.patches = patches;
 
-        let patches = packed_data.patches().map(compress_patches).transpose()?;
-        packed_data.replace_patches(patches);
-
-        Ok(Array::<vortex_fastlanes::BitPacked>::try_from_data(packed_data)?.into_array())
+        Ok(vortex_fastlanes::BitPacked::try_new(
+            parts.packed,
+            ptype,
+            parts.validity,
+            parts.patches,
+            parts.bit_width,
+            parts.len,
+            parts.offset,
+        )?
+        .with_stats_set(packed_stats)
+        .into_array())
     }
 }
 
@@ -780,7 +794,7 @@ mod tests {
                 false, false, false, false, false, false, false, false, false, false, true,
             ]),
         );
-        let validity = array.validity();
+        let validity = array.validity()?;
 
         let btr = BtrBlocksCompressor::default();
         let compressed = btr.compress(&array.into_array())?;
@@ -839,7 +853,7 @@ mod tests {
             .into_array();
 
         let btr = BtrBlocksCompressor::default();
-        drop(btr.compress(&prim)?);
+        btr.compress(&prim)?;
 
         Ok(())
     }
@@ -857,6 +871,9 @@ mod scheme_selection_tests {
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::expr::stats::StatsProviderExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
@@ -895,6 +912,18 @@ mod scheme_selection_tests {
         let btr = BtrBlocksCompressor::default();
         let compressed = btr.compress(&array.into_array())?;
         assert!(compressed.is::<BitPacked>());
+        assert_eq!(
+            compressed.statistics().get_as::<u64>(Stat::NullCount),
+            Some(Precision::exact(0u64))
+        );
+        assert_eq!(
+            compressed.statistics().get_as::<u32>(Stat::Min),
+            Some(Precision::exact(0u32))
+        );
+        assert_eq!(
+            compressed.statistics().get_as::<u32>(Stat::Max),
+            Some(Precision::exact(15u32))
+        );
         Ok(())
     }
 

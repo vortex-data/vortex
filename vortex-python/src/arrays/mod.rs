@@ -26,6 +26,8 @@ use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::Chunked;
+use vortex::array::arrays::bool::BoolArrayExt;
+use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrow::IntoArrowArray;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;

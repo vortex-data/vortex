@@ -2,21 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::hash::Hasher;
 
+use prost::Message;
 use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
-use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::dtype::DType;
@@ -27,22 +27,23 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_patches;
 use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::VTable;
+use vortex_array::vtable::child_to_validity;
+use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::BitPackedArrayExt;
 use crate::BitPackedData;
+use crate::BitPackedDataParts;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
-use crate::bitpacking::array::NUM_SLOTS;
 use crate::bitpacking::array::PATCH_CHUNK_OFFSETS_SLOT;
 use crate::bitpacking::array::PATCH_INDICES_SLOT;
 use crate::bitpacking::array::PATCH_VALUES_SLOT;
@@ -67,52 +68,71 @@ pub struct BitPackedMetadata {
     pub(crate) patches: Option<PatchesMetadata>,
 }
 
+impl ArrayHash for BitPackedData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.offset.hash(state);
+        self.bit_width.hash(state);
+        self.packed.array_hash(state, precision);
+        self.patch_offset.hash(state);
+        self.patch_offset_within_chunk.hash(state);
+    }
+}
+
+impl ArrayEq for BitPackedData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.offset == other.offset
+            && self.bit_width == other.bit_width
+            && self.packed.array_eq(&other.packed, precision)
+            && self.patch_offset == other.patch_offset
+            && self.patch_offset_within_chunk == other.patch_offset_within_chunk
+    }
+}
+
 impl VTable for BitPacked {
     type ArrayData = BitPackedData;
 
-    type Metadata = ProstMetadata<BitPackedMetadata>;
-
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
-    fn vtable(_array: &BitPackedData) -> &Self {
-        &BitPacked
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &BitPackedData) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &BitPackedData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &BitPackedData) -> &ArrayStats {
-        &array.stats_set
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &BitPackedData,
-        state: &mut H,
-        precision: Precision,
-    ) {
-        array.offset.hash(state);
-        array.bit_width.hash(state);
-        array.packed.array_hash(state, precision);
-        array.patches().array_hash(state, precision);
-        array.validity().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &BitPackedData, other: &BitPackedData, precision: Precision) -> bool {
-        array.offset == other.offset
-            && array.bit_width == other.bit_width
-            && array.packed.array_eq(&other.packed, precision)
-            && array.patches().array_eq(&other.patches(), precision)
-            && array.validity().array_eq(&other.validity(), precision)
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let validity = child_to_validity(&slots[VALIDITY_SLOT].clone(), dtype.nullability());
+        let patches = match (&slots[PATCH_INDICES_SLOT], &slots[PATCH_VALUES_SLOT]) {
+            (Some(indices), Some(values)) => {
+                let patch_offset = data
+                    .patch_offset
+                    .vortex_expect("has patch slots but no patch_offset");
+                Some(unsafe {
+                    Patches::new_unchecked(
+                        len,
+                        patch_offset,
+                        indices.clone(),
+                        values.clone(),
+                        slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                        data.patch_offset_within_chunk,
+                    )
+                })
+            }
+            _ => None,
+        };
+        BitPackedData::validate(
+            &data.packed,
+            dtype.as_ptype(),
+            &validity,
+            patches.as_ref(),
+            data.bit_width,
+            len,
+            data.offset,
+        )
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -141,70 +161,34 @@ impl VTable for BitPacked {
         RULES.evaluate(array, parent, child_idx)
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "BitPackedArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-
-        // If patch slots are being cleared, clear the metadata too
-        if slots[PATCH_INDICES_SLOT].is_none() || slots[PATCH_VALUES_SLOT].is_none() {
-            array.patch_offset = None;
-            array.patch_offset_within_chunk = None;
-        }
-
-        array.slots = slots;
-        Ok(())
-    }
-
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(BitPackedMetadata {
-            bit_width: array.bit_width() as u32,
-            offset: array.offset() as u32,
-            patches: array
-                .patches()
-                .map(|p| p.to_metadata(array.len(), array.dtype()))
-                .transpose()?,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            BitPackedMetadata {
+                bit_width: array.bit_width() as u32,
+                offset: array.offset() as u32,
+                patches: array
+                    .patches()
+                    .map(|p| p.to_metadata(array.len(), array.dtype()))
+                    .transpose()?,
+            }
+            .encode_to_vec(),
+        ))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        let inner = <ProstMetadata<BitPackedMetadata> as DeserializeMetadata>::deserialize(bytes)?;
-        Ok(ProstMetadata(inner))
-    }
-
-    /// Deserialize a BitPackedArray from its components.
-    ///
-    /// Note that the layout depends on whether patches and chunk_offsets are present:
-    /// - No patches: `[validity?]`
-    /// - With patches: `[patch_indices, patch_values, chunk_offsets?, validity?]`
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
+        metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<BitPackedData> {
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayParts<Self>> {
+        let metadata = BitPackedMetadata::decode(metadata)?;
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
@@ -248,10 +232,20 @@ impl VTable for BitPacked {
             })
             .transpose()?;
 
-        BitPackedData::try_new(
+        let slots = {
+            let (pi, pv, pco) = match &patches {
+                Some(p) => (
+                    Some(p.indices().clone()),
+                    Some(p.values().clone()),
+                    p.chunk_offsets().clone(),
+                ),
+                None => (None, None, None),
+            };
+            let validity_slot = validity_to_child(&validity, len);
+            vec![pi, pv, pco, validity_slot]
+        };
+        let data = BitPackedData::try_new(
             packed,
-            PType::try_from(dtype)?,
-            validity,
             patches,
             u8::try_from(metadata.bit_width).map_err(|_| {
                 vortex_err!(
@@ -259,14 +253,14 @@ impl VTable for BitPacked {
                     metadata.bit_width
                 )
             })?,
-            len,
             u16::try_from(metadata.offset).map_err(|_| {
                 vortex_err!(
                     "BitPackedMetadata offset {} does not fit in u16",
                     metadata.offset
                 )
             })?,
-        )
+        )?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn append_to_builder(
@@ -274,9 +268,9 @@ impl VTable for BitPacked {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        match_each_integer_ptype!(array.ptype(), |T| {
+        match_each_integer_ptype!(array.dtype().as_ptype(), |T| {
             unpack_into_primitive_builder::<T>(
-                &array,
+                array,
                 builder
                     .as_any_mut()
                     .downcast_mut()
@@ -294,10 +288,15 @@ impl VTable for BitPacked {
             PATCH_VALUES_SLOT,
             PATCH_CHUNK_OFFSETS_SLOT
         );
-        require_validity!(array, &array.validity(), VALIDITY_SLOT => AnyCanonical);
+        let validity = array.validity()?;
+        require_validity!(
+            array,
+            &validity,
+            VALIDITY_SLOT => AnyCanonical
+        );
 
         Ok(ExecutionResult::done(
-            unpack_array(&array, ctx)?.into_array(),
+            unpack_array(array.as_view(), ctx)?.into_array(),
         ))
     }
 
@@ -316,6 +315,47 @@ pub struct BitPacked;
 
 impl BitPacked {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.bitpacked");
+
+    pub fn try_new(
+        packed: BufferHandle,
+        ptype: PType,
+        validity: Validity,
+        patches: Option<Patches>,
+        bit_width: u8,
+        len: usize,
+        offset: u16,
+    ) -> VortexResult<BitPackedArray> {
+        let dtype = DType::Primitive(ptype, validity.nullability());
+        let slots = {
+            let (pi, pv, pco) = match &patches {
+                Some(p) => (
+                    Some(p.indices().clone()),
+                    Some(p.values().clone()),
+                    p.chunk_offsets().clone(),
+                ),
+                None => (None, None, None),
+            };
+            let validity_slot = validity_to_child(&validity, len);
+            vec![pi, pv, pco, validity_slot]
+        };
+        let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
+        Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
+    }
+
+    pub fn into_parts(array: BitPackedArray) -> BitPackedDataParts {
+        let len = array.len();
+        let patches = array.patches();
+        let validity = array.validity().vortex_expect("BitPacked validity");
+        let data = array.into_data();
+        BitPackedDataParts {
+            offset: data.offset,
+            bit_width: data.bit_width,
+            len,
+            packed: data.packed,
+            patches,
+            validity,
+        }
+    }
 
     /// Encode an array into a bitpacked representation with the given bit width.
     pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<BitPackedArray> {

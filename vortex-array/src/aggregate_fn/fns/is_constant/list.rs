@@ -6,6 +6,7 @@ use vortex_error::VortexResult;
 use super::arrays_value_equal;
 use crate::ExecutionCtx;
 use crate::arrays::ListViewArray;
+use crate::arrays::listview::ListViewArrayExt;
 
 /// Check if a list view array is constant by comparing each list's elements.
 ///

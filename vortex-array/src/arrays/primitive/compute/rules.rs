@@ -38,7 +38,7 @@ impl ArrayParentReduceRule<Primitive> for PrimitiveMaskedValidityRule {
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(joe): make this lazy
         // Merge the parent's validity mask into the child's validity
-        let new_validity = array.validity().and(parent.validity())?;
+        let new_validity = array.validity()?.and(parent.validity()?)?;
 
         // SAFETY: masking validity does not change PrimitiveArray invariants
         let masked_array = unsafe {

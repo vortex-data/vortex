@@ -7,6 +7,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Chunked;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Chunked> for Chunked {

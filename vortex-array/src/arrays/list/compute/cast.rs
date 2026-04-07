@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::List;
 use crate::arrays::ListArray;
+use crate::arrays::list::ListArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -19,7 +20,7 @@ impl CastReduce for List {
         };
 
         let validity = array
-            .validity()
+            .validity()?
             .cast_nullability(dtype.nullability(), array.len())?;
 
         let new_elements = array.elements().cast((**target_element_type).clone())?;

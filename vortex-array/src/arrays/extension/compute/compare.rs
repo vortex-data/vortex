@@ -9,6 +9,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Extension;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;

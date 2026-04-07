@@ -16,6 +16,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::like::Like;
@@ -158,7 +159,7 @@ fn run_like_on_array(
     len: usize,
     opts: LikeOptions,
 ) -> VortexResult<BoolArray> {
-    use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 
     let pattern_arr = ConstantArray::new(pattern, len).into_array();
     let result = Like

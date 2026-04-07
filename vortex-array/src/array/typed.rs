@@ -16,14 +16,56 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ValidityHelper;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
+use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
+
+/// Construction parameters for typed arrays.
+pub struct ArrayParts<V: VTable> {
+    pub vtable: V,
+    pub dtype: DType,
+    pub len: usize,
+    pub data: V::ArrayData,
+    pub slots: Vec<Option<ArrayRef>>,
+}
+
+impl<V: VTable> ArrayParts<V> {
+    pub fn new(vtable: V, dtype: DType, len: usize, data: V::ArrayData) -> Self {
+        Self {
+            vtable,
+            dtype,
+            len,
+            data,
+            slots: Vec::new(),
+        }
+    }
+
+    pub fn with_slots(mut self, slots: Vec<Option<ArrayRef>>) -> Self {
+        self.slots = slots;
+        self
+    }
+}
+
+/// Shared bound for helpers that should work over both owned [`Array<V>`] and borrowed
+/// [`ArrayView<V>`].
+///
+/// Extension traits use this to share typed array logic while still exposing the backing
+/// [`ArrayRef`] and the encoding-specific [`VTable::ArrayData`].
+pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::ArrayData> {
+    /// Returns an owned [`Array<V>`] from the reference.
+    fn to_owned(&self) -> Array<V> {
+        self.as_ref().clone().downcast()
+    }
+}
+
+impl<V: VTable> TypedArrayRef<V> for Array<V> {}
+
+impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {}
 // =============================================================================
 // ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
 // =============================================================================
@@ -39,18 +81,26 @@ pub(crate) struct ArrayInner<V: VTable> {
     pub(crate) dtype: DType,
     pub(crate) len: usize,
     pub(crate) data: V::ArrayData,
+    pub(crate) slots: Vec<Option<ArrayRef>>,
     pub(crate) stats: ArrayStats,
 }
 
 impl<V: VTable> ArrayInner<V> {
-    /// Create a new inner array from encoding-specific data.
+    /// Create a new inner array from explicit construction parameters.
     #[doc(hidden)]
-    pub fn try_from_data(data: V::ArrayData) -> VortexResult<Self> {
-        let vtable = V::vtable(&data).clone();
-        let dtype = V::dtype(&data).clone();
-        let len = V::len(&data);
-        let stats = V::stats(&data).clone();
-        Ok(unsafe { Self::from_data_unchecked(vtable, dtype, len, data, stats) })
+    pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
+        new.vtable
+            .validate(&new.data, &new.dtype, new.len, &new.slots)?;
+        Ok(unsafe {
+            Self::from_data_unchecked(
+                new.vtable,
+                new.dtype,
+                new.len,
+                new.data,
+                new.slots,
+                ArrayStats::default(),
+            )
+        })
     }
 
     /// Create without validation.
@@ -62,6 +112,7 @@ impl<V: VTable> ArrayInner<V> {
         dtype: DType,
         len: usize,
         data: V::ArrayData,
+        slots: Vec<Option<ArrayRef>>,
         stats: ArrayStats,
     ) -> Self {
         Self {
@@ -69,6 +120,7 @@ impl<V: VTable> ArrayInner<V> {
             dtype,
             len,
             data,
+            slots,
             stats,
         }
     }
@@ -94,6 +146,7 @@ impl<V: VTable> Clone for ArrayInner<V> {
             dtype: self.dtype.clone(),
             len: self.len,
             data: self.data.clone(),
+            slots: self.slots.clone(),
             stats: self.stats.clone(),
         }
     }
@@ -106,6 +159,7 @@ impl<V: VTable> Debug for ArrayInner<V> {
             .field("dtype", &self.dtype)
             .field("len", &self.len)
             .field("inner", &self.data)
+            .field("slots", &self.slots)
             .finish()
     }
 }
@@ -140,13 +194,35 @@ pub struct Array<V: VTable> {
 
 #[allow(clippy::same_name_method)]
 impl<V: VTable> Array<V> {
-    /// Create a typed array from encoding-specific data.
-    pub fn try_from_data(data: V::ArrayData) -> VortexResult<Self> {
-        let inner = ArrayRef::from_inner(Arc::new(ArrayInner::<V>::try_from_data(data)?));
+    /// Create a typed array from explicit construction parameters.
+    pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
+        let inner = ArrayRef::from_inner(Arc::new(ArrayInner::<V>::try_new(new)?));
         Ok(Self {
             inner,
             _phantom: PhantomData,
         })
+    }
+
+    /// Create a typed array from explicit construction parameters without validation.
+    ///
+    /// # Safety
+    /// Caller must ensure the provided parts are logically consistent.
+    #[doc(hidden)]
+    pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
+        let inner = ArrayRef::from_inner(Arc::new(unsafe {
+            ArrayInner::<V>::from_data_unchecked(
+                new.vtable,
+                new.dtype,
+                new.len,
+                new.data,
+                new.slots,
+                ArrayStats::default(),
+            )
+        }));
+        Self {
+            inner,
+            _phantom: PhantomData,
+        }
     }
 
     /// Create from an existing `ArrayRef`, trusting that it contains `ArrayInner<V>`.
@@ -203,9 +279,41 @@ impl<V: VTable> Array<V> {
         &self.downcast_inner().data
     }
 
+    /// Returns the full typed array construction parts if this handle owns the allocation.
+    pub fn try_into_parts(self) -> Result<ArrayParts<V>, Self> {
+        let Self { inner, _phantom } = self;
+        let any = inner.into_inner().into_any_arc();
+        let inner = Arc::downcast::<ArrayInner<V>>(any)
+            .unwrap_or_else(|_| unreachable!("typed array must contain ArrayInner for its vtable"));
+
+        match Arc::try_unwrap(inner) {
+            Ok(inner) => Ok(ArrayParts {
+                vtable: inner.vtable,
+                dtype: inner.dtype,
+                len: inner.len,
+                data: inner.data,
+                slots: inner.slots,
+            }),
+            Err(inner) => Err(Self {
+                inner: ArrayRef::from_inner(inner),
+                _phantom: PhantomData,
+            }),
+        }
+    }
+
+    pub fn with_stats_set(self, stats: StatsSet) -> Self {
+        self.statistics().replace(stats);
+        self
+    }
+
     /// Returns a clone of the inner encoding-specific data.
     pub fn into_data(self) -> V::ArrayData {
         self.downcast_inner().data.clone()
+    }
+
+    /// Returns the array slots.
+    pub fn slots(&self) -> &[Option<ArrayRef>] {
+        &self.downcast_inner().slots
     }
 
     /// Returns the internal [`ArrayRef`].
@@ -232,17 +340,6 @@ impl<V: VTable> Array<V> {
     }
 }
 
-impl<V: VTable> Array<V>
-where
-    V::ArrayData: ValidityHelper,
-{
-    /// Returns a reference to the validity.
-    #[allow(clippy::same_name_method)]
-    pub fn validity(&self) -> &Validity {
-        ValidityHelper::validity(self.data())
-    }
-}
-
 /// Public API methods that shadow `DynArray` / `ArrayRef` methods.
 impl<V: VTable> Array<V> {
     #[allow(clippy::same_name_method)]
@@ -263,6 +360,11 @@ impl<V: VTable> Array<V> {
     #[allow(clippy::same_name_method)]
     pub fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
         self.inner.take(indices)
+    }
+
+    #[allow(clippy::same_name_method)]
+    pub fn validity(&self) -> VortexResult<Validity> {
+        self.inner.validity()
     }
 
     #[allow(clippy::same_name_method)]
@@ -380,5 +482,40 @@ impl<V: VTable> IntoArray for Arc<Array<V>> {
 impl<V: VTable> From<Array<V>> for ArrayRef {
     fn from(value: Array<V>) -> ArrayRef {
         value.inner
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+
+    use super::Array;
+    use crate::arrays::Primitive;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
+    use crate::validity::Validity;
+
+    #[test]
+    fn typed_array_into_parts_roundtrips() {
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
+        let expected = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
+
+        let parts = array.try_into_parts().unwrap();
+        let rebuilt = Array::<Primitive>::try_from_parts(parts).unwrap();
+
+        assert_arrays_eq!(rebuilt, expected);
+    }
+
+    #[test]
+    fn typed_array_try_into_parts_requires_unique_owner() {
+        let array = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::NonNullable);
+        let alias = array.clone();
+
+        let array = match array.try_into_parts() {
+            Ok(_) => panic!("aliased arrays should not move out their backing parts"),
+            Err(array) => array,
+        };
+
+        assert_arrays_eq!(array, alias);
     }
 }

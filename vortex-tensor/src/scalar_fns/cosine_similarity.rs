@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Cosine similarity expression for tensor-like extension arrays
-//! ([`FixedShapeTensor`](crate::fixed_shape::FixedShapeTensor) and
-//! [`Vector`](crate::vector::Vector)).
+//! Cosine similarity expression for tensor-like types.
 
 use std::fmt::Formatter;
 
-use num_traits::Float;
+use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFnArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
@@ -21,18 +20,20 @@ use vortex_array::match_each_float_ptype;
 use vortex_array::scalar_fn::Arity;
 use vortex_array::scalar_fn::ChildName;
 use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::compute::cosine_similarity;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
-use crate::utils::extension_element_ptype;
-use crate::utils::extension_list_size;
-use crate::utils::extension_storage;
-use crate::utils::extract_flat_elements;
+use crate::scalar_fns::inner_product::InnerProduct;
+use crate::scalar_fns::l2_norm::L2Norm;
 
 /// Cosine similarity between two columns.
 ///
@@ -47,6 +48,30 @@ use crate::utils::extract_flat_elements;
 /// [`Vector`]: crate::vector::Vector
 #[derive(Clone)]
 pub struct CosineSimilarity;
+
+impl CosineSimilarity {
+    /// Creates a new [`ScalarFn`] wrapping the cosine similarity operation with the given
+    /// [`ApproxOptions`] controlling approximation behavior.
+    pub fn new(options: &ApproxOptions) -> ScalarFn<CosineSimilarity> {
+        ScalarFn::new(CosineSimilarity, options.clone())
+    }
+
+    /// Constructs a [`ScalarFnArray`] that lazily computes the cosine similarity between `lhs` and
+    /// `rhs`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
+    /// mismatches).
+    pub fn try_new_array(
+        options: &ApproxOptions,
+        lhs: ArrayRef,
+        rhs: ArrayRef,
+        len: usize,
+    ) -> VortexResult<ScalarFnArray> {
+        ScalarFnArray::try_new(CosineSimilarity::new(options).erased(), vec![lhs, rhs], len)
+    }
+}
 
 impl ScalarFnVTable for CosineSimilarity {
     type Options = ApproxOptions;
@@ -97,12 +122,10 @@ impl ScalarFnVTable for CosineSimilarity {
             vortex_err!("CosineSimilarity lhs must be an extension type, got {lhs}")
         })?;
 
-        vortex_ensure!(
-            lhs_ext.is::<AnyTensor>(),
-            "CosineSimilarity inputs must be an `AnyTensor`, got {lhs}"
-        );
-
-        let ptype = extension_element_ptype(lhs_ext)?;
+        let tensor_match = lhs_ext.metadata_opt::<AnyTensor>().ok_or_else(|| {
+            vortex_err!("CosineSimilarity inputs must be an `AnyTensor`, got {lhs}")
+        })?;
+        let ptype = tensor_match.element_ptype();
         vortex_ensure!(
             ptype.is_float(),
             "CosineSimilarity element dtype must be a float primitive, got {ptype}"
@@ -114,37 +137,65 @@ impl ScalarFnVTable for CosineSimilarity {
 
     fn execute(
         &self,
-        _options: &Self::Options,
+        options: &Self::Options,
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let lhs = args.get(0)?;
-        let rhs = args.get(1)?;
-        let row_count = args.row_count();
+        let lhs_ref = args.get(0)?;
+        let rhs_ref = args.get(1)?;
 
-        // Get list size from the dtype. Both sides should have the same dtype.
-        let ext = lhs.dtype().as_extension_opt().ok_or_else(|| {
-            vortex_err!(
-                "cosine_similarity input must be an extension type, got {}",
-                lhs.dtype()
+        let len = args.row_count();
+
+        // TurboQuant approximate path: check encoding before executing.
+        if options.is_approx()
+            && let (Some(lhs_tq), Some(rhs_tq)) = (
+                lhs_ref.as_opt::<TurboQuant>(),
+                rhs_ref.as_opt::<TurboQuant>(),
             )
-        })?;
-        let list_size = extension_list_size(ext)? as usize;
+        {
+            return cosine_similarity::cosine_similarity_quantized_column(lhs_tq, rhs_tq, ctx);
+        }
 
-        // Extract the storage array from each extension input. We pass the storage (FSL) rather
-        // than the extension array to avoid canonicalizing the extension wrapper.
-        let lhs_storage = extension_storage(&lhs)?;
-        let rhs_storage = extension_storage(&rhs)?;
+        let lhs = lhs_ref.execute::<ExtensionArray>(ctx)?;
+        let rhs = rhs_ref.execute::<ExtensionArray>(ctx)?;
 
-        let lhs_flat = extract_flat_elements(&lhs_storage, list_size, ctx)?;
-        let rhs_flat = extract_flat_elements(&rhs_storage, list_size, ctx)?;
+        // Compute combined validity.
+        let validity = lhs.as_ref().validity()?.and(rhs.as_ref().validity()?)?;
 
-        match_each_float_ptype!(lhs_flat.ptype(), |T| {
-            let result: PrimitiveArray = (0..row_count)
-                .map(|i| cosine_similarity_row(lhs_flat.row::<T>(i), rhs_flat.row::<T>(i)))
+        let lhs = lhs.into_array();
+        let rhs = rhs.into_array();
+
+        // Compute inner product and norms as columnar operations, and propagate the options.
+        let norm_lhs_arr = L2Norm::try_new_array(options, lhs.clone(), len)?;
+        let norm_rhs_arr = L2Norm::try_new_array(options, rhs.clone(), len)?;
+        let dot_arr = InnerProduct::try_new_array(options, lhs, rhs, len)?;
+
+        // Execute to get PrimitiveArrays.
+        let dot: PrimitiveArray = dot_arr.into_array().execute(ctx)?;
+        let norm_l: PrimitiveArray = norm_lhs_arr.into_array().execute(ctx)?;
+        let norm_r: PrimitiveArray = norm_rhs_arr.into_array().execute(ctx)?;
+
+        // Divide element-wise, guarding against zero norms.
+        match_each_float_ptype!(dot.ptype(), |T| {
+            let dots = dot.as_slice::<T>();
+            let norms_l = norm_l.as_slice::<T>();
+            let norms_r = norm_r.as_slice::<T>();
+            let buffer: Buffer<T> = (0..len)
+                .map(|i| {
+                    // TODO(connor): Would it be better to make this a binary multiply?
+                    // What happens when this overflows???
+                    let denom = norms_l[i] * norms_r[i];
+
+                    if denom == T::zero() {
+                        T::zero()
+                    } else {
+                        dots[i] / denom
+                    }
+                })
                 .collect();
 
-            Ok(result.into_array())
+            // SAFETY: The buffer length equals `len`, which matches the source validity length.
+            Ok(unsafe { PrimitiveArray::new_unchecked(buffer, validity) }.into_array())
         })
     }
 
@@ -169,30 +220,16 @@ impl ScalarFnVTable for CosineSimilarity {
     }
 }
 
-// TODO(connor): We should try to use a more performant library instead of doing this ourselves.
-/// Computes cosine similarity between two equal-length float slices.
-///
-/// Returns `dot(a, b) / (||a|| * ||b||)`. When either vector has zero norm, this naturally
-/// produces `NaN` via `0.0 / 0.0`, matching standard floating-point semantics.
-fn cosine_similarity_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
-    let mut dot = T::zero();
-    let mut norm_a = T::zero();
-    let mut norm_b = T::zero();
-    for i in 0..a.len() {
-        dot = dot + a[i] * b[i];
-        norm_a = norm_a + a[i] * a[i];
-        norm_b = norm_b + b[i] * b[i];
-    }
-    dot / (norm_a.sqrt() * norm_b.sqrt())
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::ScalarFnArray;
     use vortex_array::scalar_fn::ScalarFn;
+    use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
 
     use crate::scalar_fns::ApproxOptions;
@@ -239,8 +276,8 @@ mod tests {
     #[case::opposite(&[3], &[1.0, 0.0, 0.0],  &[-1.0, 0.0, 0.0], &[-1.0])]
     // dot=24, both magnitudes=5 -> 24/25 = 0.96.
     #[case::non_unit(&[2], &[3.0, 4.0],        &[4.0, 3.0],       &[0.96])]
-    // Zero vector -> 0/0 -> NaN.
-    #[case::zero_norm(&[2], &[0.0, 0.0],       &[1.0, 0.0],       &[f64::NAN])]
+    // Zero vector -> guarded to 0.0.
+    #[case::zero_norm(&[2], &[0.0, 0.0],       &[1.0, 0.0],       &[0.0])]
     fn single_row(
         #[case] shape: &[usize],
         #[case] lhs_elems: &[f64],
@@ -365,6 +402,24 @@ mod tests {
             &eval_cosine_similarity(data, query, 4)?,
             &[1.0, 0.0, 0.0, 1.0],
         );
+        Ok(())
+    }
+
+    #[test]
+    fn null_input_row() -> VortexResult<()> {
+        // 2 rows of dim-2 vectors. Row 1 of rhs is masked as null.
+        let lhs = tensor_array(&[2], &[3.0, 4.0, 1.0, 0.0])?;
+        let rhs = tensor_array(&[2], &[3.0, 4.0, 0.0, 1.0])?;
+        let rhs = MaskedArray::try_new(rhs, Validity::from_iter([true, false]))?.into_array();
+
+        let scalar_fn = ScalarFn::new(CosineSimilarity, ApproxOptions::Exact).erased();
+        let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;
+        let prim = result.as_array().to_primitive();
+
+        // Row 0: self-similarity = 1.0, row 1: null.
+        assert!(prim.is_valid(0)?);
+        assert!(!prim.is_valid(1)?);
+        assert_close(&[prim.as_slice::<f64>()[0]], &[1.0]);
         Ok(())
     }
 }

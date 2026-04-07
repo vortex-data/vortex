@@ -7,6 +7,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -26,7 +27,8 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
-use crate::arrays::slice::array::NUM_SLOTS;
+use crate::arrays::slice::SliceArrayExt;
+use crate::arrays::slice::array::CHILD_SLOT;
 use crate::arrays::slice::array::SLOT_NAMES;
 use crate::arrays::slice::array::SliceData;
 use crate::arrays::slice::rules::PARENT_RULES;
@@ -36,7 +38,6 @@ use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 
@@ -49,39 +50,61 @@ impl Slice {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.slice");
 }
 
+impl ArrayHash for SliceData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.range.start.hash(state);
+        self.range.end.hash(state);
+    }
+}
+
+impl ArrayEq for SliceData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.range == other.range
+    }
+}
+
 impl VTable for Slice {
     type ArrayData = SliceData;
-    type Metadata = SliceMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &SliceData) -> &Self {
-        &Slice
-    }
 
     fn id(&self) -> ArrayId {
         Slice::ID
     }
 
-    fn len(array: &SliceData) -> usize {
-        array.range.len()
-    }
-
-    fn dtype(array: &SliceData) -> &DType {
-        array.child().dtype()
-    }
-
-    fn stats(array: &SliceData) -> &ArrayStats {
-        &array.stats
-    }
-
-    fn array_hash<H: Hasher>(array: &SliceData, state: &mut H, precision: Precision) {
-        array.child().array_hash(state, precision);
-        array.range.start.hash(state);
-        array.range.end.hash(state);
-    }
-
-    fn array_eq(array: &SliceData, other: &SliceData, precision: Precision) -> bool {
-        array.child().array_eq(other.child(), precision) && array.range == other.range
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots[CHILD_SLOT].is_some(),
+            "SliceArray child slot must be present"
+        );
+        let child = slots[CHILD_SLOT]
+            .as_ref()
+            .vortex_expect("validated child slot");
+        vortex_ensure!(
+            child.dtype() == dtype,
+            "SliceArray dtype {} does not match outer dtype {}",
+            child.dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            data.len() == len,
+            "SliceArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        vortex_ensure!(
+            data.range.end <= child.len(),
+            "SliceArray range {:?} exceeds child length {}",
+            data.range,
+            child.len()
+        );
+        Ok(())
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -96,54 +119,26 @@ impl VTable for Slice {
         None
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(SliceMetadata(array.range.clone()))
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         // TODO(joe): make this configurable
         vortex_bail!("Slice array is not serializable")
     }
 
     fn deserialize(
-        _bytes: &[u8],
+        &self,
         _dtype: &DType,
         _len: usize,
+        _metadata: &[u8],
+
         _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_bail!("Slice array is not serializable")
-    }
-
-    fn build(
-        dtype: &DType,
-        len: usize,
-        metadata: &SliceMetadata,
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::ArrayData> {
-        assert_eq!(len, metadata.0.len());
-        let child = children.get(0, dtype, metadata.0.end)?;
-        SliceData::try_new(child, metadata.0.clone())
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "SliceArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {

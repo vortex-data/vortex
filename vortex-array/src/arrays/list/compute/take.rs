@@ -12,6 +12,8 @@ use crate::arrays::ListArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::list::ListArrayExt;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
@@ -57,7 +59,7 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     indices_array: ArrayView<'_, Primitive>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let data_validity = array.validity_mask();
+    let data_validity = array.list_validity_mask();
     let indices_validity = indices_array.validity_mask();
 
     if !indices_validity.all_true() || !data_validity.all_true() {
@@ -109,7 +111,7 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        array.validity().take(indices_array.array())?,
+        array.validity()?.take(indices_array.array())?,
     )?
     .into_array())
 }
@@ -122,7 +124,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     let offsets_array = array.offsets().clone().execute::<PrimitiveArray>(ctx)?;
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
-    let data_validity = array.validity_mask();
+    let data_validity = array.list_validity_mask();
     let indices_validity = indices_array.validity_mask();
 
     let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
@@ -178,7 +180,7 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     Ok(ListArray::try_new(
         new_elements,
         new_offsets,
-        array.validity().take(indices_array.array())?,
+        array.validity()?.take(indices_array.array())?,
     )?
     .into_array())
 }

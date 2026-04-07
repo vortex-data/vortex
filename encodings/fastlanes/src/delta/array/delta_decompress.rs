@@ -18,6 +18,7 @@ use vortex_error::VortexResult;
 
 use crate::DeltaArray;
 use crate::bit_transpose::untranspose_validity;
+use crate::delta::array::DeltaArrayExt;
 
 pub fn delta_decompress(
     array: &DeltaArray,
@@ -29,7 +30,7 @@ pub fn delta_decompress(
     let start = array.offset();
     let end = start + array.len();
 
-    let validity = untranspose_validity(&deltas.validity(), ctx)?;
+    let validity = untranspose_validity(&deltas.validity()?, ctx)?;
     let validity = validity.slice(start..end)?;
 
     Ok(match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {

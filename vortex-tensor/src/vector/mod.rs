@@ -7,4 +7,9 @@
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Vector;
 
+mod matcher;
+
+pub use matcher::AnyVector;
+pub use matcher::VectorMatcherMetadata;
+
 mod vtable;

@@ -11,6 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::FoR;
+use crate::r#for::array::FoRArrayExt;
 
 /// FoR-specific is_constant kernel.
 ///

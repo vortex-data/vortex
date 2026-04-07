@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
@@ -11,6 +12,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayEq;
+use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
@@ -21,7 +24,6 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::constant::ConstantData;
-use crate::arrays::constant::array::NUM_SLOTS;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
@@ -39,7 +41,6 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::vtable;
 pub(crate) mod canonical;
 mod operations;
@@ -54,43 +55,40 @@ impl Constant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.constant");
 }
 
+impl ArrayHash for ConstantData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.scalar.hash(state);
+    }
+}
+
+impl ArrayEq for ConstantData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.scalar == other.scalar
+    }
+}
+
 impl VTable for Constant {
     type ArrayData = ConstantData;
 
-    type Metadata = Scalar;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Constant
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &ConstantData) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &ConstantData) -> &DType {
-        array.scalar.dtype()
-    }
-
-    fn stats(array: &ConstantData) -> &ArrayStats {
-        &array.stats_set
-    }
-
-    fn array_hash<H: std::hash::Hasher>(
-        array: &ConstantData,
-        state: &mut H,
-        _precision: Precision,
-    ) {
-        array.scalar.hash(state);
-    }
-
-    fn array_eq(array: &ConstantData, other: &ConstantData, _precision: Precision) -> bool {
-        array.scalar == other.scalar
+    fn validate(
+        &self,
+        data: &ConstantData,
+        dtype: &DType,
+        _len: usize,
+        _slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            data.scalar.dtype() == dtype,
+            "ConstantArray scalar dtype does not match outer dtype"
+        );
+        Ok(())
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -113,41 +111,26 @@ impl VTable for Constant {
         }
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
 
-    fn with_slots(_array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ConstantArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        Ok(())
-    }
-
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(array.scalar().clone())
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
         // metadata at all.
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
+        &self,
         dtype: &DType,
-        _len: usize,
+        len: usize,
+        _metadata: &[u8],
+
         buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_ensure!(
             buffers.len() == 1,
             "Expected 1 buffer, got {}",
@@ -160,17 +143,12 @@ impl VTable for Constant {
         let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype, session)?;
         let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        Ok(scalar)
-    }
-
-    fn build(
-        _dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
-        _buffers: &[BufferHandle],
-        _children: &dyn ArrayChildren,
-    ) -> VortexResult<ConstantData> {
-        Ok(ConstantData::new(metadata.clone(), len))
+        Ok(crate::array::ArrayParts::new(
+            self.clone(),
+            dtype.clone(),
+            len,
+            ConstantData::new(scalar),
+        ))
     }
 
     fn reduce_parent(

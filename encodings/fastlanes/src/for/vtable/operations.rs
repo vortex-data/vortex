@@ -10,6 +10,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use super::FoR;
+use crate::r#for::array::FoRArrayExt;
 impl OperationsVTable<FoR> for FoR {
     fn scalar_at(
         array: ArrayView<'_, FoR>,

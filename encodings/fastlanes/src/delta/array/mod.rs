@@ -3,13 +3,9 @@
 
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::dtype::DType;
+use vortex_array::TypedArrayRef;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
-use vortex_array::stats::ArrayStats;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -37,11 +33,11 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 /// use vortex_array::VortexSessionExecute;
 /// use vortex_array::session::ArraySession;
 /// use vortex_session::VortexSession;
-/// use vortex_fastlanes::DeltaData;
+/// use vortex_fastlanes::Delta;
 ///
 /// let session = VortexSession::empty().with::<ArraySession>();
 /// let primitive = PrimitiveArray::from_iter([1_u32, 2, 3, 5, 10, 11]);
-/// let array = DeltaData::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
+/// let array = Delta::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
 /// ```
 ///
 /// # Details
@@ -66,132 +62,32 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 #[derive(Clone, Debug)]
 pub struct DeltaData {
     pub(super) offset: usize,
-    pub(super) len: usize,
-    pub(super) dtype: DType,
-    pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats_set: ArrayStats,
 }
 
-impl DeltaData {
-    pub fn try_from_primitive_array(
-        array: &PrimitiveArray,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Self> {
-        let logical_len = array.len();
-        let (bases, deltas) = delta_compress::delta_compress(array, ctx)?;
-
-        Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
-    }
-
-    /// Create a DeltaArray from the given `bases` and `deltas` arrays
-    /// with given `offset` into first chunk and `logical_len` length.
-    pub fn try_new(
-        bases: ArrayRef,
-        deltas: ArrayRef,
-        offset: usize,
-        len: usize,
-    ) -> VortexResult<Self> {
-        vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
-        vortex_ensure!(
-            offset + len <= deltas.len(),
-            "offset + len, {offset} + {len}, must be less than or equal to the size of deltas: {}",
-            deltas.len()
-        );
-        vortex_ensure!(
-            bases.dtype().eq_ignore_nullability(deltas.dtype()),
-            "DeltaArray: bases and deltas must have the same dtype, got {} and {}",
-            bases.dtype(),
-            deltas.dtype()
-        );
-
-        vortex_ensure!(
-            bases.dtype().is_int(),
-            "DeltaArray: dtype must be an integer, got {}",
-            bases.dtype()
-        );
-
-        let lanes = lane_count(bases.dtype().as_ptype());
-
-        vortex_ensure!(
-            deltas.len().is_multiple_of(1024),
-            "deltas length ({}) must be a multiple of 1024",
-            deltas.len(),
-        );
-        vortex_ensure!(
-            bases.len().is_multiple_of(lanes),
-            "bases length ({}) must be a multiple of LANES ({lanes})",
-            bases.len(),
-        );
-
-        // SAFETY: validation done above
-        Ok(unsafe { Self::new_unchecked(bases, deltas, offset, len) })
-    }
-
-    pub(crate) unsafe fn new_unchecked(
-        bases: ArrayRef,
-        deltas: ArrayRef,
-        offset: usize,
-        logical_len: usize,
-    ) -> Self {
-        let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
-        Self {
-            offset,
-            len: logical_len,
-            dtype,
-            slots: vec![Some(bases), Some(deltas)],
-            stats_set: Default::default(),
-        }
-    }
-
-    #[inline]
-    pub fn bases(&self) -> &ArrayRef {
-        self.slots[BASES_SLOT]
+pub trait DeltaArrayExt: TypedArrayRef<crate::Delta> {
+    fn bases(&self) -> &ArrayRef {
+        self.as_ref().slots()[BASES_SLOT]
             .as_ref()
             .vortex_expect("DeltaArray bases slot")
     }
 
-    #[inline]
-    pub fn deltas(&self) -> &ArrayRef {
-        self.slots[DELTAS_SLOT]
+    fn deltas(&self) -> &ArrayRef {
+        self.as_ref().slots()[DELTAS_SLOT]
             .as_ref()
             .vortex_expect("DeltaArray deltas slot")
     }
 
-    pub(crate) fn lanes(&self) -> usize {
-        lane_count(self.dtype().as_ptype())
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    #[inline]
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
-    }
-
-    #[inline]
-    /// The logical offset into the first chunk of [`Self::deltas`].
-    pub fn offset(&self) -> usize {
+    fn offset(&self) -> usize {
         self.offset
     }
+}
 
-    pub(crate) fn bases_len(&self) -> usize {
-        self.bases().len()
-    }
+impl<T: TypedArrayRef<crate::Delta>> DeltaArrayExt for T {}
 
-    pub(crate) fn deltas_len(&self) -> usize {
-        self.deltas().len()
-    }
-
-    pub(crate) fn stats_set(&self) -> &ArrayStats {
-        &self.stats_set
+impl DeltaData {
+    pub fn try_new(offset: usize) -> VortexResult<Self> {
+        vortex_ensure!(offset < 1024, "offset must be less than 1024: {offset}");
+        Ok(Self { offset })
     }
 }
 

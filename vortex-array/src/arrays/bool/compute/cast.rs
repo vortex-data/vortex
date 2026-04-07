@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
@@ -19,7 +20,7 @@ impl CastReduce for Bool {
 
         let new_nullability = dtype.nullability();
         let new_validity = array
-            .validity()
+            .validity()?
             .cast_nullability(new_nullability, array.len())?;
         Ok(Some(
             BoolArray::new(array.to_bit_buffer(), new_validity).into_array(),

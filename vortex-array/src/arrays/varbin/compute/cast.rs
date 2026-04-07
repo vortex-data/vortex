@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinArray;
+use crate::arrays::varbin::VarBinArrayExt;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
 
@@ -19,7 +20,7 @@ impl CastReduce for VarBin {
 
         let new_nullability = dtype.nullability();
         let new_validity = array
-            .validity()
+            .validity()?
             .cast_nullability(new_nullability, array.len())?;
         let new_dtype = array.dtype().with_nullability(new_nullability);
         Ok(Some(

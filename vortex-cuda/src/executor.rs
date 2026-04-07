@@ -21,7 +21,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::struct_::StructArrayParts;
+use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
@@ -127,9 +127,6 @@ impl CudaExecutionCtx {
 
         let events = launch_cuda_kernel_impl(&mut launcher, self.strategy.event_flags(), len)?;
         self.strategy.on_complete(&events, len)?;
-
-        drop(events);
-
         Ok(())
     }
 
@@ -151,9 +148,6 @@ impl CudaExecutionCtx {
         let events =
             launch_cuda_kernel_with_config(&mut launcher, cfg, self.strategy.event_flags())?;
         self.strategy.on_complete(&events, len)?;
-
-        drop(events);
-
         Ok(())
     }
 
@@ -360,12 +354,12 @@ impl CudaArrayExt for ArrayRef {
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         if self.encoding_id() == Struct::ID {
             let len = self.len();
-            let StructArrayParts {
+            let StructDataParts {
                 fields,
                 struct_fields,
                 validity,
                 ..
-            } = self.try_into::<Struct>().unwrap().into_parts();
+            } = self.try_downcast::<Struct>().unwrap().into_data_parts();
 
             let mut cuda_fields = Vec::with_capacity(fields.len());
             for field in fields.iter() {

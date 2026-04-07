@@ -23,10 +23,11 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
+use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::scalar_fn::array::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::array::ScalarFnData;
-use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
@@ -44,7 +45,6 @@ use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::vtable;
 
 vtable!(ScalarFn, ScalarFnVTable, ScalarFnData);
@@ -54,49 +54,53 @@ pub struct ScalarFnVTable {
     pub(super) scalar_fn: ScalarFnRef,
 }
 
+impl ArrayHash for ScalarFnData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.scalar_fn().hash(state);
+    }
+}
+
+impl ArrayEq for ScalarFnData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.scalar_fn() == other.scalar_fn()
+    }
+}
+
 impl VTable for ScalarFnVTable {
     type ArrayData = ScalarFnData;
-    type Metadata = ScalarFnMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
-    fn vtable(array: &ScalarFnData) -> &Self {
-        &array.vtable
-    }
 
     fn id(&self) -> ArrayId {
         self.scalar_fn.id()
     }
 
-    fn len(array: &ScalarFnData) -> usize {
-        array.len
-    }
+    fn validate(
+        &self,
+        data: &ScalarFnData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            data.scalar_fn == self.scalar_fn,
+            "ScalarFnArray data scalar_fn does not match vtable"
+        );
+        vortex_ensure!(
+            slots.iter().flatten().all(|c| c.len() == len),
+            "All child arrays must have the same length as the scalar function array"
+        );
 
-    fn dtype(array: &ScalarFnData) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ScalarFnData) -> &ArrayStats {
-        &array.stats
-    }
-
-    fn array_hash<H: Hasher>(array: &ScalarFnData, state: &mut H, precision: Precision) {
-        array.scalar_fn().hash(state);
-        for child in array.iter_children() {
-            child.array_hash(state, precision);
-        }
-    }
-
-    fn array_eq(array: &ScalarFnData, other: &ScalarFnData, precision: Precision) -> bool {
-        if array.scalar_fn() != other.scalar_fn() {
-            return false;
-        }
-        for (child, other_child) in array.iter_children().zip(other.iter_children()) {
-            if !child.array_eq(other_child, precision) {
-                return false;
-            }
-        }
-        true
+        let child_dtypes = slots
+            .iter()
+            .flatten()
+            .map(|c| c.dtype().clone())
+            .collect_vec();
+        vortex_ensure!(
+            self.scalar_fn.return_dtype(&child_dtypes)? == *dtype,
+            "ScalarFnArray dtype does not match scalar function return dtype"
+        );
+        Ok(())
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -111,65 +115,22 @@ impl VTable for ScalarFnVTable {
         None
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        let child_dtypes = array.iter_children().map(|c| c.dtype().clone()).collect();
-        Ok(ScalarFnMetadata {
-            scalar_fn: array.scalar_fn().clone(),
-            child_dtypes,
-        })
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         // Not supported
         Ok(None)
     }
 
     fn deserialize(
-        _bytes: &[u8],
+        &self,
         _dtype: &DType,
         _len: usize,
+        _metadata: &[u8],
+
         _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_bail!("Deserialization of ScalarFnVTable metadata is not supported");
-    }
-
-    fn build(
-        dtype: &DType,
-        len: usize,
-        metadata: &ScalarFnMetadata,
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::ArrayData> {
-        let children: Vec<_> = metadata
-            .child_dtypes
-            .iter()
-            .enumerate()
-            .map(|(idx, child_dtype)| children.get(idx, child_dtype, len))
-            .try_collect()?;
-
-        #[cfg(debug_assertions)]
-        {
-            let child_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
-            vortex_error::vortex_ensure!(
-                &metadata.scalar_fn.return_dtype(&child_dtypes)? == dtype,
-                "Return dtype mismatch when building ScalarFnArray"
-            );
-        }
-
-        Ok(ScalarFnData {
-            vtable: ScalarFnVTable {
-                scalar_fn: metadata.scalar_fn.clone(),
-            },
-            dtype: dtype.clone(),
-            len,
-            slots: children.into_iter().map(Some).collect(),
-            stats: Default::default(),
-        })
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -179,11 +140,6 @@ impl VTable for ScalarFnVTable {
             .child_name(idx)
             .as_ref()
             .to_string()
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -209,7 +165,7 @@ impl VTable for ScalarFnVTable {
 }
 
 /// Array factory functions for scalar functions.
-pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
+pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
     fn try_new_array(
         &self,
         len: usize,
@@ -227,17 +183,20 @@ pub trait ScalarFnArrayExt: scalar_fn::ScalarFnVTable {
         let child_dtypes = children.iter().map(|c| c.dtype().clone()).collect_vec();
         let dtype = scalar_fn.return_dtype(&child_dtypes)?;
 
-        Ok(ScalarFnData {
-            vtable: ScalarFnVTable { scalar_fn },
-            dtype,
-            len,
-            slots: children.into_iter().map(Some).collect(),
-            stats: Default::default(),
+        let data = ScalarFnData {
+            scalar_fn: scalar_fn.clone(),
+        };
+        let vtable = ScalarFnVTable { scalar_fn };
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(vtable, dtype, len, data)
+                    .with_slots(children.into_iter().map(Some).collect()),
+            )
         }
         .into_array())
     }
 }
-impl<V: scalar_fn::ScalarFnVTable> ScalarFnArrayExt for V {}
+impl<V: scalar_fn::ScalarFnVTable> ScalarFnFactoryExt for V {}
 
 /// A matcher that matches any scalar function expression.
 #[derive(Debug)]

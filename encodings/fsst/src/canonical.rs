@@ -4,10 +4,12 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::varbinview::build_views::build_views;
@@ -17,10 +19,11 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
-use crate::FSSTData;
+use crate::FSST;
+use crate::FSSTArrayExt;
 
 pub(super) fn canonicalize_fsst(
-    array: &FSSTData,
+    array: ArrayView<'_, FSST>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let (buffers, views) = fsst_decode_views(array, 0, ctx)?;
@@ -31,14 +34,14 @@ pub(super) fn canonicalize_fsst(
             views,
             Arc::from(buffers),
             array.dtype().clone(),
-            array.codes().validity(),
+            array.codes().validity()?,
         )
         .into_array()
     })
 }
 
 pub(crate) fn fsst_decode_views(
-    fsst_array: &FSSTData,
+    fsst_array: ArrayView<'_, FSST>,
     start_buf_index: u32,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {

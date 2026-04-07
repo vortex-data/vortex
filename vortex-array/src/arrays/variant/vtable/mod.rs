@@ -6,6 +6,7 @@ mod validity;
 
 use std::hash::Hasher;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
@@ -13,7 +14,6 @@ use vortex_error::vortex_panic;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::Precision;
@@ -21,13 +21,11 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
-use crate::arrays::variant::NUM_SLOTS;
 use crate::arrays::variant::SLOT_NAMES;
 use crate::arrays::variant::VariantData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::vtable;
 
 vtable!(Variant, Variant, VariantData);
@@ -39,41 +37,58 @@ impl Variant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.variant");
 }
 
+impl ArrayHash for VariantData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for VariantData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+
 impl VTable for Variant {
     type ArrayData = VariantData;
-
-    type Metadata = EmptyMetadata;
 
     type OperationsVTable = Self;
 
     type ValidityVTable = Self;
 
-    fn vtable(_array: &Self::ArrayData) -> &Self {
-        &Variant
-    }
-
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &Self::ArrayData) -> usize {
-        array.child().len()
-    }
-
-    fn dtype(array: &Self::ArrayData) -> &DType {
-        array.child().dtype()
-    }
-
-    fn stats(array: &Self::ArrayData) -> &ArrayStats {
-        &array.stats_set
-    }
-
-    fn array_hash<H: Hasher>(array: &VariantData, state: &mut H, precision: Precision) {
-        array.child().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &VariantData, other: &VariantData, precision: Precision) -> bool {
-        array.child().array_eq(other.child(), precision)
+    fn validate(
+        &self,
+        _data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots[0].is_some(),
+            "VariantArray child slot must be present"
+        );
+        let child = slots[0]
+            .as_ref()
+            .vortex_expect("validated child slot presence");
+        vortex_ensure!(
+            matches!(dtype, DType::Variant(_)),
+            "Expected Variant DType, got {dtype}"
+        );
+        vortex_ensure!(
+            child.dtype() == dtype,
+            "VariantArray child dtype {} does not match outer dtype {}",
+            child.dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            child.len() == len,
+            "VariantArray length {} does not match outer length {}",
+            child.len(),
+            len
+        );
+        Ok(())
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -88,31 +103,25 @@ impl VTable for Variant {
         None
     }
 
-    fn metadata(_array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
     fn deserialize(
-        _bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &[u8],
+
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<Self::ArrayData> {
+        _session: &vortex_session::VortexSession,
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+        vortex_ensure!(
+            metadata.is_empty(),
+            "VariantArray expects empty metadata, got {} bytes",
+            metadata.len()
+        );
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
         vortex_ensure!(
             children.len() == 1,
@@ -121,11 +130,10 @@ impl VTable for Variant {
         );
         // The child carries the nullability for the whole VariantArray.
         let child = children.get(0, dtype, len)?;
-        Ok(VariantData::new(child))
-    }
-
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
+        Ok(
+            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, VariantData)
+                .with_slots(vec![Some(child)]),
+        )
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -135,39 +143,10 @@ impl VTable for Variant {
         }
     }
 
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "VariantArray expects exactly {} slot, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        vortex_ensure!(
-            slots[0].is_some(),
-            "VariantArray child slot must be present"
-        );
-        array.slots = slots;
-        Ok(())
-    }
-
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::IntoArray;
-    use crate::arrays::PrimitiveArray;
-
-    #[test]
-    fn with_slots_rejects_missing_child() {
-        let array = VariantArray::new(PrimitiveArray::from_iter([1u8, 2, 3]).into_array());
-        let mut data = array.into_data();
-
-        let err = <Variant as VTable>::with_slots(&mut data, vec![None]).unwrap_err();
-
-        assert!(err.to_string().contains("child slot must be present"));
-    }
-}
+mod tests {}

@@ -87,7 +87,7 @@ pub async fn try_gpu_dispatch(
             // TODO(0ax1): execute subtrees concurrently using separate CUDA streams.
             for subtree in &pending_subtrees {
                 let canonical = subtree.clone().execute_cuda(ctx).await?;
-                subtree_buffers.push(canonical.into_primitive().into_data().into_parts().buffer);
+                subtree_buffers.push(canonical.into_primitive().into_data_parts().buffer);
             }
 
             let num_subtrees = subtree_buffers.len();
@@ -235,7 +235,6 @@ mod tests {
         use vortex::array::session::ArraySessionExt;
         use vortex::encodings::fastlanes;
         use vortex::encodings::zstd::ZstdBuffers;
-        use vortex::encodings::zstd::ZstdBuffersData;
 
         let session = VortexSession::empty();
         fastlanes::initialize(&session);
@@ -256,7 +255,7 @@ mod tests {
             0u32.into(),
         )
         .vortex_expect("for");
-        let vals = ZstdBuffersData::compress(&vals.into_array(), 3).vortex_expect("zstd");
+        let vals = ZstdBuffers::compress(&vals.into_array(), 3).vortex_expect("zstd");
 
         // codes = FoR(BitPacked)
         let codes = PrimitiveArray::new(

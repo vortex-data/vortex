@@ -10,14 +10,13 @@ use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::ByteBool;
-use crate::ByteBoolData;
 
 impl SliceReduce for ByteBool {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ByteBoolData::new(
+            ByteBool::new(
                 array.buffer().slice(range.clone()),
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array(),
         ))

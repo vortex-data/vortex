@@ -11,6 +11,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 
@@ -52,7 +53,7 @@ fn list_to_list(
         "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"
     );
 
-    let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;
 
     Ok(Arc::new(
         arrow_array::FixedSizeListArray::try_new_with_length(

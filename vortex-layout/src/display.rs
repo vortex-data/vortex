@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use futures::future::try_join_all;
 use termtree::Tree;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::SerializedArray;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -35,7 +35,7 @@ pub(super) async fn display_tree_with_segment_sizes(
         let segment_source = segment_source.clone();
         async move {
             let buffer = segment_source.request(segment_id).await?;
-            let parts = ArrayParts::try_from(buffer)?;
+            let parts = SerializedArray::try_from(buffer)?;
             VortexResult::Ok((segment_id, parts.buffer_lengths()))
         }
     });
@@ -80,7 +80,7 @@ fn format_flat_layout_buffers(
 
     // First, try to get buffer info from inline array_tree
     if let Some(array_tree) = flat_layout.array_tree()
-        && let Ok(parts) = ArrayParts::from_array_tree(array_tree.as_ref().to_vec())
+        && let Ok(parts) = SerializedArray::from_array_tree(array_tree.as_ref().to_vec())
     {
         return format_buffer_sizes(&parts.buffer_lengths(), *segment_id);
     }
@@ -225,7 +225,7 @@ mod tests {
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::dtype::StructFields;
-    use vortex_array::serde::ArrayParts;
+    use vortex_array::serde::SerializedArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
@@ -425,7 +425,7 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
             .array_tree()
             .expect("array_tree should be populated when FLAT_LAYOUT_INLINE_ARRAY_NODE is set");
 
-        let parts = ArrayParts::from_array_tree(array_tree.as_ref().to_vec())
+        let parts = SerializedArray::from_array_tree(array_tree.as_ref().to_vec())
             .expect("should parse array_tree");
         assert_eq!(parts.buffer_lengths(), vec![20]); // 5 i32 values = 20 bytes
 

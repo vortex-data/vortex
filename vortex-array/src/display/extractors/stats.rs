@@ -9,6 +9,7 @@ use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::validity::Validity;
 
 /// Display wrapper for array statistics in compact format.
 ///
@@ -39,16 +40,17 @@ impl fmt::Display for StatsDisplay<'_> {
                 write!(f, "nulls={}", nc)?;
             }
         } else if self.0.dtype().is_nullable() {
-            match self.0.all_valid() {
-                Ok(true) => {
+            match self.0.validity() {
+                Ok(Validity::NonNullable | Validity::AllValid) => {
                     sep(f)?;
                     f.write_str("all_valid")?;
                 }
-                Ok(false) => {
-                    if self.0.all_invalid().unwrap_or(false) {
-                        sep(f)?;
-                        f.write_str("all_invalid")?;
-                    }
+                Ok(Validity::AllInvalid) => {
+                    sep(f)?;
+                    f.write_str("all_invalid")?;
+                }
+                Ok(Validity::Array(_)) => {
+                    // Avoid computing validity-array stats as a side effect of display.
                 }
                 Err(e) => {
                     tracing::warn!("Failed to check validity: {e}");

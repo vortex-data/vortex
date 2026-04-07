@@ -8,10 +8,13 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;
 use vortex_fsst::FSST;
+use vortex_fsst::FSSTArrayExt;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_sparse::Sparse;
@@ -103,7 +106,7 @@ impl Scheme for FSSTScheme {
             compressed_codes_offsets,
             fsst.codes().bytes().clone(),
             fsst.codes().dtype().clone(),
-            fsst.codes().validity(),
+            fsst.codes().validity()?,
         )?;
 
         let fsst = FSST::try_new(
@@ -240,7 +243,7 @@ impl Scheme for ZstdBuffersScheme {
         let stats = data.string_stats();
 
         Ok(
-            vortex_zstd::ZstdBuffersData::compress(&stats.source().clone().into_array(), 3)?
+            vortex_zstd::ZstdBuffers::compress(&stats.source().clone().into_array(), 3)?
                 .into_array(),
         )
     }

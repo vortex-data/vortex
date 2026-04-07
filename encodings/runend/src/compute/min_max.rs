@@ -12,6 +12,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::array::RunEndArrayExt;
 
 /// RunEnd-specific min/max kernel.
 ///

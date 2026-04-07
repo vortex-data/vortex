@@ -607,7 +607,9 @@ impl ArrayRef {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in struct_.iter_unmasked_fields() {
+                        for field_array in
+                            crate::arrays::struct_::StructArrayExt::iter_unmasked_fields(&struct_)
+                        {
                             let value = field_array
                                 .scalar_at(row_idx)
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
@@ -649,6 +651,7 @@ mod test {
     use crate::IntoArray as _;
     use crate::arrays::BoolArray;
     use crate::arrays::ListArray;
+    use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::display::DISPLAY_LIMIT;
     use crate::dtype::FieldNames;
@@ -665,10 +668,8 @@ mod test {
         let x = buffer![1, 2, 3, 4].into_array();
         assert_eq!(x.display_values().to_string(), "[1i32, 2i32, 3i32, 4i32]");
 
-        let x = crate::arrays::PrimitiveArray::from_iter(
-            0i32..i32::try_from(DISPLAY_LIMIT).unwrap() + 1,
-        )
-        .into_array();
+        let x =
+            PrimitiveArray::from_iter(0i32..i32::try_from(DISPLAY_LIMIT).unwrap() + 1).into_array();
         assert_eq!(
             x.display_values().to_string(),
             "[0i32, 1i32, 2i32, 3i32, 4i32, 5i32, 6i32, 7i32, 8i32, 9i32, 10i32, 11i32, 12i32, ..., 14i32, 15i32, 16i32]"
@@ -718,6 +719,14 @@ mod test {
     }
 
     #[test]
+    fn test_display_tree_nullable_primitive_validity_child() {
+        let array =
+            PrimitiveArray::from_option_iter([Some(1i64), Some(2), None, Some(3)]).into_array();
+        let expected = "root: vortex.primitive(i64?, len=4) nbytes=33 B (100.00%)\n  metadata: EmptyMetadata\n  buffer: values host 32 B (align=8) (96.97%)\n  validity: vortex.bool(bool, len=4) nbytes=1 B (3.03%)\n    metadata: BoolMetadata { offset: 0 }\n    buffer: bits host 1 B (align=1) (100.00%)\n";
+        assert_eq!(format!("{}", array.display_tree()), expected);
+    }
+
+    #[test]
     fn test_table_display_primitive() {
         use crate::display::DisplayOptions;
 
@@ -743,13 +752,8 @@ mod test {
     fn test_table_display() {
         use crate::display::DisplayOptions;
 
-        let array = crate::arrays::PrimitiveArray::from_option_iter(vec![
-            Some(-1),
-            Some(-2),
-            Some(-3),
-            None,
-        ])
-        .into_array();
+        let array =
+            PrimitiveArray::from_option_iter(vec![Some(-1), Some(-2), Some(-3), None]).into_array();
 
         let struct_ = StructArray::try_from_iter_with_validity(
             [("x", buffer![1, 2, 3, 4].into_array()), ("y", array)],

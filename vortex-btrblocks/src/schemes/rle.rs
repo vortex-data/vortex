@@ -9,6 +9,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
 use vortex_compressor::builtins::is_float_primitive;
@@ -21,7 +22,10 @@ use vortex_compressor::scheme::SchemeId;
 use vortex_compressor::stats::FloatStats;
 use vortex_compressor::stats::IntegerStats;
 use vortex_error::VortexResult;
+#[cfg(feature = "unstable_encodings")]
+use vortex_fastlanes::Delta;
 use vortex_fastlanes::RLE;
+use vortex_fastlanes::RLEArrayExt;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -281,7 +285,6 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
                 compressed_values,
                 compressed_indices,
                 compressed_offsets,
-                rle_array.dtype().clone(),
                 rle_array.offset(),
                 rle_array.len(),
             )
@@ -306,6 +309,5 @@ fn try_compress_delta(
     let compressed_deltas =
         compressor.compress_child(&deltas.into_array(), parent_ctx, parent_id, child_index)?;
 
-    vortex_fastlanes::DeltaData::try_new(compressed_bases, compressed_deltas, 0, child.len())
-        .map(IntoArray::into_array)
+    Delta::try_new(compressed_bases, compressed_deltas, 0, child.len()).map(IntoArray::into_array)
 }

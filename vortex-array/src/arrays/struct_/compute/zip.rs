@@ -13,6 +13,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar_fn::fns::zip::ZipKernel;
 use crate::validity::Validity;
@@ -39,8 +40,8 @@ impl ZipKernel for Struct {
             .map(|(t, f)| ArrayBuiltins::zip(mask, t.clone(), f.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 
-        let v1 = if_true.validity();
-        let v2 = if_false.validity();
+        let v1 = if_true.validity()?;
+        let v2 = if_false.validity()?;
         let validity = match (&v1, &v2) {
             (Validity::NonNullable, Validity::NonNullable) => Validity::NonNullable,
             (Validity::AllValid, Validity::AllValid) => Validity::AllValid,
@@ -54,7 +55,7 @@ impl ZipKernel for Struct {
                 let combined = (v1m.bitand(&mask_mask)).bitor(&v2m.bitand(&mask_mask.not()));
                 Validity::from_mask(
                     combined,
-                    if_true.dtype.nullability() | if_false.dtype.nullability(),
+                    if_true.dtype().nullability() | if_false.dtype().nullability(),
                 )
             }
         };

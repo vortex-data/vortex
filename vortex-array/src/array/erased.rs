@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::type_name;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
@@ -12,6 +13,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
 use crate::AnyCanonical;
@@ -20,7 +22,6 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayView;
 use crate::Canonical;
-use crate::DynVTable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
@@ -40,6 +41,7 @@ use crate::arrays::Primitive;
 use crate::arrays::SliceArray;
 use crate::arrays::VarBin;
 use crate::arrays::VarBinView;
+use crate::arrays::bool::BoolArrayExt;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
@@ -93,6 +95,12 @@ impl ArrayRef {
         &self.0
     }
 
+    /// Consumes the array reference, returning the owned backing allocation.
+    #[inline(always)]
+    pub(crate) fn into_inner(self) -> Arc<dyn DynArray> {
+        self.0
+    }
+
     /// Returns true if the two ArrayRefs point to the same allocation.
     pub fn ptr_eq(this: &ArrayRef, other: &ArrayRef) -> bool {
         Arc::ptr_eq(&this.0, &other.0)
@@ -113,7 +121,7 @@ impl ArrayHash for ArrayRef {
 
 impl ArrayEq for ArrayRef {
     fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
-        self.0.dyn_array_eq(other.0.as_any(), precision)
+        self.0.dyn_array_eq(other, precision)
     }
 }
 
@@ -135,12 +143,6 @@ impl ArrayRef {
     #[inline]
     pub fn dtype(&self) -> &DType {
         self.0.dtype()
-    }
-
-    /// Returns the vtable of the array.
-    #[inline]
-    pub fn vtable(&self) -> &dyn DynVTable {
-        self.0.vtable()
     }
 
     /// Returns the encoding ID of the array.
@@ -343,8 +345,18 @@ impl ArrayRef {
     }
 
     /// Returns the array downcast to the given `Array<V>` as an owned typed handle.
-    pub fn try_into<V: VTable>(self) -> Result<Array<V>, ArrayRef> {
+    pub fn try_downcast<V: VTable>(self) -> Result<Array<V>, ArrayRef> {
         Array::<V>::try_from_array_ref(self)
+    }
+
+    /// Returns the array downcast to the given `Array<V>` as an owned typed handle.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array is not of the given type.
+    pub fn downcast<V: VTable>(self) -> Array<V> {
+        Self::try_downcast(self)
+            .unwrap_or_else(|_| vortex_panic!("Failed to downcast to {}", type_name::<V>()))
     }
 
     /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
@@ -383,28 +395,109 @@ impl ArrayRef {
         self.is::<AnyCanonical>()
     }
 
-    /// Returns a new array with all slots replaced.
-    pub fn with_slots(self, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
-        vortex_ensure!(self.slots().len() == slots.len(), "slot count mismatch");
-        let vtable = self.vtable().clone_boxed();
-        vtable.with_slots(self, slots)
-    }
-
     /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
+    ///
+    /// This is only valid for physical rewrites: the replacement must have the same logical
+    /// `DType` and `len` as the existing slot.
     ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
     pub fn with_slot(self, slot_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
-        let nslots = self.slots().len();
+        let slots = self.slots().to_vec();
+        let nslots = slots.len();
         vortex_ensure!(
             slot_idx < nslots,
             "slot index {} out of bounds for array with {} slots",
             slot_idx,
             nslots
         );
-        let mut slots = self.slots().to_vec();
+        let existing = slots[slot_idx]
+            .as_ref()
+            .vortex_expect("with_slot cannot replace an absent slot");
+        vortex_ensure!(
+            existing.dtype() == replacement.dtype(),
+            "slot {} dtype changed from {} to {} during physical rewrite",
+            slot_idx,
+            existing.dtype(),
+            replacement.dtype()
+        );
+        vortex_ensure!(
+            existing.len() == replacement.len(),
+            "slot {} len changed from {} to {} during physical rewrite",
+            slot_idx,
+            existing.len(),
+            replacement.len()
+        );
+        let mut slots = slots;
         slots[slot_idx] = Some(replacement);
-        let vtable = self.vtable().clone_boxed();
-        vtable.with_slots(self, slots)
+        self.with_slots(slots)
+    }
+
+    /// Returns a new array with the provided slots.
+    ///
+    /// This is only valid for physical rewrites: slot count, presence, logical `DType`, and
+    /// logical `len` must remain unchanged.
+    pub fn with_slots(self, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+        let old_slots = self.slots();
+        vortex_ensure!(
+            old_slots.len() == slots.len(),
+            "slot count changed from {} to {} during physical rewrite",
+            old_slots.len(),
+            slots.len()
+        );
+        for (idx, (old_slot, new_slot)) in old_slots.iter().zip(slots.iter()).enumerate() {
+            vortex_ensure!(
+                old_slot.is_some() == new_slot.is_some(),
+                "slot {} presence changed during physical rewrite",
+                idx
+            );
+            if let (Some(old_slot), Some(new_slot)) = (old_slot.as_ref(), new_slot.as_ref()) {
+                vortex_ensure!(
+                    old_slot.dtype() == new_slot.dtype(),
+                    "slot {} dtype changed from {} to {} during physical rewrite",
+                    idx,
+                    old_slot.dtype(),
+                    new_slot.dtype()
+                );
+                vortex_ensure!(
+                    old_slot.len() == new_slot.len(),
+                    "slot {} len changed from {} to {} during physical rewrite",
+                    idx,
+                    old_slot.len(),
+                    new_slot.len()
+                );
+            }
+        }
+        let inner = Arc::clone(&self.0);
+        inner.with_slots(self, slots)
+    }
+
+    pub fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
+        self.0.reduce(self)
+    }
+
+    pub fn reduce_parent(
+        &self,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        self.0.reduce_parent(self, parent, child_idx)
+    }
+
+    pub(crate) fn execute_encoding(
+        self,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<crate::ExecutionResult> {
+        let inner = Arc::clone(&self.0);
+        inner.execute(self, ctx)
+    }
+
+    pub fn execute_parent(
+        &self,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        self.0.execute_parent(self, parent, child_idx, ctx)
     }
 
     // ArrayVisitor delegation methods
@@ -460,8 +553,8 @@ impl ArrayRef {
     }
 
     /// Returns the slots of the array.
-    pub fn slots(&self) -> Vec<Option<ArrayRef>> {
-        self.0.slots(self)
+    pub fn slots(&self) -> &[Option<ArrayRef>] {
+        self.0.slots()
     }
 
     /// Returns the name of the slot at the given index.
@@ -523,7 +616,7 @@ impl<V: VTable> Matcher for V {
     }
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
-        let data = &array.0.as_any().downcast_ref::<ArrayInner<V>>()?.data;
-        Some(unsafe { ArrayView::new_unchecked(array, data) })
+        let inner = array.0.as_any().downcast_ref::<ArrayInner<V>>()?;
+        Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
     }
 }

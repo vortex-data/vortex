@@ -691,6 +691,10 @@ mod tests {
     use crate::arrays::Struct;
     use crate::arrays::VarBin;
     use crate::arrays::VarBinView;
+    use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use crate::arrays::list::ListArrayExt;
+    use crate::arrays::listview::ListViewArrayExt;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::arrow::FromArrowArray as _;
     use crate::arrow::convert::TemporalArray;
     use crate::dtype::DType;

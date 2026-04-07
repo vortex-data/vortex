@@ -20,7 +20,7 @@ impl SliceReduce for Primitive {
             PrimitiveArray::from_buffer_handle(
                 array.buffer_handle().slice_typed::<T>(range.clone()),
                 T::PTYPE,
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array()
         });

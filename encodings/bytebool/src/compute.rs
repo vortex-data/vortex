@@ -16,7 +16,6 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use super::ByteBool;
-use super::ByteBoolData;
 
 impl CastReduce for ByteBool {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
@@ -27,12 +26,11 @@ impl CastReduce for ByteBool {
         // If just changing nullability, we can optimize
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity = array
-                .validity()
-                .clone()
+                .validity()?
                 .cast_nullability(dtype.nullability(), array.len())?;
 
             return Ok(Some(
-                ByteBoolData::new(array.buffer().clone(), new_validity).into_array(),
+                ByteBool::new(array.buffer().clone(), new_validity).into_array(),
             ));
         }
 
@@ -44,12 +42,9 @@ impl CastReduce for ByteBool {
 impl MaskReduce for ByteBool {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ByteBoolData::new(
+            ByteBool::new(
                 array.buffer().clone(),
-                array
-                    .validity()
-                    .clone()
-                    .and(Validity::Array(mask.clone()))?,
+                array.validity()?.and(Validity::Array(mask.clone()))?,
             )
             .into_array(),
         ))
@@ -66,7 +61,7 @@ impl TakeExecute for ByteBool {
         let bools = array.as_slice();
 
         // This handles combining validity from both source array and nullable indices
-        let validity = array.validity().take(&indices.clone().into_array())?;
+        let validity = array.validity()?.take(&indices.clone().into_array())?;
 
         let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
             indices
@@ -79,9 +74,7 @@ impl TakeExecute for ByteBool {
                 .collect::<Vec<bool>>()
         });
 
-        Ok(Some(
-            ByteBoolData::from_vec(taken_bools, validity).into_array(),
-        ))
+        Ok(Some(ByteBool::from_vec(taken_bools, validity).into_array()))
     }
 }
 
@@ -98,19 +91,16 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar_fn::fns::operators::Operator;
-    use vortex_error::VortexExpect;
 
     use super::*;
     use crate::ByteBoolArray;
 
     fn bb(v: Vec<bool>) -> ByteBoolArray {
-        ByteBoolArray::try_from_data(ByteBoolData::from(v))
-            .vortex_expect("ByteBoolData is always valid")
+        ByteBool::from_vec(v, Validity::AllValid)
     }
 
     fn bb_opt(v: Vec<Option<bool>>) -> ByteBoolArray {
-        ByteBoolArray::try_from_data(ByteBoolData::from(v))
-            .vortex_expect("ByteBoolData is always valid")
+        ByteBool::from_option_vec(v)
     }
 
     #[test]

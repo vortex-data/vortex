@@ -47,14 +47,7 @@ pub fn alp_encode(parray: &PrimitiveArray, exponents: Option<Exponents>) -> Vort
     };
 
     // SAFETY: alp_encode_components_typed must return well-formed components
-    unsafe {
-        Ok(ALP::new_unchecked(
-            encoded,
-            exponents,
-            patches,
-            parray.dtype().clone(),
-        ))
-    }
+    unsafe { Ok(ALP::new_unchecked(encoded, exponents, patches)) }
 }
 
 #[expect(
@@ -73,7 +66,7 @@ where
     let (exponents, encoded, exceptional_positions, exceptional_values, mut chunk_offsets) =
         T::encode(values_slice, exponents);
 
-    let encoded_array = PrimitiveArray::new(encoded, values.validity()).into_array();
+    let encoded_array = PrimitiveArray::new(encoded, values.validity()?).into_array();
 
     let validity = values.validity_mask()?;
     // exceptional_positions may contain exceptions at invalid positions (which contain garbage
@@ -141,6 +134,7 @@ mod tests {
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::alp::array::ALPArrayExt;
     use crate::decompress_into_array;
 
     #[test]

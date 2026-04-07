@@ -20,7 +20,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::RunEnd;
-use crate::RunEndData;
+use crate::array::RunEndArrayExt;
 
 impl TakeExecute for RunEnd {
     #[expect(
@@ -49,13 +49,14 @@ impl TakeExecute for RunEnd {
                 .collect::<VortexResult<Vec<_>>>()?
         });
 
-        take_indices_unchecked(&array, &checked_indices, &primitive_indices.validity()).map(Some)
+        let indices_validity = primitive_indices.validity()?;
+        take_indices_unchecked(array, &checked_indices, &indices_validity).map(Some)
     }
 }
 
 /// Perform a take operation on a RunEndArray by binary searching for each of the indices.
 pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
-    array: &RunEndData,
+    array: ArrayView<'_, RunEnd>,
     indices: &[T],
     validity: &Validity,
 ) -> VortexResult<ArrayRef> {

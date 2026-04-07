@@ -83,6 +83,10 @@ impl From<ArrayStats> for StatsSet {
 }
 
 impl StatsSetRef<'_> {
+    pub(crate) fn replace(&self, stats: StatsSet) {
+        *self.array_stats.inner.write() = stats;
+    }
+
     pub fn set_iter(&self, iter: StatsSetIntoIter) {
         let mut guard = self.array_stats.inner.write();
         for (stat, value) in iter {

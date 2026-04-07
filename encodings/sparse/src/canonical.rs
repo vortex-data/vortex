@@ -15,6 +15,9 @@ use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
@@ -52,8 +55,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 
 use crate::ConstantArray;
+use crate::Sparse;
 use crate::SparseArray;
-use crate::SparseData;
 pub(super) fn execute_sparse(
     array: &SparseArray,
     ctx: &mut ExecutionCtx,
@@ -280,6 +283,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         // Append the patch value, handling null patches by appending defaults.
         if values
             .validity()
+            .vortex_expect("sparse fixed-size-list validity should be derivable")
             .is_valid(patch_idx)
             .vortex_expect("is_valid")
         {
@@ -437,7 +441,7 @@ fn execute_sparse_struct(
                 .cloned()
                 .zip_eq(fill_values)
                 .map(|(patch_values, fill_value)| unsafe {
-                    SparseData::new_unchecked(
+                    Sparse::new_unchecked(
                         unresolved_patches
                             .clone()
                             .map_values(|_| Ok(patch_values))
@@ -474,8 +478,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
         }
     }
     let filled_array = builder.finish_into_decimal();
-    let array = filled_array.into_data().patch(patches, ctx)?;
-    Ok(array.into_array())
+    Ok(filled_array.patch(patches, ctx)?.into_array())
 }
 
 fn execute_varbin(
@@ -550,6 +553,7 @@ mod test {
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::arrays::listview::ListViewArrayExt;
     use vortex_array::arrow::IntoArrowArray as _;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;

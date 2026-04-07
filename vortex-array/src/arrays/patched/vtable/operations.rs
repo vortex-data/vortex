@@ -8,6 +8,7 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::Patched;
+use crate::arrays::patched::PatchedArrayExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
@@ -17,15 +18,15 @@ impl OperationsVTable<Patched> for Patched {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let chunk = (index + array.offset) / 1024;
+        let chunk = (index + array.offset()) / 1024;
 
         #[expect(
             clippy::cast_possible_truncation,
             reason = "N % 1024 always fits in u16"
         )]
-        let chunk_index = ((index + array.offset) % 1024) as u16;
+        let chunk_index = ((index + array.offset()) % 1024) as u16;
 
-        let lane = (index + array.offset) % array.n_lanes;
+        let lane = (index + array.offset()) % array.n_lanes();
 
         let range = array.lane_range(chunk, lane)?;
 
@@ -58,7 +59,6 @@ mod tests {
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::arrays::Patched;
-    use crate::arrays::PatchedArray;
     use crate::dtype::Nullability;
     use crate::optimizer::ArrayOptimizer;
     use crate::patches::Patches;
@@ -79,7 +79,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 
@@ -116,7 +116,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 
@@ -146,7 +146,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array()
             .slice(3..4096)

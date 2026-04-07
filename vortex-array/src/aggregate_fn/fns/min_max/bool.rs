@@ -9,6 +9,7 @@ use vortex_mask::Mask;
 use super::MinMaxPartial;
 use super::MinMaxResult;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::Nullability::NonNullable;
 use crate::scalar::Scalar;
 

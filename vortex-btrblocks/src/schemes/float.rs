@@ -4,13 +4,16 @@
 //! Float compression schemes.
 
 use vortex_alp::ALP;
+use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPRDArrayExt;
+use vortex_alp::ALPRDArrayOwnedExt;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
@@ -147,15 +150,20 @@ impl Scheme for ALPRDScheme {
         };
 
         let alp_rd = encoder.encode(stats.source());
-        let mut alp_rd_data = alp_rd.into_data();
+        let dtype = alp_rd.dtype().clone();
+        let right_bit_width = alp_rd.right_bit_width();
+        let mut parts = ALPRDArrayOwnedExt::into_data_parts(alp_rd);
+        parts.left_parts_patches = parts.left_parts_patches.map(compress_patches).transpose()?;
 
-        let patches = alp_rd_data
-            .left_parts_patches()
-            .map(compress_patches)
-            .transpose()?;
-        alp_rd_data.replace_left_parts_patches(patches);
-
-        Ok(Array::<vortex_alp::ALPRD>::try_from_data(alp_rd_data)?.into_array())
+        Ok(vortex_alp::ALPRD::try_new(
+            dtype,
+            parts.left_parts,
+            parts.left_parts_dictionary,
+            parts.right_parts,
+            right_bit_width,
+            parts.left_parts_patches,
+        )?
+        .into_array())
     }
 }
 

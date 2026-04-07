@@ -10,6 +10,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNullKernel;
 use crate::validity::Validity;
@@ -25,7 +26,7 @@ impl FillNullKernel for Bool {
             .value()
             .ok_or_else(|| vortex_err!("Fill value must be non null"))?;
 
-        Ok(Some(match array.validity() {
+        Ok(Some(match array.validity()? {
             Validity::Array(v) => {
                 let v_bool = v.execute::<BoolArray>(ctx)?;
                 let bool_buffer = if fill {
@@ -48,6 +49,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::arrays::BoolArray;
+    use crate::arrays::bool::BoolArrayExt;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
     use crate::dtype::DType;

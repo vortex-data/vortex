@@ -18,7 +18,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ParquetVariant;
-use crate::array::ParquetVariantData;
+use crate::ParquetVariantArrayExt;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&FilterExecuteAdaptor(ParquetVariant)),
@@ -32,7 +32,7 @@ impl SliceKernel for ParquetVariant {
         range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity.slice(range.clone())?;
+        let validity = array.validity()?.slice(range.clone())?;
         let metadata = array.metadata_array().slice(range.clone())?;
         let value = array
             .value_array()
@@ -43,7 +43,7 @@ impl SliceKernel for ParquetVariant {
             .map(|tv| tv.slice(range))
             .transpose()?;
         Ok(Some(
-            ParquetVariantData::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariant::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
@@ -54,7 +54,7 @@ impl FilterKernel for ParquetVariant {
         mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity.filter(mask)?;
+        let validity = array.validity()?.filter(mask)?;
         let metadata = array.metadata_array().filter(mask.clone())?;
         let value = array
             .value_array()
@@ -65,7 +65,7 @@ impl FilterKernel for ParquetVariant {
             .map(|tv| tv.filter(mask.clone()))
             .transpose()?;
         Ok(Some(
-            ParquetVariantData::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariant::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }
@@ -76,7 +76,7 @@ impl TakeExecute for ParquetVariant {
         indices: &ArrayRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity.take(indices)?;
+        let validity = array.validity()?.take(indices)?;
         let metadata = array.metadata_array().take(indices.clone())?;
         let value = array
             .value_array()
@@ -87,7 +87,7 @@ impl TakeExecute for ParquetVariant {
             .map(|tv| tv.take(indices.clone()))
             .transpose()?;
         Ok(Some(
-            ParquetVariantData::try_new(validity, metadata, value, typed_value)?.into_array(),
+            ParquetVariant::try_new(validity, metadata, value, typed_value)?.into_array(),
         ))
     }
 }

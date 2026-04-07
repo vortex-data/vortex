@@ -13,7 +13,7 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_signed_integer_ptype;
 use vortex::array::validity::Validity;
@@ -22,6 +22,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::datetime_parts::DateTimeParts;
+use vortex::encodings::datetime_parts::DateTimePartsArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -51,7 +52,7 @@ impl CudaExecute for DateTimePartsExecutor {
     ) -> VortexResult<Canonical> {
         let output_len = array.len();
         let array = array
-            .try_into::<DateTimeParts>()
+            .try_downcast::<DateTimeParts>()
             .map_err(|_| vortex_err!("Expected DateTimePartsArray"))?;
 
         // Extract the temporal metadata from the dtype
@@ -147,18 +148,18 @@ where
 {
     let output_len = days.len();
 
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: days_buffer,
         ..
-    } = days.into_data().into_parts();
-    let PrimitiveArrayParts {
+    } = days.into_data_parts();
+    let PrimitiveDataParts {
         buffer: seconds_buffer,
         ..
-    } = seconds.into_data().into_parts();
-    let PrimitiveArrayParts {
+    } = seconds.into_data_parts();
+    let PrimitiveDataParts {
         buffer: subseconds_buffer,
         ..
-    } = subseconds.into_data().into_parts();
+    } = subseconds.into_data_parts();
 
     // Move buffers to device if not already there
     let days_device = ctx.ensure_on_device(days_buffer).await?;

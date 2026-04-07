@@ -10,6 +10,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -68,8 +69,7 @@ fn test_remove_column() {
     )
     .unwrap();
 
-    let mut data = struct_a.into_data();
-    let removed = data.remove_column("xs").unwrap();
+    let (data, removed) = struct_a.remove_column("xs").unwrap();
     assert_eq!(
         removed.dtype(),
         &DType::Primitive(PType::I64, Nullability::NonNullable)
