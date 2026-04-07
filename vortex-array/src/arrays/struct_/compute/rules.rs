@@ -108,9 +108,15 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let field_name = parent.options;
-        let Some(field) = child.unmasked_field_by_name_opt(field_name) else {
-            return Ok(None);
-        };
+        let field = child
+            .unmasked_field_by_name_opt(field_name)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Field '{}' missing from struct array {}",
+                    field_name,
+                    child.struct_fields().names()
+                )
+            })?;
 
         match child.validity()? {
             Validity::NonNullable | Validity::AllValid => {

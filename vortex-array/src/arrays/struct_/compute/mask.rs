@@ -16,7 +16,7 @@ impl MaskReduce for Struct {
     fn mask(array: ArrayView<'_, Struct>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         StructArray::try_new_with_dtype(
             array.unmasked_fields().iter().cloned().collect::<Vec<_>>(),
-            array.struct_fields(),
+            array.struct_fields().clone(),
             array.len(),
             array.validity()?.and(Validity::Array(mask.clone()))?,
         )

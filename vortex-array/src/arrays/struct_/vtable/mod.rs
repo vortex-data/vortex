@@ -23,6 +23,7 @@ use crate::array::child_to_validity;
 use crate::arrays::struct_::StructData;
 use crate::arrays::struct_::array::FIELDS_OFFSET;
 use crate::arrays::struct_::array::VALIDITY_SLOT;
+use crate::arrays::struct_::array::make_struct_slots;
 use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -64,7 +65,7 @@ impl VTable for Struct {
 
     fn validate(
         &self,
-        data: &StructData,
+        _data: &StructData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -72,14 +73,6 @@ impl VTable for Struct {
         let DType::Struct(struct_dtype, nullability) = dtype else {
             vortex_bail!("Expected struct dtype, found {:?}", dtype)
         };
-
-        if data.names() != struct_dtype.names() {
-            vortex_bail!(
-                InvalidArgument: "StructArray field names {:?} do not match dtype names {:?}",
-                data.names(),
-                struct_dtype.names()
-            );
-        }
 
         let expected_slots = struct_dtype.nfields() + 1;
         if slots.len() != expected_slots {
@@ -103,18 +96,7 @@ impl VTable for Struct {
 
         let field_slots = &slots[FIELDS_OFFSET..];
         if field_slots.is_empty() {
-            if data.fieldless_len != Some(len) {
-                vortex_bail!(
-                    InvalidArgument: "Fieldless StructArray length {:?} does not match outer length {}",
-                    data.fieldless_len,
-                    len
-                );
-            }
             return Ok(());
-        }
-
-        if data.fieldless_len.is_some() {
-            vortex_bail!("StructArray cannot have fieldless length and field slots");
         }
 
         for (idx, (slot, field_dtype)) in field_slots.iter().zip(struct_dtype.fields()).enumerate()
@@ -196,17 +178,15 @@ impl VTable for Struct {
             })
             .try_collect()?;
 
-        let slots = StructData::make_slots(&field_children, &validity, len);
-        let data =
-            StructData::try_new_with_dtype(field_children, struct_dtype.clone(), len, validity)?;
-        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        let slots = make_struct_slots(&field_children, &validity, len);
+        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, StructData).with_slots(slots))
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {
         if idx == VALIDITY_SLOT {
             "validity".to_string()
         } else {
-            array.names()[idx - FIELDS_OFFSET].to_string()
+            array.dtype().as_struct_fields().names()[idx - FIELDS_OFFSET].to_string()
         }
     }
 
