@@ -27,11 +27,11 @@ use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 
 pub(crate) mod compute;
 
-vtable!(Null, Null, NullData);
+/// A [`Null`]-encoded Vortex array.
+pub type NullArray = Array<Null>;
 
 impl ArrayHash for NullData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {

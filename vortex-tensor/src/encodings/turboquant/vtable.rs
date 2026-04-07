@@ -23,7 +23,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -106,7 +105,8 @@ impl TurboQuant {
     }
 }
 
-vtable!(TurboQuant, TurboQuant, TurboQuantData);
+/// A [`TurboQuant`]-encoded Vortex array.
+pub type TurboQuantArray = Array<TurboQuant>;
 
 impl ArrayHash for TurboQuantData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {

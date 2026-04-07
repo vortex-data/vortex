@@ -46,9 +46,9 @@ use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::serde::ArrayChildren;
-use crate::vtable;
 
-vtable!(Patched, Patched, PatchedData);
+/// A [`Patched`]-encoded Vortex array.
+pub type PatchedArray = Array<Patched>;
 
 #[derive(Clone, Debug)]
 pub struct Patched;

@@ -35,7 +35,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::child_to_validity;
@@ -55,7 +54,8 @@ use crate::canonical::fsst_decode_views;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
-vtable!(FSST, FSST, FSSTData);
+/// A [`FSST`]-encoded Vortex array.
+pub type FSSTArray = Array<FSST>;
 
 #[derive(Clone, prost::Message)]
 pub struct FSSTMetadata {

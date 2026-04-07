@@ -33,7 +33,6 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::StatsSet;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -49,7 +48,8 @@ use crate::compress::sequence_decompress;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
-vtable!(Sequence, Sequence, SequenceData);
+/// A [`Sequence`]-encoded Vortex array.
+pub type SequenceArray = Array<Sequence>;
 
 #[derive(Clone, prost::Message)]
 pub struct SequenceMetadata {

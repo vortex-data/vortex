@@ -36,10 +36,10 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 mod operations;
 mod validity;
-vtable!(List, List, ListData);
+/// A [`List`]-encoded Vortex array.
+pub type ListArray = Array<List>;
 
 #[derive(Clone, prost::Message)]
 pub struct ListMetadata {

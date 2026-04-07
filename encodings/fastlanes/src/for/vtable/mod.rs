@@ -22,7 +22,6 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_error::VortexExpect;
@@ -45,7 +44,8 @@ mod rules;
 mod slice;
 mod validity;
 
-vtable!(FoR, FoR, FoRData);
+/// A [`FoR`]-encoded Vortex array.
+pub type FoRArray = Array<FoR>;
 
 impl ArrayHash for FoRData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {

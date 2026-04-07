@@ -23,7 +23,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -45,7 +44,8 @@ mod rules;
 mod slice;
 mod validity;
 
-vtable!(Delta, Delta, DeltaData);
+/// A [`Delta`]-encoded Vortex array.
+pub type DeltaArray = Array<Delta>;
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]

@@ -38,8 +38,8 @@ use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
-vtable!(Masked, Masked, MaskedData);
+/// A [`Masked`]-encoded Vortex array.
+pub type MaskedArray = Array<Masked>;
 
 #[derive(Clone, Debug)]
 pub struct Masked;

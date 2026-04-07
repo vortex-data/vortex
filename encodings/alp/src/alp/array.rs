@@ -27,7 +27,6 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -44,7 +43,8 @@ use crate::alp::decompress::execute_decompress;
 use crate::alp::rules::PARENT_KERNELS;
 use crate::alp::rules::RULES;
 
-vtable!(ALP, ALP, ALPData);
+/// A [`ALP`]-encoded Vortex array.
+pub type ALPArray = Array<ALP>;
 
 impl ArrayHash for ALPData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {

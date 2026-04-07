@@ -37,9 +37,9 @@ use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 
-vtable!(Filter, Filter, FilterData);
+/// A [`Filter`]-encoded Vortex array.
+pub type FilterArray = Array<Filter>;
 
 #[derive(Clone, Debug)]
 pub struct Filter;

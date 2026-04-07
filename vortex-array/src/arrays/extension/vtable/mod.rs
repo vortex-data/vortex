@@ -33,9 +33,9 @@ use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
-use crate::vtable;
 
-vtable!(Extension, Extension, ExtensionData);
+/// A [`Extension`]-encoded Vortex array.
+pub type ExtensionArray = Array<Extension>;
 
 impl ArrayHash for ExtensionData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}

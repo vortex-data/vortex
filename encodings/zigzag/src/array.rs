@@ -21,7 +21,6 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -39,7 +38,8 @@ use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 use crate::zigzag_decode;
 
-vtable!(ZigZag, ZigZag, ZigZagData);
+/// A [`ZigZag`]-encoded Vortex array.
+pub type ZigZagArray = Array<ZigZag>;
 
 impl VTable for ZigZag {
     type ArrayData = ZigZagData;

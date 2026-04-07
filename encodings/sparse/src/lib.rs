@@ -32,7 +32,6 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_buffer::Buffer;
@@ -57,7 +56,8 @@ mod ops;
 mod rules;
 mod slice;
 
-vtable!(Sparse, Sparse, SparseData);
+/// A [`Sparse`]-encoded Vortex array.
+pub type SparseArray = Array<Sparse>;
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]

@@ -22,7 +22,6 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -36,7 +35,8 @@ use vortex_session::VortexSession;
 
 use crate::ZstdBuffersMetadata;
 
-vtable!(ZstdBuffers, ZstdBuffers, ZstdBuffersData);
+/// A [`ZstdBuffers`]-encoded Vortex array.
+pub type ZstdBuffersArray = Array<ZstdBuffers>;
 
 #[derive(Clone, Debug)]
 pub struct ZstdBuffers;

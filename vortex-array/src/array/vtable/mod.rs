@@ -291,13 +291,11 @@ pub fn patches_child_name(idx: usize) -> &'static str {
     }
 }
 
-/// vtable! macro — generates IntoArray, From, and type alias for array types.
+/// vtable! macro — adds a deprecated `to_array()` helper on legacy array types.
 ///
-/// Three forms:
-/// - `vtable!(Foo)` — short for `vtable!(Foo, Foo)` (legacy form)
-/// - `vtable!(Foo, FooVT)` — legacy form where `FooArray` is the inner struct name
-/// - `vtable!(Foo, FooVT, FooData)` — new form where `FooData` is the inner struct,
-///   and `FooArray` is generated as a type alias for `Array<FooVT>`
+/// Two forms:
+/// - `vtable!(Foo)` — short for `vtable!(Foo, Foo)`
+/// - `vtable!(Foo, FooVT)` — where `FooArray` is the inner struct name
 #[macro_export]
 macro_rules! vtable {
     ($V:ident) => {
@@ -316,13 +314,6 @@ macro_rules! vtable {
                     self.clone().into_array()
                 }
             }
-        }
-    };
-    // New form: Data is the inner struct, FooArray is a type alias for Array<VT>.
-    ($Base:ident, $VT:ident, $Data:ident) => {
-        $crate::aliases::paste::paste! {
-            /// Type alias: `FooArray = Array<Foo>`.
-            pub type [<$Base Array>] = $crate::Array<$VT>;
         }
     };
 }

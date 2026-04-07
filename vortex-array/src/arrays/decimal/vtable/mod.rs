@@ -26,7 +26,6 @@ use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 mod kernel;
 mod operations;
 mod validity;
@@ -39,7 +38,8 @@ use crate::arrays::decimal::array::SLOT_NAMES;
 use crate::arrays::decimal::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
-vtable!(Decimal, Decimal, DecimalData);
+/// A [`Decimal`]-encoded Vortex array.
+pub type DecimalArray = Array<Decimal>;
 
 // The type of the values can be determined by looking at the type info...right?
 #[derive(prost::Message)]

@@ -26,9 +26,9 @@ use crate::arrays::variant::VariantData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
-use crate::vtable;
 
-vtable!(Variant, Variant, VariantData);
+/// A [`Variant`]-encoded Vortex array.
+pub type VariantArray = Array<Variant>;
 
 #[derive(Clone, Debug)]
 pub struct Variant;
