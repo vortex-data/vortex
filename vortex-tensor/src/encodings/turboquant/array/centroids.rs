@@ -37,8 +37,9 @@ static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Vec<f32>>> = LazyLock::new(Da
 /// `dimension`-dimensional space.
 pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
     vortex_ensure!(
-        (1..=8).contains(&bit_width),
-        "TurboQuant bit_width must be 1-8, got {bit_width}"
+        (1..=TurboQuant::MAX_BIT_WIDTH).contains(&bit_width),
+        "TurboQuant bit_width must be 1-{}, got {bit_width}",
+        TurboQuant::MAX_BIT_WIDTH
     );
     vortex_ensure!(
         dimension >= TurboQuant::MIN_DIMENSION,
@@ -91,7 +92,7 @@ impl HalfIntExponent {
 ///   `f(x) = C_d * (1 - x^2)^((d-3)/2)` on `[-1, 1]`
 /// where `C_d` is the normalizing constant.
 fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
-    debug_assert!((1..=8).contains(&bit_width));
+    debug_assert!((1..=TurboQuant::MAX_BIT_WIDTH).contains(&bit_width));
     let num_centroids = 1usize << bit_width;
 
     // For the marginal distribution on [-1, 1], we use the exponent (d-3)/2.

@@ -46,7 +46,7 @@ pub struct TurboQuantConfig {
 impl Default for TurboQuantConfig {
     fn default() -> Self {
         Self {
-            bit_width: 8,
+            bit_width: TurboQuant::MAX_BIT_WIDTH,
             seed: Some(42),
         }
     }
@@ -223,8 +223,9 @@ pub fn turboquant_encode(
     let fsl = storage.to_canonical()?.into_fixed_size_list();
 
     vortex_ensure!(
-        config.bit_width >= 1 && config.bit_width <= 8,
-        "bit_width must be 1-8, got {}",
+        config.bit_width >= 1 && config.bit_width <= TurboQuant::MAX_BIT_WIDTH,
+        "bit_width must be 1-{}, got {}",
+        TurboQuant::MAX_BIT_WIDTH,
         config.bit_width
     );
     let dimension = fsl.list_size();

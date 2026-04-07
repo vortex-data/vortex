@@ -8,10 +8,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::encodings::turboquant::TurboQuant;
+
 /// Serialized metadata for TurboQuant arrays.
 #[derive(Clone, PartialEq, Message)]
 pub(super) struct TurboQuantMetadata {
-    /// The number of bits per coordinate, which must be <= 8.
+    /// The number of bits per coordinate, which must be <= [`TurboQuant::MAX_BIT_WIDTH`].
     #[prost(uint32, required, tag = "1")]
     bit_width: u32,
 }
@@ -33,8 +35,9 @@ impl TurboQuantMetadata {
             )
         })?;
         vortex_ensure!(
-            bit_width <= 8,
-            "bit_width is expected to be between 0 and 8, got {bit_width}"
+            bit_width <= TurboQuant::MAX_BIT_WIDTH,
+            "bit_width is expected to be between 0 and {}, got {bit_width}",
+            TurboQuant::MAX_BIT_WIDTH
         );
 
         Ok(bit_width)

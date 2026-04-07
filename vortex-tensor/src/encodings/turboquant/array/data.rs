@@ -45,7 +45,7 @@ impl TurboQuantData {
     ///
     /// Returns an error if:
     /// - `dimension` is less than [`MIN_DIMENSION`](TurboQuant::MIN_DIMENSION).
-    /// - `bit_width` is greater than 8.
+    /// - `bit_width` is greater than [`MAX_BIT_WIDTH`](TurboQuant::MAX_BIT_WIDTH).
     pub fn try_new(dimension: u32, bit_width: u8) -> VortexResult<Self> {
         vortex_ensure!(
             dimension >= TurboQuant::MIN_DIMENSION,
@@ -53,8 +53,9 @@ impl TurboQuantData {
             TurboQuant::MIN_DIMENSION
         );
         vortex_ensure!(
-            bit_width <= 8,
-            "bit_width is expected to be between 0 and 8, got {bit_width}"
+            bit_width <= TurboQuant::MAX_BIT_WIDTH,
+            "bit_width is expected to be between 0 and {}, got {bit_width}",
+            TurboQuant::MAX_BIT_WIDTH
         );
 
         Ok(Self {
@@ -70,7 +71,7 @@ impl TurboQuantData {
     /// The caller must ensure:
     ///
     /// - `dimension` is >= [`MIN_DIMENSION`](TurboQuant::MIN_DIMENSION).
-    /// - `bit_width` is in the range `[0, 8]`.
+    /// - `bit_width` is in the range `[0, MAX_BIT_WIDTH]`.
     ///
     /// Violating these invariants may produce incorrect results during decompression.
     pub unsafe fn new_unchecked(dimension: u32, bit_width: u8) -> Self {
@@ -132,16 +133,19 @@ impl TurboQuantData {
         // Non-degenerate: derive and validate bit_width from centroids.
         let num_centroids = centroids.len();
         vortex_ensure!(
-            num_centroids.is_power_of_two() && (2..=256).contains(&num_centroids),
-            "centroids length must be a power of 2 in [2, 256], got {num_centroids}"
+            num_centroids.is_power_of_two()
+                && (2..=TurboQuant::MAX_CENTROIDS).contains(&num_centroids),
+            "centroids length must be a power of 2 in [2, {}], got {num_centroids}",
+            TurboQuant::MAX_CENTROIDS
         );
 
-        // Guaranteed to be 1-8 by the preceding power-of-2 and range checks.
+        // Guaranteed to be 1-MAX_BIT_WIDTH by the preceding power-of-2 and range checks.
         #[expect(clippy::cast_possible_truncation)]
         let bit_width = num_centroids.trailing_zeros() as u8;
         vortex_ensure!(
-            (1..=8).contains(&bit_width),
-            "derived bit_width must be 1-8, got {bit_width}"
+            (1..=TurboQuant::MAX_BIT_WIDTH).contains(&bit_width),
+            "derived bit_width must be 1-{}, got {bit_width}",
+            TurboQuant::MAX_BIT_WIDTH
         );
 
         // Norms dtype must match the element ptype of the Vector, with the parent's nullability.
@@ -192,7 +196,7 @@ impl TurboQuantData {
         self.dimension
     }
 
-    /// MSE bits per coordinate (1-8 for non-empty arrays, 0 for degenerate empty arrays).
+    /// MSE bits per coordinate (1-MAX_BIT_WIDTH for non-empty arrays, 0 for degenerate empty arrays).
     pub fn bit_width(&self) -> u8 {
         self.bit_width
     }

@@ -56,7 +56,11 @@ impl TurboQuant {
     /// amount of distortion.
     pub const MIN_DIMENSION: u32 = 128;
 
-    // TODO(connor): Add a max bit width const here = 8.
+    /// Maximum supported number of bits per quantized coordinate.
+    pub const MAX_BIT_WIDTH: u8 = 8;
+
+    /// Maximum supported number of centroids in the scalar quantizer codebook.
+    pub const MAX_CENTROIDS: usize = 1usize << (Self::MAX_BIT_WIDTH as usize);
 
     /// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
     /// dimension >= [`MIN_DIMENSION`](Self::MIN_DIMENSION).
@@ -82,7 +86,7 @@ impl TurboQuant {
 
     /// Creates a new [`TurboQuantArray`].
     ///
-    /// Internally calls [`TurboQuantData::try_new`].
+    /// Internally calls [`TurboQuantData::validate`] and [`TurboQuantData::try_new`].
     pub fn try_new_array(
         dtype: DType,
         codes: ArrayRef,
