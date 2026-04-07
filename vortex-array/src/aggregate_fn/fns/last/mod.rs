@@ -6,11 +6,22 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
+
+/// Return the last non-null value of an array.
+///
+/// See [`Last`] for details.
+pub fn last(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
+    let mut acc = Accumulator::try_new(Last, EmptyOptions, array.dtype().clone())?;
+    acc.accumulate(array, ctx)?;
+    acc.finish()
+}
 
 /// Return the last non-null value seen across all batches.
 #[derive(Clone, Debug)]
@@ -124,8 +135,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::ArrayRef;
-    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -134,6 +143,7 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::last::Last;
+    use crate::aggregate_fn::fns::last::last;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
@@ -144,12 +154,6 @@ mod tests {
     use crate::dtype::PType;
     use crate::scalar::Scalar;
     use crate::validity::Validity;
-
-    fn last(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-        let mut acc = Accumulator::try_new(Last, EmptyOptions, array.dtype().clone())?;
-        acc.accumulate(array, ctx)?;
-        acc.finish()
-    }
 
     #[test]
     fn last_non_null() -> VortexResult<()> {
