@@ -37,8 +37,9 @@ static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Vec<f32>>> = LazyLock::new(Da
 /// `dimension`-dimensional space.
 pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
     vortex_ensure!(
-        (1..=8).contains(&bit_width),
-        "TurboQuant bit_width must be 1-8, got {bit_width}"
+        (1..=TurboQuant::MAX_BIT_WIDTH).contains(&bit_width),
+        "TurboQuant bit_width must be 1-{}, got {bit_width}",
+        TurboQuant::MAX_BIT_WIDTH
     );
     vortex_ensure!(
         dimension >= TurboQuant::MIN_DIMENSION,
@@ -91,7 +92,7 @@ impl HalfIntExponent {
 ///   `f(x) = C_d * (1 - x^2)^((d-3)/2)` on `[-1, 1]`
 /// where `C_d` is the normalizing constant.
 fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
-    debug_assert!((1..=8).contains(&bit_width));
+    debug_assert!((1..=TurboQuant::MAX_BIT_WIDTH).contains(&bit_width));
     let num_centroids = 1usize << bit_width;
 
     // For the marginal distribution on [-1, 1], we use the exponent (d-3)/2.
@@ -220,7 +221,6 @@ pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use rstest::rstest;
     use vortex_error::VortexResult;
@@ -311,9 +311,11 @@ mod tests {
         let boundaries = compute_centroid_boundaries(&centroids);
         assert_eq!(find_nearest_centroid(-1.0, &boundaries), 0);
 
+        #[expect(clippy::cast_possible_truncation)]
         let last_idx = (centroids.len() - 1) as u8;
         assert_eq!(find_nearest_centroid(1.0, &boundaries), last_idx);
         for (idx, &cv) in centroids.iter().enumerate() {
+            #[expect(clippy::cast_possible_truncation)]
             let expected = idx as u8;
             assert_eq!(find_nearest_centroid(cv, &boundaries), expected);
         }

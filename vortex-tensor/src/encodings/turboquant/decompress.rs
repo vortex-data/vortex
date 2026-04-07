@@ -62,9 +62,9 @@ pub fn execute_decompress(
     let centroids_prim = array.centroids().clone().execute::<PrimitiveArray>(ctx)?;
     let centroids = centroids_prim.as_slice::<f32>();
 
-    // FastLanes SIMD-unpacks the 1-bit bitpacked rotation signs into u8 0/1 values,
-    // then we expand to u32 XOR masks once (amortized over all rows). This enables
-    // branchless XOR-based sign application in the per-row SRHT hot loop.
+    // FastLanes SIMD-unpacks the 1-bit bitpacked rotation signs into u8 0/1 values, then we expand
+    // to u32 XOR masks once (amortized over all rows). This enables branchless XOR-based sign
+    // application in the per-row structured-rotation hot loop.
     let signs_prim = array
         .rotation_signs()
         .clone()
@@ -73,7 +73,10 @@ pub fn execute_decompress(
 
     // Unpack codes from FixedSizeListArray -> flat u8 elements.
     let codes_fsl = array.codes().clone().execute::<FixedSizeListArray>(ctx)?;
-    let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
+    let codes_prim = codes_fsl
+        .elements()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
     let indices = codes_prim.as_slice::<u8>();
 
     // Read norms in their native precision. Norms carry the validity of the array.

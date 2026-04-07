@@ -3,11 +3,13 @@
 
 //! Deterministic random rotation for TurboQuant.
 //!
-//! Uses a Structured Random Hadamard Transform (SRHT) for O(d log d) rotation
-//! instead of a full d×d matrix multiply. The SRHT applies the sequence
-//! D₃ · H · D₂ · H · D₁ where H is the Walsh-Hadamard Transform (WHT) and Dₖ are
-//! random diagonal ±1 sign matrices. Three rounds of HD provide sufficient
-//! randomness for near-uniform distribution on the sphere.
+//! The TurboQuant paper analyzes a full random orthogonal rotation. The current implementation
+//! uses a cheaper structured Walsh-Hadamard-based surrogate instead of a dense d x d matrix.
+//!
+//! Concretely, this applies three rounds of random sign diagonals interleaved with the
+//! Walsh-Hadamard Transform: D3 * H * D2 * H * D1 * H, followed by normalization. This is a
+//! SORF-style structured approximation to a random orthogonal matrix, chosen for O(d log d)
+//! encode/decode cost and compact serialized parameters.
 //!
 //! For dimensions that are not powers of 2, the input is zero-padded to the
 //! next power of 2 before the transform and truncated afterward.
@@ -28,7 +30,7 @@ use vortex_error::vortex_ensure;
 /// IEEE 754 sign bit mask for f32.
 const F32_SIGN_BIT: u32 = 0x8000_0000;
 
-/// A structured random Hadamard transform for O(d log d) pseudo-random rotation.
+/// A Walsh-Hadamard-based structured surrogate for a random orthogonal rotation.
 pub struct RotationMatrix {
     /// XOR masks for each of the 3 diagonal matrices, each of length `padded_dim`.
     /// `0x00000000` = multiply by +1 (no-op), `0x80000000` = multiply by -1 (flip sign bit).
@@ -40,7 +42,7 @@ pub struct RotationMatrix {
 }
 
 impl RotationMatrix {
-    /// Create a new SRHT rotation from a deterministic seed.
+    /// Create a new structured Walsh-Hadamard-based rotation from a deterministic seed.
     pub fn try_new(seed: u64, dimension: usize) -> VortexResult<Self> {
         let padded_dim = dimension.next_power_of_two();
         let mut rng = StdRng::seed_from_u64(seed);
@@ -55,7 +57,7 @@ impl RotationMatrix {
         })
     }
 
-    /// Apply forward rotation: `output = SRHT(input)`.
+    /// Apply forward rotation: `output = R(input)`.
     ///
     /// Both `input` and `output` must have length `padded_dim()`. The caller
     /// is responsible for zero-padding input beyond `dim` positions.
@@ -67,7 +69,7 @@ impl RotationMatrix {
         self.apply_srht(output);
     }
 
-    /// Apply inverse rotation: `output = SRHT⁻¹(input)`.
+    /// Apply inverse rotation: `output = R⁻¹(input)`.
     ///
     /// Both `input` and `output` must have length `padded_dim()`.
     pub fn inverse_rotate(&self, input: &[f32], output: &mut [f32]) {
@@ -85,7 +87,7 @@ impl RotationMatrix {
         self.padded_dim
     }
 
-    /// Apply the SRHT: D₃ · H · D₂ · H · D₁ · x, with normalization.
+    /// Apply the structured rotation: `D₃ · H · D₂ · H · D₁ · H · x`, with normalization.
     fn apply_srht(&self, buf: &mut [f32]) {
         apply_signs_xor(buf, &self.sign_masks[0]);
         walsh_hadamard_transform(buf);
@@ -100,7 +102,7 @@ impl RotationMatrix {
         buf.iter_mut().for_each(|val| *val *= norm);
     }
 
-    /// Apply the inverse SRHT.
+    /// Apply the inverse structured rotation.
     ///
     /// Forward is: norm · H · D₃ · H · D₂ · H · D₁
     /// Inverse is: norm · D₁ · H · D₂ · H · D₃ · H

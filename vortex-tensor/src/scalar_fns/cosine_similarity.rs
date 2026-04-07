@@ -28,8 +28,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::encodings::turboquant::TurboQuant;
-use crate::encodings::turboquant::compute::cosine_similarity;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::inner_product::InnerProduct;
@@ -141,23 +139,9 @@ impl ScalarFnVTable for CosineSimilarity {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let lhs_ref = args.get(0)?;
-        let rhs_ref = args.get(1)?;
-
+        let lhs = args.get(0)?.execute::<ExtensionArray>(ctx)?;
+        let rhs = args.get(1)?.execute::<ExtensionArray>(ctx)?;
         let len = args.row_count();
-
-        // TurboQuant approximate path: check encoding before executing.
-        if options.is_approx()
-            && let (Some(lhs_tq), Some(rhs_tq)) = (
-                lhs_ref.as_opt::<TurboQuant>(),
-                rhs_ref.as_opt::<TurboQuant>(),
-            )
-        {
-            return cosine_similarity::cosine_similarity_quantized_column(lhs_tq, rhs_tq, ctx);
-        }
-
-        let lhs = lhs_ref.execute::<ExtensionArray>(ctx)?;
-        let rhs = rhs_ref.execute::<ExtensionArray>(ctx)?;
 
         // Compute combined validity.
         let validity = lhs.as_ref().validity()?.and(rhs.as_ref().validity()?)?;
@@ -222,15 +206,20 @@ impl ScalarFnVTable for CosineSimilarity {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::MaskedArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
     use vortex_array::scalar_fn::ScalarFn;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::cosine_similarity::CosineSimilarity;
@@ -240,11 +229,15 @@ mod tests {
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     /// Evaluates cosine similarity between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_cosine_similarity(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
         let scalar_fn = ScalarFn::new(CosineSimilarity, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], len)?;
-        let prim = result.as_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
         Ok(prim.as_slice::<f64>().to_vec())
     }
 
@@ -414,7 +407,8 @@ mod tests {
 
         let scalar_fn = ScalarFn::new(CosineSimilarity, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;
-        let prim = result.as_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: self-similarity = 1.0, row 1: null.
         assert!(prim.is_valid(0)?);

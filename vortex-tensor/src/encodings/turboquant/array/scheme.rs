@@ -98,6 +98,7 @@ fn estimate_compression_ratio(bits_per_element: u8, dimensions: u32, num_vectors
     // Shared overhead: codebook centroids (2^bit_width f32 values) and
     // rotation signs (3 * padded_dim bits).
     let num_centroids = 1usize << config.bit_width;
+    debug_assert!(num_centroids <= TurboQuant::MAX_CENTROIDS);
     let overhead_bits = num_centroids * 32 // centroids are always f32
         + 3 * padded_dim; // rotation signs, 1 bit each
 
