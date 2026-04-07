@@ -5,9 +5,10 @@
 
 use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::Extension;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
@@ -25,7 +26,7 @@ use vortex_error::vortex_ensure;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 
 use crate::encodings::turboquant::TurboQuant;
-use crate::encodings::turboquant::array::centroids::compute_boundaries;
+use crate::encodings::turboquant::array::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::array::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::array::centroids::get_centroids;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
@@ -95,7 +96,7 @@ struct QuantizationResult {
 /// all-zero codes.
 #[allow(clippy::cast_possible_truncation)]
 fn turboquant_quantize_core(
-    ext: &ExtensionArray,
+    ext: ArrayView<Extension>,
     fsl: &FixedSizeListArray,
     seed: u64,
     bit_width: u8,
@@ -130,7 +131,7 @@ fn turboquant_quantize_core(
     let f32_elements = extract_f32_elements(fsl)?;
 
     let centroids = get_centroids(padded_dim as u32, bit_width)?;
-    let boundaries = compute_boundaries(&centroids);
+    let boundaries = compute_centroid_boundaries(&centroids);
 
     let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * padded_dim);
     let mut padded = vec![0.0f32; padded_dim];
@@ -213,7 +214,7 @@ fn build_turboquant(
 /// Nullable inputs are supported: null vectors get all-zero codes and null norms. The validity
 /// of the resulting TurboQuant array is carried by the norms child.
 pub fn turboquant_encode(
-    ext: &ExtensionArray,
+    ext: ArrayView<Extension>,
     config: &TurboQuantConfig,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {

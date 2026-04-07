@@ -132,7 +132,7 @@ fn encode_decode(
     let ext = make_vector_ext(fsl);
     let config = config.clone();
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let decoded_ext = encoded.execute::<ExtensionArray>(&mut ctx)?;
     let decoded_fsl = decoded_ext
         .storage_array()
@@ -273,7 +273,7 @@ fn roundtrip_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let decoded = encoded.execute::<ExtensionArray>(&mut ctx)?;
     assert_eq!(decoded.len(), num_rows);
     Ok(())
@@ -291,7 +291,7 @@ fn rejects_dimension_below_128(#[case] dim: usize) {
         seed: Some(0),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    assert!(turboquant_encode(&ext, &config, &mut ctx).is_err());
+    assert!(turboquant_encode(ext.as_view(), &config, &mut ctx).is_err());
 }
 
 fn make_fsl_small(dim: usize) -> FixedSizeListArray {
@@ -366,7 +366,7 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     };
     // Verify encoding succeeds with f64 input (f64->f32 conversion).
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let encoded = encoded.as_opt::<TurboQuant>().unwrap();
     assert_eq!(encoded.norms().len(), num_rows);
     assert_eq!(encoded.dimension() as usize, dim);
@@ -400,7 +400,7 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
         seed: Some(42),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let tq = encoded.as_opt::<TurboQuant>().unwrap();
     assert_eq!(tq.norms().len(), num_rows);
     assert_eq!(tq.dimension() as usize, dim);
@@ -429,7 +429,7 @@ fn stored_centroids_match_computed() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let encoded = encoded.as_opt::<TurboQuant>().unwrap();
 
     let mut ctx = SESSION.create_execution_ctx();
@@ -459,7 +459,7 @@ fn stored_rotation_signs_produce_correct_decode() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let encoded = encoded.as_opt::<TurboQuant>().unwrap();
 
     // Decode via the stored-signs path (normal decode).
@@ -507,7 +507,7 @@ fn slice_preserves_data() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
 
     // Full decompress then slice.
     let mut ctx = SESSION.create_execution_ctx();
@@ -545,7 +545,7 @@ fn scalar_at_matches_decompress() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
 
     let full_decoded = encoded.clone().execute::<ExtensionArray>(&mut ctx)?;
 
@@ -566,7 +566,7 @@ fn l2_norm_readthrough() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
     // Stored norms should match the actual L2 norms of the input.
@@ -597,7 +597,7 @@ fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
     // Compute exact cosine similarity from original data.
@@ -671,7 +671,7 @@ fn dot_product_quantized_accuracy() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
     let input_prim = fsl.elements().to_canonical()?.into_primitive();
@@ -759,7 +759,7 @@ fn encoded_dtype_is_vector_extension() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
 
     // The encoded TurboQuant array should claim a Vector extension dtype.
     assert!(
@@ -793,7 +793,7 @@ fn nullable_vectors_roundtrip() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
 
     assert_eq!(encoded.len(), 10);
     assert!(encoded.dtype().is_nullable());
@@ -855,7 +855,7 @@ fn nullable_norms_match_validity() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
     let norms_validity = tq.norms().validity()?;
@@ -882,7 +882,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
 
     // Compute L2Norm on the encoded array.
     let norm_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, encoded, 5)?;
@@ -926,7 +926,7 @@ fn nullable_slice_preserves_validity() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
 
     // Slice rows 1..6 -> [true, false, true, true, false].
     let sliced = encoded.slice(1..6)?;
@@ -968,7 +968,7 @@ fn serde_roundtrip() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
 
     let dtype = encoded.dtype().clone();
     let len = encoded.len();
@@ -1022,7 +1022,7 @@ fn serde_roundtrip_empty() -> VortexResult<()> {
         seed: Some(123),
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     assert_eq!(encoded.len(), 0);
 
     let dtype = encoded.dtype().clone();

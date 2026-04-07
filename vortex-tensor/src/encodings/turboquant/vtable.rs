@@ -52,7 +52,12 @@ impl TurboQuant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.turboquant");
 
     /// Minimum vector dimension for TurboQuant encoding.
+    ///
+    /// Note that this is not a theoretical minimum, it is mostly a practical one to limit the total
+    /// amount of distortion.
     pub const MIN_DIMENSION: u32 = 128;
+
+    // TODO(connor): Add a max bit width const here = 8.
 
     /// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
     /// dimension >= [`MIN_DIMENSION`](Self::MIN_DIMENSION).
@@ -108,19 +113,6 @@ impl TurboQuant {
 
 vtable!(TurboQuant, TurboQuant, TurboQuantData);
 
-impl ArrayHash for TurboQuantData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
-        self.dimension.hash(state);
-        self.bit_width.hash(state);
-    }
-}
-
-impl ArrayEq for TurboQuantData {
-    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
-        self.dimension == other.dimension && self.bit_width == other.bit_width
-    }
-}
-
 impl VTable for TurboQuant {
     type ArrayData = TurboQuantData;
     type OperationsVTable = TurboQuant;
@@ -140,30 +132,32 @@ impl VTable for TurboQuant {
         vortex_ensure_eq!(
             slots.len(),
             Slot::COUNT,
-            "TurboQuantArray expects {} slots, got {}",
-            Slot::COUNT,
-            slots.len()
+            "TurboQuantArray got incorrect amount of slots",
         );
 
+        // Even if the array is degenerate (empty), the arrays still have to exist
+        // (they will be empty).
         let codes = slots[Slot::Codes as usize]
             .as_ref()
-            .ok_or_else(|| vortex_err!("TurboQuantArray codes slot"))?;
+            .ok_or_else(|| vortex_err!("TurboQuantArray missing codes slot"))?;
         let norms = slots[Slot::Norms as usize]
             .as_ref()
-            .ok_or_else(|| vortex_err!("TurboQuantArray norms slot"))?;
+            .ok_or_else(|| vortex_err!("TurboQuantArray missing norms slot"))?;
         let centroids = slots[Slot::Centroids as usize]
             .as_ref()
-            .ok_or_else(|| vortex_err!("TurboQuantArray centroids slot"))?;
+            .ok_or_else(|| vortex_err!("TurboQuantArray missing centroids slot"))?;
         let rotation_signs = slots[Slot::RotationSigns as usize]
             .as_ref()
-            .ok_or_else(|| vortex_err!("TurboQuantArray rotation_signs slot"))?;
+            .ok_or_else(|| vortex_err!("TurboQuantArray missing rotation_signs slot"))?;
 
-        TurboQuantData::validate(dtype, codes, norms, centroids, rotation_signs)?;
         vortex_ensure_eq!(
             norms.len(),
             len,
             "TurboQuant norms length does not match outer length",
         );
+
+        TurboQuantData::validate(dtype, codes, norms, centroids, rotation_signs)?;
+
         vortex_ensure_eq!(data.dimension, Self::validate_dtype(dtype)?.dimensions());
 
         let expected_bit_width = if centroids.is_empty() {
@@ -296,5 +290,18 @@ impl VTable for TurboQuant {
 impl ValidityChild<TurboQuant> for TurboQuant {
     fn validity_child(array: ArrayView<'_, TurboQuant>) -> ArrayRef {
         array.norms().clone()
+    }
+}
+
+impl ArrayHash for TurboQuantData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.dimension.hash(state);
+        self.bit_width.hash(state);
+    }
+}
+
+impl ArrayEq for TurboQuantData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.dimension == other.dimension && self.bit_width == other.bit_width
     }
 }

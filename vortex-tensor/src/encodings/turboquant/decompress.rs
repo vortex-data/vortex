@@ -22,8 +22,8 @@ use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantArrayExt;
-use crate::encodings::turboquant::array::float_from_f32;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
+use crate::encodings::turboquant::compute::float_from_f32;
 use crate::vector::AnyVector;
 
 /// Decompress a `TurboQuantArray` into a [`Vector`] extension array.

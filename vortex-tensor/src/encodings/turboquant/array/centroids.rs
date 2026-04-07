@@ -12,38 +12,39 @@
 use std::sync::LazyLock;
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::encodings::turboquant::TurboQuant;
 
+/// The maximum iterations for Max-Lloyd algorithm when computing centroids.
+const MAX_ITERATIONS: usize = 200;
+
+/// The Max-Lloyd convergence threshold for stopping early when computing centroids.
+const CONVERGENCE_EPSILON: f64 = 1e-12;
+
 /// Number of numerical integration points for computing conditional expectations.
 const INTEGRATION_POINTS: usize = 1000;
 
-/// Max-Lloyd convergence threshold.
-const CONVERGENCE_EPSILON: f64 = 1e-12;
-
-/// Maximum iterations for Max-Lloyd algorithm.
-const MAX_ITERATIONS: usize = 200;
-
+// TODO(connor): Maybe we should just store an `ArrayRef` here?
 /// Global centroid cache keyed by (dimension, bit_width).
 static CENTROID_CACHE: LazyLock<DashMap<(u32, u8), Vec<f32>>> = LazyLock::new(DashMap::default);
 
 /// Get or compute cached centroids for the given dimension and bit width.
 ///
-/// Returns `2^bit_width` centroids sorted in ascending order, representing
-/// optimal scalar quantization levels for the coordinate distribution after
-/// random rotation in `dimension`-dimensional space.
+/// Returns `2^bit_width` centroids sorted in ascending order, representing optimal scalar
+/// quantization levels for the coordinate distribution after random rotation in
+/// `dimension`-dimensional space.
 pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
-    if !(1..=8).contains(&bit_width) {
-        vortex_bail!("TurboQuant bit_width must be 1-8, got {bit_width}");
-    }
-    if dimension < TurboQuant::MIN_DIMENSION {
-        vortex_bail!(
-            "TurboQuant dimension must be >= {}, got {dimension}",
-            TurboQuant::MIN_DIMENSION
-        );
-    }
+    vortex_ensure!(
+        (1..=8).contains(&bit_width),
+        "TurboQuant bit_width must be 1-8, got {bit_width}"
+    );
+    vortex_ensure!(
+        dimension >= TurboQuant::MIN_DIMENSION,
+        "TurboQuant dimension must be >= {}, got {dimension}",
+        TurboQuant::MIN_DIMENSION
+    );
 
     if let Some(centroids) = CENTROID_CACHE.get(&(dimension, bit_width)) {
         return Ok(centroids.clone());
@@ -51,14 +52,18 @@ pub fn get_centroids(dimension: u32, bit_width: u8) -> VortexResult<Vec<f32>> {
 
     let centroids = max_lloyd_centroids(dimension, bit_width);
     CENTROID_CACHE.insert((dimension, bit_width), centroids.clone());
+
     Ok(centroids)
 }
 
+// TODO(connor): It would potentially be more performant if this was modelled as const generic
+// parameters to functions.
 /// Half-integer exponent: represents `int_part + (if has_half { 0.5 } else { 0.0 })`.
 ///
-/// The marginal distribution exponent `(d-3)/2` is always an integer (when `d` is odd)
-/// or a half-integer (when `d` is even). This type makes that invariant explicit and
-/// avoids floating-point comparison in the hot path.
+/// The marginal distribution exponent `(d-3)/2` is always an integer (when `d` is odd) or a
+/// half-integer (when `d` is even).
+///
+/// This type makes that invariant explicit and avoids floating-point comparison in the hot path.
 #[derive(Clone, Copy, Debug)]
 struct HalfIntExponent {
     int_part: i32,
@@ -70,12 +75,7 @@ impl HalfIntExponent {
     ///
     /// `numerator` is `d - 3` where `d` is the dimension (>= 2), so it can be negative.
     fn from_numerator(numerator: i32) -> Self {
-        // Integer division truncates toward zero; for negative odd numerators
-        // (e.g., d=2 → num=-1) this gives int_part=0, has_half=true,
-        // representing -0.5 = 0 + (-0.5). The sign is handled by adjusting
-        // int_part: -1/2 = 0 with has_half, but we need the floor division.
-        // Rust's `/` truncates toward zero, so -1/2 = 0. We want floor: -1.
-        // Use divmod that rounds toward negative infinity.
+        // Use Euclidean division to get floor division toward negative infinity.
         let int_part = numerator.div_euclid(2);
         let has_half = numerator.rem_euclid(2) != 0;
         Self { int_part, has_half }
@@ -84,12 +84,14 @@ impl HalfIntExponent {
 
 /// Compute optimal centroids via the Max-Lloyd (Lloyd-Max) algorithm.
 ///
-/// Operates on the marginal distribution of a single coordinate of a randomly
-/// rotated unit vector in d dimensions. The PDF is:
+/// Operates on the marginal distribution of a single coordinate of a randomly rotated unit vector
+/// in d dimensions.
+///
+/// The probability distribution function is:
 ///   `f(x) = C_d * (1 - x^2)^((d-3)/2)` on `[-1, 1]`
 /// where `C_d` is the normalizing constant.
-#[allow(clippy::cast_possible_truncation)] // f64→f32 centroid values are intentional
 fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
+    debug_assert!((1..=8).contains(&bit_width));
     let num_centroids = 1usize << bit_width;
 
     // For the marginal distribution on [-1, 1], we use the exponent (d-3)/2.
@@ -114,7 +116,7 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
         for idx in 0..num_centroids {
             let lo = boundaries[idx];
             let hi = boundaries[idx + 1];
-            let new_centroid = conditional_mean(lo, hi, exponent);
+            let new_centroid = mean_between_centroids(lo, hi, exponent);
             max_change = max_change.max((new_centroid - centroids[idx]).abs());
             centroids[idx] = new_centroid;
         }
@@ -124,14 +126,19 @@ fn max_lloyd_centroids(dimension: u32, bit_width: u8) -> Vec<f32> {
         }
     }
 
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "all values are in [-1, 1] so this just loses precision"
+    )]
     centroids.into_iter().map(|val| val as f32).collect()
 }
 
 /// Compute the conditional mean of the coordinate distribution on interval [lo, hi].
 ///
-/// Returns `E[X | lo <= X <= hi]` where X has PDF proportional to `(1 - x^2)^exponent`
-/// on [-1, 1].
-fn conditional_mean(lo: f64, hi: f64, exponent: HalfIntExponent) -> f64 {
+/// Returns `E[X | lo <= X <= hi]` where X has PDF proportional to `(1 - x^2)^exponent` on [-1, 1].
+///
+/// Since there is no closed form for the integrals, we compute this numerically.
+fn mean_between_centroids(lo: f64, hi: f64, exponent: HalfIntExponent) -> f64 {
     if (hi - lo).abs() < 1e-15 {
         return (lo + hi) / 2.0;
     }
@@ -164,9 +171,9 @@ fn conditional_mean(lo: f64, hi: f64, exponent: HalfIntExponent) -> f64 {
 
 /// Unnormalized PDF of the coordinate distribution: `(1 - x^2)^exponent`.
 ///
-/// Uses `powi` + `sqrt` instead of `powf` for the half-integer exponents
-/// that arise from `(d-3)/2`. This is significantly faster than the general
-/// `powf` which goes through `exp(exponent * ln(base))`.
+/// Uses `powi` + `sqrt` instead of `powf` for the half-integer exponents that arise from `(d-3)/2`.
+/// This is significantly faster than the general `powf` which goes through
+/// `exp(exponent * ln(base))`.
 #[inline]
 fn pdf_unnormalized(x_val: f64, exponent: HalfIntExponent) -> f64 {
     let base = (1.0 - x_val * x_val).max(0.0);
@@ -182,10 +189,10 @@ fn pdf_unnormalized(x_val: f64, exponent: HalfIntExponent) -> f64 {
 
 /// Precompute decision boundaries (midpoints between adjacent centroids).
 ///
-/// For `k` centroids, returns `k-1` boundaries. A value below `boundaries[0]` maps
-/// to centroid 0, a value in `[boundaries[i-1], boundaries[i])` maps to centroid `i`,
-/// and a value >= `boundaries[k-2]` maps to centroid `k-1`.
-pub fn compute_boundaries(centroids: &[f32]) -> Vec<f32> {
+/// For `k` centroids, returns `k-1` boundaries. A value below `boundaries[0]` maps to centroid 0, a
+/// value in `[boundaries[i-1], boundaries[i])` maps to centroid `i`, and a
+/// value `>= boundaries[k-2]` maps to centroid `k-1`.
+pub fn compute_centroid_boundaries(centroids: &[f32]) -> Vec<f32> {
     centroids.windows(2).map(|w| (w[0] + w[1]) * 0.5).collect()
 }
 
@@ -195,14 +202,21 @@ pub fn compute_boundaries(centroids: &[f32]) -> Vec<f32> {
 /// centroids. Uses binary search on the midpoints, avoiding distance comparisons
 /// in the inner loop.
 #[inline]
-#[allow(clippy::cast_possible_truncation)] // bounded by num_centroids <= 256
 pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
     debug_assert!(
         boundaries.windows(2).all(|w| w[0] <= w[1]),
         "boundaries must be sorted"
     );
+    debug_assert!(
+        boundaries.len() <= 256, // 1 << 8
+        "boundaries must be sorted"
+    );
 
-    boundaries.partition_point(|&b| b < value) as u8
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "num_centroids <= 256 and partition_point will return at most 255"
+    )]
+    (boundaries.partition_point(|&b| b < value) as u8)
 }
 
 #[cfg(test)]
@@ -294,7 +308,7 @@ mod tests {
     #[test]
     fn find_nearest_basic() -> VortexResult<()> {
         let centroids = get_centroids(128, 2)?;
-        let boundaries = compute_boundaries(&centroids);
+        let boundaries = compute_centroid_boundaries(&centroids);
         assert_eq!(find_nearest_centroid(-1.0, &boundaries), 0);
 
         let last_idx = (centroids.len() - 1) as u8;
