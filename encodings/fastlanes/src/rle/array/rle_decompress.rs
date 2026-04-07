@@ -3,6 +3,7 @@
 
 use fastlanes::RLE;
 use num_traits::AsPrimitive;
+use num_traits::NumCast;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -102,8 +103,10 @@ where
             // compression. Clamp all indices into [0, num_chunk_values) to
             // prevent out-of-bounds access in the fastlanes decoder.
             let mut sanitized: [u16; FL_CHUNK_SIZE] = [0; FL_CHUNK_SIZE];
-            for idx in sanitized.iter_mut() {
-                *idx = (*idx).min(num_chunk_values - 1);
+            for (idx_out, idx) in sanitized.iter_mut().zip(chunk_indices) {
+                let idx: u16 =
+                    NumCast::from(*idx).vortex_expect("RLE indices are always less than u16");
+                *idx_out = idx.min(num_chunk_values - 1);
             }
             V::decode(chunk_values, &sanitized, buffer_values);
         } else {
