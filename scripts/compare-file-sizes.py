@@ -128,7 +128,9 @@ def main():
 
     # Output collapsible markdown
     print("<details>")
-    print(f"<summary>File Size Changes ({len(comparisons)} files changed, {overall_pct_str} overall, {increases}↑ {decreases}↓)</summary>")
+    print(
+        f"<summary>File Size Changes ({len(comparisons)} files changed, {overall_pct_str} overall, {increases}↑ {decreases}↓)</summary>"
+    )
     print("")
     print("<br>")
     print("")
