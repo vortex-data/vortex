@@ -391,7 +391,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         bind_data: &mut Self::BindData,
         expr: &ExpressionRef,
     ) -> VortexResult<bool> {
-        tracing::debug!("Attempting to push down filter expression: {expr}");
+        debug!("Attempting to push down filter expression: {expr}");
         let Some(expr) = try_from_bound_expression(expr)? else {
             return Ok(false);
         };
@@ -405,7 +405,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         //  If we plumb row count estimation into the layout tree, perhaps we could use zone maps
         //  etc. to return estimates. But this function is probably called too late anyway. Maybe
         //  we need our own cardinality heuristics.
-        Ok(false)
+        Ok(true)
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
