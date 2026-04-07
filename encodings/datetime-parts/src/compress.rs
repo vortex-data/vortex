@@ -10,10 +10,8 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
-use crate::DateTimePartsData;
 use crate::timestamp;
 pub struct TemporalParts {
     pub days: ArrayRef,
@@ -55,27 +53,6 @@ pub fn split_temporal(array: TemporalArray) -> VortexResult<TemporalParts> {
         seconds: seconds.into_array(),
         subseconds: subseconds.into_array(),
     })
-}
-
-impl TryFrom<TemporalArray> for DateTimePartsData {
-    type Error = VortexError;
-
-    fn try_from(array: TemporalArray) -> Result<Self, Self::Error> {
-        let ext_dtype = array.ext_dtype();
-        let TemporalParts {
-            days,
-            seconds,
-            subseconds,
-        } = split_temporal(array)?;
-        DateTimePartsData::validate(
-            &DType::Extension(ext_dtype),
-            &days,
-            &seconds,
-            &subseconds,
-            days.len(),
-        )?;
-        Ok(DateTimePartsData {})
-    }
 }
 
 #[cfg(test)]

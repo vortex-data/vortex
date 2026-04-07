@@ -97,7 +97,7 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
     allowed.insert(ALPRD.id());
     allowed.insert(BitPacked.id());
     allowed.insert(ByteBool.id());
-    allowed.insert(DateTimeParts.id());
+    allowed.insert(DateTimeParts::ID);
     allowed.insert(DecimalByteParts.id());
     allowed.insert(Delta.id());
     allowed.insert(FoR.id());

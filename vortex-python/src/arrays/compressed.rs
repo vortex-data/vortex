@@ -7,7 +7,6 @@ use vortex::array::ToCanonical;
 use vortex::array::arrays::Dict;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPRD;
-use vortex::encodings::datetime_parts::DateTimeParts;
 use vortex::encodings::fsst::FSST;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
@@ -40,10 +39,6 @@ impl EncodingSubclass for PyAlpRdArray {
 /// Concrete class for arrays with `vortex.datetimeparts` encoding.
 #[pyclass(name = "DateTimePartsArray", module = "vortex", extends=PyNativeArray, frozen)]
 pub(crate) struct PyDateTimePartsArray;
-
-impl EncodingSubclass for PyDateTimePartsArray {
-    type VTable = DateTimeParts;
-}
 
 /// Concrete class for arrays with `vortex.dict` encoding.
 #[pyclass(name = "DictArray", module = "vortex", extends=PyNativeArray, frozen)]

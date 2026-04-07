@@ -10,6 +10,7 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 
 use itertools::Itertools;
+use prost::Message;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -32,6 +33,7 @@ use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
+use crate::dtype::proto::dtype as pb;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
 use crate::expr::Expression;
@@ -42,12 +44,88 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnRef;
+use crate::scalar_fn::session::ScalarFnSessionExt;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
 
 /// A [`ScalarFnVTable`]-encoded Vortex array.
 pub type ScalarFnArray = Array<ScalarFnVTable>;
+
+#[derive(Clone, prost::Message)]
+struct ScalarFnArrayMetadata {
+    #[prost(string, tag = "1")]
+    scalar_fn_id: String,
+    #[prost(bytes = "vec", tag = "2")]
+    options: Vec<u8>,
+    #[prost(bytes = "vec", repeated, tag = "3")]
+    child_dtypes: Vec<Vec<u8>>,
+}
+
+fn encode_dtype(dtype: &DType) -> VortexResult<Vec<u8>> {
+    Ok(pb::DType::try_from(dtype)?.encode_to_vec())
+}
+
+fn decode_dtype(dtype: &[u8], session: &VortexSession) -> VortexResult<DType> {
+    DType::from_proto(&pb::DType::decode(dtype)?, session)
+}
+
+pub fn deserialize_scalar_fn_array(
+    dtype: &DType,
+    len: usize,
+    metadata: &[u8],
+    buffers: &[BufferHandle],
+    children: &dyn ArrayChildren,
+    session: &VortexSession,
+) -> VortexResult<ArrayRef> {
+    vortex_ensure!(
+        buffers.is_empty(),
+        "ScalarFnArray does not support serialized buffers"
+    );
+
+    let metadata = ScalarFnArrayMetadata::decode(metadata)?;
+    let scalar_fn_id = ScalarFnId::new_arc(metadata.scalar_fn_id.into());
+    let plugin = session
+        .scalar_fns()
+        .registry()
+        .find(&scalar_fn_id)
+        .ok_or_else(|| vortex_error::vortex_err!(Serde: "Unknown scalar function: {}", scalar_fn_id))?;
+    let scalar_fn = plugin.deserialize(&metadata.options, session)?;
+
+    vortex_ensure!(
+        scalar_fn.signature().arity().matches(metadata.child_dtypes.len()),
+        "Scalar function {} expected arity {}, found {} serialized child dtypes",
+        scalar_fn.id(),
+        scalar_fn.signature().arity(),
+        metadata.child_dtypes.len()
+    );
+    vortex_ensure!(
+        children.len() == metadata.child_dtypes.len(),
+        "Scalar function {} expected {} children, found {}",
+        scalar_fn.id(),
+        metadata.child_dtypes.len(),
+        children.len()
+    );
+
+    let child_arrays = metadata
+        .child_dtypes
+        .iter()
+        .enumerate()
+        .map(|(idx, child_dtype)| {
+            let child_dtype = decode_dtype(child_dtype, session)?;
+            children.get(idx, &child_dtype, len)
+        })
+        .collect::<VortexResult<Vec<_>>>()?;
+
+    let array = ScalarFnArray::try_new(scalar_fn, child_arrays, len)?;
+    vortex_ensure!(
+        array.dtype() == dtype,
+        "ScalarFnArray dtype does not match serialized dtype. Expected {}, got {}",
+        dtype,
+        array.dtype()
+    );
+    Ok(array.into_array())
+}
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnVTable {
@@ -115,9 +193,22 @@ impl VTable for ScalarFnVTable {
         None
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        // Not supported
-        Ok(None)
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        let Some(options) = array.scalar_fn().options().serialize()? else {
+            return Ok(None);
+        };
+
+        Ok(Some(
+            ScalarFnArrayMetadata {
+                scalar_fn_id: array.scalar_fn().id().as_ref().to_string(),
+                options,
+                child_dtypes: array
+                    .iter_children()
+                    .map(|child| encode_dtype(child.dtype()))
+                    .collect::<VortexResult<Vec<_>>>()?,
+            }
+            .encode_to_vec(),
+        ))
     }
 
     fn deserialize(

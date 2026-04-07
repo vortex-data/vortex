@@ -12,6 +12,7 @@ use vortex::array::Canonical;
 use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
@@ -52,8 +53,11 @@ impl CudaExecute for DateTimePartsExecutor {
     ) -> VortexResult<Canonical> {
         let output_len = array.len();
         let array = array
-            .try_downcast::<DateTimeParts>()
+            .try_downcast::<ScalarFnVTable>()
             .map_err(|_| vortex_err!("Expected DateTimePartsArray"))?;
+        if !array.scalar_fn().is::<DateTimeParts>() {
+            vortex_bail!("Expected DateTimePartsArray")
+        }
 
         // Extract the temporal metadata from the dtype
         let DType::Extension(ext) = array.dtype().clone() else {

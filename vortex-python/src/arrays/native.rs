@@ -17,6 +17,7 @@ use vortex::array::arrays::FixedSizeList;
 use vortex::array::arrays::List;
 use vortex::array::arrays::Null;
 use vortex::array::arrays::Primitive;
+use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::Struct;
 use vortex::array::arrays::VarBin;
 use vortex::array::arrays::VarBinView;
@@ -137,7 +138,10 @@ impl PyNativeArray {
             return Self::with_subclass(py, array, PyAlpRdArray);
         }
 
-        if array.is::<DateTimeParts>() {
+        if array
+            .as_opt::<ScalarFnVTable>()
+            .is_some_and(|array| array.scalar_fn().is::<DateTimeParts>())
+        {
             return Self::with_subclass(py, array, PyDateTimePartsArray);
         }
 

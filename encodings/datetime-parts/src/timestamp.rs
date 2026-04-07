@@ -57,6 +57,7 @@ pub fn split(timestamp: i64, time_unit: TimeUnit) -> VortexResult<TimestampParts
 /// # Errors
 ///
 /// Returns an error if `time_unit` is days, which cannot be combined.
+#[allow(dead_code)]
 pub fn combine(ts_parts: TimestampParts, time_unit: TimeUnit) -> i64 {
     let divisor = match time_unit {
         TimeUnit::Nanoseconds => 1_000_000_000,

@@ -356,14 +356,6 @@ impl SerializedArray {
             decoded.dtype(),
             dtype,
         );
-        assert_eq!(
-            decoded.encoding_id(),
-            encoding_id,
-            "Array decoded from {} has incorrect encoding {}",
-            encoding_id,
-            decoded.encoding_id(),
-        );
-
         // Populate statistics from the serialized array.
         if let Some(stats) = self.flatbuffer().stats() {
             decoded
