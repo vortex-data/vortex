@@ -4170,7 +4170,7 @@ pub fn vortex_array::arrays::Struct::serialize(_array: vortex_array::ArrayView<'
 
 pub fn vortex_array::arrays::Struct::slot_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Struct::validate(&self, data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Struct::validate(&self, _data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::ValidityVTable<vortex_array::arrays::Struct> for vortex_array::arrays::Struct
 
@@ -4198,21 +4198,13 @@ pub fn vortex_array::arrays::Struct::zip(if_true: vortex_array::ArrayView<'_, vo
 
 pub struct vortex_array::arrays::struct_::StructData
 
-impl vortex_array::arrays::struct_::StructData
-
-pub fn vortex_array::arrays::struct_::StructData::build(names: vortex_array::dtype::FieldNames, fields: impl core::convert::Into<alloc::sync::Arc<[vortex_array::ArrayRef]>>, length: usize, validity: vortex_array::validity::Validity) -> Self
-
-pub fn vortex_array::arrays::struct_::StructData::names(&self) -> &vortex_array::dtype::FieldNames
-
-pub fn vortex_array::arrays::struct_::StructData::new_fieldless_with_len(len: usize) -> Self
-
-pub unsafe fn vortex_array::arrays::struct_::StructData::new_unchecked(dtype: vortex_array::dtype::StructFields, fieldless_len: core::option::Option<usize>) -> Self
-
-pub fn vortex_array::arrays::struct_::StructData::validate(fields: &[vortex_array::ArrayRef], dtype: &vortex_array::dtype::StructFields, length: usize, validity: &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
-
 impl core::clone::Clone for vortex_array::arrays::struct_::StructData
 
 pub fn vortex_array::arrays::struct_::StructData::clone(&self) -> vortex_array::arrays::struct_::StructData
+
+impl core::default::Default for vortex_array::arrays::struct_::StructData
+
+pub fn vortex_array::arrays::struct_::StructData::default() -> vortex_array::arrays::struct_::StructData
 
 impl core::fmt::Debug for vortex_array::arrays::struct_::StructData
 
@@ -4242,7 +4234,7 @@ pub fn vortex_array::arrays::struct_::StructArrayExt::names(&self) -> &vortex_ar
 
 pub fn vortex_array::arrays::struct_::StructArrayExt::nullability(&self) -> vortex_array::dtype::Nullability
 
-pub fn vortex_array::arrays::struct_::StructArrayExt::struct_fields(&self) -> vortex_array::dtype::StructFields
+pub fn vortex_array::arrays::struct_::StructArrayExt::struct_fields(&self) -> &vortex_array::dtype::StructFields
 
 pub fn vortex_array::arrays::struct_::StructArrayExt::struct_validity(&self) -> vortex_array::validity::Validity
 
@@ -4262,7 +4254,7 @@ pub fn T::names(&self) -> &vortex_array::dtype::FieldNames
 
 pub fn T::nullability(&self) -> vortex_array::dtype::Nullability
 
-pub fn T::struct_fields(&self) -> vortex_array::dtype::StructFields
+pub fn T::struct_fields(&self) -> &vortex_array::dtype::StructFields
 
 pub fn T::struct_validity(&self) -> vortex_array::validity::Validity
 
@@ -6416,7 +6408,7 @@ pub fn vortex_array::arrays::Struct::serialize(_array: vortex_array::ArrayView<'
 
 pub fn vortex_array::arrays::Struct::slot_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Struct::validate(&self, data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Struct::validate(&self, _data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::ValidityVTable<vortex_array::arrays::Struct> for vortex_array::arrays::Struct
 
@@ -19458,7 +19450,7 @@ pub fn vortex_array::arrays::Struct::serialize(_array: vortex_array::ArrayView<'
 
 pub fn vortex_array::arrays::Struct::slot_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Struct::validate(&self, data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Struct::validate(&self, _data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::VarBin
 
@@ -20474,7 +20466,7 @@ pub fn vortex_array::arrays::Struct::serialize(_array: vortex_array::ArrayView<'
 
 pub fn vortex_array::arrays::Struct::slot_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Struct::validate(&self, data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Struct::validate(&self, _data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::VarBin
 
@@ -23196,7 +23188,7 @@ pub fn vortex_array::arrays::Struct::serialize(_array: vortex_array::ArrayView<'
 
 pub fn vortex_array::arrays::Struct::slot_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Struct::validate(&self, data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Struct::validate(&self, _data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::VarBin
 
@@ -24460,7 +24452,7 @@ pub fn vortex_array::arrays::Struct::serialize(_array: vortex_array::ArrayView<'
 
 pub fn vortex_array::arrays::Struct::slot_name(array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::Struct::validate(&self, data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::Struct::validate(&self, _data: &vortex_array::arrays::struct_::StructData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::VarBin
 
