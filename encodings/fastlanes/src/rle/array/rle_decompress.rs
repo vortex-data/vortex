@@ -3,7 +3,6 @@
 
 use fastlanes::RLE;
 use num_traits::AsPrimitive;
-use num_traits::NumCast;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -12,6 +11,7 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -75,8 +75,8 @@ where
         indices_sl.iter().zip(out_buf.iter_mut()).enumerate()
     {
         // Offsets in `values_idx_offsets` are absolute and need to be shifted
-        // by the offset of the first chunk, respective the current slice, in
-        // order to make them relative.
+        // by the offset of the first chunk, respective of the current slice,
+        // to make them relative.
         let value_idx_offset =
             (values_idx_offsets[chunk_idx].as_() - values_idx_offsets[0].as_()) as usize;
 
@@ -85,7 +85,8 @@ where
         } else {
             values.len()
         };
-        let num_chunk_values = next_value_idx_offset - value_idx_offset;
+        let num_chunk_values = u16::try_from(next_value_idx_offset - value_idx_offset)
+            .vortex_expect("There can be at most 1024 values in RLE chunk");
 
         // SAFETY: `MaybeUninit<T>` and `T` have the same layout.
         let buffer_values: &mut [V; FL_CHUNK_SIZE] = unsafe { std::mem::transmute(chunk_out) };
@@ -100,10 +101,9 @@ where
             // positions may contain arbitrary garbage values after further
             // compression. Clamp all indices into [0, num_chunk_values) to
             // prevent out-of-bounds access in the fastlanes decoder.
-            let mut sanitized = *chunk_indices;
+            let mut sanitized: [u16; FL_CHUNK_SIZE] = [0; FL_CHUNK_SIZE];
             for idx in sanitized.iter_mut() {
-                let v: usize = (*idx).into();
-                *idx = NumCast::from(v % num_chunk_values).unwrap_or_default();
+                *idx = (*idx).min(num_chunk_values - 1);
             }
             V::decode(chunk_values, &sanitized, buffer_values);
         } else {
