@@ -192,7 +192,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
         let encoding_idx = self
             .ctx
-            .intern(&self.array.encoding_id())
+            .intern(self.array.encoding_id())
             // TODO(ngates): write_flatbuffer should return a result if this can fail.
             .ok_or_else(|| {
                 vortex_err!(

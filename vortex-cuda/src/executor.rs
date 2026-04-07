@@ -352,7 +352,7 @@ pub trait CudaArrayExt {
 impl CudaArrayExt for ArrayRef {
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-        if self.encoding_id() == Struct::ID {
+        if *self.encoding_id() == Struct::ID {
             let len = self.len();
             let StructDataParts {
                 fields,

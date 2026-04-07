@@ -53,14 +53,14 @@ pub struct MaterializedPlan {
 /// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
 fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     let id = array.encoding_id();
-    if id == ALP::ID {
+    if *id == ALP::ID {
         let arr = array.as_::<ALP>();
         return arr.patches().is_none() && arr.dtype().as_ptype() == PType::F32;
     }
-    if id == BitPacked::ID {
+    if *id == BitPacked::ID {
         return array.as_::<BitPacked>().patches().is_none();
     }
-    if id == Dict::ID {
+    if *id == Dict::ID {
         let arr = array.as_::<Dict>();
         // As of now the dict dyn dispatch kernel requires
         // codes and values to have the same byte width.
@@ -72,7 +72,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
-    if id == RunEnd::ID {
+    if *id == RunEnd::ID {
         let arr = array.as_::<RunEnd>();
         // As of now the run-end dyn dispatch kernel requires
         // ends and values to have the same byte width.
@@ -84,11 +84,11 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
             _ => false,
         };
     }
-    id == FoR::ID
-        || id == ZigZag::ID
-        || id == Primitive::ID
-        || id == Slice::ID
-        || id == Sequence::ID
+    *id == FoR::ID
+        || *id == ZigZag::ID
+        || *id == Primitive::ID
+        || *id == Slice::ID
+        || *id == Sequence::ID
 }
 
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
@@ -361,23 +361,23 @@ impl FusedPlan {
 
         let id = array.encoding_id();
 
-        if id == BitPacked::ID {
+        if *id == BitPacked::ID {
             self.walk_bitpacked(array)
-        } else if id == FoR::ID {
+        } else if *id == FoR::ID {
             self.walk_for(array, pending_subtrees)
-        } else if id == ZigZag::ID {
+        } else if *id == ZigZag::ID {
             self.walk_zigzag(array, pending_subtrees)
-        } else if id == ALP::ID {
+        } else if *id == ALP::ID {
             self.walk_alp(array, pending_subtrees)
-        } else if id == Dict::ID {
+        } else if *id == Dict::ID {
             self.walk_dict(array, pending_subtrees)
-        } else if id == RunEnd::ID {
+        } else if *id == RunEnd::ID {
             self.walk_runend(array, pending_subtrees)
-        } else if id == Primitive::ID {
+        } else if *id == Primitive::ID {
             self.walk_primitive(array)
-        } else if id == Slice::ID {
+        } else if *id == Slice::ID {
             self.walk_slice(array, pending_subtrees)
-        } else if id == Sequence::ID {
+        } else if *id == Sequence::ID {
             self.walk_sequence(array)
         } else {
             vortex_bail!(

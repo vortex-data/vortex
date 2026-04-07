@@ -62,7 +62,7 @@ impl<'a, V: VTable> ArrayView<'a, V> {
     }
 
     pub fn encoding_id(&self) -> &ArrayId {
-        &self.array.encoding_id()
+        self.array.encoding_id()
     }
 
     pub fn statistics(&self) -> StatsSetRef<'_> {

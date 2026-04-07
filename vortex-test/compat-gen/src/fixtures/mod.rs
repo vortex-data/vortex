@@ -168,8 +168,8 @@ pub fn check_expected_encodings(
     let mut found: Vec<ArrayId> = Vec::new();
     for node in array.depth_first_traversal() {
         let id = node.encoding_id();
-        if !found.contains(&id) {
-            found.push(id);
+        if !found.contains(id) {
+            found.push(id.clone());
         }
     }
 

@@ -21504,7 +21504,7 @@ pub fn vortex_array::Array<V>::data(&self) -> &<V as vortex_array::VTable>::Arra
 
 pub fn vortex_array::Array<V>::dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::Array<V>::encoding_id(&self) -> vortex_array::ArrayId
+pub fn vortex_array::Array<V>::encoding_id(&self) -> &vortex_array::ArrayId
 
 pub fn vortex_array::Array<V>::into_data(self) -> <V as vortex_array::VTable>::ArrayData
 
@@ -21680,7 +21680,7 @@ pub fn vortex_array::ArrayRef::downcast<V: vortex_array::VTable>(self) -> vortex
 
 pub fn vortex_array::ArrayRef::dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::ArrayRef::encoding_id(&self) -> vortex_array::ArrayId
+pub fn vortex_array::ArrayRef::encoding_id(&self) -> &vortex_array::ArrayId
 
 pub fn vortex_array::ArrayRef::execute_parent(&self, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -22128,7 +22128,7 @@ pub fn vortex_array::ArrayView<'a, V>::data(&self) -> &'a <V as vortex_array::VT
 
 pub fn vortex_array::ArrayView<'a, V>::dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_array::ArrayView<'a, V>::encoding_id(&self) -> vortex_array::ArrayId
+pub fn vortex_array::ArrayView<'a, V>::encoding_id(&self) -> &vortex_array::ArrayId
 
 pub fn vortex_array::ArrayView<'a, V>::into_owned(self) -> vortex_array::Array<V>
 

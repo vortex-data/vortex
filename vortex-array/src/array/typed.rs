@@ -87,11 +87,6 @@ pub(crate) struct ArrayInner<V: VTable> {
 }
 
 impl<V: VTable> ArrayInner<V> {
-    /// Returns the encoding ID.
-    pub fn encoding_id(&self) -> &ArrayId {
-        &self.encoding_id
-    }
-
     /// Create a new inner array from explicit construction parameters.
     #[doc(hidden)]
     pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
@@ -275,7 +270,7 @@ impl<V: VTable> Array<V> {
 
     /// Returns the encoding ID.
     pub fn encoding_id(&self) -> &ArrayId {
-        &self.inner.encoding_id()
+        &self.downcast_inner().encoding_id
     }
 
     /// Returns the statistics.

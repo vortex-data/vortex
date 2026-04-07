@@ -99,7 +99,7 @@ pub async fn try_gpu_dispatch(
         DispatchPlan::Unfused => {
             // Unfused kernel dispatch fallback.
             ctx.cuda_session()
-                .kernel(&array.encoding_id())
+                .kernel(array.encoding_id())
                 .ok_or_else(|| {
                     vortex_err!("No CUDA kernel for encoding {:?}", array.encoding_id())
                 })?

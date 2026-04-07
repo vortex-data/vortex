@@ -53,7 +53,6 @@ impl ZstdBuffers {
     }
 
     pub fn compress(array: &ArrayRef, level: i32) -> VortexResult<ZstdBuffersArray> {
-        let encoding_id = array.encoding_id();
         let metadata = array
             .metadata()?
             .ok_or_else(|| vortex_err!("Array does not support serialization"))?;
@@ -74,6 +73,7 @@ impl ZstdBuffers {
             compressed_buffers.push(BufferHandle::new_host(ByteBuffer::from(compressed)));
         }
 
+        let encoding_id = array.encoding_id().clone();
         let data = ZstdBuffersData {
             inner_encoding_id: encoding_id,
             inner_metadata: metadata,
