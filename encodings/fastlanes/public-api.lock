@@ -248,6 +248,22 @@ pub vortex_fastlanes::BitPackedDataParts::patches: core::option::Option<vortex_a
 
 pub vortex_fastlanes::BitPackedDataParts::validity: vortex_array::validity::Validity
 
+pub struct vortex_fastlanes::BitPackedPatchedPlugin
+
+impl core::clone::Clone for vortex_fastlanes::BitPackedPatchedPlugin
+
+pub fn vortex_fastlanes::BitPackedPatchedPlugin::clone(&self) -> vortex_fastlanes::BitPackedPatchedPlugin
+
+impl core::fmt::Debug for vortex_fastlanes::BitPackedPatchedPlugin
+
+pub fn vortex_fastlanes::BitPackedPatchedPlugin::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::plugin::ArrayPlugin for vortex_fastlanes::BitPackedPatchedPlugin
+
+pub fn vortex_fastlanes::BitPackedPatchedPlugin::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_fastlanes::BitPackedPatchedPlugin::id(&self) -> vortex_array::array::ArrayId
+
 pub struct vortex_fastlanes::Delta
 
 impl vortex_fastlanes::Delta
