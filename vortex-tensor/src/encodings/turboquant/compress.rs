@@ -56,9 +56,12 @@ impl Default for TurboQuantConfig {
 ///
 /// All quantization (rotation, centroid lookup) happens in f32. f16 is upcast; f64 is truncated.
 #[allow(clippy::cast_possible_truncation)]
-fn extract_f32_elements(fsl: &FixedSizeListArray) -> VortexResult<PrimitiveArray> {
+fn extract_f32_elements(
+    fsl: &FixedSizeListArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
     let elements = fsl.elements();
-    let primitive = elements.to_canonical()?.into_primitive();
+    let primitive = elements.clone().execute::<PrimitiveArray>(ctx)?;
     let ptype = primitive.ptype();
 
     match ptype {
@@ -128,7 +131,7 @@ fn turboquant_quantize_core(
     let rotation = RotationMatrix::try_new(seed, dimension)?;
     let padded_dim = rotation.padded_dim();
 
-    let f32_elements = extract_f32_elements(fsl)?;
+    let f32_elements = extract_f32_elements(fsl, ctx)?;
 
     let centroids = get_centroids(padded_dim as u32, bit_width)?;
     let boundaries = compute_centroid_boundaries(&centroids);
@@ -220,7 +223,7 @@ pub fn turboquant_encode(
 ) -> VortexResult<ArrayRef> {
     let ext_dtype = ext.dtype().clone();
     let storage = ext.storage_array();
-    let fsl = storage.to_canonical()?.into_fixed_size_list();
+    let fsl = storage.clone().execute::<FixedSizeListArray>(ctx)?;
 
     vortex_ensure!(
         config.bit_width >= 1 && config.bit_width <= TurboQuant::MAX_BIT_WIDTH,

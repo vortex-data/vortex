@@ -125,26 +125,24 @@ fn encode_decode(
     fsl: &FixedSizeListArray,
     config: &TurboQuantConfig,
 ) -> VortexResult<(Vec<f32>, Vec<f32>)> {
+    let mut ctx = SESSION.create_execution_ctx();
     let original: Vec<f32> = {
-        let prim = fsl.elements().to_canonical().unwrap().into_primitive();
+        let prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
         prim.as_slice::<f32>().to_vec()
     };
     let ext = make_vector_ext(fsl);
     let config = config.clone();
-    let mut ctx = SESSION.create_execution_ctx();
     let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let decoded_ext = encoded.execute::<ExtensionArray>(&mut ctx)?;
     let decoded_fsl = decoded_ext
         .storage_array()
-        .to_canonical()
-        .unwrap()
-        .into_fixed_size_list();
+        .clone()
+        .execute::<FixedSizeListArray>(&mut ctx)?;
     let decoded_elements: Vec<f32> = {
         let prim = decoded_fsl
             .elements()
-            .to_canonical()
-            .unwrap()
-            .into_primitive();
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)?;
         prim.as_slice::<f32>().to_vec()
     };
     Ok((original, decoded_elements))
@@ -409,8 +407,8 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
     let decoded_ext = encoded.execute::<ExtensionArray>(&mut ctx)?;
     let decoded_fsl = decoded_ext
         .storage_array()
-        .to_canonical()?
-        .into_fixed_size_list();
+        .clone()
+        .execute::<FixedSizeListArray>(&mut ctx)?;
     assert_eq!(decoded_fsl.len(), num_rows);
     Ok(())
 }
@@ -470,9 +468,12 @@ fn stored_rotation_signs_produce_correct_decode() -> VortexResult<()> {
         .execute::<ExtensionArray>(&mut ctx)?;
     let decoded_fsl = decoded_ext
         .storage_array()
-        .to_canonical()?
-        .into_fixed_size_list();
-    let decoded = decoded_fsl.elements().to_canonical()?.into_primitive();
+        .clone()
+        .execute::<FixedSizeListArray>(&mut ctx)?;
+    let decoded = decoded_fsl
+        .elements()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
     let decoded_slice = decoded.as_slice::<f32>();
 
     // Verify stored signs match seed-derived signs.
@@ -514,20 +515,26 @@ fn slice_preserves_data() -> VortexResult<()> {
     let full_decoded = encoded.clone().execute::<ExtensionArray>(&mut ctx)?;
     let full_fsl = full_decoded
         .storage_array()
-        .to_canonical()?
-        .into_fixed_size_list();
+        .clone()
+        .execute::<FixedSizeListArray>(&mut ctx)?;
     let expected = full_fsl.slice(5..10)?;
-    let expected_prim = expected.to_canonical()?.into_fixed_size_list();
-    let expected_elements = expected_prim.elements().to_canonical()?.into_primitive();
+    let expected_fsl = expected.execute::<FixedSizeListArray>(&mut ctx)?;
+    let expected_elements = expected_fsl
+        .elements()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
 
     // Slice then decompress.
     let sliced = encoded.slice(5..10)?;
     let sliced_decoded = sliced.execute::<ExtensionArray>(&mut ctx)?;
     let sliced_fsl = sliced_decoded
         .storage_array()
-        .to_canonical()?
-        .into_fixed_size_list();
-    let actual_elements = sliced_fsl.elements().to_canonical()?.into_primitive();
+        .clone()
+        .execute::<FixedSizeListArray>(&mut ctx)?;
+    let actual_elements = sliced_fsl
+        .elements()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
 
     assert_eq!(
         expected_elements.as_slice::<f32>(),
@@ -570,10 +577,10 @@ fn l2_norm_readthrough() -> VortexResult<()> {
     let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
     // Stored norms should match the actual L2 norms of the input.
-    let norms_prim = tq.norms().to_canonical()?.into_primitive();
+    let norms_prim = tq.norms().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let stored_norms = norms_prim.as_slice::<f32>();
 
-    let input_prim = fsl.elements().to_canonical()?.into_primitive();
+    let input_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let input_f32 = input_prim.as_slice::<f32>();
     for row in 0..10 {
         let vec = &input_f32[row * 128..(row + 1) * 128];
@@ -601,7 +608,7 @@ fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
     let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
     // Compute exact cosine similarity from original data.
-    let input_prim = fsl.elements().to_canonical()?.into_primitive();
+    let input_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let input_f32 = input_prim.as_slice::<f32>();
 
     // Read quantized codes, norms, and centroids for approximate computation.
@@ -610,7 +617,10 @@ fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
     let norms_prim = tq.norms().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let norms = norms_prim.as_slice::<f32>();
     let codes_fsl = tq.codes().clone().execute::<FixedSizeListArray>(&mut ctx)?;
-    let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
+    let codes_prim = codes_fsl
+        .elements()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
     let all_codes = codes_prim.as_slice::<u8>();
     let centroids_prim = tq.centroids().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let centroid_vals = centroids_prim.as_slice::<f32>();
@@ -674,7 +684,7 @@ fn dot_product_quantized_accuracy() -> VortexResult<()> {
     let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
     let tq = encoded.as_opt::<TurboQuant>().unwrap();
 
-    let input_prim = fsl.elements().to_canonical()?.into_primitive();
+    let input_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let input_f32 = input_prim.as_slice::<f32>();
 
     let mut ctx = SESSION.create_execution_ctx();
@@ -682,7 +692,10 @@ fn dot_product_quantized_accuracy() -> VortexResult<()> {
     let norms_prim = tq.norms().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let norms = norms_prim.as_slice::<f32>();
     let codes_fsl = tq.codes().clone().execute::<FixedSizeListArray>(&mut ctx)?;
-    let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
+    let codes_prim = codes_fsl
+        .elements()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
     let all_codes = codes_prim.as_slice::<u8>();
     let centroids_prim = tq.centroids().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let centroid_vals = centroids_prim.as_slice::<f32>();
@@ -815,13 +828,16 @@ fn nullable_vectors_roundtrip() -> VortexResult<()> {
 
     let decoded_fsl = decoded_ext
         .storage_array()
-        .to_canonical()?
-        .into_fixed_size_list();
-    let decoded_prim = decoded_fsl.elements().to_canonical()?.into_primitive();
+        .clone()
+        .execute::<FixedSizeListArray>(&mut ctx)?;
+    let decoded_prim = decoded_fsl
+        .elements()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
     let decoded_f32 = decoded_prim.as_slice::<f32>();
 
     // Original f32 elements for non-null row comparison.
-    let orig_prim = fsl.elements().to_canonical()?.into_primitive();
+    let orig_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let orig_f32 = orig_prim.as_slice::<f32>();
 
     // Non-null rows should have reasonable reconstruction (within MSE bounds).
@@ -889,7 +905,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
     let norms: PrimitiveArray = norm_sfn.into_array().execute(&mut ctx)?;
 
     // Null rows should have null norms, valid rows should have correct norms.
-    let orig_prim = fsl.elements().to_canonical()?.into_primitive();
+    let orig_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let orig_f32 = orig_prim.as_slice::<f32>();
     for row in 0..5 {
         if row % 2 == 0 {

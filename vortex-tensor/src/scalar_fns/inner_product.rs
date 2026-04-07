@@ -213,16 +213,20 @@ fn inner_product_row<T: Float + NativePType>(a: &[T], b: &[T]) -> T {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
     use vortex_array::scalar_fn::ScalarFn;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::inner_product::InnerProduct;
@@ -230,11 +234,15 @@ mod tests {
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     /// Evaluates inner product between two tensor arrays and returns the result as `Vec<f64>`.
     fn eval_inner_product(lhs: ArrayRef, rhs: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
         let scalar_fn = ScalarFn::new(InnerProduct, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], len)?;
-        let prim = result.as_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
         Ok(prim.as_slice::<f64>().to_vec())
     }
 
@@ -311,7 +319,8 @@ mod tests {
 
         let scalar_fn = ScalarFn::new(InnerProduct, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
-        let prim = result.as_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: 1*7 + 2*8 = 23, row 1: null, row 2: 5*11 + 6*12 = 127.
         assert!(prim.is_valid(0)?);

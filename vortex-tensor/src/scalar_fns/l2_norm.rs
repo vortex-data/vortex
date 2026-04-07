@@ -196,15 +196,20 @@ fn l2_norm_row<T: Float + NativePType>(v: &[T]) -> T {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::MaskedArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::ScalarFnArray;
     use vortex_array::scalar_fn::ScalarFn;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
     use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::l2_norm::L2Norm;
@@ -212,11 +217,15 @@ mod tests {
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     /// Evaluates L2 norm on a tensor/vector array and returns the result as `Vec<f64>`.
     fn eval_l2_norm(input: ArrayRef, len: usize) -> VortexResult<Vec<f64>> {
         let scalar_fn = ScalarFn::new(L2Norm, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![input], len)?;
-        let prim = result.as_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
         Ok(prim.as_slice::<f64>().to_vec())
     }
 
@@ -270,7 +279,8 @@ mod tests {
 
         let scalar_fn = ScalarFn::new(L2Norm, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![arr], 2)?;
-        let prim = result.as_array().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: norm = 5.0, row 1: null.
         assert!(prim.is_valid(0)?);

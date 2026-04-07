@@ -73,7 +73,10 @@ pub fn execute_decompress(
 
     // Unpack codes from FixedSizeListArray -> flat u8 elements.
     let codes_fsl = array.codes().clone().execute::<FixedSizeListArray>(ctx)?;
-    let codes_prim = codes_fsl.elements().to_canonical()?.into_primitive();
+    let codes_prim = codes_fsl
+        .elements()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
     let indices = codes_prim.as_slice::<u8>();
 
     // Read norms in their native precision. Norms carry the validity of the array.
