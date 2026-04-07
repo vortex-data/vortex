@@ -41,7 +41,6 @@ vortex-cub = { path = "cub" }
 vortex-cuda-macros = { workspace = true }
 vortex-error = { workspace = true, features = ["object_store"] }
 vortex-nvcomp = { path = "nvcomp" }
-vortex-utils = { workspace = true }
 
 [dev-dependencies]
 criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }

@@ -63,7 +63,7 @@ use vortex::scalar::upper_bound;
 use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
 use vortex::utils::aliases::hash_map::HashMap;
-use vortex_utils::aliases::hash_set::HashSet;
+use vortex::utils::aliases::hash_set::HashSet;
 
 /// A buffer inlined into layout metadata for host-side access.
 #[derive(Clone, prost::Message)]
