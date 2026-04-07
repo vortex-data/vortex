@@ -128,7 +128,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           enable-sccache: "false"
-      - uses: mlugg/setup-zig@v2.2.1
+      - uses: https://codeberg.org/mlugg/setup-zig@v2
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
