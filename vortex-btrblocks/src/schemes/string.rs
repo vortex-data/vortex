@@ -10,6 +10,7 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;
@@ -67,23 +68,23 @@ impl Scheme for FSSTScheme {
         2
     }
 
+    fn expected_compression_ratio(
+        &self,
+        _data: &mut ArrayAndStats,
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Sample
+    }
+
     fn compress(
         &self,
         compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.string_stats();
-
-        let fsst = {
-            let compressor_fsst = fsst_train_compressor(stats.source());
-            fsst_compress(
-                stats.source(),
-                stats.source().len(),
-                stats.source().dtype(),
-                &compressor_fsst,
-            )
-        };
+        let utf8 = data.array_as_utf8();
+        let compressor_fsst = fsst_train_compressor(&utf8);
+        let fsst = fsst_compress(&utf8, utf8.len(), utf8.dtype(), &compressor_fsst);
 
         let compressed_original_lengths = compressor.compress_child(
             &fsst
@@ -151,24 +152,25 @@ impl Scheme for NullDominatedSparseScheme {
 
     fn expected_compression_ratio(
         &self,
-        _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+    ) -> CompressionEstimate {
+        let len = data.array_len() as f64;
         let stats = data.string_stats();
+        let value_count = stats.value_count();
 
-        if stats.value_count() == 0 {
-            // All nulls should use ConstantScheme.
-            return Ok(0.0);
+        // All-null arrays should be compressed as constant instead anyways.
+        if value_count == 0 {
+            return CompressionEstimate::Skip;
         }
 
-        // If the majority is null, will compress well.
-        if stats.null_count() as f64 / stats.source().len() as f64 > 0.9 {
-            return Ok(stats.source().len() as f64 / stats.value_count() as f64);
+        // If the majority (90%) of values is null, this will compress well.
+        if stats.null_count() as f64 / len > 0.9 {
+            return CompressionEstimate::Ratio(len / value_count as f64);
         }
 
         // Otherwise we don't go this route.
-        Ok(0.0)
+        CompressionEstimate::Skip
     }
 
     fn compress(
@@ -177,10 +179,8 @@ impl Scheme for NullDominatedSparseScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.string_stats();
-
         // We pass None as we only run this pathway for NULL-dominated string arrays.
-        let sparse_encoded = Sparse::encode(&stats.source().clone().into_array(), None)?;
+        let sparse_encoded = Sparse::encode(data.array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings).
@@ -211,15 +211,21 @@ impl Scheme for ZstdScheme {
         is_utf8_string(canonical)
     }
 
+    fn expected_compression_ratio(
+        &self,
+        _data: &mut ArrayAndStats,
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Sample
+    }
+
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.string_stats();
-
-        let compacted = stats.source().compact_buffers()?;
+        let compacted = data.array_as_utf8().compact_buffers()?;
         Ok(vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192)?.into_array())
     }
 }
@@ -234,18 +240,21 @@ impl Scheme for ZstdBuffersScheme {
         is_utf8_string(canonical)
     }
 
+    fn expected_compression_ratio(
+        &self,
+        _data: &mut ArrayAndStats,
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Sample
+    }
+
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.string_stats();
-
-        Ok(
-            vortex_zstd::ZstdBuffers::compress(&stats.source().clone().into_array(), 3)?
-                .into_array(),
-        )
+        Ok(vortex_zstd::ZstdBuffers::compress(data.array(), 3)?.into_array())
     }
 }
 

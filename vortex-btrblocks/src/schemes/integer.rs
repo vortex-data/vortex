@@ -12,6 +12,7 @@ use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::FloatDictScheme;
 use vortex_compressor::builtins::StringDictScheme;
+use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
@@ -40,7 +41,6 @@ use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::compress_patches;
-use crate::estimate_compression_ratio_with_sampling;
 
 /// Frame of Reference encoding.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -111,33 +111,27 @@ impl Scheme for FoRScheme {
 
     fn expected_compression_ratio(
         &self,
-        _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+    ) -> CompressionEstimate {
         // FoR only subtracts the min. Without further compression (e.g. BitPacking), the output is
         // the same size.
         if ctx.finished_cascading() {
-            return Ok(0.0);
+            return CompressionEstimate::Skip;
         }
 
         let stats = data.integer_stats();
 
-        // All-null cannot be FOR compressed.
-        if stats.value_count() == 0 {
-            return Ok(0.0);
-        }
-
         // Only apply when the min is not already zero.
         if stats.erased().min_is_zero() {
-            return Ok(0.0);
+            return CompressionEstimate::Skip;
         }
 
         // Difference between max and min.
         let for_bitwidth = match stats.erased().max_minus_min().checked_ilog2() {
             Some(l) => l + 1,
-            // If max-min == 0, the we should compress as a constant array.
-            None => return Ok(0.0),
+            // If max-min == 0, the we should be compressing this as a constant array.
+            None => return CompressionEstimate::Skip,
         };
 
         // If BitPacking can be applied (only non-negative values) and FoR doesn't reduce bit width
@@ -151,18 +145,18 @@ impl Scheme for FoRScheme {
         {
             let bitpack_bitwidth = max_log + 1;
             if for_bitwidth >= bitpack_bitwidth {
-                return Ok(0.0);
+                return CompressionEstimate::Skip;
             }
         }
 
-        let full_width: u32 = stats
-            .source()
+        let full_width: u32 = data
+            .array_as_primitive()
             .ptype()
             .bit_width()
             .try_into()
             .vortex_expect("bit width must fit in u32");
 
-        Ok(full_width as f64 / for_bitwidth as f64)
+        CompressionEstimate::Ratio(full_width as f64 / for_bitwidth as f64)
     }
 
     fn compress(
@@ -180,7 +174,7 @@ impl Scheme for FoRScheme {
         // NOTE: we could delegate in the future if we had another downstream codec that performs
         //  as well.
         let leaf_ctx = ctx.clone().as_leaf();
-        let mut biased_data = ArrayAndStats::new(biased.into_array(), ctx.stats_options());
+        let mut biased_data = ArrayAndStats::new(biased.into_array(), ctx.merged_stats_options());
         let compressed = BitPackingScheme.compress(compressor, &mut biased_data, leaf_ctx)?;
 
         // TODO(connor): This should really be `new_unchecked`.
@@ -248,30 +242,23 @@ impl Scheme for ZigZagScheme {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+    ) -> CompressionEstimate {
         // ZigZag only transforms negative values to positive. Without further compression,
         // the output is the same size.
         if ctx.finished_cascading() {
-            return Ok(0.0);
+            return CompressionEstimate::Skip;
         }
 
         let stats = data.integer_stats();
 
-        // Don't try and compress all-null arrays.
-        if stats.value_count() == 0 {
-            return Ok(0.0);
-        }
-
         // ZigZag is only useful when there are negative values.
         if !stats.erased().min_is_negative() {
-            return Ok(0.0);
+            return CompressionEstimate::Skip;
         }
 
-        // Run compression on a sample to see how it performs.
-        estimate_compression_ratio_with_sampling(self, compressor, data.array(), ctx)
+        CompressionEstimate::Sample
     }
 
     fn compress(
@@ -280,10 +267,8 @@ impl Scheme for ZigZagScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.integer_stats();
-
         // Zigzag encode the values, then recursively compress the inner values.
-        let zag = zigzag_encode(stats.source().clone())?;
+        let zag = zigzag_encode(data.array_as_primitive())?;
         let encoded = zag.encoded().to_primitive();
 
         let compressed = compressor.compress_child(&encoded.into_array(), &ctx, self.id(), 0)?;
@@ -305,23 +290,17 @@ impl Scheme for BitPackingScheme {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
         let stats = data.integer_stats();
 
         // BitPacking only works for non-negative values.
         if stats.erased().min_is_negative() {
-            return Ok(0.0);
+            return CompressionEstimate::Skip;
         }
 
-        // Don't compress all-null arrays.
-        if stats.value_count() == 0 {
-            return Ok(0.0);
-        }
-
-        estimate_compression_ratio_with_sampling(self, compressor, data.array(), ctx)
+        CompressionEstimate::Sample
     }
 
     fn compress(
@@ -330,15 +309,19 @@ impl Scheme for BitPackingScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.integer_stats();
+        let primitive_array = data.array_as_primitive();
 
-        let histogram = bit_width_histogram(stats.source())?;
-        let bw = find_best_bit_width(stats.source().ptype(), &histogram)?;
+        let histogram = bit_width_histogram(&primitive_array)?;
+        let bw = find_best_bit_width(primitive_array.ptype(), &histogram)?;
+
         // If best bw is determined to be the current bit-width, return the original array.
-        if bw as usize == stats.source().ptype().bit_width() {
-            return Ok(stats.source().clone().into_array());
+        if bw as usize == primitive_array.ptype().bit_width() {
+            return Ok(primitive_array.into_array());
         }
-        let packed = bitpack_encode(stats.source(), bw, Some(&histogram))?;
+
+        // Otherwise we can bitpack the array.
+        let packed = bitpack_encode(&primitive_array, bw, Some(&histogram))?;
+
         let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
         let patches = packed.patches().map(compress_patches).transpose()?;
@@ -404,42 +387,44 @@ impl Scheme for SparseScheme {
 
     fn expected_compression_ratio(
         &self,
-        _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+    ) -> CompressionEstimate {
+        let len = data.array_len() as f64;
         let stats = data.integer_stats();
+        let value_count = stats.value_count();
 
-        if stats.value_count() == 0 {
-            // All nulls should use ConstantScheme.
-            return Ok(0.0);
+        // All-null arrays should be compressed as constant instead anyways.
+        if value_count == 0 {
+            return CompressionEstimate::Skip;
         }
 
-        // If the majority is null, will compress well.
-        if stats.null_count() as f64 / stats.source().len() as f64 > 0.9 {
-            return Ok(stats.source().len() as f64 / stats.value_count() as f64);
+        // If the majority (90%) of values is null, this will compress well.
+        if stats.null_count() as f64 / len > 0.9 {
+            return CompressionEstimate::Ratio(len / value_count as f64);
         }
 
-        // See if the top value accounts for >= 90% of the set values.
-        let (_, top_count) = stats
+        let (_, most_frequent_count) = stats
             .erased()
             .most_frequent_value_and_count()
             .vortex_expect(
                 "this must be present since `SparseScheme` declared that we need distinct values",
             );
 
-        if top_count == stats.value_count() {
-            // top_value is the only value, should use ConstantScheme instead.
-            return Ok(0.0);
+        // If the most frequent value is the only value, we should compress as constant instead.
+        if most_frequent_count == value_count {
+            return CompressionEstimate::Skip;
+        }
+        debug_assert!(value_count > most_frequent_count);
+
+        // See if the most frequent value accounts for >= 90% of the set values.
+        let freq = most_frequent_count as f64 / value_count as f64;
+        if freq < 0.9 {
+            return CompressionEstimate::Skip;
         }
 
-        let freq = top_count as f64 / stats.value_count() as f64;
-        if freq >= 0.9 {
-            // We only store the positions of the non-top values.
-            return Ok(stats.value_count() as f64 / (stats.value_count() - top_count) as f64);
-        }
-
-        Ok(0.0)
+        // We only store the positions of the non-top values.
+        CompressionEstimate::Ratio(value_count as f64 / (value_count - most_frequent_count) as f64)
     }
 
     fn compress(
@@ -448,33 +433,37 @@ impl Scheme for SparseScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.integer_stats();
+        let len = data.array_len();
+        // TODO(connor): Fight the borrow checker (needs interior mutability)!
+        let stats = data.integer_stats().clone();
+        let array = data.array();
 
-        let (top_pvalue, top_count) = stats
+        let (most_frequent_value, most_frequent_count) = stats
             .erased()
             .most_frequent_value_and_count()
             .vortex_expect(
                 "this must be present since `SparseScheme` declared that we need distinct values",
             );
-        if top_count as usize == stats.source().len() {
-            // top_value is the only value, use ConstantScheme.
+
+        if most_frequent_count as usize == len {
+            // If the most frequent value is the only value, we should compress as constant instead.
             return Ok(ConstantArray::new(
                 Scalar::primitive_value(
-                    top_pvalue,
-                    top_pvalue.ptype(),
-                    stats.source().dtype().nullability(),
+                    most_frequent_value,
+                    most_frequent_value.ptype(),
+                    array.dtype().nullability(),
                 ),
-                stats.source().len(),
+                len,
             )
             .into_array());
         }
 
         let sparse_encoded = Sparse::encode(
-            &stats.source().clone().into_array(),
+            array,
             Some(Scalar::primitive_value(
-                top_pvalue,
-                top_pvalue.ptype(),
-                stats.source().dtype().nullability(),
+                most_frequent_value,
+                most_frequent_value.ptype(),
+                array.dtype().nullability(),
             )),
         )?;
 
@@ -562,19 +551,15 @@ impl Scheme for RunEndScheme {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
-    ) -> VortexResult<f64> {
-        let stats = data.integer_stats();
-
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
         // If the run length is below the threshold, drop it.
-        if stats.average_run_length() < RUN_END_THRESHOLD {
-            return Ok(0.0);
+        if data.integer_stats().average_run_length() < RUN_END_THRESHOLD {
+            return CompressionEstimate::Skip;
         }
 
-        // Run compression on a sample, see how it performs.
-        estimate_compression_ratio_with_sampling(self, compressor, data.array(), ctx)
+        CompressionEstimate::Sample
     }
 
     fn compress(
@@ -583,10 +568,8 @@ impl Scheme for RunEndScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.integer_stats();
-
         // Run-end encode the ends.
-        let (ends, values) = runend_encode(stats.source().as_view());
+        let (ends, values) = runend_encode(data.array_as_primitive().as_view());
 
         let compressed_values =
             compressor.compress_child(&values.to_primitive().into_array(), &ctx, self.id(), 0)?;
@@ -594,12 +577,10 @@ impl Scheme for RunEndScheme {
         let compressed_ends = compressor.compress_child(&ends.into_array(), &ctx, self.id(), 1)?;
 
         // SAFETY: compression doesn't affect invariants.
-        unsafe {
-            Ok(
-                RunEnd::new_unchecked(compressed_ends, compressed_values, 0, stats.source().len())
-                    .into_array(),
-            )
-        }
+        Ok(unsafe {
+            RunEnd::new_unchecked(compressed_ends, compressed_values, 0, data.array_len())
+                .into_array()
+        })
     }
 }
 
@@ -634,35 +615,45 @@ impl Scheme for SequenceScheme {
 
     fn expected_compression_ratio(
         &self,
-        _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        _ctx: CompressorContext,
-    ) -> VortexResult<f64> {
-        let stats = data.integer_stats();
-
-        if stats.null_count() > 0 {
-            return Ok(0.0);
+        ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        // It is pointless checking if a sample is a sequence since it will not correspond to the
+        // entire array.
+        if ctx.is_sample() {
+            return CompressionEstimate::Skip;
         }
 
-        // TODO(connor): Why do we sequence encode the whole thing and then throw it away? And then
-        // why do we divide the ratio by 2???
+        let stats = data.integer_stats();
+
+        // `SequenceArray` does not support nulls.
+        if stats.null_count() > 0 {
+            return CompressionEstimate::Skip;
+        }
 
         // If the distinct_values_count was computed, and not all values are unique, then this
         // cannot be encoded as a sequence array.
         if stats
             .distinct_count()
-            // TODO(connor): Shouldn't this be `is_none_or`??? Why do things fail if not this?
-            .is_some_and(|count| count as usize != stats.source().len())
+            .is_some_and(|count| count as usize != data.array_len())
         {
-            return Ok(0.0);
+            return CompressionEstimate::Skip;
         }
 
-        // TODO(connor): Why divide by 2???
-        // Since two values are required to store base and multiplier the compression ratio is
-        // divided by 2.
-        Ok(sequence_encode(stats.source())?
-            .map(|_| stats.source().len() as f64 / 2.0)
-            .unwrap_or(0.0))
+        // TODO(connor): Why do we sequence encode the whole thing and then throw it away? And then
+        // why do we divide the ratio by 2???
+
+        CompressionEstimate::Estimate(Box::new(|_compressor, data, _ctx| {
+            let Some(encoded) = sequence_encode(&data.array_as_primitive())? else {
+                // If we are unable to sequence encode this array, make sure we skip.
+                return Ok(CompressionEstimate::Skip);
+            };
+
+            // TODO(connor): This doesn't really make sense?
+            // Since two values are required to store base and multiplier the compression ratio is
+            // divided by 2.
+            Ok(CompressionEstimate::Ratio(encoded.len() as f64 / 2.0))
+        }))
     }
 
     fn compress(
@@ -676,7 +667,8 @@ impl Scheme for SequenceScheme {
         if stats.null_count() > 0 {
             vortex_bail!("sequence encoding does not support nulls");
         }
-        sequence_encode(stats.source())?.ok_or_else(|| vortex_err!("cannot sequence encode array"))
+        sequence_encode(&data.array_as_primitive())?
+            .ok_or_else(|| vortex_err!("cannot sequence encode array"))
     }
 }
 
@@ -692,21 +684,17 @@ impl Scheme for PcoScheme {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
-    ) -> VortexResult<f64> {
-        let stats = data.integer_stats();
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        use vortex_array::dtype::PType;
 
         // Pco does not support I8 or U8.
-        if matches!(
-            stats.source().ptype(),
-            vortex_array::dtype::PType::I8 | vortex_array::dtype::PType::U8
-        ) {
-            return Ok(0.0);
+        if matches!(data.array_as_primitive().ptype(), PType::I8 | PType::U8) {
+            return CompressionEstimate::Skip;
         }
 
-        estimate_compression_ratio_with_sampling(self, compressor, data.array(), ctx)
+        CompressionEstimate::Sample
     }
 
     fn compress(
@@ -715,12 +703,12 @@ impl Scheme for PcoScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.integer_stats();
-
-        Ok(
-            vortex_pco::Pco::from_primitive(stats.source(), pco::DEFAULT_COMPRESSION_LEVEL, 8192)?
-                .into_array(),
-        )
+        Ok(vortex_pco::Pco::from_primitive(
+            &data.array_as_primitive(),
+            pco::DEFAULT_COMPRESSION_LEVEL,
+            8192,
+        )?
+        .into_array())
     }
 }
 
@@ -733,7 +721,9 @@ mod tests {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use vortex_array::IntoArray;
+    use vortex_array::arrays::Constant;
     use vortex_array::arrays::Dict;
+    use vortex_array::arrays::Masked;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -744,7 +734,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_fastlanes::RLE;
     use vortex_sequence::Sequence;
-    use vortex_sparse::Sparse;
 
     use crate::BtrBlocksCompressor;
     use crate::schemes::rle::RLE_INTEGER_SCHEME;
@@ -787,7 +776,7 @@ mod tests {
     }
 
     #[test]
-    fn sparse_mostly_nulls() -> VortexResult<()> {
+    fn constant_mostly_nulls() -> VortexResult<()> {
         let array = PrimitiveArray::new(
             buffer![189u8, 189, 189, 189, 189, 189, 189, 189, 189, 0, 46],
             Validity::from_iter(vec![
@@ -798,7 +787,9 @@ mod tests {
 
         let btr = BtrBlocksCompressor::default();
         let compressed = btr.compress(&array.into_array())?;
-        assert!(compressed.is::<Sparse>());
+
+        assert!(compressed.is::<Masked>());
+        assert!(compressed.children()[0].is::<Constant>());
 
         let decoded = compressed;
         let expected =

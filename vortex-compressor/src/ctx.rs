@@ -20,10 +20,13 @@ pub const MAX_CASCADE: usize = 3;
 pub struct CompressorContext {
     /// Whether we're compressing a sample (for ratio estimation).
     is_sample: bool,
+
     /// Remaining cascade depth allowed.
     allowed_cascading: usize,
+
     /// Merged stats options from all eligible schemes at this compression site.
-    stats_options: GenerateStatsOptions,
+    merged_stats_options: GenerateStatsOptions,
+
     /// The cascade chain: `(scheme_id, child_index)` pairs from root to current depth.
     /// Used for self-exclusion, push rules ([`descendant_exclusions`]), and pull rules
     /// ([`ancestor_exclusions`]).
@@ -41,7 +44,7 @@ impl CompressorContext {
         Self {
             is_sample: false,
             allowed_cascading: MAX_CASCADE,
-            stats_options: GenerateStatsOptions::default(),
+            merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
         }
     }
@@ -60,26 +63,22 @@ impl CompressorContext {
         self.is_sample
     }
 
+    /// Returns the merged stats generation options for this compression site.
+    pub fn merged_stats_options(&self) -> GenerateStatsOptions {
+        self.merged_stats_options
+    }
+
+    /// Returns the cascade chain of `(scheme_id, child_index)` pairs.
+    pub fn cascade_history(&self) -> &[(SchemeId, usize)] {
+        &self.cascade_history
+    }
+
     /// Whether cascading is exhausted (no further cascade levels allowed).
+    ///
+    /// This should only be used in the implementation of a [`Scheme`](crate::scheme::Scheme) if the
+    /// scheme knows that it's child _must_ be compressed for it to make any sense being chosen.
     pub fn finished_cascading(&self) -> bool {
         self.allowed_cascading == 0
-    }
-
-    /// Returns the merged stats generation options for this compression site.
-    pub fn stats_options(&self) -> GenerateStatsOptions {
-        self.stats_options
-    }
-
-    /// Returns a context with the given stats options.
-    pub fn with_stats_options(mut self, opts: GenerateStatsOptions) -> Self {
-        self.stats_options = opts;
-        self
-    }
-
-    /// Returns a context marked as sample compression.
-    pub fn as_sample(mut self) -> Self {
-        self.is_sample = true;
-        self
     }
 
     /// Returns a context that disallows further cascading.
@@ -88,22 +87,29 @@ impl CompressorContext {
         self
     }
 
+    /// Returns a context with the given stats options.
+    pub(super) fn with_merged_stats_options(mut self, opts: GenerateStatsOptions) -> Self {
+        self.merged_stats_options = opts;
+        self
+    }
+
+    /// Returns a context marked as sample compression.
+    pub(super) fn with_sampling(mut self) -> Self {
+        self.is_sample = true;
+        self
+    }
+
     /// Descends one level in the cascade, recording the current scheme and which child is
     /// being compressed.
     ///
     /// The `child_index` identifies which child of the scheme is being compressed (e.g. for
     /// Dict: values=0, codes=1).
-    pub(crate) fn descend_with_scheme(mut self, id: SchemeId, child_index: usize) -> Self {
+    pub(super) fn descend_with_scheme(mut self, id: SchemeId, child_index: usize) -> Self {
         self.allowed_cascading = self
             .allowed_cascading
             .checked_sub(1)
             .vortex_expect("cannot descend: cascade depth exhausted");
         self.cascade_history.push((id, child_index));
         self
-    }
-
-    /// Returns the cascade chain of `(scheme_id, child_index)` pairs.
-    pub fn cascade_history(&self) -> &[(SchemeId, usize)] {
-        &self.cascade_history
     }
 }
