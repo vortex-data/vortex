@@ -54,7 +54,9 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
     ) -> VortexResult<Option<ArrayRef>> {
         debug_assert_eq!(child_idx, 0);
 
-        if !child.seconds().is::<Constant>() || !child.subseconds().is::<Constant>() {
+        if *child.seconds().encoding_id() != Constant::ID
+            || *child.subseconds().encoding_id() != Constant::ID
+        {
             return Ok(None);
         }
 

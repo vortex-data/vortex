@@ -107,7 +107,8 @@ pub fn is_constant(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<boo
     }
 
     // Constant and null arrays are always constant.
-    if array.is::<Constant>() || array.is::<Null>() {
+    let id = array.encoding_id();
+    if *id == Constant::ID || *id == Null::ID {
         array
             .statistics()
             .set(Stat::IsConstant, Precision::Exact(true.into()));
