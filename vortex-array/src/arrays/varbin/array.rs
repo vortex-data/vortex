@@ -491,18 +491,11 @@ impl Array<VarBin> {
         validity: Validity,
     ) -> VortexResult<Self> {
         let len = offsets.len() - 1;
+        let bytes = BufferHandle::new_host(bytes);
+        VarBinData::validate(&offsets, &bytes, &dtype, &validity)?;
         let slots = VarBinData::make_slots(offsets, &validity, len);
-        let data = unsafe {
-            VarBinData::new_unchecked_from_handle(
-                slots[OFFSETS_SLOT]
-                    .as_ref()
-                    .vortex_expect("VarBinArray offsets slot")
-                    .clone(),
-                bytes,
-                dtype.clone(),
-                validity,
-            )
-        }?;
+        // SAFETY: validate ensures all invariants are met.
+        let data = unsafe { VarBinData::new_unchecked_from_handle(bytes) };
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(VarBin, dtype, len, data).with_slots(slots))
         })
