@@ -6,20 +6,25 @@
 //! The TurboQuant paper analyzes a full random orthogonal rotation. The current implementation
 //! uses a cheaper structured Walsh-Hadamard-based surrogate instead of a dense d x d matrix.
 //!
-//! Concretely, this applies three rounds of random sign diagonals interleaved with the
-//! Walsh-Hadamard Transform: D3 * H * D2 * H * D1 * H, followed by normalization. This is a
-//! SORF-style structured approximation to a random orthogonal matrix, chosen for O(d log d)
+//! Concretely, this applies three rounds of random sign diagonals interleaved with the Fast
+//! Walsh-Hadamard Transform (FWHT): `D3 * H * D2 * H * D1 * H`, followed by normalization. This is
+//! a SORF-style structured approximation to a random orthogonal matrix, chosen for O(d log d)
 //! encode/decode cost and compact serialized parameters.
 //!
-//! For dimensions that are not powers of 2, the input is zero-padded to the
-//! next power of 2 before the transform and truncated afterward.
+//! The FWHT exploits the Kronecker product structure of the Hadamard matrix (`H_n = H_2 (x) H_2
+//! (x) ... (x) H_2`, with `log2(n)` factors) to compute the matrix-vector product in O(n log n)
+//! time using only in-place 2-element butterfly operations. No row of the full n x n Hadamard
+//! matrix is ever materialized.
+//!
+//! For dimensions that are not powers of 2, the input is zero-padded to the next power of 2 before
+//! the transform and truncated afterward.
 //!
 //! # Sign representation
 //!
-//! Signs are stored internally as `u32` XOR masks: `0x00000000` for +1 (no-op)
-//! and `0x80000000` for -1 (flip IEEE 754 sign bit). The sign application
-//! function uses integer XOR instead of floating-point multiply, which avoids
-//! FP dependency chains and auto-vectorizes into `vpxor`/`veor`.
+//! Signs are stored internally as `u32` XOR masks: `0x00000000` for +1 (no-op) and `0x80000000` for
+//! -1 (flip IEEE 754 sign bit). The sign application function uses integer XOR instead of
+//! floating-point multiply, which avoids FP dependency chains and auto-vectorizes into
+//! `vpxor`/`veor`.
 
 use rand::RngExt;
 use rand::SeedableRng;
@@ -32,8 +37,8 @@ const F32_SIGN_BIT: u32 = 0x8000_0000;
 
 /// A Walsh-Hadamard-based structured surrogate for a random orthogonal rotation.
 pub struct RotationMatrix {
-    /// XOR masks for each of the 3 diagonal matrices, each of length `padded_dim`.
-    /// `0x00000000` = multiply by +1 (no-op), `0x80000000` = multiply by -1 (flip sign bit).
+    /// XOR masks for each of the 3 diagonal matrices, each of length `padded_dim`. `0x00000000` =
+    /// multiply by +1 (no-op), `0x80000000` = multiply by -1 (flip sign bit).
     sign_masks: [Vec<u32>; 3],
     /// The padded dimension (next power of 2 >= dimension).
     padded_dim: usize,
@@ -59,8 +64,8 @@ impl RotationMatrix {
 
     /// Apply forward rotation: `output = R(input)`.
     ///
-    /// Both `input` and `output` must have length `padded_dim()`. The caller
-    /// is responsible for zero-padding input beyond `dim` positions.
+    /// Both `input` and `output` must have length [`padded_dim()`](Self::padded_dim). The caller is
+    /// responsible for zero-padding input beyond `dim` positions.
     pub fn rotate(&self, input: &[f32], output: &mut [f32]) {
         debug_assert_eq!(input.len(), self.padded_dim);
         debug_assert_eq!(output.len(), self.padded_dim);
@@ -120,12 +125,11 @@ impl RotationMatrix {
         buf.iter_mut().for_each(|val| *val *= norm);
     }
 
-    /// Export the 3 sign vectors as a flat `Vec<u8>` of 0/1 values in inverse
-    /// application order `[D₃ | D₂ | D₁]`.
+    /// Export the 3 sign vectors as a flat `Vec<u8>` of 0/1 values in inverse application order
+    /// `[D₃ | D₂ | D₁]`.
     ///
-    /// Convention: `1` = positive (+1), `0` = negative (-1).
-    /// The output has length `3 * padded_dim` and is suitable for bitpacking
-    /// via FastLanes `bitpack_encode(..., 1, None)`.
+    /// Convention: `1` = positive (+1), `0` = negative (-1). The output has length `3 * padded_dim`
+    /// and is suitable for bitpacking via FastLanes `bitpack_encode(..., 1, None)`.
     pub fn export_inverse_signs_u8(&self) -> Vec<u8> {
         let total = 3 * self.padded_dim;
         let mut out = Vec::with_capacity(total);
@@ -139,14 +143,14 @@ impl RotationMatrix {
         out
     }
 
-    /// Reconstruct a `RotationMatrix` from unpacked `u8` 0/1 values.
+    /// Reconstruct a [`RotationMatrix`] from unpacked `u8` 0/1 values.
     ///
-    /// The input must have length `3 * padded_dim` with signs in inverse
-    /// application order `[D₃ | D₂ | D₁]` (as produced by [`export_inverse_signs_u8`]).
-    /// Convention: `1` = positive, `0` = negative.
+    /// The input must have length `3 * padded_dim` with signs in inverse application order
+    /// `[D₃ | D₂ | D₁]` (as produced by [`export_inverse_signs_u8`]). Convention: `1` = positive,
+    /// `0` = negative.
     ///
-    /// This is the decode-time reconstruction path: FastLanes SIMD-unpacks the
-    /// stored `BitPackedArray` into `&[u8]`, which is passed here.
+    /// This is the decode-time reconstruction path: FastLanes SIMD-unpacks the stored
+    /// [`BitPackedArray`] into `&[u8]`, which is passed here.
     pub fn from_u8_slice(signs_u8: &[u8], dimension: usize) -> VortexResult<Self> {
         let padded_dim = dimension.next_power_of_two();
         vortex_ensure!(
@@ -192,8 +196,8 @@ fn gen_random_sign_masks(rng: &mut StdRng, len: usize) -> Vec<u32> {
 
 /// Apply sign masks via XOR on the IEEE 754 sign bit.
 ///
-/// This is branchless and auto-vectorizes into `vpxor` (x86) / `veor` (ARM).
-/// Equivalent to multiplying each element by ±1.0, but avoids FP dependency chains.
+/// This is branchless and auto-vectorizes into `vpxor` (x86) / `veor` (ARM). Equivalent to
+/// multiplying each element by +/-1.0, but avoids FP dependency chains.
 #[inline]
 fn apply_signs_xor(buf: &mut [f32], masks: &[u32]) {
     for (val, &mask) in buf.iter_mut().zip(masks.iter()) {
@@ -201,13 +205,14 @@ fn apply_signs_xor(buf: &mut [f32], masks: &[u32]) {
     }
 }
 
-/// In-place Walsh-Hadamard Transform (unnormalized, iterative).
+/// In-place Fast Walsh-Hadamard Transform (FWHT), unnormalized and iterative.
 ///
-/// Input length must be a power of 2. Runs in O(n log n).
+/// Input length must be a power of 2. Runs in O(n log n) via `log2(n)` stages of `n / 2`
+/// [`butterfly`] operations each. See the [module-level docs](self) for why this avoids
+/// materializing the full Hadamard matrix.
 ///
-/// Uses a fixed-size chunk strategy: for each stage, the buffer is processed
-/// in `CHUNK`-element blocks with a compile-time-known butterfly function.
-/// This lets LLVM unroll and auto-vectorize the butterfly into NEON/AVX SIMD.
+/// The chunk-based iteration gives LLVM enough structure to auto-vectorize each butterfly call
+/// into NEON/AVX SIMD instructions.
 fn walsh_hadamard_transform(buf: &mut [f32]) {
     let len = buf.len();
     debug_assert!(len.is_power_of_two());
@@ -225,9 +230,11 @@ fn walsh_hadamard_transform(buf: &mut [f32]) {
     }
 }
 
-/// Butterfly: `lo[i], hi[i] = lo[i] + hi[i], lo[i] - hi[i]`.
+/// Butterfly: `(lo[i], hi[i]) -> (lo[i] + hi[i], lo[i] - hi[i])`.
 ///
-/// Separate function so LLVM can see the slice lengths match and auto-vectorize.
+/// This is multiplication by the 2x2 Hadamard kernel `H_2 = [[1, 1], [1, -1]]` on each element
+/// pair. Factored into a separate function so LLVM can see the slice lengths match and
+/// auto-vectorize.
 #[inline(always)]
 fn butterfly(lo: &mut [f32], hi: &mut [f32]) {
     debug_assert_eq!(lo.len(), hi.len());
