@@ -17,28 +17,6 @@ pub trait ValidityVTable<V: VTable> {
     fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity>;
 }
 
-/// An implementation of the [`ValidityVTable`] for arrays that hold an unsliced validity
-/// and a slice into it.
-pub struct ValidityVTableFromValiditySliceHelper;
-
-pub trait ValiditySliceHelper {
-    fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize);
-
-    fn sliced_validity(&self) -> VortexResult<Validity> {
-        let (unsliced_validity, start, stop) = self.unsliced_validity_and_slice();
-        unsliced_validity.slice(start..stop)
-    }
-}
-
-impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValiditySliceHelper
-where
-    V::ArrayData: ValiditySliceHelper,
-{
-    fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {
-        array.data().sliced_validity()
-    }
-}
-
 /// An implementation of the [`ValidityVTable`] for arrays that delegate validity entirely
 /// to a child array.
 pub struct ValidityVTableFromChild;

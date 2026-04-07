@@ -115,6 +115,7 @@ fn compare_fsst_constant(
 
     let rhs = ConstantArray::new(encoded_scalar, left.len());
     left.codes()
+        .clone()
         .into_array()
         .binary(rhs.into_array(), Operator::from(operator))
         .map(Some)

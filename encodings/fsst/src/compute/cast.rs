@@ -20,8 +20,9 @@ impl CastReduce for FSST {
             // Cast codes array to handle nullability
             let new_codes = array
                 .codes()
+                .clone()
                 .into_array()
-                .cast(array.codes_dtype().with_nullability(dtype.nullability()))?;
+                .cast(array.codes().dtype().with_nullability(dtype.nullability()))?;
 
             Ok(Some(
                 FSST::try_new(
