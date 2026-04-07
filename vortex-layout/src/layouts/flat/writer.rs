@@ -466,7 +466,6 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Only allow the dict encoding; canonical primitive children remain permitted.
                 let mut allowed = HashSet::default();
-                allowed.insert(Primitive.id());
                 allowed.insert(Dict.id());
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
