@@ -424,7 +424,7 @@ mod tests {
             let (layout, _segments) = {
                 let segments = Arc::new(TestSegments::default());
                 let (ptr, eof) = SequenceId::root().split();
-                // Only allow canonical encodings - filter arrays should fail.
+                // Disallow all encodings so filter arrays fail normalization immediately.
                 let allowed = HashSet::default();
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
@@ -464,7 +464,7 @@ mod tests {
             let (layout, _segments) = {
                 let segments = Arc::new(TestSegments::default());
                 let (ptr, eof) = SequenceId::root().split();
-                // Only allow primitive encodings - filter arrays should fail.
+                // Only allow the dict encoding; canonical primitive children remain permitted.
                 let mut allowed = HashSet::default();
                 allowed.insert(Dict.id());
                 let layout = FlatLayoutStrategy::default()

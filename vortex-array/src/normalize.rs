@@ -41,7 +41,7 @@ impl ArrayRef {
     }
 
     fn normalize_with_error(&self, allowed: &HashSet<Id>) -> VortexResult<()> {
-        if !allowed.contains(&self.encoding_id()) {
+        if !self.is_allowed_encoding(allowed) {
             vortex_bail!(AssertionFailed: "normalize forbids encoding ({})", self.encoding_id())
         }
 
@@ -59,7 +59,7 @@ impl ArrayRef {
         let mut normalized = self;
 
         // Top-first execute the array tree while we hit non-allowed encodings.
-        while !allowed.contains(&normalized.encoding_id()) {
+        while !normalized.is_allowed_encoding(allowed) {
             normalized = normalized.execute(ctx)?;
         }
 
@@ -87,6 +87,10 @@ impl ArrayRef {
         }
 
         Ok(normalized)
+    }
+
+    fn is_allowed_encoding(&self, allowed: &HashSet<Id>) -> bool {
+        allowed.contains(&self.encoding_id()) || self.is_canonical()
     }
 }
 
@@ -127,6 +131,27 @@ mod tests {
         let normalized = array.clone().normalize(&mut NormalizeOptions {
             allowed: &allowed,
             operation: Operation::Execute(&mut ctx),
+        })?;
+
+        assert!(ArrayRef::ptr_eq(&array, &normalized));
+        Ok(())
+    }
+
+    #[test]
+    fn normalize_with_error_allows_canonical_arrays() -> VortexResult<()> {
+        let field = PrimitiveArray::from_iter(0i32..4).into_array();
+        let array = StructArray::try_new(
+            ["field"].into(),
+            vec![field.clone()],
+            field.len(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+        let allowed = HashSet::default();
+
+        let normalized = array.clone().normalize(&mut NormalizeOptions {
+            allowed: &allowed,
+            operation: Operation::Error,
         })?;
 
         assert!(ArrayRef::ptr_eq(&array, &normalized));
