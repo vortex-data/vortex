@@ -35,7 +35,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 /// Check if we're using experimental patches deserialization
-static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
+pub static USE_EXPERIMENTAL_PATCHES: LazyLock<bool> =
     LazyLock::new(|| env::var("VORTEX_EXPERIMENTAL_PATCHED_ARRAY").is_ok());
 
 /// Initialize fastlanes encodings in the given session.
