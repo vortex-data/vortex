@@ -6,7 +6,6 @@ use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray as _;
 use crate::arrays::PrimitiveArray;
 use crate::dtype::Nullability;
@@ -212,7 +211,7 @@ fn test_take_repeated_indices(array: &ArrayRef) {
     // Take the first element multiple times
     let indices = buffer![0u64, 0, 0].into_array();
     let result = array
-        .take(indices.to_array())
+        .take(indices)
         .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), 3);

@@ -18,8 +18,9 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::trusted_len::TrustedLen;
 use vortex_error::VortexResult;
 
+use crate::Sequence;
 use crate::SequenceArray;
-
+use crate::SequenceData;
 /// An iterator that yields `base, base + step, base + 2*step, ...` via repeated addition.
 struct SequenceIter<T> {
     acc: T,
@@ -112,7 +113,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
 ) -> VortexResult<Option<ArrayRef>> {
     if slice.len() == 1 {
         // The multiplier here can be any value, zero is chosen
-        return SequenceArray::try_new_typed(slice[0], P::zero(), nullability, 1)
+        return Sequence::try_new_typed(slice[0], P::zero(), nullability, 1)
             .map(|a| Some(a.into_array()));
     }
     let base = slice[0];
@@ -124,7 +125,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
         return Ok(None);
     }
 
-    if SequenceArray::try_last(base.into(), multiplier.into(), P::PTYPE, slice.len()).is_err() {
+    if SequenceData::try_last(base.into(), multiplier.into(), P::PTYPE, slice.len()).is_err() {
         // If the last value is out of range, we cannot encode
         return Ok(None);
     }
@@ -133,7 +134,7 @@ fn encode_primitive_array<P: NativePType + Into<PValue> + CheckedAdd + CheckedSu
         .windows(2)
         .all(|w| Some(w[1]) == w[0].checked_add(&multiplier))
         .then_some(
-            SequenceArray::try_new_typed(base, multiplier, nullability, slice.len())
+            Sequence::try_new_typed(base, multiplier, nullability, slice.len())
                 .map(|a| a.into_array()),
         )
         .transpose()

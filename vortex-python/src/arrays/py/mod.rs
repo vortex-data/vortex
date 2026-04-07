@@ -12,7 +12,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::PyAnyMethods;
 pub(crate) use python::*;
-use vortex::array::vtable::ArrayId;
+use vortex::array::ArrayId;
 pub(crate) use vtable::*;
 
 use crate::error::PyVortexResult;

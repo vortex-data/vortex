@@ -1,32 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::ArrayRef;
+use crate::array::Array;
+use crate::array::ArrayParts;
+use crate::arrays::Constant;
 use crate::scalar::Scalar;
-use crate::stats::ArrayStats;
-
-pub(super) const NUM_SLOTS: usize = 0;
 
 #[derive(Clone, Debug)]
-pub struct ConstantArray {
+pub struct ConstantData {
     pub(super) scalar: Scalar,
-    pub(super) len: usize,
-    pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats_set: ArrayStats,
 }
 
-impl ConstantArray {
-    pub fn new<S>(scalar: S, len: usize) -> Self
+impl ConstantData {
+    pub fn new<S>(scalar: S) -> Self
     where
         S: Into<Scalar>,
     {
         let scalar = scalar.into();
-        Self {
-            scalar,
-            len,
-            slots: vec![],
-            stats_set: Default::default(),
-        }
+        Self { scalar }
     }
 
     /// Returns the [`Scalar`] value of this constant array.
@@ -36,5 +27,17 @@ impl ConstantArray {
 
     pub fn into_parts(self) -> Scalar {
         self.scalar
+    }
+}
+
+impl Array<Constant> {
+    pub fn new<S>(scalar: S, len: usize) -> Self
+    where
+        S: Into<Scalar>,
+    {
+        let scalar = scalar.into();
+        let dtype = scalar.dtype().clone();
+        let data = ConstantData::new(scalar);
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Constant, dtype, len, data)) }
     }
 }

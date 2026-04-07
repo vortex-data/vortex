@@ -6,7 +6,6 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::ToCanonical;
@@ -14,6 +13,7 @@ use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -23,7 +23,6 @@ use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::vtable::ValidityHelper;
 
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {
@@ -163,7 +162,7 @@ impl ListViewArray {
 
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.is_valid(index)? {
+            if !self.validity()?.is_valid(index)? {
                 new_offsets.push(n_elements);
                 new_sizes.push(S::zero());
                 continue;
@@ -188,7 +187,7 @@ impl ListViewArray {
         // non-overlapping, all (offset, size) pairs reference valid elements, and the validity
         // array is preserved from the original.
         Ok(unsafe {
-            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity.clone())
+            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity()?)
                 .with_zero_copy_to_list(true)
         })
     }
@@ -231,7 +230,7 @@ impl ListViewArray {
 
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.is_valid(index)? {
+            if !self.validity()?.is_valid(index)? {
                 // For NULL lists, place them after the previous item's data to maintain the
                 // no-overlap invariant for zero-copy to `ListArray` arrays.
                 new_offsets.push(n_elements);
@@ -271,7 +270,7 @@ impl ListViewArray {
         // - The array satisfies the zero-copy-to-list property by having sorted offsets, no gaps,
         //   and no overlaps.
         Ok(unsafe {
-            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity.clone())
+            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity()?)
                 .with_zero_copy_to_list(true)
         })
     }
@@ -332,7 +331,7 @@ impl ListViewArray {
             let scalar = Scalar::primitive(offset, Nullability::NonNullable);
 
             self.offsets()
-                .to_array()
+                .clone()
                 .binary(
                     ConstantArray::new(scalar, self.offsets().len()).into_array(),
                     Operator::Sub,
@@ -351,7 +350,7 @@ impl ListViewArray {
                 sliced_elements,
                 adjusted_offsets,
                 self.sizes().clone(),
-                self.validity(),
+                self.validity()?,
             )
             .with_zero_copy_to_list(self.is_zero_copy_to_list())
         })
@@ -379,10 +378,10 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_rebuild_flatten_removes_overlaps() -> VortexResult<()> {
@@ -442,9 +441,9 @@ mod tests {
 
         // Verify nullability is preserved
         assert_eq!(flattened.dtype().nullability(), Nullability::Nullable);
-        assert!(flattened.validity().is_valid(0).unwrap());
-        assert!(!flattened.validity().is_valid(1).unwrap());
-        assert!(flattened.validity().is_valid(2).unwrap());
+        assert!(flattened.validity()?.is_valid(0).unwrap());
+        assert!(!flattened.validity()?.is_valid(1).unwrap());
+        assert!(flattened.validity()?.is_valid(2).unwrap());
 
         // Verify valid lists contain correct data
         assert_arrays_eq!(

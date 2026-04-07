@@ -166,10 +166,10 @@ mod tests {
     use super::Pack;
     use super::PackOptions;
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::expr::col;
@@ -230,7 +230,7 @@ mod tests {
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
-        assert!(matches!(actual_array.validity(), Validity::NonNullable));
+        assert!(matches!(actual_array.validity(), Ok(Validity::NonNullable)));
 
         assert_arrays_eq!(
             primitive_field(&actual_array.clone().into_array(), &["one"]).unwrap(),
@@ -301,7 +301,7 @@ mod tests {
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
-        assert!(matches!(actual_array.validity(), Validity::AllValid));
+        assert!(matches!(actual_array.validity(), Ok(Validity::AllValid)));
     }
 
     #[test]

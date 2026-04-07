@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use crate::DynArray;
+use crate::ArrayRef;
 use crate::arrays::Chunked;
 use crate::display::extractor::IndentedFormatter;
 use crate::display::extractor::TreeContext;
@@ -35,17 +35,17 @@ use crate::display::extractors::StatsExtractor;
 ///     .with(NbytesExtractor)
 ///     .with(MetadataExtractor);
 /// ```
-pub struct TreeDisplay<'a> {
-    array: &'a dyn DynArray,
+pub struct TreeDisplay {
+    array: ArrayRef,
     extractors: Vec<Box<dyn TreeExtractor>>,
 }
 
-impl<'a> TreeDisplay<'a> {
+impl TreeDisplay {
     /// Create a new tree display for the given array with no extractors.
     ///
     /// With no extractors, only node names and the tree structure are shown.
     /// Use [`Self::default_display`] for the standard set of all built-in extractors.
-    pub fn new(array: &'a dyn DynArray) -> Self {
+    pub fn new(array: ArrayRef) -> Self {
         Self {
             array,
             extractors: Vec::new(),
@@ -54,7 +54,7 @@ impl<'a> TreeDisplay<'a> {
 
     /// Create a tree display with all built-in extractors: encoding summary, nbytes, stats,
     /// metadata, and buffers.
-    pub fn default_display(array: &'a dyn DynArray) -> Self {
+    pub fn default_display(array: ArrayRef) -> Self {
         Self::new(array)
             .with(EncodingSummaryExtractor)
             .with(NbytesExtractor)
@@ -79,7 +79,7 @@ impl<'a> TreeDisplay<'a> {
     fn write_node(
         &self,
         name: &str,
-        array: &dyn DynArray,
+        array: &ArrayRef,
         ctx: &mut TreeContext,
         indent: &str,
         f: &mut fmt::Formatter<'_>,
@@ -110,7 +110,7 @@ impl<'a> TreeDisplay<'a> {
 
         // Recurse into children
         for (child_name, child) in array.children_names().into_iter().zip(array.children()) {
-            self.write_node(&child_name, child.as_ref(), ctx, &child_indent, f)?;
+            self.write_node(&child_name, &child, ctx, &child_indent, f)?;
         }
 
         ctx.pop();
@@ -119,9 +119,9 @@ impl<'a> TreeDisplay<'a> {
     }
 }
 
-impl fmt::Display for TreeDisplay<'_> {
+impl fmt::Display for TreeDisplay {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut ctx = TreeContext::new();
-        self.write_node("root", self.array, &mut ctx, "", f)
+        self.write_node("root", &self.array, &mut ctx, "", f)
     }
 }

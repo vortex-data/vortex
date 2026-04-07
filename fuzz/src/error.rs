@@ -11,7 +11,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchResult;

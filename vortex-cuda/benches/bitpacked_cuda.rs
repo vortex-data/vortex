@@ -19,15 +19,16 @@ use criterion::Criterion;
 use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
+use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
 use vortex::encodings::fastlanes::BitPackedArray;
+use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
-use vortex_array::IntoArray;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
@@ -56,7 +57,7 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
-    BitPackedArray::encode(&primitive_array.into_array(), bit_width)
+    BitPackedData::encode(&primitive_array.into_array(), bit_width)
         .vortex_expect("failed to create BitPacked array")
 }
 
@@ -96,7 +97,7 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-    BitPackedArray::encode(&primitive_array, bit_width)
+    BitPackedData::encode(&primitive_array, bit_width)
         .vortex_expect("failed to create BitPacked array with patches")
 }
 

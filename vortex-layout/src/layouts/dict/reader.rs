@@ -12,7 +12,6 @@ use futures::TryFutureExt;
 use futures::future::BoxFuture;
 use futures::try_join;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;

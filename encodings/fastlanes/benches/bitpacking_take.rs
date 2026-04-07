@@ -9,7 +9,6 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::prelude::StdRng;
-use vortex_array::DynArray;
 use vortex_array::IntoArray as _;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::RecursiveCanonical;
@@ -18,6 +17,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_fastlanes::BitPackedArrayExt;
 use vortex_fastlanes::bitpack_compress::bitpack_to_best_bit_width;
 
 fn main() {
@@ -53,7 +53,7 @@ fn take_10_contiguous(bencher: Bencher) {
         .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(packed, indices, execution_ctx)| {
             packed
-                .take(indices.to_array())
+                .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
@@ -198,7 +198,7 @@ fn patched_take_10_contiguous(bencher: Bencher) {
         .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(packed, indices, execution_ctx)| {
             packed
-                .take(indices.to_array())
+                .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()

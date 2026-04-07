@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::MaskedArray;
@@ -17,7 +17,7 @@ use crate::scalar::Scalar;
 use crate::validity::Validity;
 
 impl TakeReduce for Constant {
-    fn take(array: &ConstantArray, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    fn take(array: ArrayView<'_, Constant>, indices: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let result = match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
                 let scalar = Scalar::try_new(
@@ -63,7 +63,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_mask::AllOr;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;

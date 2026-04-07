@@ -18,7 +18,6 @@ use parquet::file::metadata::PageIndexPolicy;
 use stream::StreamExt;
 use tokio::fs::File;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
 use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::stream::ArrayStreamExt;

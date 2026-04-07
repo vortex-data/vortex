@@ -4,6 +4,7 @@
 //! Bool compression statistics.
 
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 

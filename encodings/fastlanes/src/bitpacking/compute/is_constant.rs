@@ -6,6 +6,7 @@ use std::ops::Range;
 use itertools::Itertools;
 use lending_iterator::LendingIterator;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::aggregate_fn::AggregateFnRef;
@@ -21,7 +22,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
-use crate::BitPackedArray;
+use crate::BitPackedArrayExt;
 use crate::unpack_iter::BitPacked as BitPackedUnpack;
 
 /// BitPacked-specific is_constant kernel with SIMD support.
@@ -43,7 +44,7 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
             return Ok(None);
         };
 
-        let result = match_each_integer_ptype!(array.ptype(), |P| {
+        let result = match_each_integer_ptype!(array.dtype().as_ptype(), |P| {
             bitpacked_is_constant::<P, { IS_CONST_LANE_WIDTH / size_of::<P>() }>(array)?
         });
 
@@ -52,9 +53,9 @@ impl DynAggregateKernel for BitPackedIsConstantKernel {
 }
 
 fn bitpacked_is_constant<T: BitPackedUnpack, const WIDTH: usize>(
-    array: &BitPackedArray,
+    array: ArrayView<'_, BitPacked>,
 ) -> VortexResult<bool> {
-    let mut bit_unpack_iterator = array.unpacked_chunks::<T>();
+    let mut bit_unpack_iterator = array.unpacked_chunks::<T>()?;
     let patches = array.patches().map(|p| {
         let values = p.values().to_primitive();
         let indices = p.indices().to_primitive();
@@ -187,11 +188,11 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::BitPackedArray;
+    use crate::BitPackedData;
 
     #[test]
     fn is_constant_with_patches() -> VortexResult<()> {
-        let array = BitPackedArray::encode(&buffer![4; 1025].into_array(), 2)?;
+        let array = BitPackedData::encode(&buffer![4; 1025].into_array(), 2)?;
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(is_constant(&array.into_array(), &mut ctx)?);
         Ok(())

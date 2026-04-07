@@ -5,12 +5,12 @@
 //! patching enables fully parallel GPU execution, as outlined by Hepkema et al. in
 //! "G-ALP: Rethinking Light-weight Encodings for GPUs" <https://doi.org/10.1145/3736227.3736242>
 
+use vortex::array::Canonical;
+use vortex::array::buffer::BufferHandle;
+use vortex::array::dtype::IntegerPType;
+use vortex::array::dtype::NativePType;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
-use vortex_array::Canonical;
-use vortex_array::buffer::BufferHandle;
-use vortex_array::dtype::IntegerPType;
-use vortex_array::dtype::NativePType;
 use vortex_array::match_each_native_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
@@ -239,10 +239,10 @@ fn transpose<I: IntegerPType, V: NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use vortex::array::ExecutionCtx;
     use vortex::buffer::BufferMut;
     use vortex::buffer::buffer;
     use vortex::buffer::buffer_mut;
-    use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::arrays::PrimitiveArray;

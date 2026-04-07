@@ -26,6 +26,7 @@ use tpcds::TpcDsBenchmark;
 use tpch::benchmark::TpcHBenchmark;
 pub use utils::file::*;
 pub use utils::logging::*;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
@@ -231,7 +232,7 @@ impl CompactionStrategy {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
                 WriteStrategyBuilder::default()
-                    .with_compact_encodings()
+                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
                     .build(),
             ),
             CompactionStrategy::Default => options,

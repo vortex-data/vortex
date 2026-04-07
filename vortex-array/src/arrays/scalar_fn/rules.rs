@@ -10,17 +10,16 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Filter;
-use crate::arrays::FilterArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::Slice;
-use crate::arrays::SliceArray;
 use crate::arrays::StructArray;
+use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::dtype::DType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
@@ -48,7 +47,7 @@ pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::ne
 #[derive(Debug)]
 struct ScalarFnPackToStructRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
-    fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
         let Some(pack_options) = array.scalar_fn().as_opt::<Pack>() else {
             return Ok(None);
         };
@@ -62,7 +61,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
             StructArray::try_new(
                 pack_options.names.clone(),
                 array.children(),
-                array.len,
+                array.len(),
                 validity,
             )?
             .into_array(),
@@ -73,15 +72,15 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnPackToStructRule {
 #[derive(Debug)]
 struct ScalarFnConstantRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
-    fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
-        if !array.iter_children().all(|c| c.is::<Constant>()) {
+    fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
+        if !array.children().iter().all(|c| c.is::<Constant>()) {
             return Ok(None);
         }
         if array.is_empty() {
             Ok(Some(Canonical::empty(array.dtype()).into_array()))
         } else {
-            let result = array.scalar_at(0)?;
-            Ok(Some(ConstantArray::new(result, array.len).into_array()))
+            let result = array.array().scalar_at(0)?;
+            Ok(Some(ConstantArray::new(result, array.len()).into_array()))
         }
     }
 }
@@ -93,8 +92,8 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
 
     fn reduce_parent(
         &self,
-        array: &ScalarFnArray,
-        parent: &SliceArray,
+        array: ArrayView<'_, ScalarFnVTable>,
+        parent: ArrayView<'_, Slice>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let range = parent.slice_range();
@@ -113,10 +112,10 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnSliceReduceRule {
 #[derive(Debug)]
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
-    fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
+    fn reduce(&self, array: ArrayView<'_, ScalarFnVTable>) -> VortexResult<Option<ArrayRef>> {
         if let Some(reduced) = array
             .scalar_fn()
-            .reduce(array, &ArrayReduceCtx { len: array.len })?
+            .reduce(array.as_ref(), &ArrayReduceCtx { len: array.len() })?
         {
             return Ok(Some(
                 reduced
@@ -130,7 +129,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     }
 }
 
-impl ReduceNode for ScalarFnArray {
+impl ReduceNode for ArrayRef {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -139,39 +138,17 @@ impl ReduceNode for ScalarFnArray {
         Ok(self.dtype().clone())
     }
 
-    #[allow(clippy::same_name_method)]
     fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        Some(ScalarFnArray::scalar_fn(self))
+        self.as_opt::<ScalarFnVTable>()
+            .map(|a| a.data().scalar_fn())
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
-        Arc::new(self.get_child(idx).clone())
+        Arc::new(self.nth_child(idx).vortex_expect("child idx out of bounds"))
     }
 
     fn child_count(&self) -> usize {
         self.nchildren()
-    }
-}
-
-impl ReduceNode for ArrayRef {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn node_dtype(&self) -> VortexResult<DType> {
-        self.as_ref().node_dtype()
-    }
-
-    fn scalar_fn(&self) -> Option<&ScalarFnRef> {
-        self.as_ref().scalar_fn()
-    }
-
-    fn child(&self, idx: usize) -> ReduceNodeRef {
-        self.as_ref().child(idx)
-    }
-
-    fn child_count(&self) -> usize {
-        self.as_ref().child_count()
     }
 }
 
@@ -212,8 +189,8 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
 
     fn reduce_parent(
         &self,
-        child: &ScalarFnArray,
-        parent: &FilterArray,
+        child: ArrayView<'_, ScalarFnVTable>,
+        parent: ArrayView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // If we only have one non-constant child, then it is _always_ cheaper to push down the

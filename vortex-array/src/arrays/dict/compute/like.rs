@@ -6,10 +6,11 @@ use vortex_error::VortexResult;
 use super::Dict;
 use super::DictArray;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::arrays::dict::DictArrayExt;
+use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::like::Like;
 use crate::scalar_fn::fns::like::LikeOptions;
@@ -17,7 +18,7 @@ use crate::scalar_fn::fns::like::LikeReduce;
 
 impl LikeReduce for Dict {
     fn like(
-        array: &DictArray,
+        array: ArrayView<'_, Dict>,
         pattern: &ArrayRef,
         options: LikeOptions,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -58,7 +59,7 @@ mod tests {
     use crate::arrays::DictArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::dict::compute::like::ConstantArray;
-    use crate::arrays::scalar_fn::ScalarFnArrayExt;
+    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::assert_arrays_eq;
     use crate::optimizer::ArrayOptimizer;
     use crate::scalar_fn::fns::like::Like;

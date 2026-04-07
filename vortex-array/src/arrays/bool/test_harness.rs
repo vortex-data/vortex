@@ -5,11 +5,12 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 
 impl BoolArray {
     pub fn opt_bool_vec(&self) -> Vec<Option<bool>> {
         self.validity_mask()
-            .vortex_expect("Failed to get validity mask")
+            .vortex_expect("validity_mask")
             .to_bit_buffer()
             .iter()
             .zip(self.to_bit_buffer().iter())
@@ -19,7 +20,7 @@ impl BoolArray {
 
     pub fn bool_vec(&self) -> Vec<bool> {
         self.validity_mask()
-            .vortex_expect("Failed to get validity mask")
+            .vortex_expect("validity_mask")
             .to_bit_buffer()
             .iter()
             .zip(self.to_bit_buffer().iter())

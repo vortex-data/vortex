@@ -26,7 +26,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::BoolCons
 
 pub fn vortex_compressor::builtins::BoolConstantScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::BoolConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::BoolConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::BoolConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -66,7 +66,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::FloatCon
 
 pub fn vortex_compressor::builtins::FloatConstantScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::FloatConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::FloatConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::FloatConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -106,7 +106,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::FloatDic
 
 pub fn vortex_compressor::builtins::FloatDictScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::FloatDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::FloatDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::FloatDictScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -146,7 +146,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::IntConst
 
 pub fn vortex_compressor::builtins::IntConstantScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::IntConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::IntConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::IntConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -186,7 +186,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::IntDictS
 
 pub fn vortex_compressor::builtins::IntDictScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::IntDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::IntDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::IntDictScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -226,7 +226,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::StringCo
 
 pub fn vortex_compressor::builtins::StringConstantScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::StringConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::StringConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::StringConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -266,7 +266,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::StringDi
 
 pub fn vortex_compressor::builtins::StringDictScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::StringDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::StringDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::StringDictScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -282,9 +282,9 @@ pub fn vortex_compressor::builtins::StringDictScheme::scheme_name(&self) -> &'st
 
 pub fn vortex_compressor::builtins::StringDictScheme::stats_options(&self) -> vortex_compressor::stats::GenerateStatsOptions
 
-pub fn vortex_compressor::builtins::float_dictionary_encode(stats: &vortex_compressor::stats::FloatStats) -> vortex_array::arrays::dict::array::DictArray
+pub fn vortex_compressor::builtins::float_dictionary_encode(stats: &vortex_compressor::stats::FloatStats) -> vortex_array::arrays::dict::vtable::DictArray
 
-pub fn vortex_compressor::builtins::integer_dictionary_encode(stats: &vortex_compressor::stats::IntegerStats) -> vortex_array::arrays::dict::array::DictArray
+pub fn vortex_compressor::builtins::integer_dictionary_encode(stats: &vortex_compressor::stats::IntegerStats) -> vortex_array::arrays::dict::vtable::DictArray
 
 pub fn vortex_compressor::builtins::is_bool(canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -412,7 +412,7 @@ pub trait vortex_compressor::scheme::Scheme: core::fmt::Debug + core::marker::Se
 
 pub fn vortex_compressor::scheme::Scheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::scheme::Scheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::scheme::Scheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::scheme::Scheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -432,7 +432,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::BoolCons
 
 pub fn vortex_compressor::builtins::BoolConstantScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::BoolConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::BoolConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::BoolConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -452,7 +452,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::FloatCon
 
 pub fn vortex_compressor::builtins::FloatConstantScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::FloatConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::FloatConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::FloatConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -472,7 +472,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::FloatDic
 
 pub fn vortex_compressor::builtins::FloatDictScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::FloatDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::FloatDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::FloatDictScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -492,7 +492,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::IntConst
 
 pub fn vortex_compressor::builtins::IntConstantScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::IntConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::IntConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::IntConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -512,7 +512,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::IntDictS
 
 pub fn vortex_compressor::builtins::IntDictScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::IntDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::IntDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::IntDictScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -532,7 +532,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::StringCo
 
 pub fn vortex_compressor::builtins::StringConstantScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::StringConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::StringConstantScheme::compress(&self, _compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, _ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::StringConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -552,7 +552,7 @@ impl vortex_compressor::scheme::Scheme for vortex_compressor::builtins::StringDi
 
 pub fn vortex_compressor::builtins::StringDictScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
 
-pub fn vortex_compressor::builtins::StringDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::builtins::StringDictScheme::compress(&self, compressor: &vortex_compressor::CascadingCompressor, data: &mut vortex_compressor::stats::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::builtins::StringDictScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
@@ -576,7 +576,7 @@ impl<T: vortex_compressor::scheme::Scheme + ?core::marker::Sized> vortex_compres
 
 pub fn T::id(&self) -> vortex_compressor::scheme::SchemeId
 
-pub fn vortex_compressor::scheme::estimate_compression_ratio_with_sampling<S: vortex_compressor::scheme::Scheme + ?core::marker::Sized>(scheme: &S, compressor: &vortex_compressor::CascadingCompressor, array: &vortex_array::array::ArrayRef, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<f64>
+pub fn vortex_compressor::scheme::estimate_compression_ratio_with_sampling<S: vortex_compressor::scheme::Scheme + ?core::marker::Sized>(scheme: &S, compressor: &vortex_compressor::CascadingCompressor, array: &vortex_array::array::erased::ArrayRef, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<f64>
 
 pub mod vortex_compressor::stats
 
@@ -684,7 +684,7 @@ pub struct vortex_compressor::stats::ArrayAndStats
 
 impl vortex_compressor::stats::ArrayAndStats
 
-pub fn vortex_compressor::stats::ArrayAndStats::array(&self) -> &vortex_array::array::ArrayRef
+pub fn vortex_compressor::stats::ArrayAndStats::array(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_compressor::stats::ArrayAndStats::bool_stats(&mut self) -> &vortex_compressor::stats::BoolStats
 
@@ -694,9 +694,9 @@ pub fn vortex_compressor::stats::ArrayAndStats::get_or_insert_with<T: 'static>(&
 
 pub fn vortex_compressor::stats::ArrayAndStats::integer_stats(&mut self) -> &vortex_compressor::stats::IntegerStats
 
-pub fn vortex_compressor::stats::ArrayAndStats::into_array(self) -> vortex_array::array::ArrayRef
+pub fn vortex_compressor::stats::ArrayAndStats::into_array(self) -> vortex_array::array::erased::ArrayRef
 
-pub fn vortex_compressor::stats::ArrayAndStats::new(array: vortex_array::array::ArrayRef, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
+pub fn vortex_compressor::stats::ArrayAndStats::new(array: vortex_array::array::erased::ArrayRef, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
 
 pub fn vortex_compressor::stats::ArrayAndStats::string_stats(&mut self) -> &vortex_compressor::stats::StringStats
 
@@ -704,13 +704,13 @@ pub struct vortex_compressor::stats::BoolStats
 
 impl vortex_compressor::stats::BoolStats
 
-pub fn vortex_compressor::stats::BoolStats::generate(input: &vortex_array::arrays::bool::array::BoolArray) -> vortex_error::VortexResult<Self>
+pub fn vortex_compressor::stats::BoolStats::generate(input: &vortex_array::arrays::bool::vtable::BoolArray) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_compressor::stats::BoolStats::is_constant(&self) -> bool
 
 pub fn vortex_compressor::stats::BoolStats::null_count(&self) -> u32
 
-pub fn vortex_compressor::stats::BoolStats::source(&self) -> &vortex_array::arrays::bool::array::BoolArray
+pub fn vortex_compressor::stats::BoolStats::source(&self) -> &vortex_array::arrays::bool::vtable::BoolArray
 
 pub fn vortex_compressor::stats::BoolStats::true_count(&self) -> u32
 
@@ -746,13 +746,13 @@ pub fn vortex_compressor::stats::FloatStats::average_run_length(&self) -> u32
 
 pub fn vortex_compressor::stats::FloatStats::erased(&self) -> &vortex_compressor::stats::FloatErasedStats
 
-pub fn vortex_compressor::stats::FloatStats::generate(input: &vortex_array::arrays::primitive::array::PrimitiveArray) -> Self
+pub fn vortex_compressor::stats::FloatStats::generate(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> Self
 
-pub fn vortex_compressor::stats::FloatStats::generate_opts(input: &vortex_array::arrays::primitive::array::PrimitiveArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
+pub fn vortex_compressor::stats::FloatStats::generate_opts(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
 
 pub fn vortex_compressor::stats::FloatStats::null_count(&self) -> u32
 
-pub fn vortex_compressor::stats::FloatStats::source(&self) -> &vortex_array::arrays::primitive::array::PrimitiveArray
+pub fn vortex_compressor::stats::FloatStats::source(&self) -> &vortex_array::arrays::primitive::vtable::PrimitiveArray
 
 pub fn vortex_compressor::stats::FloatStats::value_count(&self) -> u32
 
@@ -838,13 +838,13 @@ pub fn vortex_compressor::stats::IntegerStats::average_run_length(&self) -> u32
 
 pub fn vortex_compressor::stats::IntegerStats::erased(&self) -> &vortex_compressor::stats::IntegerErasedStats
 
-pub fn vortex_compressor::stats::IntegerStats::generate(input: &vortex_array::arrays::primitive::array::PrimitiveArray) -> Self
+pub fn vortex_compressor::stats::IntegerStats::generate(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> Self
 
-pub fn vortex_compressor::stats::IntegerStats::generate_opts(input: &vortex_array::arrays::primitive::array::PrimitiveArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
+pub fn vortex_compressor::stats::IntegerStats::generate_opts(input: &vortex_array::arrays::primitive::vtable::PrimitiveArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
 
 pub fn vortex_compressor::stats::IntegerStats::null_count(&self) -> u32
 
-pub fn vortex_compressor::stats::IntegerStats::source(&self) -> &vortex_array::arrays::primitive::array::PrimitiveArray
+pub fn vortex_compressor::stats::IntegerStats::source(&self) -> &vortex_array::arrays::primitive::vtable::PrimitiveArray
 
 pub fn vortex_compressor::stats::IntegerStats::value_count(&self) -> u32
 
@@ -914,13 +914,13 @@ impl vortex_compressor::stats::StringStats
 
 pub fn vortex_compressor::stats::StringStats::estimated_distinct_count(&self) -> core::option::Option<u32>
 
-pub fn vortex_compressor::stats::StringStats::generate(input: &vortex_array::arrays::varbinview::array::VarBinViewArray) -> Self
+pub fn vortex_compressor::stats::StringStats::generate(input: &vortex_array::arrays::varbinview::vtable::VarBinViewArray) -> Self
 
-pub fn vortex_compressor::stats::StringStats::generate_opts(input: &vortex_array::arrays::varbinview::array::VarBinViewArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
+pub fn vortex_compressor::stats::StringStats::generate_opts(input: &vortex_array::arrays::varbinview::vtable::VarBinViewArray, opts: vortex_compressor::stats::GenerateStatsOptions) -> Self
 
 pub fn vortex_compressor::stats::StringStats::null_count(&self) -> u32
 
-pub fn vortex_compressor::stats::StringStats::source(&self) -> &vortex_array::arrays::varbinview::array::VarBinViewArray
+pub fn vortex_compressor::stats::StringStats::source(&self) -> &vortex_array::arrays::varbinview::vtable::VarBinViewArray
 
 pub fn vortex_compressor::stats::StringStats::value_count(&self) -> u32
 
@@ -936,9 +936,9 @@ pub struct vortex_compressor::CascadingCompressor
 
 impl vortex_compressor::CascadingCompressor
 
-pub fn vortex_compressor::CascadingCompressor::compress(&self, array: &vortex_array::array::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::CascadingCompressor::compress(&self, array: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_compressor::CascadingCompressor::compress_child(&self, child: &vortex_array::array::ArrayRef, parent_ctx: &vortex_compressor::ctx::CompressorContext, parent_id: vortex_compressor::scheme::SchemeId, child_index: usize) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_compressor::CascadingCompressor::compress_child(&self, child: &vortex_array::array::erased::ArrayRef, parent_ctx: &vortex_compressor::ctx::CompressorContext, parent_id: vortex_compressor::scheme::SchemeId, child_index: usize) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_compressor::CascadingCompressor::execution_ctx(&self) -> parking_lot::mutex::MutexGuard<'_, vortex_array::executor::ExecutionCtx>
 

@@ -3,20 +3,23 @@
 
 //! Float compression schemes.
 
-use vortex_alp::ALPArray;
+use vortex_alp::ALP;
+use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPRDArrayExt;
+use vortex_alp::ALPRDArrayOwnedExt;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_sparse::Sparse;
-use vortex_sparse::SparseArray;
 
 use super::integer::SparseScheme as IntSparseScheme;
 use crate::ArrayAndStats;
@@ -96,7 +99,7 @@ impl Scheme for ALPScheme {
     ) -> VortexResult<ArrayRef> {
         let stats = data.float_stats();
 
-        let alp_encoded = alp_encode(&stats.source().to_primitive(), None)?;
+        let alp_encoded = alp_encode(stats.source(), None)?;
 
         // Compress the ALP ints.
         let compressed_alp_ints =
@@ -106,7 +109,7 @@ impl Scheme for ALPScheme {
         // to keep them linear for easy indexing.
         let patches = alp_encoded.patches().map(compress_patches).transpose()?;
 
-        Ok(ALPArray::new(compressed_alp_ints, alp_encoded.exponents(), patches).into_array())
+        Ok(ALP::new(compressed_alp_ints, alp_encoded.exponents(), patches).into_array())
     }
 }
 
@@ -146,15 +149,21 @@ impl Scheme for ALPRDScheme {
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        let mut alp_rd = encoder.encode(stats.source());
+        let alp_rd = encoder.encode(stats.source());
+        let dtype = alp_rd.dtype().clone();
+        let right_bit_width = alp_rd.right_bit_width();
+        let mut parts = ALPRDArrayOwnedExt::into_data_parts(alp_rd);
+        parts.left_parts_patches = parts.left_parts_patches.map(compress_patches).transpose()?;
 
-        let patches = alp_rd
-            .left_parts_patches()
-            .map(compress_patches)
-            .transpose()?;
-        alp_rd.replace_left_parts_patches(patches);
-
-        Ok(alp_rd.into_array())
+        Ok(vortex_alp::ALPRD::try_new(
+            dtype,
+            parts.left_parts,
+            parts.left_parts_dictionary,
+            parts.right_parts,
+            right_bit_width,
+            parts.left_parts_patches,
+        )?
+        .into_array())
     }
 }
 
@@ -211,14 +220,14 @@ impl Scheme for NullDominatedSparseScheme {
         let stats = data.float_stats();
 
         // We pass None as we only run this pathway for NULL-dominated float arrays.
-        let sparse_encoded = SparseArray::encode(&stats.source().clone().into_array(), None)?;
+        let sparse_encoded = Sparse::encode(&stats.source().clone().into_array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             let indices = sparse.patches().indices().to_primitive().narrow()?;
             let compressed_indices =
                 compressor.compress_child(&indices.into_array(), &ctx, self.id(), 0)?;
 
-            SparseArray::try_new(
+            Sparse::try_new(
                 compressed_indices,
                 sparse.patches().values().clone(),
                 sparse.len(),
@@ -248,12 +257,10 @@ impl Scheme for PcoScheme {
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         let stats = data.float_stats();
-        Ok(vortex_pco::PcoArray::from_primitive(
-            stats.source(),
-            pco::DEFAULT_COMPRESSION_LEVEL,
-            8192,
-        )?
-        .into_array())
+        Ok(
+            vortex_pco::Pco::from_primitive(stats.source(), pco::DEFAULT_COMPRESSION_LEVEL, 8192)?
+                .into_array(),
+        )
     }
 }
 
@@ -261,7 +268,6 @@ impl Scheme for PcoScheme {
 mod tests {
     use std::iter;
 
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -324,7 +330,7 @@ mod tests {
         assert!(compressed.is::<RLE>());
 
         let expected = Buffer::copy_from(&values).into_array();
-        assert_arrays_eq!(compressed.as_ref(), expected.as_ref());
+        assert_arrays_eq!(compressed, expected);
         Ok(())
     }
 
@@ -358,7 +364,6 @@ mod tests {
 #[cfg(test)]
 mod scheme_selection_tests {
     use vortex_alp::ALP;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::Constant;
     use vortex_array::arrays::Dict;

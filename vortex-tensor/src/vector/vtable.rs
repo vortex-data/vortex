@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::dtype::DType;
-use vortex::dtype::extension::ExtDType;
-use vortex::dtype::extension::ExtId;
-use vortex::dtype::extension::ExtVTable;
-use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
-use vortex::error::vortex_ensure;
-use vortex::extension::EmptyMetadata;
-use vortex::scalar::ScalarValue;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::extension::ExtDType;
+use vortex_array::dtype::extension::ExtId;
+use vortex_array::dtype::extension::ExtVTable;
+use vortex_array::extension::EmptyMetadata;
+use vortex_array::scalar::ScalarValue;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 use crate::vector::Vector;
 
@@ -62,13 +62,13 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex::dtype::DType;
-    use vortex::dtype::Nullability;
-    use vortex::dtype::PType;
-    use vortex::dtype::extension::ExtDType;
-    use vortex::dtype::extension::ExtVTable;
-    use vortex::error::VortexResult;
-    use vortex::extension::EmptyMetadata;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::dtype::extension::ExtVTable;
+    use vortex_array::extension::EmptyMetadata;
+    use vortex_error::VortexResult;
 
     use crate::vector::Vector;
 

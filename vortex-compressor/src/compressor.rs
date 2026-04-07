@@ -10,7 +10,6 @@ use parking_lot::MutexGuard;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
@@ -22,11 +21,16 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::list::ListArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::list_from_list_view;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -191,7 +195,7 @@ impl CascadingCompressor {
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
-                    struct_array.validity(),
+                    struct_array.validity()?,
                 )?
                 .into_array())
             }
@@ -209,7 +213,7 @@ impl CascadingCompressor {
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
-                    fsl_array.validity(),
+                    fsl_array.validity()?,
                     fsl_array.len(),
                 )?
                 .into_array())
@@ -420,7 +424,7 @@ impl CascadingCompressor {
         )?;
 
         Ok(
-            ListArray::try_new(compressed_elems, compressed_offsets, list_array.validity())?
+            ListArray::try_new(compressed_elems, compressed_offsets, list_array.validity()?)?
                 .into_array(),
         )
     }
@@ -452,7 +456,7 @@ impl CascadingCompressor {
             compressed_elems,
             compressed_offsets,
             compressed_sizes,
-            list_view.validity(),
+            list_view.validity()?,
         )?
         .into_array())
     }

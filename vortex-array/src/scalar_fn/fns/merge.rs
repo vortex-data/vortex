@@ -17,6 +17,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray as _;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
@@ -289,10 +290,10 @@ mod tests {
     use vortex_error::vortex_bail;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability::NonNullable;
@@ -490,7 +491,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
+        let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
         assert_eq!(
             actual_array
@@ -531,7 +532,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
+        let actual_array = test_array.apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }

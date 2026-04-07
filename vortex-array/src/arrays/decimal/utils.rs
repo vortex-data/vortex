@@ -28,7 +28,9 @@ macro_rules! try_downcast {
                                 .map(|v| <$dst as BigCast>::from(v).vortex_expect("decimal conversion failure"))
                                 .collect(),
                             $array.decimal_dtype(),
-                            $array.validity(),
+                            $array
+                                .validity()
+                                .vortex_expect("decimal validity should be derivable"),
                         );
                     }
                 )*

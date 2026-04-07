@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;

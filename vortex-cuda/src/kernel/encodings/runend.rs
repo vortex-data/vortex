@@ -9,9 +9,10 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_native_ptype;
 use vortex::array::match_each_unsigned_integer_ptype;
@@ -20,7 +21,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::PType;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArray;
-use vortex::encodings::runend::RunEndArrayParts;
+use vortex::encodings::runend::RunEndArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -39,7 +40,7 @@ pub(crate) struct RunEndExecutor;
 
 impl RunEndExecutor {
     fn try_specialize(array: ArrayRef) -> Option<RunEndArray> {
-        array.try_into::<RunEnd>().ok()
+        array.try_downcast::<RunEnd>().ok()
     }
 }
 
@@ -60,7 +61,8 @@ impl CudaExecute for RunEndExecutor {
 
         let offset = array.offset();
         let output_len = array.len();
-        let RunEndArrayParts { ends, values } = array.into_parts();
+        let ends = array.ends().clone();
+        let values = array.values().clone();
 
         let values_ptype = PType::try_from(values.dtype())?;
         let ends_ptype = PType::try_from(ends.dtype())?;
@@ -75,6 +77,7 @@ impl CudaExecute for RunEndExecutor {
 
         if matches!(values.validity()?, Validity::AllInvalid) {
             return ConstantArray::new(Scalar::null(values.dtype().clone()), output_len)
+                .into_array()
                 .to_canonical();
         }
 
@@ -103,17 +106,17 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
         "run-end output length must be greater than zero"
     );
 
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         ptype: value_ptype,
         buffer: values_buffer,
         validity: values_validity,
         ..
-    } = values.into_parts();
+    } = values.into_data_parts();
 
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer: ends_buffer,
         ..
-    } = ends.into_parts();
+    } = ends.into_data_parts();
 
     // Set up device buffers.
     let ends_device = ctx.ensure_on_device(ends_buffer).await?;
@@ -164,6 +167,7 @@ mod tests {
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
+    use vortex::encodings::runend::RunEnd;
     use vortex::encodings::runend::RunEndArray;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
@@ -182,7 +186,7 @@ mod tests {
             PrimitiveArray::new(Buffer::from(ends), Validity::NonNullable).into_array();
         let values_array =
             PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array();
-        RunEndArray::new(ends_array, values_array)
+        RunEnd::new(ends_array, values_array)
     }
 
     #[rstest]

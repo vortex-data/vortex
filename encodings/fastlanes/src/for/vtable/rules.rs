@@ -2,10 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Filter;
-use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
@@ -14,7 +13,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduceAdaptor;
 use vortex_error::VortexResult;
 
 use crate::FoR;
-use crate::FoRArray;
+use crate::r#for::array::FoRArrayExt;
 
 pub(super) const PARENT_RULES: ParentRuleSet<FoR> = ParentRuleSet::new(&[
     // TODO: add BetweenReduceAdaptor(FoR)
@@ -32,16 +31,16 @@ impl ArrayParentReduceRule<FoR> for FoRFilterPushDownRule {
 
     fn reduce_parent(
         &self,
-        child: &FoRArray,
-        parent: &FilterArray,
+        child: ArrayView<'_, FoR>,
+        parent: ArrayView<'_, Filter>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let new_array = unsafe {
-            FoRArray::new_unchecked(
+        Ok(Some(
+            FoR::try_new(
                 child.encoded().filter(parent.filter_mask().clone())?,
-                child.reference.clone(),
-            )
-        };
-        Ok(Some(new_array.into_array()))
+                child.reference_scalar().clone(),
+            )?
+            .into_array(),
+        ))
     }
 }

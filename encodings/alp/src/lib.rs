@@ -28,7 +28,7 @@ mod alp;
 mod alp_rd;
 
 /// Initialize ALP encoding in the given session.
-pub fn initialize(session: &mut VortexSession) {
+pub fn initialize(session: &VortexSession) {
     session.arrays().register(ALP);
     session.arrays().register(ALPRD);
 

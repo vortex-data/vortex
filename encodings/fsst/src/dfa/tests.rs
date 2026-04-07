@@ -13,7 +13,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -227,7 +227,9 @@ fn make_fsst_str(strings: &[Option<&str>]) -> FSSTArray {
         DType::Utf8(Nullability::NonNullable),
     );
     let compressor = fsst_train_compressor(&varbin);
-    fsst_compress(varbin, &compressor)
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    fsst_compress(varbin, len, &dtype, &compressor)
 }
 
 fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> {

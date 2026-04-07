@@ -5,8 +5,8 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
+use vortex::array::ArrayId;
 use vortex::array::VortexSessionExecute;
-use vortex::array::vtable::ArrayId;
 use vortex::error::VortexResult;
 use vortex::session::Ref;
 use vortex::session::SessionExt;

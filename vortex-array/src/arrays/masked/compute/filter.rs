@@ -6,14 +6,16 @@ use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Masked;
 use crate::arrays::MaskedArray;
 use crate::arrays::filter::FilterReduce;
+use crate::arrays::masked::MaskedArrayExt;
 
 impl FilterReduce for Masked {
-    fn filter(array: &MaskedArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+    fn filter(array: ArrayView<'_, Masked>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         // Filter the validity to get the new validity
-        let filtered_validity = array.validity().filter(mask)?;
+        let filtered_validity = array.validity()?.filter(mask)?;
 
         // Filter the child array
         // The child is guaranteed to have no nulls, so filtering it is straightforward

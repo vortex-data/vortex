@@ -3,25 +3,26 @@
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
+use vortex_array::TypedArrayRef;
 use vortex_array::arrays::Primitive;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
-use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
-use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
 pub mod bitpack_compress;
 pub mod bitpack_decompress;
 pub mod unpack_iter;
 
+use crate::BitPackedArray;
 use crate::bitpack_compress::bitpack_encode;
 use crate::unpack_iter::BitPacked;
 use crate::unpack_iter::BitUnpackedChunks;
@@ -42,7 +43,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
     "validity",
 ];
 
-pub struct BitPackedArrayParts {
+pub struct BitPackedDataParts {
     pub offset: u16,
     pub bit_width: u8,
     pub len: usize,
@@ -52,23 +53,19 @@ pub struct BitPackedArrayParts {
 }
 
 #[derive(Clone, Debug)]
-pub struct BitPackedArray {
-    pub(super) slots: Vec<Option<ArrayRef>>,
+pub struct BitPackedData {
     /// The offset within the first block (created with a slice).
     /// 0 <= offset < 1024
     pub(super) offset: u16,
-    pub(super) len: usize,
-    pub(super) dtype: DType,
     pub(super) bit_width: u8,
     pub(super) packed: BufferHandle,
     /// The offset metadata from patches, needed to reconstruct Patches from slots.
     pub(super) patch_offset: Option<usize>,
     /// The offset_within_chunk metadata from patches.
     pub(super) patch_offset_within_chunk: Option<usize>,
-    pub(super) stats_set: ArrayStats,
 }
 
-impl BitPackedArray {
+impl BitPackedData {
     /// Create a new bitpacked array using a buffer of packed data.
     ///
     /// The packed data should be interpreted as a sequence of values with size `bit_width`.
@@ -89,51 +86,6 @@ impl BitPackedArray {
     ///
     /// See also the [`encode`][Self::encode] method on this type for a safe path to create a new
     /// bit-packed array.
-    pub(crate) unsafe fn new_unchecked(
-        packed: BufferHandle,
-        dtype: DType,
-        validity: Validity,
-        patches: Option<Patches>,
-        bit_width: u8,
-        len: usize,
-        offset: u16,
-    ) -> Self {
-        let slots = Self::make_slots(&patches, &validity, len);
-        let (patch_offset, patch_offset_within_chunk) = match &patches {
-            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
-            None => (None, None),
-        };
-
-        Self {
-            slots,
-            offset,
-            len,
-            dtype,
-            bit_width,
-            packed,
-            patch_offset,
-            patch_offset_within_chunk,
-            stats_set: Default::default(),
-        }
-    }
-
-    fn make_slots(
-        patches: &Option<Patches>,
-        validity: &Validity,
-        len: usize,
-    ) -> Vec<Option<ArrayRef>> {
-        let (pi, pv, pco) = match patches {
-            Some(p) => (
-                Some(p.indices().clone()),
-                Some(p.values().clone()),
-                p.chunk_offsets().clone(),
-            ),
-            None => (None, None, None),
-        };
-        let validity_slot = validity_to_child(validity, len);
-        vec![pi, pv, pco, validity_slot]
-    }
-
     /// A safe constructor for a `BitPackedArray` from its components:
     ///
     /// * `packed` is ByteBuffer holding the compressed data that was packed with FastLanes
@@ -157,34 +109,31 @@ impl BitPackedArray {
     /// Any violation of these preconditions will result in an error.
     pub fn try_new(
         packed: BufferHandle,
-        ptype: PType,
-        validity: Validity,
         patches: Option<Patches>,
         bit_width: u8,
-        length: usize,
         offset: u16,
     ) -> VortexResult<Self> {
-        Self::validate(
-            &packed,
-            ptype,
-            &validity,
-            patches.as_ref(),
-            bit_width,
-            length,
+        vortex_ensure!(bit_width <= 64, "Unsupported bit width {bit_width}");
+        vortex_ensure!(
+            offset < 1024,
+            "Offset must be less than the full block i.e., 1024, got {offset}"
+        );
+
+        let (patch_offset, patch_offset_within_chunk) = match &patches {
+            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
+            None => (None, None),
+        };
+
+        Ok(Self {
             offset,
-        )?;
-
-        let dtype = DType::Primitive(ptype, validity.nullability());
-
-        // SAFETY: all components validated above
-        unsafe {
-            Ok(Self::new_unchecked(
-                packed, dtype, validity, patches, bit_width, length, offset,
-            ))
-        }
+            bit_width,
+            packed,
+            patch_offset,
+            patch_offset_within_chunk,
+        })
     }
 
-    fn validate(
+    pub(crate) fn validate(
         packed: &BufferHandle,
         ptype: PType,
         validity: &Validity,
@@ -202,12 +151,6 @@ impl BitPackedArray {
                 "BitPackedArray validity length {validity_len} != array length {length}",
             );
         }
-
-        // Validate offset for sliced arrays
-        vortex_ensure!(
-            offset < 1024,
-            "Offset must be less than the full block i.e., 1024, got {offset}"
-        );
 
         // Validate patches
         if let Some(patches) = patches {
@@ -245,8 +188,8 @@ impl BitPackedArray {
         Ok(())
     }
 
-    pub fn ptype(&self) -> PType {
-        self.dtype.as_ptype()
+    pub fn ptype(&self, dtype: &DType) -> PType {
+        dtype.as_ptype()
     }
 
     /// Underlying bit packed values as byte array
@@ -270,69 +213,23 @@ impl BitPackedArray {
     }
 
     /// Accessor for bit unpacked chunks
-    pub fn unpacked_chunks<T: BitPacked>(&self) -> BitUnpackedChunks<T> {
+    pub fn unpacked_chunks<T: BitPacked>(
+        &self,
+        dtype: &DType,
+        len: usize,
+    ) -> VortexResult<BitUnpackedChunks<T>> {
         assert_eq!(
             T::PTYPE,
-            self.ptype(),
+            self.ptype(dtype),
             "Requested type doesn't match the array ptype"
         );
-        BitUnpackedChunks::new(self)
+        BitUnpackedChunks::try_new(self, len)
     }
 
     /// Bit-width of the packed values
     #[inline]
     pub fn bit_width(&self) -> u8 {
         self.bit_width
-    }
-
-    /// Access the patches array.
-    ///
-    /// Reconstructs a `Patches` from the stored slots and patch metadata.
-    /// If present, patches MUST be a `SparseArray` with equal-length to this array, and whose
-    /// indices indicate the locations of patches. The indices must have non-zero length.
-    pub fn patches(&self) -> Option<Patches> {
-        match (
-            &self.slots[PATCH_INDICES_SLOT],
-            &self.slots[PATCH_VALUES_SLOT],
-        ) {
-            (Some(indices), Some(values)) => {
-                let patch_offset = self
-                    .patch_offset
-                    .vortex_expect("has patch slots but no patch_offset");
-                Some(unsafe {
-                    Patches::new_unchecked(
-                        self.len,
-                        patch_offset,
-                        indices.clone(),
-                        values.clone(),
-                        self.slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
-                        self.patch_offset_within_chunk,
-                    )
-                })
-            }
-            _ => None,
-        }
-    }
-
-    /// Returns the validity, reconstructed from the stored slot.
-    pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
-    }
-
-    pub fn replace_patches(&mut self, patches: Option<Patches>) {
-        let (pi, pv, pco) = match &patches {
-            Some(p) => (
-                Some(p.indices().clone()),
-                Some(p.values().clone()),
-                p.chunk_offsets().clone(),
-            ),
-            None => (None, None, None),
-        };
-        self.slots[PATCH_INDICES_SLOT] = pi;
-        self.slots[PATCH_VALUES_SLOT] = pv;
-        self.slots[PATCH_CHUNK_OFFSETS_SLOT] = pco;
-        self.patch_offset = patches.as_ref().map(|p| p.offset());
-        self.patch_offset_within_chunk = patches.as_ref().and_then(|p| p.offset_within_chunk());
     }
 
     #[inline]
@@ -351,13 +248,12 @@ impl BitPackedArray {
     ///
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
-    // FIXME(ngates): take a PrimitiveArray
-    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<Primitive>() {
-            bitpack_encode(parray, bit_width, None)
-        } else {
-            vortex_bail!(InvalidArgument: "Bitpacking can only encode primitive arrays");
-        }
+    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<BitPackedArray> {
+        let parray: PrimitiveArray = array
+            .clone()
+            .try_downcast::<Primitive>()
+            .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
+        bitpack_encode(&parray, bit_width, None)
     }
 
     /// Calculate the maximum value that **can** be contained by this array, given its bit-width.
@@ -367,20 +263,91 @@ impl BitPackedArray {
     pub fn max_packed_value(&self) -> usize {
         (1 << self.bit_width()) - 1
     }
+}
 
-    pub fn into_parts(self) -> BitPackedArrayParts {
-        let patches = self.patches();
-        let validity = self.validity();
-        BitPackedArrayParts {
-            offset: self.offset,
-            bit_width: self.bit_width,
-            len: self.len,
-            packed: self.packed,
-            patches,
-            validity,
+pub trait BitPackedArrayExt: TypedArrayRef<crate::BitPacked> {
+    #[inline]
+    fn packed(&self) -> &BufferHandle {
+        BitPackedData::packed(self)
+    }
+
+    #[inline]
+    fn bit_width(&self) -> u8 {
+        BitPackedData::bit_width(self)
+    }
+
+    #[inline]
+    fn offset(&self) -> u16 {
+        BitPackedData::offset(self)
+    }
+
+    #[inline]
+    fn patch_indices(&self) -> Option<&ArrayRef> {
+        self.as_ref().slots()[PATCH_INDICES_SLOT].as_ref()
+    }
+
+    #[inline]
+    fn patch_values(&self) -> Option<&ArrayRef> {
+        self.as_ref().slots()[PATCH_VALUES_SLOT].as_ref()
+    }
+
+    #[inline]
+    fn patch_chunk_offsets(&self) -> Option<&ArrayRef> {
+        self.as_ref().slots()[PATCH_CHUNK_OFFSETS_SLOT].as_ref()
+    }
+
+    #[inline]
+    fn validity_child(&self) -> Option<&ArrayRef> {
+        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
+    }
+
+    #[inline]
+    fn patches(&self) -> Option<Patches> {
+        match (self.patch_indices(), self.patch_values()) {
+            (Some(indices), Some(values)) => {
+                let patch_offset = self
+                    .patch_offset
+                    .vortex_expect("has patch slots but no patch_offset");
+                Some(unsafe {
+                    Patches::new_unchecked(
+                        self.as_ref().len(),
+                        patch_offset,
+                        indices.clone(),
+                        values.clone(),
+                        self.patch_chunk_offsets().cloned(),
+                        self.patch_offset_within_chunk,
+                    )
+                })
+            }
+            _ => None,
         }
     }
+
+    #[inline]
+    fn validity(&self) -> Validity {
+        child_to_validity(
+            &self.validity_child().cloned(),
+            self.as_ref().dtype().nullability(),
+        )
+    }
+
+    #[inline]
+    fn validity_mask(&self) -> vortex_mask::Mask {
+        self.validity().to_mask(self.as_ref().len())
+    }
+
+    #[inline]
+    fn packed_slice<T: NativePType + BitPacking>(&self) -> &[T] {
+        BitPackedData::packed_slice::<T>(self)
+    }
+
+    #[inline]
+    fn unpacked_chunks<T: BitPacked>(&self) -> VortexResult<BitUnpackedChunks<T>> {
+        BitPackedData::unpacked_chunks::<T>(self, self.as_ref().dtype(), self.as_ref().len())
+    }
 }
+
+impl<T: TypedArrayRef<crate::BitPacked>> BitPackedArrayExt for T {}
 
 #[cfg(test)]
 mod test {
@@ -390,7 +357,8 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
 
-    use crate::BitPackedArray;
+    use crate::BitPackedData;
+    use crate::bitpacking::array::BitPackedArrayExt;
 
     #[test]
     fn test_encode() {
@@ -404,18 +372,18 @@ mod test {
             Some(u64::MAX),
         ];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let packed = BitPackedArray::encode(&uncompressed.into_array(), 1).unwrap();
+        let packed = BitPackedData::encode(&uncompressed.into_array(), 1).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
-        assert_arrays_eq!(packed.to_primitive(), expected);
+        assert_arrays_eq!(packed.as_array().to_primitive(), expected);
     }
 
     #[test]
     fn test_encode_too_wide() {
         let values = [Some(1u8), None, Some(1), None, Some(1), None];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let _packed = BitPackedArray::encode(&uncompressed.clone().into_array(), 8)
+        let _packed = BitPackedData::encode(&uncompressed.clone().into_array(), 8)
             .expect_err("Cannot pack value into the same width");
-        let _packed = BitPackedArray::encode(&uncompressed.into_array(), 9)
+        let _packed = BitPackedData::encode(&uncompressed.into_array(), 9)
             .expect_err("Cannot pack value into larger width");
     }
 
@@ -424,10 +392,10 @@ mod test {
         let values: Buffer<i32> = (0i32..=512).collect();
         let parray = values.clone().into_array();
 
-        let packed_with_patches = BitPackedArray::encode(&parray, 9).unwrap();
+        let packed_with_patches = BitPackedData::encode(&parray, 9).unwrap();
         assert!(packed_with_patches.patches().is_some());
         assert_arrays_eq!(
-            packed_with_patches.to_primitive(),
+            packed_with_patches.as_array().to_primitive(),
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)
         );
     }

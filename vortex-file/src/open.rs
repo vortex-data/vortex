@@ -393,16 +393,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_initial_read_size() {
-        // Create a large file (> 1MB)
-        let mut buf = ByteBufferMut::empty();
-        let mut session = VortexSession::empty()
+        let session = VortexSession::empty()
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
             .with::<ScalarFnSession>()
             .with::<RuntimeSession>();
 
-        crate::register_default_encodings(&mut session);
+        crate::register_default_encodings(&session);
+
+        // Create a large file (> 1MB)
+        let mut buf = ByteBufferMut::empty();
 
         // 1.5M integers -> ~6MB. We use a pattern to avoid Sequence encoding.
         let array = Buffer::from(

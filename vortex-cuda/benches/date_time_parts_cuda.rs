@@ -24,6 +24,7 @@ use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
+use vortex::encodings::datetime_parts::DateTimeParts;
 use vortex::encodings::datetime_parts::DateTimePartsArray;
 use vortex::error::VortexExpect;
 use vortex::extension::datetime::TimeUnit;
@@ -44,7 +45,7 @@ fn make_datetimeparts_array(len: usize, time_unit: TimeUnit) -> DateTimePartsArr
 
     let dtype = DType::Extension(Timestamp::new(time_unit, Nullability::NonNullable).erased());
 
-    DateTimePartsArray::try_new(dtype, days_arr, seconds_arr, subseconds_arr)
+    DateTimeParts::try_new(dtype, days_arr, seconds_arr, subseconds_arr)
         .vortex_expect("Failed to create DateTimePartsArray")
 }
 

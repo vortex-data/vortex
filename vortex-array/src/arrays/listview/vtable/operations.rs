@@ -6,14 +6,15 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::ListView;
-use crate::arrays::listview::vtable::ListViewArray;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::scalar::Scalar;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ListView> for ListView {
     fn scalar_at(
-        array: &ListViewArray,
+        array: ArrayView<'_, ListView>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -26,7 +27,7 @@ impl OperationsVTable<ListView> for ListView {
         Ok(Scalar::list(
             Arc::new(list.dtype().clone()),
             children,
-            array.dtype.nullability(),
+            array.dtype().nullability(),
         ))
     }
 }

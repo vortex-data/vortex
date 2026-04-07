@@ -19,6 +19,7 @@ use tracing::info;
 use tracing::trace;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrow::FromArrowArray;
@@ -214,7 +215,7 @@ pub async fn write_parquet_as_vortex(
         let data = parquet_to_vortex_chunks(parquet_path).await?;
         let write_options = compaction.apply_options(SESSION.write_options());
         write_options
-            .write(&mut output_file, data.to_array_stream())
+            .write(&mut output_file, data.into_array().to_array_stream())
             .await?;
         output_file.flush().await?;
         Ok(())

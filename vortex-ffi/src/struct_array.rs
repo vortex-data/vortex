@@ -47,7 +47,7 @@ pub unsafe extern "C" fn vx_struct_column_builder_new(
         fields,
         validity,
     };
-    vx_struct_column_builder::new(Box::new(builder))
+    vx_struct_column_builder::new(builder)
 }
 
 /// Add a named field to a struct array builder.
@@ -131,14 +131,14 @@ mod tests {
     use std::ptr;
     use std::sync::Arc;
 
+    use vortex::array::IntoArray;
+    use vortex::array::ToCanonical;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
-    use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::StructArray;
-    use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::validity::Validity;
 
     use crate::array::vx_array;
     use crate::array::vx_array_free;

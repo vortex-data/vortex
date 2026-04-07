@@ -14,6 +14,8 @@ use crate::arrays::ListArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
 use crate::canonical::ToCanonical;
 use crate::dtype::DType;
@@ -21,7 +23,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::PType::I32;
 use crate::validity::Validity;
-use crate::vtable::VTable;
 
 fn chunked_array() -> ChunkedArray {
     ChunkedArray::try_new(
@@ -33,6 +34,36 @@ fn chunked_array() -> ChunkedArray {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap()
+}
+
+#[test]
+fn with_slot_rewrites_chunk_and_offsets() {
+    let array = chunked_array().into_array();
+
+    let replacement = buffer![10u64, 11, 12].into_array();
+    let array = array.with_slot(1, replacement).unwrap();
+    let array = array.as_::<Chunked>();
+
+    assert_eq!(array.nchunks(), 3);
+    assert_eq!(array.chunk_offsets(), [0, 3, 6, 9]);
+    assert_arrays_eq!(
+        array.chunk(0).clone(),
+        PrimitiveArray::from_iter([10u64, 11, 12])
+    );
+    assert_arrays_eq!(
+        array.array().clone(),
+        PrimitiveArray::from_iter([10u64, 11, 12, 4, 5, 6, 7, 8, 9])
+    );
+}
+
+#[test]
+fn with_slot_rejects_len_mismatch() {
+    let err = chunked_array()
+        .into_array()
+        .with_slot(1, buffer![10u64, 11].into_array())
+        .unwrap_err();
+
+    assert!(err.to_string().contains("physical rewrite"));
 }
 
 #[test]
@@ -191,38 +222,8 @@ pub fn pack_nested_lists() {
         ),
     );
 
-    let canon_values = chunked_list.unwrap().to_listview();
+    let canon_values = chunked_list.unwrap().as_array().to_listview();
 
     assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
     assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
-}
-
-#[test]
-fn with_slots_updates_nchunks_len_and_offsets() {
-    let mut array = chunked_array();
-    let slots = vec![
-        Some(buffer![0u64, 4, 9].into_array()),
-        Some(buffer![10u64, 11, 12, 13].into_array()),
-        Some(buffer![14u64, 15, 16, 17, 18].into_array()),
-    ];
-    let expected_nchunks = slots.len() - 1;
-    let expected_len = array.len();
-
-    <Chunked as VTable>::with_slots(&mut array, slots).unwrap();
-
-    assert_eq!(array.nchunks(), expected_nchunks);
-    assert_eq!(array.len(), expected_len);
-    assert_eq!(array.chunk_offsets(), buffer![0u64, 4, 9]);
-    assert_arrays_eq!(
-        array.chunk(0).clone(),
-        PrimitiveArray::from_iter([10u64, 11, 12, 13])
-    );
-    assert_arrays_eq!(
-        array.chunk(1).clone(),
-        PrimitiveArray::from_iter([14u64, 15, 16, 17, 18])
-    );
-    assert_arrays_eq!(
-        array,
-        PrimitiveArray::from_iter([10u64, 11, 12, 13, 14, 15, 16, 17, 18])
-    );
 }

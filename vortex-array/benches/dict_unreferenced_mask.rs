@@ -10,6 +10,7 @@ use rand::rngs::StdRng;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::DictArrayExt;
 
 fn main() {
     divan::main();

@@ -13,7 +13,6 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Columnar;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::AggregateFn;
@@ -104,6 +103,22 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// Is the partial accumulator state is "saturated", i.e. has it reached a state where the
     /// final result is fully determined.
     fn is_saturated(&self, state: &Self::Partial) -> bool;
+
+    /// Try to accumulate the raw array before decompression.
+    ///
+    /// Returns `true` if the array was handled, `false` to fall through to
+    /// the default kernel dispatch and canonicalization path.
+    ///
+    /// This is useful for aggregates that only depend on array metadata (e.g., validity)
+    /// rather than the encoded data, avoiding unnecessary decompression.
+    fn try_accumulate(
+        &self,
+        _state: &mut Self::Partial,
+        _batch: &ArrayRef,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        Ok(false)
+    }
 
     /// Accumulate a new canonical array into the accumulator state.
     fn accumulate(

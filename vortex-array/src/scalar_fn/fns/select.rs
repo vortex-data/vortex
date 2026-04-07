@@ -19,6 +19,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
@@ -307,6 +308,7 @@ mod tests {
 
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;

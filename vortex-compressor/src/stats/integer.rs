@@ -430,12 +430,13 @@ where
 
     let runs = loop_state.runs;
 
-    let min = array
+    let array_ref = array.as_ref();
+    let min = array_ref
         .statistics()
         .compute_as::<T>(Stat::Min)
         .vortex_expect("min should be computed");
 
-    let max = array
+    let max = array_ref
         .statistics()
         .compute_as::<T>(Stat::Max)
         .vortex_expect("max should be computed");

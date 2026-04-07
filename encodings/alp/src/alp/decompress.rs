@@ -11,9 +11,11 @@ use vortex_array::dtype::DType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::patches::Patches;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
+use crate::ALPArrayOwnedExt;
 use crate::ALPFloat;
 use crate::Exponents;
 use crate::match_each_alp_float_ptype;
@@ -27,7 +29,8 @@ pub fn decompress_into_array(
     array: ALPArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let (encoded, exponents, patches, dtype) = array.into_parts();
+    let dtype = array.dtype().clone();
+    let (encoded, exponents, patches) = ALPArrayOwnedExt::into_parts(array);
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
@@ -59,7 +62,8 @@ pub fn decompress_into_array(
 ///
 /// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
 pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-    let (encoded, exponents, patches, dtype) = array.into_parts();
+    let dtype = array.dtype().clone();
+    let (encoded, exponents, patches) = ALPArrayOwnedExt::into_parts(array);
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
@@ -100,7 +104,9 @@ fn decompress_chunked_core(
     patches: &Patches,
     dtype: DType,
 ) -> PrimitiveArray {
-    let validity = encoded.validity();
+    let validity = encoded
+        .validity()
+        .vortex_expect("ALP validity should be derivable");
     let ptype = dtype.as_ptype();
     let array_len = encoded.len();
     let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
@@ -150,7 +156,7 @@ fn decompress_unchunked_core(
     dtype: DType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<PrimitiveArray> {
-    let validity = encoded.validity();
+    let validity = encoded.validity()?;
     let ptype = dtype.as_ptype();
 
     let decoded = match_each_alp_float_ptype!(ptype, |T| {

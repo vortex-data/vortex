@@ -18,7 +18,6 @@ use vortex_session::VortexSession;
 use vortex_utils::iter::ReduceBalancedIterExt;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -26,7 +25,9 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::arrays::bool::BoolArrayExt;
+use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -51,7 +52,6 @@ use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::literal::Literal;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::validity::Validity;
-use crate::vtable::ValidityHelper;
 
 #[derive(Clone)]
 pub struct ListContains;
@@ -258,7 +258,7 @@ fn constant_list_scalar_contains(
                     Operator::Eq,
                     [
                         ConstantArray::new(element.clone(), len).into_array(),
-                        values.to_array(),
+                        values.clone(),
                     ],
                 )?
                 .fill_null(false_scalar.clone())
@@ -297,6 +297,8 @@ fn list_contains_scalar(
         Operator::Eq,
         &[elems.clone(), rhs.clone().into_array()],
     )?;
+
+    // TODO(ngates): we should execute this into a Columnar and check for constant.
     let matches = matching_elements.execute::<BoolArray>(ctx)?;
 
     // Fast path: no elements match.
@@ -344,7 +346,7 @@ fn list_contains_scalar(
 
     Ok(BoolArray::new(
         list_matches,
-        list_array.validity().union_nullability(nullability),
+        list_array.validity()?.union_nullability(nullability),
     )
     .into_array())
 }
@@ -384,7 +386,7 @@ fn list_false_or_null(
     list_array: &ListViewArray,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    match list_array.validity() {
+    match list_array.validity()? {
         Validity::NonNullable => {
             // All false.
             Ok(ConstantArray::new(Scalar::bool(false, nullability), list_array.len()).into_array())
@@ -407,7 +409,7 @@ fn list_false_or_null(
         Validity::Array(validity_array) => {
             // Create a new bool array with false, and the provided nulls
             let buffer = BitBuffer::new_unset(list_array.len());
-            Ok(BoolArray::new(buffer, Validity::Array(validity_array.clone())).into_array())
+            Ok(BoolArray::new(buffer, Validity::Array(validity_array)).into_array())
         }
     }
 }
@@ -420,7 +422,7 @@ fn list_is_not_empty(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // Short-circuit for all invalid.
-    if matches!(list_array.validity(), Validity::AllInvalid) {
+    if matches!(list_array.validity()?, Validity::AllInvalid) {
         return Ok(ConstantArray::new(
             Scalar::null(DType::Bool(Nullability::Nullable)),
             list_array.len(),
@@ -434,7 +436,11 @@ fn list_is_not_empty(
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::new(buffer, list_array.validity().union_nullability(nullability)).into_array())
+    Ok(BoolArray::new(
+        buffer,
+        list_array.validity()?.union_nullability(nullability),
+    )
+    .into_array())
 }
 
 #[cfg(test)]
@@ -449,9 +455,7 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::IntoArray;
-    use crate::arrays::List;
     use crate::arrays::ListArray;
     use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
@@ -678,7 +682,7 @@ mod tests {
 
         // Test contains false
         let expr = list_contains(lit(list_scalar), lit(42i32));
-        let result = arr.clone().apply(&expr).unwrap();
+        let result = arr.apply(&expr).unwrap();
         assert_eq!(
             result.scalar_at(0).unwrap(),
             Scalar::bool(false, Nullability::NonNullable)
@@ -690,7 +694,6 @@ mod tests {
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
         ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
             .unwrap()
-            .as_::<List>()
             .to_listview()
             .into_array()
     }
@@ -713,6 +716,7 @@ mod tests {
 
         ListArray::try_new(elements, offsets, Validity::NonNullable)
             .unwrap()
+            .as_array()
             .to_listview()
             .into_array()
     }

@@ -17,6 +17,7 @@ pub fn fixtures() -> Vec<Box<dyn DatasetFixture>> {
 
 #[cfg(test)]
 mod tests {
+    use vortex::compressor::BtrBlocksCompressorBuilder;
     use vortex::file::WriteStrategyBuilder;
 
     use super::fixtures;
@@ -43,7 +44,7 @@ mod tests {
             let compact_bytes = adapter::write_compressed_to_bytes(
                 array,
                 WriteStrategyBuilder::default()
-                    .with_compact_encodings()
+                    .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
                     .build(),
             )
             .unwrap();

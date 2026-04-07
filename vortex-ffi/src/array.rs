@@ -8,11 +8,12 @@ use std::ptr;
 use std::sync::Arc;
 
 use paste::paste;
-use vortex::array::DynArray;
+use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::NullArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
@@ -21,7 +22,7 @@ use vortex::error::VortexExpect;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 
-use crate::arc_dyn_wrapper;
+use crate::arc_wrapper;
 use crate::binary::vx_binary;
 use crate::dtype::vx_dtype;
 use crate::dtype::vx_dtype_variant;
@@ -32,7 +33,7 @@ use crate::expression::vx_expression;
 use crate::ptype::vx_ptype;
 use crate::string::vx_string;
 
-arc_dyn_wrapper!(
+arc_wrapper!(
     /// Arrays are reference-counted handles to owned memory buffers that hold
     /// scalars. These buffers can be held in a number of physical encodings to
     /// perform lightweight compression that exploits the particular data
@@ -47,7 +48,7 @@ arc_dyn_wrapper!(
     ///
     /// Unless stated explicitly, all operations with vx_array don't take
     /// ownership of it, and thus it must be freed by the caller.
-    dyn DynArray,
+    ArrayRef,
     vx_array
 );
 
@@ -155,7 +156,7 @@ impl From<Validity> for vx_validity {
             },
             Validity::Array(array) => vx_validity {
                 r#type: vx_validity_type::VX_VALIDITY_ARRAY,
-                array: vx_array::new(array),
+                array: vx_array::new(Arc::new(array)),
             },
         }
     }
@@ -208,7 +209,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?
             .clone();
 
-        Ok(vx_array::new(field_array))
+        Ok(vx_array::new(Arc::new(field_array)))
     })
 }
 
@@ -222,7 +223,7 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     try_or_default(error_out, || {
         let array = vx_array::as_ref(array);
         let sliced = array.slice(start..stop)?;
-        Ok(vx_array::new(sliced))
+        Ok(vx_array::new(Arc::new(sliced)))
     })
 }
 
@@ -257,7 +258,7 @@ pub unsafe extern "C-unwind" fn vx_array_invalid_count(
 /// Create a new array with DTYPE_NULL dtype.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_new_null(len: usize) -> *const vx_array {
-    vx_array::new(NullArray::new(len).into_array())
+    vx_array::new(Arc::new(NullArray::new(len).into_array()))
 }
 
 /// SAFETY:
@@ -271,7 +272,7 @@ unsafe fn primitive_from_raw<T: vortex::dtype::NativePType>(
     let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
     let buffer = Buffer::copy_from(slice);
     let array = PrimitiveArray::new(buffer, validity.into());
-    vx_array::new(array.into_array())
+    vx_array::new(Arc::new(array.into_array()))
 }
 
 /// Create a new primitive array from an existing buffer.
@@ -299,7 +300,7 @@ pub extern "C-unwind" fn vx_array_new_primitive(
 ) -> *const vx_array {
     if validity.is_null() {
         write_error(error, "validity is NULL");
-        return ptr::null();
+        return ptr::null_mut();
     }
     let validity = unsafe { &*validity };
 
@@ -414,7 +415,7 @@ pub unsafe extern "C" fn vx_array_apply(
         vortex_ensure!(!expression.is_null());
         let array = vx_array::as_ref(array);
         let expression = vx_expression::as_ref(expression);
-        Ok(vx_array::new(array.clone().apply(expression)?))
+        Ok(vx_array::new(Arc::new(array.clone().apply(expression)?)))
     })
 }
 
@@ -425,7 +426,9 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::arrays::bool::BoolArrayExt;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
     #[cfg(not(miri))]
@@ -433,7 +436,6 @@ mod tests {
     use vortex::expr::eq;
     use vortex::expr::lit;
     use vortex::expr::root;
-    use vortex_array::arrays::StructArray;
 
     use crate::array::*;
     use crate::binary::vx_binary_free;
@@ -461,7 +463,7 @@ mod tests {
     fn test_simple() {
         unsafe {
             let primitive = PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable);
-            let ffi_array = vx_array::new(primitive.into_array());
+            let ffi_array = vx_array::new(Arc::new(primitive.into_array()));
 
             assert_eq!(vx_array_len(ffi_array), 3);
 
@@ -485,7 +487,7 @@ mod tests {
         unsafe {
             let primitive =
                 PrimitiveArray::new(buffer![1i32, 2i32, 3i32, 4i32, 5i32], Validity::NonNullable);
-            let array = vx_array::new(primitive.into_array());
+            let array = vx_array::new(Arc::new(primitive.into_array()));
             assert!(!vx_array_is_nullable(array));
             assert!(vx_array_is_primitive(array, vx_ptype::PTYPE_I32));
             vx_array_free(array);
@@ -499,7 +501,7 @@ mod tests {
         unsafe {
             let primitive =
                 PrimitiveArray::new(buffer![1i32, 2i32, 3i32, 4i32, 5i32], Validity::NonNullable);
-            let ffi_array = vx_array::new(primitive.into_array());
+            let ffi_array = vx_array::new(Arc::new(primitive.into_array()));
 
             let mut error = ptr::null_mut();
             let sliced = vx_array_slice(ffi_array, 1, 4, &raw mut error);
@@ -523,7 +525,7 @@ mod tests {
                 buffer![1i32, 2i32, 3i32],
                 Validity::from_iter([true, false, true]),
             );
-            let ffi_array = vx_array::new(primitive.into_array());
+            let ffi_array = vx_array::new(Arc::new(primitive.into_array()));
 
             let mut error = ptr::null_mut();
             assert!(!vx_array_element_is_invalid(ffi_array, 0, &raw mut error));
@@ -555,7 +557,7 @@ mod tests {
                 Validity::NonNullable,
             )
             .unwrap();
-            let ffi_array = vx_array::new(struct_array.into_array());
+            let ffi_array = vx_array::new(Arc::new(struct_array.into_array()));
 
             let mut error = ptr::null_mut();
             let field0 = vx_array_get_field(ffi_array, 0, &raw mut error);
@@ -673,7 +675,7 @@ mod tests {
     fn test_get_utf8() {
         unsafe {
             let utf8_array = VarBinViewArray::from_iter_str(["hello", "world", "test"]);
-            let ffi_array = vx_array::new(utf8_array.into_array());
+            let ffi_array = vx_array::new(Arc::new(utf8_array.into_array()));
             assert!(vx_array_has_dtype(ffi_array, vx_dtype_variant::DTYPE_UTF8));
 
             let vx_str1 = vx_array_get_utf8(ffi_array, 0);
@@ -702,7 +704,7 @@ mod tests {
                 vec![0xFF, 0xEE],
                 vec![0xAA, 0xBB, 0xCC, 0xDD],
             ]);
-            let ffi_array = vx_array::new(binary_array.into_array());
+            let ffi_array = vx_array::new(Arc::new(binary_array.into_array()));
             assert!(vx_array_has_dtype(
                 ffi_array,
                 vx_dtype_variant::DTYPE_BINARY
@@ -740,7 +742,7 @@ mod tests {
             assert!(!error.is_null());
             vx_error_free(error);
 
-            let array = vx_array::new(primitive.into_array());
+            let array = vx_array::new(Arc::new(primitive.into_array()));
 
             let res = vx_array_apply(array, ptr::null(), &raw mut error);
             assert!(res.is_null());
@@ -750,7 +752,7 @@ mod tests {
             // Test with Vortex Rust-side expressions here, test C API for
             // expressions in src/expressions.rs
             let expression = eq(root(), lit(3i32));
-            let expression = vx_expression::new(Box::new(expression));
+            let expression = vx_expression::new(expression);
 
             let res = vx_array_apply(ptr::null(), expression, &raw mut error);
             assert!(res.is_null());
@@ -786,7 +788,7 @@ mod tests {
             .unwrap()
             .into_array()
         };
-        let vx_arr = vx_array::new(array);
+        let vx_arr = vx_array::new(Arc::new(array));
         assert!(unsafe { vx_array_has_dtype(vx_arr, vx_dtype_variant::DTYPE_STRUCT) });
 
         // Get dtype reference - this is valid as long as array lives

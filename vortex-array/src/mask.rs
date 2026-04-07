@@ -8,7 +8,6 @@ use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;

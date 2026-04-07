@@ -14,7 +14,6 @@ use vortex_utils::aliases::hash_map::HashMap;
 use super::DictConstraints;
 use super::DictEncoder;
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
@@ -157,8 +156,8 @@ mod test {
     use itertools::Itertools;
     use vortex_buffer::buffer;
 
-    use crate::DynArray;
     use crate::IntoArray as _;
+    use crate::arrays::dict::DictArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::builders::dict::primitive::PrimitiveArray;

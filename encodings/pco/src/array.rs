@@ -4,7 +4,7 @@
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::hash::Hasher;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -16,16 +16,18 @@ use pco::wrapped::ChunkDecompressor;
 use pco::wrapped::FileCompressor;
 use pco::wrapped::FileDecompressor;
 use prost::Message;
+use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
+use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
-use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::Primitive;
@@ -36,12 +38,8 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::half;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
-use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
-use vortex_array::vtable::Array;
-use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValiditySliceHelper;
@@ -81,81 +79,76 @@ use crate::PcoPageInfo;
 
 const VALUES_PER_CHUNK: usize = pco::DEFAULT_MAX_PAGE_N;
 
-vtable!(Pco);
+vtable!(Pco, Pco, PcoData);
 
-impl VTable for Pco {
-    type Array = PcoArray;
-
-    type Metadata = ProstMetadata<PcoMetadata>;
-    type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValiditySliceHelper;
-
-    fn vtable(_array: &Self::Array) -> &Self {
-        &Pco
-    }
-
-    fn id(&self) -> ArrayId {
-        Self::ID
-    }
-
-    fn len(array: &PcoArray) -> usize {
-        array.slice_stop - array.slice_start
-    }
-
-    fn dtype(array: &PcoArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &PcoArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: std::hash::Hasher>(array: &PcoArray, state: &mut H, precision: Precision) {
-        array.dtype.hash(state);
-        array.unsliced_validity.array_hash(state, precision);
-        array.unsliced_n_rows.hash(state);
-        array.slice_start.hash(state);
-        array.slice_stop.hash(state);
+impl ArrayHash for PcoData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.unsliced_validity.array_hash(state, precision);
+        self.unsliced_n_rows.hash(state);
+        self.slice_start.hash(state);
+        self.slice_stop.hash(state);
         // Hash chunk_metas and pages using pointer-based hashing
-        for chunk_meta in &array.chunk_metas {
+        for chunk_meta in &self.chunk_metas {
             chunk_meta.array_hash(state, precision);
         }
-        for page in &array.pages {
+        for page in &self.pages {
             page.array_hash(state, precision);
         }
     }
+}
 
-    fn array_eq(array: &PcoArray, other: &PcoArray, precision: Precision) -> bool {
-        if array.dtype != other.dtype
-            || !array
-                .unsliced_validity
-                .array_eq(&other.unsliced_validity, precision)
-            || array.unsliced_n_rows != other.unsliced_n_rows
-            || array.slice_start != other.slice_start
-            || array.slice_stop != other.slice_stop
-            || array.chunk_metas.len() != other.chunk_metas.len()
-            || array.pages.len() != other.pages.len()
+impl ArrayEq for PcoData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        if !self
+            .unsliced_validity
+            .array_eq(&other.unsliced_validity, precision)
+            || self.unsliced_n_rows != other.unsliced_n_rows
+            || self.slice_start != other.slice_start
+            || self.slice_stop != other.slice_stop
+            || self.chunk_metas.len() != other.chunk_metas.len()
+            || self.pages.len() != other.pages.len()
         {
             return false;
         }
-        for (a, b) in array.chunk_metas.iter().zip(&other.chunk_metas) {
+        for (a, b) in self.chunk_metas.iter().zip(&other.chunk_metas) {
             if !a.array_eq(b, precision) {
                 return false;
             }
         }
-        for (a, b) in array.pages.iter().zip(&other.pages) {
+        for (a, b) in self.pages.iter().zip(&other.pages) {
             if !a.array_eq(b, precision) {
                 return false;
             }
         }
         true
     }
+}
 
-    fn nbuffers(array: &PcoArray) -> usize {
+impl VTable for Pco {
+    type ArrayData = PcoData;
+
+    type OperationsVTable = Self;
+    type ValidityVTable = ValidityVTableFromValiditySliceHelper;
+
+    fn id(&self) -> ArrayId {
+        Self::ID
+    }
+
+    fn validate(
+        &self,
+        data: &PcoData,
+        dtype: &DType,
+        len: usize,
+        _slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        data.validate(dtype, len)
+    }
+
+    fn nbuffers(array: ArrayView<'_, Self>) -> usize {
         array.chunk_metas.len() + array.pages.len()
     }
 
-    fn buffer(array: &PcoArray, idx: usize) -> BufferHandle {
+    fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         if idx < array.chunk_metas.len() {
             BufferHandle::new_host(array.chunk_metas[idx].clone())
         } else {
@@ -164,7 +157,7 @@ impl VTable for Pco {
         }
     }
 
-    fn buffer_name(array: &PcoArray, idx: usize) -> Option<String> {
+    fn buffer_name(array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         if idx < array.chunk_metas.len() {
             Some(format!("chunk_meta_{idx}"))
         } else {
@@ -172,31 +165,20 @@ impl VTable for Pco {
         }
     }
 
-    fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(array.metadata.clone()))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.0.encode_to_vec()))
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(array.metadata.clone().encode_to_vec()))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
-        _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(PcoMetadata::decode(bytes)?))
-    }
-
-    fn build(
+        &self,
         dtype: &DType,
         len: usize,
-        metadata: &Self::Metadata,
+        metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-    ) -> VortexResult<PcoArray> {
+        _session: &VortexSession,
+    ) -> VortexResult<ArrayParts<Self>> {
+        let metadata = PcoMetadata::decode(metadata)?;
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
         } else if children.len() == 1 {
@@ -206,63 +188,45 @@ impl VTable for Pco {
             vortex_bail!("PcoArray expected 0 or 1 child, got {}", children.len());
         };
 
-        vortex_ensure!(buffers.len() >= metadata.0.chunks.len());
-        let chunk_metas = buffers[..metadata.0.chunks.len()]
+        vortex_ensure!(buffers.len() >= metadata.chunks.len());
+        let chunk_metas = buffers[..metadata.chunks.len()]
             .iter()
             .map(|b| b.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
-        let pages = buffers[metadata.0.chunks.len()..]
+        let pages = buffers[metadata.chunks.len()..]
             .iter()
             .map(|b| b.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
 
         let expected_n_pages = metadata
-            .0
             .chunks
             .iter()
             .map(|info| info.pages.len())
             .sum::<usize>();
         vortex_ensure!(pages.len() == expected_n_pages);
 
-        Ok(PcoArray::new(
+        let slots = vec![validity_to_child(&validity, len)];
+        let data = PcoData::new(
             chunk_metas,
             pages,
-            dtype.clone(),
-            metadata.0.clone(),
+            dtype.as_ptype(),
+            metadata,
             len,
             validity,
-        ))
+        );
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn slots(array: &PcoArray) -> &[Option<ArrayRef>] {
-        &array.slots
-    }
-
-    fn slot_name(_array: &PcoArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut PcoArray, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "PcoArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.unsliced_validity = match &slots[VALIDITY_SLOT] {
-            Some(arr) => Validity::Array(arr.clone()),
-            None => Validity::from(array.dtype.nullability()),
-        };
-        array.slots = slots;
-        Ok(())
-    }
-
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array.decompress(ctx)?.into_array()))
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -271,7 +235,10 @@ impl VTable for Pco {
 }
 
 pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
-    let ptype = dtype.as_ptype();
+    number_type_from_ptype(dtype.as_ptype())
+}
+
+pub(crate) fn number_type_from_ptype(ptype: PType) -> NumberType {
     match ptype {
         PType::F16 => NumberType::F16,
         PType::F32 => NumberType::F32,
@@ -288,7 +255,7 @@ pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
-    Ok(parray.clone().into_array().filter(mask)?.to_primitive())
+    Ok(parray.filter(mask)?.to_primitive())
 }
 
 pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
@@ -305,47 +272,116 @@ pub struct Pco;
 
 impl Pco {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
+
+    pub(crate) fn try_new(dtype: DType, data: PcoData) -> VortexResult<PcoArray> {
+        let len = data.len();
+        data.validate(&dtype, len)?;
+        let slots = vec![validity_to_child(
+            &data.unsliced_validity,
+            data.unsliced_n_rows,
+        )];
+        Ok(unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data).with_slots(slots))
+        })
+    }
+
+    /// Compress a primitive array using pcodec.
+    pub fn from_primitive(
+        parray: &PrimitiveArray,
+        level: usize,
+        values_per_page: usize,
+    ) -> VortexResult<PcoArray> {
+        let dtype = parray.dtype().clone();
+        let data = PcoData::from_primitive(parray, level, values_per_page)?;
+        Self::try_new(dtype, data)
+    }
 }
 
 /// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 0;
 pub(super) const NUM_SLOTS: usize = 1;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 
 #[derive(Clone, Debug)]
-pub struct PcoArray {
+pub struct PcoData {
     pub(crate) chunk_metas: Vec<ByteBuffer>,
     pub(crate) pages: Vec<ByteBuffer>,
     pub(crate) metadata: PcoMetadata,
-    dtype: DType,
+    ptype: PType,
     pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
-    pub(super) slots: Vec<Option<ArrayRef>>,
-    stats_set: ArrayStats,
     slice_start: usize,
     slice_stop: usize,
 }
 
-impl PcoArray {
+impl PcoData {
+    pub fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
+        let _ = number_type_from_ptype(self.ptype);
+        vortex_ensure!(
+            dtype.as_ptype() == self.ptype,
+            "expected ptype {}, got {}",
+            self.ptype,
+            dtype.as_ptype()
+        );
+        vortex_ensure!(
+            dtype.nullability() == self.unsliced_validity.nullability(),
+            "expected nullability {}, got {}",
+            self.unsliced_validity.nullability(),
+            dtype.nullability()
+        );
+        vortex_ensure!(
+            self.slice_start <= self.slice_stop && self.slice_stop <= self.unsliced_n_rows,
+            "invalid slice range {}..{} for {} rows",
+            self.slice_start,
+            self.slice_stop,
+            self.unsliced_n_rows
+        );
+        vortex_ensure!(
+            self.slice_stop - self.slice_start == len,
+            "expected len {len}, got {}",
+            self.slice_stop - self.slice_start
+        );
+        if let Some(validity_len) = self.unsliced_validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == self.unsliced_n_rows,
+                "expected validity len {}, got {}",
+                self.unsliced_n_rows,
+                validity_len
+            );
+        }
+        vortex_ensure!(
+            self.chunk_metas.len() == self.metadata.chunks.len(),
+            "expected {} chunk metas, got {}",
+            self.metadata.chunks.len(),
+            self.chunk_metas.len()
+        );
+        vortex_ensure!(
+            self.pages.len()
+                == self
+                    .metadata
+                    .chunks
+                    .iter()
+                    .map(|chunk| chunk.pages.len())
+                    .sum::<usize>(),
+            "page count does not match metadata"
+        );
+        Ok(())
+    }
+
     pub fn new(
         chunk_metas: Vec<ByteBuffer>,
         pages: Vec<ByteBuffer>,
-        dtype: DType,
+        ptype: PType,
         metadata: PcoMetadata,
         len: usize,
         validity: Validity,
     ) -> Self {
-        let validity_slot = validity_to_child(&validity, len);
-
         Self {
             chunk_metas,
             pages,
             metadata,
-            dtype,
+            ptype,
             unsliced_validity: validity,
             unsliced_n_rows: len,
-            slots: vec![validity_slot],
-            stats_set: Default::default(),
             slice_start: 0,
             slice_stop: len,
         }
@@ -422,28 +458,30 @@ impl PcoArray {
             header,
             chunks: chunk_infos,
         };
-        Ok(PcoArray::new(
+        Ok(PcoData::new(
             chunk_meta_buffers,
             page_buffers,
-            parray.dtype().clone(),
+            parray.dtype().as_ptype(),
             metadata,
             parray.len(),
-            parray.validity(),
+            parray.validity()?,
         ))
     }
 
     pub fn from_array(array: ArrayRef, level: usize, nums_per_page: usize) -> VortexResult<Self> {
-        if let Some(parray) = array.as_opt::<Primitive>() {
-            Self::from_primitive(parray, level, nums_per_page)
-        } else {
-            Err(vortex_err!("Pco can only encode primitive arrays"))
-        }
+        let parray = array.try_downcast::<Primitive>().map_err(|a| {
+            vortex_err!(
+                "Pco can only encode primitive arrays, got {}",
+                a.encoding_id()
+            )
+        })?;
+        Self::from_primitive(&parray, level, nums_per_page)
     }
 
     pub fn decompress(&self, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
         // To start, we figure out which chunks and pages we need to decompress, and with
         // what value offset into the first such page.
-        let number_type = number_type_from_dtype(&self.dtype);
+        let number_type = number_type_from_ptype(self.ptype);
         let values_byte_buffer = match_number_enum!(
             number_type,
             NumberType<T> => {
@@ -453,7 +491,7 @@ impl PcoArray {
 
         Ok(PrimitiveArray::from_values_byte_buffer(
             values_byte_buffer,
-            self.dtype.as_ptype(),
+            self.ptype,
             self.unsliced_validity
                 .slice(self.slice_start..self.slice_stop)?,
             self.slice_stop - self.slice_start,
@@ -537,16 +575,21 @@ impl PcoArray {
     }
 
     pub(crate) fn _slice(&self, start: usize, stop: usize) -> Self {
-        PcoArray {
+        PcoData {
             slice_start: self.slice_start + start,
             slice_stop: self.slice_start + stop,
-            stats_set: Default::default(),
             ..self.clone()
         }
     }
 
-    pub(crate) fn dtype(&self) -> &DType {
-        &self.dtype
+    /// Returns the number of elements in the array.
+    pub fn len(&self) -> usize {
+        self.slice_stop - self.slice_start
+    }
+
+    /// Returns `true` if the array contains no elements.
+    pub fn is_empty(&self) -> bool {
+        self.slice_stop == self.slice_start
     }
 
     pub(crate) fn slice_start(&self) -> usize {
@@ -562,18 +605,23 @@ impl PcoArray {
     }
 }
 
-impl ValiditySliceHelper for PcoArray {
+impl ValiditySliceHelper for PcoData {
     fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize) {
         (&self.unsliced_validity, self.slice_start, self.slice_stop)
     }
 }
 
 impl OperationsVTable<Pco> for Pco {
-    fn scalar_at(array: &PcoArray, index: usize, _ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
+    fn scalar_at(
+        array: ArrayView<'_, Pco>,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         array
             ._slice(index, index + 1)
             .decompress(&mut ctx)?
+            .into_array()
             .scalar_at(0)
     }
 }
@@ -586,7 +634,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
-    use crate::PcoArray;
+    use crate::Pco;
 
     #[test]
     fn test_slice_nullable() {
@@ -595,7 +643,7 @@ mod tests {
             buffer![10u32, 20, 30, 40, 50, 60],
             Validity::from_iter([false, true, true, true, true, false]),
         );
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco = Pco::from_primitive(&values, 0, 128).unwrap();
         assert_arrays_eq!(
             pco,
             PrimitiveArray::from_option_iter([

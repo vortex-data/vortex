@@ -25,7 +25,6 @@ use num_traits::Float;
 use num_traits::One;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
-use vortex_array::DynArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
@@ -228,7 +227,12 @@ impl RDEncoder {
         }
 
         // Bit-pack down the encoded left-parts array that have been dictionary encoded.
-        let primitive_left = PrimitiveArray::new(left_parts, array.validity());
+        let primitive_left = PrimitiveArray::new(
+            left_parts,
+            array
+                .validity()
+                .vortex_expect("ALP RD validity should be derivable"),
+        );
         // SAFETY: by construction, all values in left_parts can be packed to left_bit_width.
         let packed_left = unsafe {
             bitpack_encode_unchecked(primitive_left, left_bit_width as _)
@@ -272,7 +276,7 @@ impl RDEncoder {
             .vortex_expect("Patches construction in encode")
         });
 
-        ALPRDArray::try_new(
+        ALPRD::try_new(
             DType::Primitive(T::PTYPE, packed_left.dtype().nullability()),
             packed_left,
             Buffer::<u16>::copy_from(&self.codes),

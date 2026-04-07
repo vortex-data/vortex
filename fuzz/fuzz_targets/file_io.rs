@@ -8,16 +8,17 @@ use itertools::Itertools;
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
 use vortex_array::Canonical;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
@@ -60,12 +61,11 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
 
     let write_options = match compressor_strategy {
         CompressorStrategy::Default => SESSION.write_options(),
-        CompressorStrategy::Compact => {
-            let strategy = WriteStrategyBuilder::default()
-                .with_compact_encodings()
-                .build();
-            SESSION.write_options().with_strategy(strategy)
-        }
+        CompressorStrategy::Compact => SESSION.write_options().with_strategy(
+            WriteStrategyBuilder::default()
+                .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
+                .build(),
+        ),
     };
 
     let mut full_buff = ByteBufferMut::empty();
@@ -114,7 +114,10 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         .to_bool();
     let true_count = bool_result.to_bit_buffer().true_count();
     if true_count != expected_array.len()
-        && (bool_result.all_valid().vortex_expect("all_valid")
+        && (bool_result
+            .into_array()
+            .all_valid()
+            .vortex_expect("all_valid")
             || expected_array.all_valid().vortex_expect("all_valid"))
     {
         vortex_panic!(

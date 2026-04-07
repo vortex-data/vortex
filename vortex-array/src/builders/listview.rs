@@ -18,13 +18,13 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::ToCanonical;
-use crate::array::ArrayRef;
-use crate::array::DynArray;
 use crate::array::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
@@ -339,7 +339,7 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // The incoming sizes might have a different type than the builder, so we need to cast.
         let cast_sizes = listview
             .sizes()
-            .to_array()
+            .clone()
             .cast(self.sizes_builder.dtype().clone())
             .vortex_expect(
                 "was somehow unable to cast the new sizes to the type of the builder sizes",
@@ -429,10 +429,12 @@ fn adjust_and_extend_offsets<'a, O: IntegerPType, A: IntegerPType>(
 mod tests {
     use std::sync::Arc;
 
+    use vortex_error::VortexExpect;
+
     use super::ListViewBuilder;
     use crate::IntoArray;
-    use crate::array::DynArray;
     use crate::arrays::ListArray;
+    use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::listview::PrimitiveArray;
@@ -441,7 +443,6 @@ mod tests {
     use crate::dtype::Nullability::Nullable;
     use crate::dtype::PType::I32;
     use crate::scalar::Scalar;
-    use crate::vtable::ValidityHelper;
 
     #[test]
     fn test_empty() {
@@ -497,7 +498,13 @@ mod tests {
         assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
 
         // Check null list.
-        assert!(!listview.validity().is_valid(2).unwrap());
+        assert!(
+            !listview
+                .validity()
+                .vortex_expect("listview validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
 
         // Check last list: [4, 5].
         assert_arrays_eq!(
@@ -598,8 +605,20 @@ mod tests {
         assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
 
         // Next two are nulls.
-        assert!(!listview.validity().is_valid(2).unwrap());
-        assert!(!listview.validity().is_valid(3).unwrap());
+        assert!(
+            !listview
+                .validity()
+                .vortex_expect("listview validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
+        assert!(
+            !listview
+                .validity()
+                .vortex_expect("listview validity should be derivable")
+                .is_valid(3)
+                .unwrap()
+        );
 
         // Last is the regular list: [10, 20].
         assert_arrays_eq!(
@@ -654,7 +673,13 @@ mod tests {
         );
 
         // Third list: null (from source).
-        assert!(!listview.validity().is_valid(2).unwrap());
+        assert!(
+            !listview
+                .validity()
+                .vortex_expect("listview validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
 
         // Fourth list: [4, 5] (from source).
         assert_arrays_eq!(

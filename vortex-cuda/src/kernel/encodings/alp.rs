@@ -10,14 +10,14 @@ use cudarc::driver::PushKernelArg;
 use tracing::instrument;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::primitive::PrimitiveArrayParts;
+use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::match_each_unsigned_integer_ptype;
 use vortex::dtype::NativePType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArray;
+use vortex::encodings::alp::ALPArrayExt;
 use vortex::encodings::alp::ALPFloat;
 use vortex::encodings::alp::match_each_alp_float_ptype;
 use vortex::error::VortexResult;
@@ -44,10 +44,12 @@ impl CudaExecute for ALPExecutor {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let array = array
-            .try_into::<ALP>()
+            .try_downcast::<ALP>()
             .map_err(|_| vortex_err!("Expected ALPArray"))?;
 
-        match_each_alp_float_ptype!(array.ptype(), |A| { decode_alp::<A>(array, ctx).await })
+        match_each_alp_float_ptype!(array.dtype().as_ptype(), |A| {
+            decode_alp::<A>(array, ctx).await
+        })
     }
 }
 
@@ -67,9 +69,9 @@ where
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
-    let PrimitiveArrayParts {
+    let PrimitiveDataParts {
         buffer, validity, ..
-    } = primitive.into_parts();
+    } = primitive.into_data_parts();
 
     let device_input = ctx.ensure_on_device(buffer).await?;
 
@@ -124,7 +126,7 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
-    use vortex::encodings::alp::ALPArray;
+    use vortex::encodings::alp::ALP;
     use vortex::encodings::alp::Exponents;
     use vortex::error::VortexExpect;
     use vortex::session::VortexSession;
@@ -155,7 +157,7 @@ mod tests {
         )
         .unwrap();
 
-        let alp_array = ALPArray::try_new(
+        let alp_array = ALP::try_new(
             PrimitiveArray::new(Buffer::from(encoded_data.clone()), Validity::NonNullable)
                 .into_array(),
             exponents,

@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayId;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Patched;
-use vortex_array::arrays::PatchedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
-use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
@@ -38,7 +37,7 @@ impl FlatLayoutFixture for PatchedFixture {
             None,
         )?;
 
-        Ok(PatchedArray::from_array_and_patches(array, &patches, &mut ctx)?.into_array())
+        Ok(Patched::from_array_and_patches(array, &patches, &mut ctx)?.into_array())
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {

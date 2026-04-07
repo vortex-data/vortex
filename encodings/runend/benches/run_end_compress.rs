@@ -14,7 +14,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
-use vortex_runend::RunEndArray;
+use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
 
 fn main() {
@@ -48,7 +48,7 @@ fn compress(bencher: Bencher, (length, run_step): (usize, usize)) {
 
     bencher
         .with_inputs(|| &values)
-        .bench_refs(|values| runend_encode(values));
+        .bench_refs(|values| runend_encode(values.as_view()));
 }
 
 #[divan::bench(types = [u8, u16, u32, u64], args = BENCH_ARGS)]
@@ -64,7 +64,7 @@ fn decompress<T: IntegerPType>(bencher: Bencher, (length, run_step): (usize, usi
         .collect::<Buffer<_>>()
         .into_array();
 
-    let run_end_array = RunEndArray::new(ends, values);
+    let run_end_array = RunEnd::new(ends, values);
     let array = run_end_array.into_array();
 
     bencher
@@ -88,8 +88,8 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
     );
 
     let source_array = PrimitiveArray::from_iter(0..(length as i32)).into_array();
-    let (ends, values) = runend_encode(&values);
-    let runend_array = RunEndArray::try_new(ends.into_array(), values)
+    let (ends, values) = runend_encode(values.as_view());
+    let runend_array = RunEnd::try_new(ends.into_array(), values)
         .unwrap()
         .into_array();
 
@@ -103,7 +103,7 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
         })
         .bench_refs(|(array, indices, execution_ctx)| {
             array
-                .take(indices.to_array())
+                .take(indices.clone())
                 .unwrap()
                 .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
@@ -121,7 +121,7 @@ fn decompress_utf8(bencher: Bencher, (length, run_step): (usize, usize)) {
     let values = VarBinViewArray::from_iter_str((0..num_runs).map(|i| format!("run_value_{i}")))
         .into_array();
 
-    let run_end_array = RunEndArray::new(ends, values);
+    let run_end_array = RunEnd::new(ends, values);
     let array = run_end_array.into_array();
 
     bencher

@@ -240,13 +240,18 @@ macro_rules! box_wrapper {
         paste::paste! {
             $(#[$meta])*
             #[allow(non_camel_case_types)]
-            pub(crate) struct $ffi_ident($T);
+            pub struct $ffi_ident($T);
 
             #[allow(dead_code)]
             impl $ffi_ident {
                 /// Wrap an owned object into a raw pointer.
-                pub(crate) fn new(obj: Box<$T>) -> *mut $ffi_ident {
+                pub(crate) fn new_box(obj: Box<$T>) -> *mut $ffi_ident {
                     Box::into_raw(obj).cast::<$ffi_ident>()
+                }
+
+                /// Wrap an owned object into a raw pointer.
+                pub(crate) fn new(obj: $T) -> *mut $ffi_ident {
+                    Box::into_raw(Box::new(obj)).cast::<$ffi_ident>()
                 }
 
                 /// Wrap a borrowed object into a raw pointer.

@@ -13,6 +13,7 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -370,7 +371,7 @@ impl LayoutReader for StructReader {
                         struct_array.names().clone(),
                         masked_fields,
                         struct_array.len(),
-                        struct_array.validity(),
+                        struct_array.validity()?,
                     )?
                     .into_array())
                 } else {
@@ -392,13 +393,13 @@ mod tests {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::ArrayContext;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::dtype::DType;

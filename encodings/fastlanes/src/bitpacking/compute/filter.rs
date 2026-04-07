@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -24,7 +25,8 @@ use vortex_mask::MaskValues;
 use super::chunked_indices;
 use super::take::UNPACK_CHUNK_THRESHOLD;
 use crate::BitPacked;
-use crate::BitPackedArray;
+use crate::BitPackedArrayExt;
+use crate::BitPackedData;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`] and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -44,7 +46,7 @@ pub const fn unpack_then_filter_threshold(ptype: PType) -> f64 {
 /// Kernel to execute filtering directly on a bit-packed array.
 impl FilterKernel for BitPacked {
     fn filter(
-        array: &BitPackedArray,
+        array: ArrayView<'_, Self>,
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -57,16 +59,26 @@ impl FilterKernel for BitPacked {
 
         // If the density is high enough, then we would rather decompress the whole array and then apply
         // a filter over decompressing values one by one.
-        if values.density() > unpack_then_filter_threshold(array.ptype()) {
+        if values.density() > unpack_then_filter_threshold(array.dtype().as_ptype()) {
             return Ok(None);
         }
 
         // Filter and patch using the correct unsigned type for FastLanes, then cast to signed if needed.
-        let mut primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |U| {
-            let (buffer, validity) = filter_primitive_without_patches::<U>(array, values)?;
-            // reinterpret_cast for signed types.
-            PrimitiveArray::new(buffer, validity).reinterpret_cast(array.ptype())
-        });
+        let primitive =
+            match_each_unsigned_integer_ptype!(array.dtype().as_ptype().to_unsigned(), |U| {
+                let (buffer, validity) = filter_primitive_without_patches::<U>(array, values)?;
+                // reinterpret_cast for signed types.
+                let primitive = PrimitiveArray::new(buffer, validity);
+                if array.dtype().as_ptype().is_signed_int() {
+                    PrimitiveArray::from_buffer_handle(
+                        primitive.buffer_handle().clone(),
+                        array.dtype().as_ptype(),
+                        primitive.validity()?,
+                    )
+                } else {
+                    primitive
+                }
+            });
 
         let patches = array
             .patches()
@@ -75,7 +87,9 @@ impl FilterKernel for BitPacked {
             .flatten();
 
         if let Some(patches) = patches {
-            primitive = primitive.patch(&patches, ctx)?;
+            let mut prim_array = primitive;
+            prim_array = prim_array.patch(&patches, ctx)?;
+            return Ok(Some(prim_array.into_array()));
         }
 
         Ok(Some(primitive.into_array()))
@@ -94,17 +108,17 @@ impl FilterKernel for BitPacked {
 ///
 /// Returns a tuple of (values buffer, validity mask).
 fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
-    array: &BitPackedArray,
+    array: ArrayView<'_, BitPacked>,
     selection: &Arc<MaskValues>,
 ) -> VortexResult<(Buffer<U>, Validity)> {
-    let values = filter_with_indices(array, selection.indices());
-    let validity = array.validity().filter(&Mask::Values(selection.clone()))?;
+    let values = filter_with_indices(array.data(), selection.indices());
+    let validity = array.validity()?.filter(&Mask::Values(selection.clone()))?;
 
     Ok((values.freeze(), validity))
 }
 
 fn filter_with_indices<T: NativePType + BitPacking>(
-    array: &BitPackedArray,
+    array: &BitPackedData,
     indices: &[usize],
 ) -> BufferMut<T> {
     let offset = array.offset() as usize;
@@ -161,7 +175,6 @@ fn filter_with_indices<T: NativePType + BitPacking>(
 
 #[cfg(test)]
 mod test {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray as _;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
@@ -172,13 +185,14 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
-    use crate::BitPackedArray;
+    use crate::BitPackedData;
+    use crate::bitpacking::array::BitPackedArrayExt;
 
     #[test]
     fn take_indices() {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
 
         let mask = Mask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
@@ -193,7 +207,7 @@ mod test {
     fn take_sliced_indices() {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
         let sliced = bitpacked.slice(128..2050).unwrap();
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
@@ -205,7 +219,7 @@ mod test {
     #[test]
     fn filter_bitpacked() {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
-        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 6).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6).unwrap();
         let filtered = bitpacked
             .filter(Mask::from_indices(4096, (0..1024).collect()))
             .unwrap();
@@ -219,7 +233,7 @@ mod test {
     fn filter_bitpacked_signed() {
         let values: Buffer<i64> = (0..500).collect();
         let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
-        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 9).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9).unwrap();
         let filtered = bitpacked
             .filter(Mask::from_indices(values.len(), (0..250).collect()))
             .unwrap()
@@ -235,17 +249,17 @@ mod test {
     fn test_filter_bitpacked_conformance() {
         // Test with u8 values
         let unpacked = buffer![1u8, 2, 3, 4, 5].into_array();
-        let bitpacked = BitPackedArray::encode(&unpacked, 3).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked, 3).unwrap();
         test_filter_conformance(&bitpacked.into_array());
 
         // Test with u32 values
         let unpacked = buffer![100u32, 200, 300, 400, 500].into_array();
-        let bitpacked = BitPackedArray::encode(&unpacked, 9).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked, 9).unwrap();
         test_filter_conformance(&bitpacked.into_array());
 
         // Test with nullable values
         let unpacked = PrimitiveArray::from_option_iter([Some(1u16), None, Some(3), Some(4), None]);
-        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 3).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 3).unwrap();
         test_filter_conformance(&bitpacked.into_array());
     }
 
@@ -260,7 +274,7 @@ mod test {
         // Values 0-127 fit in 7 bits, but 1000 and 2000 do not.
         let values: Vec<i32> = vec![0, 10, 1000, 20, 30, 2000, 40, 50, 60, 70];
         let unpacked = PrimitiveArray::from_iter(values.clone());
-        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 7).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
         assert!(
             bitpacked.patches().is_some(),
             "Expected patches for values exceeding bit width"
@@ -292,7 +306,7 @@ mod test {
             })
             .collect();
         let unpacked = PrimitiveArray::from_iter(values.clone());
-        let bitpacked = BitPackedArray::encode(&unpacked.into_array(), 7).unwrap();
+        let bitpacked = BitPackedData::encode(&unpacked.into_array(), 7).unwrap();
         assert!(
             bitpacked.patches().is_some(),
             "Expected patches for values exceeding bit width"

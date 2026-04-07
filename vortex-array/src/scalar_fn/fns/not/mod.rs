@@ -11,12 +11,12 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::Expression;
@@ -103,7 +103,7 @@ impl ScalarFnVTable for Not {
 
         // For boolean array
         if let Some(bool) = child.as_opt::<Bool>() {
-            return Ok(BoolArray::new(!bool.to_bit_buffer(), bool.validity()).into_array());
+            return Ok(BoolArray::new(!bool.to_bit_buffer(), bool.validity()?).into_array());
         }
 
         // Otherwise, execute and try again
@@ -123,6 +123,7 @@ impl ScalarFnVTable for Not {
 mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::bool::BoolArrayExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::expr::col;

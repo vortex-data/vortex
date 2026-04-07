@@ -22,13 +22,12 @@ use vortex_mask::MaskMut;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
-use crate::ArrayVisitor;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -710,7 +709,7 @@ impl Patches {
             return Ok(None);
         }
 
-        let take_indices = take_indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let take_indices = take_indices.clone().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices, true, ctx)
         } else {
@@ -730,7 +729,7 @@ impl Patches {
             return Ok(None);
         }
 
-        let take_indices = take_indices.to_array().execute::<PrimitiveArray>(ctx)?;
+        let take_indices = take_indices.clone().execute::<PrimitiveArray>(ctx)?;
         if self.is_map_faster_than_search(&take_indices) {
             self.take_map(take_indices, false, ctx)
         } else {
@@ -748,7 +747,7 @@ impl Patches {
         include_nulls: bool,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Self>> {
-        let take_indices_validity = take_indices.validity();
+        let take_indices_validity = take_indices.validity()?;
         let patch_indices = self.indices.clone().execute::<PrimitiveArray>(ctx)?;
         let chunk_offsets = self
             .chunk_offsets()
@@ -810,7 +809,7 @@ impl Patches {
         Ok(Some(Self {
             array_len: new_array_len,
             offset: 0,
-            indices: new_indices.clone(),
+            indices: new_indices,
             values: self
                 .values()
                 .take(PrimitiveArray::new(values_indices, values_validity).into_array())?,
@@ -835,9 +834,9 @@ impl Patches {
             match_each_unsigned_integer_ptype!(indices.ptype(), |Indices| {
                 match_each_integer_ptype!(take_indices.ptype(), |TakeIndices| {
                     let take_validity = take_indices
-                        .validity()
+                        .validity()?
                         .execute_mask(take_indices.len(), ctx)?;
-                    let take_nullability = take_indices.validity().nullability();
+                    let take_nullability = take_indices.validity()?.nullability();
                     let take_slice = take_indices.as_slice::<TakeIndices>();
                     take_map::<_, TakeIndices>(
                         indices.as_slice::<Indices>(),
@@ -894,7 +893,9 @@ impl Patches {
             .clone()
             .execute::<PrimitiveArray>(ctx)
             .vortex_expect("patch values must be convertible to PrimitiveArray");
-        let patches_validity = patch_values.validity();
+        let patches_validity = patch_values
+            .validity()
+            .vortex_expect("patch values validity should be derivable");
 
         let patch_values_slice = patch_values.as_slice::<P>();
         match_each_unsigned_integer_ptype!(patch_indices.ptype(), |I| {

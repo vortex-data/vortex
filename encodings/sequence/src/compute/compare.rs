@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
@@ -20,12 +20,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::SequenceArray;
 use crate::array::Sequence;
 
 impl CompareKernel for Sequence {
     fn compare(
-        lhs: &SequenceArray,
+        lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
         operator: CompareOperator,
         _ctx: &mut ExecutionCtx,
@@ -145,11 +144,11 @@ mod tests {
     use vortex_array::dtype::Nullability::Nullable;
     use vortex_array::scalar_fn::fns::operators::Operator;
 
-    use crate::SequenceArray;
+    use crate::Sequence;
 
     #[test]
     fn test_compare_match() {
-        let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
+        let lhs = Sequence::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(4i64, lhs.len());
         let result = lhs
             .into_array()
@@ -161,7 +160,7 @@ mod tests {
 
     #[test]
     fn test_compare_match_scale() {
-        let lhs = SequenceArray::try_new_typed(2i64, 3, Nullable, 4).unwrap();
+        let lhs = Sequence::try_new_typed(2i64, 3, Nullable, 4).unwrap();
         let rhs = ConstantArray::new(8i64, lhs.len());
         let result = lhs
             .into_array()
@@ -173,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_compare_no_match() {
-        let lhs = SequenceArray::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
+        let lhs = Sequence::try_new_typed(2i64, 1, NonNullable, 4).unwrap();
         let rhs = ConstantArray::new(1i64, lhs.len());
         let result = lhs
             .into_array()

@@ -7,10 +7,10 @@ use divan::Bencher;
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::Buffer;
+use vortex_runend::RunEnd;
 use vortex_runend::RunEndArray;
 
 fn main() {
@@ -68,5 +68,5 @@ fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {
     )
     .into_array();
 
-    RunEndArray::new(ends, values)
+    RunEnd::new(ends, values)
 }

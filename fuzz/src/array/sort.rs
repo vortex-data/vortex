@@ -4,7 +4,6 @@
 use std::cmp::Ordering;
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
@@ -12,6 +11,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_decimal_value_type;
