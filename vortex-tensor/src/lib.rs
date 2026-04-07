@@ -14,6 +14,7 @@ use crate::encodings::turboquant::TurboQuant;
 use crate::fixed_shape::FixedShapeTensor;
 use crate::scalar_fns::cosine_similarity::CosineSimilarity;
 use crate::scalar_fns::inner_product::InnerProduct;
+use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::vector::Vector;
 
@@ -36,5 +37,6 @@ pub fn initialize(session: &VortexSession) {
 
     session.scalar_fns().register(CosineSimilarity);
     session.scalar_fns().register(InnerProduct);
+    session.scalar_fns().register(L2Denorm);
     session.scalar_fns().register(L2Norm);
 }

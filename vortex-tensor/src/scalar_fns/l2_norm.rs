@@ -27,15 +27,14 @@ use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
-use vortex_error::vortex_err;
 
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantArrayExt;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
 use crate::utils::extract_flat_elements;
+use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
 ///
@@ -99,20 +98,8 @@ impl ScalarFnVTable for L2Norm {
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let input_dtype = &arg_dtypes[0];
-
-        // Input must be a tensor-like extension type.
-        let ext = input_dtype.as_extension_opt().ok_or_else(|| {
-            vortex_err!("L2Norm input must be an extension type, got {input_dtype}")
-        })?;
-
-        let tensor_match = ext
-            .metadata_opt::<AnyTensor>()
-            .ok_or_else(|| vortex_err!("L2Norm input must be an `AnyTensor`, got {input_dtype}"))?;
+        let tensor_match = validate_tensor_float_input(input_dtype)?;
         let ptype = tensor_match.element_ptype();
-        vortex_ensure!(
-            ptype.is_float(),
-            "L2Norm element dtype must be a float primitive, got {ptype}"
-        );
 
         let nullability = Nullability::from(input_dtype.is_nullable());
         Ok(DType::Primitive(ptype, nullability))
@@ -131,7 +118,7 @@ impl ScalarFnVTable for L2Norm {
         let tensor_match = ext
             .metadata_opt::<AnyTensor>()
             .vortex_expect("we already validated this in `return_dtype`");
-        let dimensions = tensor_match.list_size();
+        let tensor_flat_size = tensor_match.list_size();
         let element_ptype = tensor_match.element_ptype();
 
         // TODO(connor): TQ might not store norms in the future.
@@ -152,7 +139,7 @@ impl ScalarFnVTable for L2Norm {
         let validity = input.as_ref().validity()?;
 
         let storage = input.storage_array();
-        let flat = extract_flat_elements(storage, dimensions, ctx)?;
+        let flat = extract_flat_elements(storage, tensor_flat_size, ctx)?;
 
         match_each_float_ptype!(flat.ptype(), |T| {
             let buffer: Buffer<T> = (0..row_count)

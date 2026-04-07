@@ -9,9 +9,34 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
+
+use crate::matcher::AnyTensor;
+use crate::matcher::TensorMatch;
+
+/// Validates that `input_dtype` is a float-valued tensor-like extension dtype.
+pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMatch<'_>> {
+    let ext = input_dtype
+        .as_extension_opt()
+        .ok_or_else(|| vortex_err!("expected an extension type, got {input_dtype}"))?;
+
+    let tensor_match = ext
+        .metadata_opt::<AnyTensor>()
+        .ok_or_else(|| vortex_err!("expected an `AnyTensor`, got {input_dtype}"))?;
+
+    let ptype = tensor_match.element_ptype();
+    vortex_ensure!(
+        ptype.is_float(),
+        "expected a float element dtype, got {ptype}",
+    );
+
+    Ok(tensor_match)
+}
 
 /// The flat primitive elements of a tensor storage array, with typed row access.
 ///
