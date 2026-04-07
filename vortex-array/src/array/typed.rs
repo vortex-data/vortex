@@ -78,6 +78,7 @@ impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {}
 #[doc(hidden)]
 pub(crate) struct ArrayInner<V: VTable> {
     pub(crate) vtable: V,
+    pub(crate) encoding_id: ArrayId,
     pub(crate) dtype: DType,
     pub(crate) len: usize,
     pub(crate) data: V::ArrayData,
@@ -86,6 +87,11 @@ pub(crate) struct ArrayInner<V: VTable> {
 }
 
 impl<V: VTable> ArrayInner<V> {
+    /// Returns the encoding ID.
+    pub fn encoding_id(&self) -> &ArrayId {
+        &self.encoding_id
+    }
+
     /// Create a new inner array from explicit construction parameters.
     #[doc(hidden)]
     pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
@@ -115,8 +121,10 @@ impl<V: VTable> ArrayInner<V> {
         slots: Vec<Option<ArrayRef>>,
         stats: ArrayStats,
     ) -> Self {
+        let encoding_id = vtable.id();
         Self {
             vtable,
+            encoding_id,
             dtype,
             len,
             data,
@@ -143,6 +151,7 @@ impl<V: VTable> Clone for ArrayInner<V> {
     fn clone(&self) -> Self {
         Self {
             vtable: self.vtable.clone(),
+            encoding_id: self.encoding_id.clone(),
             dtype: self.dtype.clone(),
             len: self.len,
             data: self.data.clone(),
@@ -155,7 +164,7 @@ impl<V: VTable> Clone for ArrayInner<V> {
 impl<V: VTable> Debug for ArrayInner<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArrayInner")
-            .field("encoding", &self.vtable.id())
+            .field("encoding", &self.encoding_id)
             .field("dtype", &self.dtype)
             .field("len", &self.len)
             .field("inner", &self.data)

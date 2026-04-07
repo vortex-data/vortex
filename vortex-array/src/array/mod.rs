@@ -211,7 +211,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
     }
 
     fn encoding_id(&self) -> ArrayId {
-        self.vtable.id()
+        self.encoding_id.clone()
     }
 
     fn scalar_at(&self, this: &ArrayRef, index: usize) -> VortexResult<Scalar> {
@@ -442,7 +442,6 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         let stats = this.statistics().to_owned();
 
         let typed = Array::<V>::try_from_array_ref(this)
-            .map_err(|_| vortex_err!("Failed to downcast array for execute"))
             .vortex_expect("Failed to downcast array for execute");
         let result = V::execute(typed, ctx)?;
 
