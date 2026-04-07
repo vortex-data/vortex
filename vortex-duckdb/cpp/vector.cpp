@@ -5,7 +5,9 @@
 
 DUCKDB_INCLUDES_BEGIN
 #include "duckdb/common/vector.hpp"
+#include "duckdb/common/fsst.hpp"
 #include "duckdb/common/types/value.hpp"
+#include "duckdb/common/types/vector_buffer.hpp"
 #include "duckdb/common/types/vector.hpp"
 DUCKDB_INCLUDES_END
 
@@ -60,6 +62,8 @@ public:
 
 } // namespace vortex
 
+static constexpr uint64_t VX_FSST_CORRUPT = 32774747032022883ULL;
+
 extern "C" void duckdb_vx_string_vector_add_vector_data_buffer(duckdb_vector ffi_vector,
                                                                duckdb_vx_vector_buffer buffer) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
@@ -79,6 +83,49 @@ extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *pt
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto dvector = reinterpret_cast<vortex::DataVector *>(vector);
     dvector->SetDataPtr((data_ptr_t)ptr);
+}
+
+extern "C" void duckdb_vx_fsst_vector_set(duckdb_vector ffi_vector,
+                                          const uint64_t *symbols,
+                                          const uint8_t *symbol_lengths,
+                                          idx_t symbol_count,
+                                          idx_t string_block_limit,
+                                          idx_t count,
+                                          duckdb_vx_vector_buffer buffer) {
+    auto vector = reinterpret_cast<Vector *>(ffi_vector);
+    D_ASSERT(vector);
+    D_ASSERT(symbol_count <= 255);
+
+    buffer_ptr<void> decoder_buffer = make_buffer<duckdb_fsst_decoder_t>();
+    auto *decoder = reinterpret_cast<duckdb_fsst_decoder_t *>(decoder_buffer.get());
+    decoder->version = 0;
+    decoder->zeroTerminated = 0;
+    for (idx_t i = 0; i < 255; i++) {
+        decoder->len[i] = 8;
+        decoder->symbol[i] = VX_FSST_CORRUPT;
+    }
+    for (idx_t i = 0; i < symbol_count; i++) {
+        decoder->len[i] = symbol_lengths[i];
+        decoder->symbol[i] = symbols[i];
+    }
+
+    FSSTVector::RegisterDecoder(*vector, decoder_buffer, string_block_limit);
+
+    if (buffer) {
+        auto data = reinterpret_cast<shared_ptr<vortex::ExternalVectorBuffer> *>(buffer);
+        auto aux = vector->GetAuxiliary();
+        D_ASSERT(aux);
+        D_ASSERT(aux->GetBufferType() == VectorBufferType::FSST_BUFFER);
+        aux->Cast<VectorFSSTStringBuffer>().AddHeapReference(*data);
+    }
+
+    FSSTVector::SetCount(*vector, count);
+    vector->SetVectorType(VectorType::FSST_VECTOR);
+}
+
+extern "C" bool duckdb_vx_vector_is_fsst(duckdb_vector ffi_vector) {
+    auto vector = reinterpret_cast<Vector *>(ffi_vector);
+    return vector && vector->GetVectorType() == VectorType::FSST_VECTOR;
 }
 
 extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index) {

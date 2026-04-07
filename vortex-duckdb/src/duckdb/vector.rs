@@ -101,6 +101,31 @@ impl VectorRef {
         unsafe { cpp::duckdb_vx_sequence_vector(self.as_ptr(), start, stop, capacity) }
     }
 
+    pub fn set_fsst(
+        &mut self,
+        symbols: &[u64],
+        symbol_lengths: &[u8],
+        string_block_limit: usize,
+        count: usize,
+        buffer: &VectorBufferRef,
+    ) {
+        unsafe {
+            cpp::duckdb_vx_fsst_vector_set(
+                self.as_ptr(),
+                symbols.as_ptr(),
+                symbol_lengths.as_ptr(),
+                symbols.len() as idx_t,
+                string_block_limit as idx_t,
+                count as idx_t,
+                buffer.as_ptr(),
+            )
+        }
+    }
+
+    pub fn is_fsst(&self) -> bool {
+        unsafe { cpp::duckdb_vx_vector_is_fsst(self.as_ptr()) }
+    }
+
     /// Converts a vector into a flat uncompressed vector vortex call this `canonicalize`.
     pub fn flatten(&self, length: u64) {
         unsafe { cpp::duckdb_vector_flatten(self.as_ptr(), length) }

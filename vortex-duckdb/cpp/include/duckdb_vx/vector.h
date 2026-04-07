@@ -53,6 +53,21 @@ void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *ptr);
 // Converts a duckdb flat vector into a Sequence vector.
 void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity);
 
+// Finalize a vector as an FSST vector using externally managed compressed string data and a
+// symbol table owned by Vortex.
+void duckdb_vx_fsst_vector_set(
+    duckdb_vector ffi_vector,
+    const uint64_t *symbols,
+    const uint8_t *symbol_lengths,
+    idx_t symbol_count,
+    idx_t string_block_limit,
+    idx_t count,
+    duckdb_vx_vector_buffer buffer
+);
+
+// Returns whether the vector is currently an FSST vector.
+bool duckdb_vx_vector_is_fsst(duckdb_vector ffi_vector);
+
 void duckdb_vector_flatten(duckdb_vector vector, unsigned long len);
 
 const char *duckdb_vector_to_string(duckdb_vector vector, unsigned long len, duckdb_vx_error *err);

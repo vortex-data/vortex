@@ -8,6 +8,7 @@ mod constant;
 mod decimal;
 mod dict;
 mod fixed_size_list;
+mod fsst;
 mod list;
 mod list_view;
 mod primitive;
@@ -26,12 +27,14 @@ pub use decimal::precision_to_duckdb_storage_size;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::encodings::fsst::FSST;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
@@ -162,6 +165,12 @@ fn new_array_exporter_with_flatten(
 
     let array = match array.try_downcast::<List>() {
         Ok(array) => return list::new_exporter(array, cache, ctx),
+        Err(array) => array,
+    };
+
+    let array = match array.try_downcast::<FSST>() {
+        Ok(array) if !flatten => return fsst::new_exporter(array, ctx),
+        Ok(array) => array.into_array(),
         Err(array) => array,
     };
 

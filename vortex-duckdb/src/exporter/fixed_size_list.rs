@@ -101,8 +101,13 @@ impl ColumnExporter for FixedSizeListExporter {
 mod tests {
     use vortex::array::IntoArray as _;
     use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+    use vortex::encodings::fsst::fsst_compress;
+    use vortex::encodings::fsst::fsst_train_compressor;
     use vortex::error::VortexExpect;
 
     use super::*;
@@ -194,6 +199,39 @@ mod tests {
         // Verify the actual array values.
         let vector = chunk.get_vector(0);
         verify_array_elements(vector, &[1, 2, 3, 4, 5, 6], 2, 3);
+    }
+
+    #[test]
+    fn test_export_fsst_children_fall_back_to_flat_strings() {
+        let strings = VarBinArray::from_iter(
+            [Some("alpha"), Some("beta"), Some("gamma"), Some("delta")],
+            DType::Utf8(Nullability::Nullable),
+        );
+        let compressor = fsst_train_compressor(&strings);
+        let fsst = fsst_compress(
+            &strings,
+            strings.len(),
+            &DType::Utf8(Nullability::Nullable),
+            &compressor,
+        );
+        let fsl = FixedSizeListArray::new(fsst.into_array(), 2, Validity::AllValid, 2);
+
+        let array_type = LogicalType::array_type(LogicalType::varchar(), 2)
+            .vortex_expect("array type should be valid");
+        let mut chunk = DataChunk::new([array_type]);
+        let mut ctx = SESSION.create_execution_ctx();
+
+        new_exporter(fsl, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 2, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
+        chunk.set_len(2);
+
+        let child = chunk.get_vector(0).array_vector_get_child();
+        assert!(
+            !child.is_fsst(),
+            "nested exports should flatten FSST children"
+        );
     }
 
     #[test]

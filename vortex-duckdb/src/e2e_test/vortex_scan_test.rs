@@ -30,8 +30,11 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::buffer;
+use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::encodings::fsst::fsst_compress;
+use vortex::encodings::fsst::fsst_train_compressor;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::scalar::PValue;
@@ -193,6 +196,29 @@ fn test_scan_function_registration() {
 fn test_vortex_scan_strings() {
     let file = RUNTIME.block_on(async {
         let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
+        write_single_column_vortex_file("strings", strings).await
+    });
+
+    let result: String =
+        scan_vortex_file_single_row(file, "SELECT string_agg(strings, ',') FROM ?", 0);
+
+    assert_eq!(result, "Hello,Hi,Hey");
+}
+
+#[test]
+fn test_vortex_scan_fsst_strings() {
+    let file = RUNTIME.block_on(async {
+        let strings = VarBinArray::from_iter(
+            [Some("Hello"), Some("Hi"), Some("Hey")],
+            DType::Utf8(Nullability::Nullable),
+        );
+        let compressor = fsst_train_compressor(&strings);
+        let strings = fsst_compress(
+            &strings,
+            strings.len(),
+            &DType::Utf8(Nullability::Nullable),
+            &compressor,
+        );
         write_single_column_vortex_file("strings", strings).await
     });
 

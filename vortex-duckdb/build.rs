@@ -281,7 +281,7 @@ fn try_build_duckdb(
     }
 }
 
-fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
+fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path, duckdb_fsst_include_dir: &Path) {
     let bindings = bindgen::Builder::default()
         .header("cpp/include/duckdb_vx.h")
         .override_abi(Abi::CUnwind, ".*")
@@ -302,6 +302,7 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
         .rustified_non_exhaustive_enum("DUCKDB_TYPE")
         .size_t_is_usize(true)
         .clang_arg(format!("-I{}", duckdb_include_dir.display()))
+        .clang_arg(format!("-I{}", duckdb_fsst_include_dir.display()))
         .clang_arg(format!("-I{}", crate_dir.join("cpp/include").display()))
         .generate_comments(true)
         // Tell cargo to invalidate the built crate whenever any of the
@@ -328,12 +329,13 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     }
 }
 
-fn cpp(duckdb_include_dir: &Path) {
+fn cpp(duckdb_include_dir: &Path, duckdb_fsst_include_dir: &Path) {
     cc::Build::new()
         .std("c++20")
         .flags(["-Wall", "-Wextra", "-Wpedantic"])
         .cpp(true)
         .include(duckdb_include_dir)
+        .include(duckdb_fsst_include_dir)
         .include("cpp/include")
         .files(SOURCE_FILES)
         .compile("vortex-duckdb-extras");
@@ -449,7 +451,8 @@ fn main() {
     };
 
     let duckdb_include_dir = inner_dir.join("src").join("include");
-    c2rust(&crate_dir, &duckdb_include_dir);
-    cpp(&duckdb_include_dir);
+    let duckdb_fsst_include_dir = inner_dir.join("third_party").join("fsst");
+    c2rust(&crate_dir, &duckdb_include_dir, &duckdb_fsst_include_dir);
+    cpp(&duckdb_include_dir, &duckdb_fsst_include_dir);
     rust2c(&crate_dir);
 }
