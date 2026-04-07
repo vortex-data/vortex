@@ -221,7 +221,6 @@ pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
 }
 
 #[cfg(test)]
-#[allow(clippy::cast_possible_truncation)]
 mod tests {
     use rstest::rstest;
     use vortex_error::VortexResult;
@@ -312,9 +311,11 @@ mod tests {
         let boundaries = compute_centroid_boundaries(&centroids);
         assert_eq!(find_nearest_centroid(-1.0, &boundaries), 0);
 
+        #[expect(clippy::cast_possible_truncation)]
         let last_idx = (centroids.len() - 1) as u8;
         assert_eq!(find_nearest_centroid(1.0, &boundaries), last_idx);
         for (idx, &cv) in centroids.iter().enumerate() {
+            #[expect(clippy::cast_possible_truncation)]
             let expected = idx as u8;
             assert_eq!(find_nearest_centroid(cv, &boundaries), expected);
         }

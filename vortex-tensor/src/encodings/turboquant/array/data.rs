@@ -139,8 +139,10 @@ impl TurboQuantData {
             TurboQuant::MAX_CENTROIDS
         );
 
-        // Guaranteed to be 1-MAX_BIT_WIDTH by the preceding power-of-2 and range checks.
-        #[expect(clippy::cast_possible_truncation)]
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Guaranteed to be [1,8] by the preceding power-of-2 and range checks."
+        )]
         let bit_width = num_centroids.trailing_zeros() as u8;
         vortex_ensure!(
             (1..=TurboQuant::MAX_BIT_WIDTH).contains(&bit_width),

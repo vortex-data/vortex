@@ -55,7 +55,6 @@ impl Default for TurboQuantConfig {
 /// Extract elements from a FixedSizeListArray as a flat f32 PrimitiveArray for quantization.
 ///
 /// All quantization (rotation, centroid lookup) happens in f32. f16 is upcast; f64 is truncated.
-#[allow(clippy::cast_possible_truncation)]
 fn extract_f32_elements(
     fsl: &FixedSizeListArray,
     ctx: &mut ExecutionCtx,
@@ -74,7 +73,14 @@ fn extract_f32_elements(
         PType::F64 => Ok(primitive
             .as_slice::<f64>()
             .iter()
-            .map(|&v| v as f32)
+            .map(|&v| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "TurboQuant quantization operates in f32, so f64 inputs are intentionally downcast"
+                )]
+                let v = v as f32;
+                v
+            })
             .collect()),
         _ => vortex_bail!("TurboQuant requires float elements, got {ptype:?}"),
     }
@@ -97,7 +103,6 @@ struct QuantizationResult {
 /// Norms are computed in the native element precision via the [`L2Norm`] scalar function.
 /// The rotation and centroid lookup happen in f32. Null rows (per the input validity) produce
 /// all-zero codes.
-#[allow(clippy::cast_possible_truncation)]
 fn turboquant_quantize_core(
     ext: ArrayView<Extension>,
     fsl: &FixedSizeListArray,
@@ -106,7 +111,8 @@ fn turboquant_quantize_core(
     validity: &Validity,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<QuantizationResult> {
-    let dimension = fsl.list_size() as usize;
+    let dimension =
+        usize::try_from(fsl.list_size()).vortex_expect("u32 FixedSizeList dimension fits in usize");
     let num_rows = fsl.len();
 
     // Compute native-precision norms via the L2Norm scalar fn. L2Norm propagates validity from
@@ -130,10 +136,12 @@ fn turboquant_quantize_core(
 
     let rotation = RotationMatrix::try_new(seed, dimension)?;
     let padded_dim = rotation.padded_dim();
+    let padded_dim_u32 =
+        u32::try_from(padded_dim).vortex_expect("padded_dim stays representable as u32");
 
     let f32_elements = extract_f32_elements(fsl, ctx)?;
 
-    let centroids = get_centroids(padded_dim as u32, bit_width)?;
+    let centroids = get_centroids(padded_dim_u32, bit_width)?;
     let boundaries = compute_centroid_boundaries(&centroids);
 
     let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * padded_dim);
@@ -176,7 +184,6 @@ fn turboquant_quantize_core(
 }
 
 /// Build a `TurboQuantArray` from quantization results.
-#[allow(clippy::cast_possible_truncation)]
 fn build_turboquant(
     fsl: &FixedSizeListArray,
     core: QuantizationResult,
@@ -184,11 +191,13 @@ fn build_turboquant(
 ) -> VortexResult<TurboQuantArray> {
     let num_rows = fsl.len();
     let padded_dim = core.padded_dim;
+    let padded_dim_u32 =
+        u32::try_from(padded_dim).vortex_expect("padded_dim stays representable as u32");
     let codes_elements =
         PrimitiveArray::new::<u8>(core.all_indices.freeze(), Validity::NonNullable);
     let codes = FixedSizeListArray::try_new(
         codes_elements.into_array(),
-        padded_dim as u32,
+        padded_dim_u32,
         Validity::NonNullable,
         num_rows,
     )?
