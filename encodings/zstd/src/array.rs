@@ -34,7 +34,6 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -80,7 +79,8 @@ type ViewLen = u32;
 // We then insert these values to the correct position using a primitive array
 // constructor.
 
-vtable!(Zstd, Zstd, ZstdData);
+/// A [`Zstd`]-encoded Vortex array.
+pub type ZstdArray = Array<Zstd>;
 
 impl ArrayHash for ZstdData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {

@@ -30,12 +30,12 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 mod kernel;
 mod operations;
 mod validity;
 
-vtable!(FixedSizeList, FixedSizeList, FixedSizeListData);
+/// A [`FixedSizeList`]-encoded Vortex array.
+pub type FixedSizeListArray = Array<FixedSizeList>;
 
 #[derive(Clone, Debug)]
 pub struct FixedSizeList;

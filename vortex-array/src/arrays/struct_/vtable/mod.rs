@@ -29,7 +29,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 mod kernel;
 mod operations;
 mod validity;
@@ -37,7 +36,8 @@ mod validity;
 use crate::Precision;
 use crate::array::ArrayId;
 
-vtable!(Struct, Struct, StructData);
+/// A [`Struct`]-encoded Vortex array.
+pub type StructArray = Array<Struct>;
 
 impl ArrayHash for StructData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}

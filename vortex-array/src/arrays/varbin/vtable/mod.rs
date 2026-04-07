@@ -28,7 +28,6 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 mod canonical;
 mod kernel;
 mod operations;
@@ -43,7 +42,8 @@ use crate::arrays::varbin::compute::rules::PARENT_RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
-vtable!(VarBin, VarBin, VarBinData);
+/// A [`VarBin`]-encoded Vortex array.
+pub type VarBinArray = Array<VarBin>;
 
 #[derive(Clone, prost::Message)]
 pub struct VarBinMetadata {

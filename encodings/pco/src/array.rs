@@ -39,7 +39,6 @@ use vortex_array::dtype::half;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -79,7 +78,8 @@ use crate::PcoPageInfo;
 
 const VALUES_PER_CHUNK: usize = pco::DEFAULT_MAX_PAGE_N;
 
-vtable!(Pco, Pco, PcoData);
+/// A [`Pco`]-encoded Vortex array.
+pub type PcoArray = Array<Pco>;
 
 impl ArrayHash for PcoData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {

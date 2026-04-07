@@ -22,7 +22,6 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -39,7 +38,8 @@ use vortex_session::VortexSession;
 
 use crate::kernel::PARENT_KERNELS;
 
-vtable!(ByteBool, ByteBool, ByteBoolData);
+/// A [`ByteBool`]-encoded Vortex array.
+pub type ByteBoolArray = Array<ByteBool>;
 
 impl ArrayHash for ByteBoolData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {

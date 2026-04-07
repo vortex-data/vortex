@@ -28,7 +28,6 @@ use vortex_array::require_patches;
 use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
@@ -56,7 +55,8 @@ mod operations;
 mod rules;
 mod validity;
 
-vtable!(BitPacked, BitPacked, BitPackedData);
+/// A [`BitPacked`]-encoded Vortex array.
+pub type BitPackedArray = Array<BitPacked>;
 
 #[derive(Clone, prost::Message)]
 pub struct BitPackedMetadata {

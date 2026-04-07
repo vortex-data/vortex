@@ -41,12 +41,12 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::serde::ArrayChildren;
-use crate::vtable;
 pub(crate) mod canonical;
 mod operations;
 mod validity;
 
-vtable!(Constant, Constant, ConstantData);
+/// A [`Constant`]-encoded Vortex array.
+pub type ConstantArray = Array<Constant>;
 
 #[derive(Clone, Debug)]
 pub struct Constant;

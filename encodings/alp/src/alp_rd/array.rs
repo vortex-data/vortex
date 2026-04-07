@@ -31,7 +31,6 @@ use vortex_array::require_child;
 use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -48,7 +47,8 @@ use crate::alp_rd::kernel::PARENT_KERNELS;
 use crate::alp_rd::rules::RULES;
 use crate::alp_rd_decode;
 
-vtable!(ALPRD, ALPRD, ALPRDData);
+/// A [`ALPRD`]-encoded Vortex array.
+pub type ALPRDArray = Array<ALPRD>;
 
 #[derive(Clone, prost::Message)]
 pub struct ALPRDMetadata {

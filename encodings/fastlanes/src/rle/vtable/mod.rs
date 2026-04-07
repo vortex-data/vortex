@@ -22,7 +22,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -43,7 +42,8 @@ mod operations;
 mod rules;
 mod validity;
 
-vtable!(RLE, RLE, RLEData);
+/// A [`RLE`]-encoded Vortex array.
+pub type RLEArray = Array<RLE>;
 
 #[derive(Clone, prost::Message)]
 pub struct RLEMetadata {

@@ -34,10 +34,10 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 mod operations;
 mod validity;
-vtable!(ListView, ListView, ListViewData);
+/// A [`ListView`]-encoded Vortex array.
+pub type ListViewArray = Array<ListView>;
 
 #[derive(Clone, Debug)]
 pub struct ListView;

@@ -26,7 +26,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 mod canonical;
 mod kernel;
 mod operations;
@@ -38,7 +37,8 @@ use crate::arrays::bool::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
-vtable!(Bool, Bool, BoolData);
+/// A [`Bool`]-encoded Vortex array.
+pub type BoolArray = Array<Bool>;
 
 #[derive(prost::Message)]
 pub struct BoolMetadata {

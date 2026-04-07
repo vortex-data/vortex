@@ -39,9 +39,9 @@ use crate::executor::ExecutionResult;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 
-vtable!(Slice, Slice, SliceData);
+/// A [`Slice`]-encoded Vortex array.
+pub type SliceArray = Array<Slice>;
 
 #[derive(Clone, Debug)]
 pub struct Slice;

@@ -29,7 +29,6 @@ use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_error::VortexExpect as _;
@@ -46,7 +45,8 @@ use crate::decompress_bool::runend_decode_bools;
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
-vtable!(RunEnd, RunEnd, RunEndData);
+/// A [`RunEnd`]-encoded Vortex array.
+pub type RunEndArray = Array<RunEnd>;
 
 #[derive(Clone, prost::Message)]
 pub struct RunEndMetadata {

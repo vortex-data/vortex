@@ -19,7 +19,6 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 mod kernel;
 mod operations;
 mod validity;
@@ -36,7 +35,8 @@ use crate::arrays::primitive::compute::rules::RULES;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
-vtable!(Primitive, Primitive, PrimitiveData);
+/// A [`Primitive`]-encoded Vortex array.
+pub type PrimitiveArray = Array<Primitive>;
 
 impl ArrayHash for PrimitiveData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {

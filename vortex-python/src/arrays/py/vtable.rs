@@ -19,7 +19,6 @@ use vortex::array::VTable;
 use vortex::array::ValidityVTable;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::validity::Validity;
-use vortex::array::vtable;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -29,8 +28,6 @@ use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 
 use crate::arrays::py::PythonArray;
-
-vtable!(Python, PythonVTable);
 
 /// Wrapper struct encapsulating a Python encoding.
 #[derive(Debug, Clone)]

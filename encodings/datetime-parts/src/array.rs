@@ -23,7 +23,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -41,7 +40,8 @@ use crate::compute::kernel::PARENT_KERNELS;
 use crate::compute::rules::PARENT_RULES;
 use crate::split_temporal;
 
-vtable!(DateTimeParts, DateTimeParts, DateTimePartsData);
+/// A [`DateTimeParts`]-encoded Vortex array.
+pub type DateTimePartsArray = Array<DateTimeParts>;
 
 impl ArrayHash for DateTimePartsData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}

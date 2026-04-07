@@ -28,9 +28,9 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
-use crate::vtable;
 
-vtable!(Shared, Shared, SharedData);
+/// A [`Shared`]-encoded Vortex array.
+pub type SharedArray = Array<Shared>;
 
 // TODO(ngates): consider hooking Shared into the iterative execution model. Cache either the
 //  most executed, or after each iteration, and return a shared cache for each execution.

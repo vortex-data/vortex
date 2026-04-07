@@ -33,11 +33,11 @@ use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
-use crate::vtable;
 mod kernel;
 mod operations;
 mod validity;
-vtable!(VarBinView, VarBinView, VarBinViewData);
+/// A [`VarBinView`]-encoded Vortex array.
+pub type VarBinViewArray = Array<VarBinView>;
 
 #[derive(Clone, Debug)]
 pub struct VarBinView;

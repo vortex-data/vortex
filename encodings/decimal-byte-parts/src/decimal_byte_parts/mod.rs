@@ -31,7 +31,6 @@ use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -46,7 +45,8 @@ use vortex_session::VortexSession;
 use crate::decimal_byte_parts::compute::kernel::PARENT_KERNELS;
 use crate::decimal_byte_parts::rules::PARENT_RULES;
 
-vtable!(DecimalByteParts, DecimalByteParts, DecimalBytePartsData);
+/// A [`DecimalByteParts`]-encoded Vortex array.
+pub type DecimalBytePartsArray = Array<DecimalByteParts>;
 
 impl ArrayHash for DecimalBytePartsData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}

@@ -39,11 +39,11 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::serde::ArrayChildren;
-use crate::vtable;
 mod canonical;
 mod operations;
 mod validity;
-vtable!(Chunked, Chunked, ChunkedData);
+/// A [`Chunked`]-encoded Vortex array.
+pub type ChunkedArray = Array<Chunked>;
 
 #[derive(Clone, Debug)]
 pub struct Chunked;

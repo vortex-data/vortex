@@ -42,12 +42,12 @@ use crate::executor::ExecutionResult;
 use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::vtable;
 mod kernel;
 mod operations;
 mod validity;
 
-vtable!(Dict, Dict, DictData);
+/// A [`Dict`]-encoded Vortex array.
+pub type DictArray = Array<Dict>;
 
 #[derive(Clone, Debug)]
 pub struct Dict;
