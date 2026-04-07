@@ -42,8 +42,8 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValiditySliceHelper;
-use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
+use vortex_array::vtable::ValidityVTable;
+use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
@@ -83,7 +83,6 @@ vtable!(Pco, Pco, PcoData);
 
 impl ArrayHash for PcoData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        self.unsliced_validity.array_hash(state, precision);
         self.unsliced_n_rows.hash(state);
         self.slice_start.hash(state);
         self.slice_stop.hash(state);
@@ -99,10 +98,7 @@ impl ArrayHash for PcoData {
 
 impl ArrayEq for PcoData {
     fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        if !self
-            .unsliced_validity
-            .array_eq(&other.unsliced_validity, precision)
-            || self.unsliced_n_rows != other.unsliced_n_rows
+        if self.unsliced_n_rows != other.unsliced_n_rows
             || self.slice_start != other.slice_start
             || self.slice_stop != other.slice_stop
             || self.chunk_metas.len() != other.chunk_metas.len()
@@ -128,7 +124,7 @@ impl VTable for Pco {
     type ArrayData = PcoData;
 
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValiditySliceHelper;
+    type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
         Self::ID
@@ -139,9 +135,10 @@ impl VTable for Pco {
         data: &PcoData,
         dtype: &DType,
         len: usize,
-        _slots: &[Option<ArrayRef>],
+        slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate(dtype, len)
+        let validity = child_to_validity(&slots[0], dtype.nullability());
+        data.validate(dtype, len, &validity)
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {
@@ -206,14 +203,7 @@ impl VTable for Pco {
         vortex_ensure!(pages.len() == expected_n_pages);
 
         let slots = vec![validity_to_child(&validity, len)];
-        let data = PcoData::new(
-            chunk_metas,
-            pages,
-            dtype.as_ptype(),
-            metadata,
-            len,
-            validity,
-        );
+        let data = PcoData::new(chunk_metas, pages, dtype.as_ptype(), metadata, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -222,7 +212,14 @@ impl VTable for Pco {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(array.decompress(ctx)?.into_array()))
+        let unsliced_validity =
+            child_to_validity(&array.as_ref().slots()[0], array.dtype().nullability());
+        Ok(ExecutionResult::done(
+            array
+                .data()
+                .decompress(&unsliced_validity, ctx)?
+                .into_array(),
+        ))
     }
 
     fn reduce_parent(
@@ -273,13 +270,14 @@ pub struct Pco;
 impl Pco {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
 
-    pub(crate) fn try_new(dtype: DType, data: PcoData) -> VortexResult<PcoArray> {
+    pub(crate) fn try_new(
+        dtype: DType,
+        data: PcoData,
+        validity: Validity,
+    ) -> VortexResult<PcoArray> {
         let len = data.len();
-        data.validate(&dtype, len)?;
-        let slots = vec![validity_to_child(
-            &data.unsliced_validity,
-            data.unsliced_n_rows,
-        )];
+        data.validate(&dtype, len, &validity)?;
+        let slots = vec![validity_to_child(&validity, data.unsliced_n_rows())];
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data).with_slots(slots))
         })
@@ -292,8 +290,9 @@ impl Pco {
         values_per_page: usize,
     ) -> VortexResult<PcoArray> {
         let dtype = parray.dtype().clone();
+        let validity = parray.validity()?;
         let data = PcoData::from_primitive(parray, level, values_per_page)?;
-        Self::try_new(dtype, data)
+        Self::try_new(dtype, data, validity)
     }
 }
 
@@ -307,14 +306,13 @@ pub struct PcoData {
     pub(crate) pages: Vec<ByteBuffer>,
     pub(crate) metadata: PcoMetadata,
     ptype: PType,
-    pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
     slice_start: usize,
     slice_stop: usize,
 }
 
 impl PcoData {
-    pub fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
+    pub fn validate(&self, dtype: &DType, len: usize, validity: &Validity) -> VortexResult<()> {
         let _ = number_type_from_ptype(self.ptype);
         vortex_ensure!(
             dtype.as_ptype() == self.ptype,
@@ -323,9 +321,9 @@ impl PcoData {
             dtype.as_ptype()
         );
         vortex_ensure!(
-            dtype.nullability() == self.unsliced_validity.nullability(),
+            dtype.nullability() == validity.nullability(),
             "expected nullability {}, got {}",
-            self.unsliced_validity.nullability(),
+            validity.nullability(),
             dtype.nullability()
         );
         vortex_ensure!(
@@ -340,7 +338,7 @@ impl PcoData {
             "expected len {len}, got {}",
             self.slice_stop - self.slice_start
         );
-        if let Some(validity_len) = self.unsliced_validity.maybe_len() {
+        if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == self.unsliced_n_rows,
                 "expected validity len {}, got {}",
@@ -373,14 +371,12 @@ impl PcoData {
         ptype: PType,
         metadata: PcoMetadata,
         len: usize,
-        validity: Validity,
     ) -> Self {
         Self {
             chunk_metas,
             pages,
             metadata,
             ptype,
-            unsliced_validity: validity,
             unsliced_n_rows: len,
             slice_start: 0,
             slice_stop: len,
@@ -464,7 +460,6 @@ impl PcoData {
             parray.dtype().as_ptype(),
             metadata,
             parray.len(),
-            parray.validity()?,
         ))
     }
 
@@ -478,33 +473,36 @@ impl PcoData {
         Self::from_primitive(&parray, level, nums_per_page)
     }
 
-    pub fn decompress(&self, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    pub fn decompress(
+        &self,
+        unsliced_validity: &Validity,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<PrimitiveArray> {
         // To start, we figure out which chunks and pages we need to decompress, and with
         // what value offset into the first such page.
         let number_type = number_type_from_ptype(self.ptype);
         let values_byte_buffer = match_number_enum!(
             number_type,
             NumberType<T> => {
-              self.decompress_values_typed::<T>(ctx)?
+              self.decompress_values_typed::<T>(unsliced_validity, ctx)?
             }
         );
 
         Ok(PrimitiveArray::from_values_byte_buffer(
             values_byte_buffer,
             self.ptype,
-            self.unsliced_validity
-                .slice(self.slice_start..self.slice_stop)?,
+            unsliced_validity.slice(self.slice_start..self.slice_stop)?,
             self.slice_stop - self.slice_start,
         ))
     }
 
     fn decompress_values_typed<T: Number>(
         &self,
+        unsliced_validity: &Validity,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ByteBuffer> {
         // To start, we figure out what range of values we need to decompress.
-        let slice_value_indices = self
-            .unsliced_validity
+        let slice_value_indices = unsliced_validity
             .execute_mask(self.unsliced_n_rows, ctx)?
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
         let slice_value_start = slice_value_indices[0];
@@ -605,9 +603,10 @@ impl PcoData {
     }
 }
 
-impl ValiditySliceHelper for PcoData {
-    fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize) {
-        (&self.unsliced_validity, self.slice_start, self.slice_stop)
+impl ValidityVTable<Pco> for Pco {
+    fn validity(array: ArrayView<'_, Pco>) -> VortexResult<Validity> {
+        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        unsliced_validity.slice(array.slice_start()..array.slice_stop())
     }
 }
 
@@ -618,9 +617,10 @@ impl OperationsVTable<Pco> for Pco {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
         array
             ._slice(index, index + 1)
-            .decompress(&mut ctx)?
+            .decompress(&unsliced_validity, &mut ctx)?
             .into_array()
             .scalar_at(0)
     }

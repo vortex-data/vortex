@@ -22,7 +22,7 @@ pub type vortex_fsst::FSST::ArrayData = vortex_fsst::FSSTData
 
 pub type vortex_fsst::FSST::OperationsVTable = vortex_fsst::FSST
 
-pub type vortex_fsst::FSST::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
+pub type vortex_fsst::FSST::ValidityVTable = vortex_fsst::FSST
 
 pub fn vortex_fsst::FSST::append_to_builder(array: vortex_array::array::view::ArrayView<'_, Self>, builder: &mut dyn vortex_array::builders::ArrayBuilder, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -52,9 +52,9 @@ impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fsst::FSST
 
 pub fn vortex_fsst::FSST::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>, index: usize, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-impl vortex_array::array::vtable::validity::ValidityChild<vortex_fsst::FSST> for vortex_fsst::FSST
+impl vortex_array::array::vtable::validity::ValidityVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 
-pub fn vortex_fsst::FSST::validity_child(array: vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>) -> vortex_array::array::erased::ArrayRef
+pub fn vortex_fsst::FSST::validity(array: vortex_array::array::view::ArrayView<'_, vortex_fsst::FSST>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_fsst::FSST
 
@@ -84,17 +84,11 @@ pub struct vortex_fsst::FSSTData
 
 impl vortex_fsst::FSSTData
 
-pub fn vortex_fsst::FSSTData::codes(&self) -> &vortex_array::arrays::varbin::vtable::VarBinArray
-
-pub fn vortex_fsst::FSSTData::codes_dtype(&self) -> &vortex_array::dtype::DType
+pub fn vortex_fsst::FSSTData::codes_bytes(&self) -> &vortex_array::buffer::BufferHandle
 
 pub fn vortex_fsst::FSSTData::compressor(&self) -> &fsst::Compressor
 
 pub fn vortex_fsst::FSSTData::decompressor(&self) -> fsst::Decompressor<'_>
-
-pub fn vortex_fsst::FSSTData::is_empty(&self) -> bool
-
-pub fn vortex_fsst::FSSTData::len(&self) -> usize
 
 pub fn vortex_fsst::FSSTData::symbol_lengths(&self) -> &vortex_buffer::buffer::Buffer<u8>
 
@@ -156,11 +150,19 @@ pub fn vortex_fsst::FSSTMetadata::encoded_len(&self) -> usize
 
 pub trait vortex_fsst::FSSTArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_fsst::FSST>
 
+pub fn vortex_fsst::FSSTArrayExt::codes(&self) -> vortex_array::arrays::varbin::vtable::VarBinArray
+
+pub fn vortex_fsst::FSSTArrayExt::codes_dtype(&self) -> vortex_array::dtype::DType
+
 pub fn vortex_fsst::FSSTArrayExt::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_fsst::FSSTArrayExt::uncompressed_lengths_dtype(&self) -> &vortex_array::dtype::DType
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_fsst::FSST>> vortex_fsst::FSSTArrayExt for T
+
+pub fn T::codes(&self) -> vortex_array::arrays::varbin::vtable::VarBinArray
+
+pub fn T::codes_dtype(&self) -> vortex_array::dtype::DType
 
 pub fn T::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
 

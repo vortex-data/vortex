@@ -37,8 +37,8 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValiditySliceHelper;
-use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
+use vortex_array::vtable::ValidityVTable;
+use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -96,7 +96,6 @@ impl ArrayHash for ZstdData {
         for frame in &self.frames {
             frame.array_hash(state, precision);
         }
-        self.unsliced_validity.array_hash(state, precision);
         self.unsliced_n_rows.hash(state);
         self.slice_start.hash(state);
         self.slice_stop.hash(state);
@@ -120,9 +119,7 @@ impl ArrayEq for ZstdData {
                 return false;
             }
         }
-        self.unsliced_validity
-            .array_eq(&other.unsliced_validity, precision)
-            && self.unsliced_n_rows == other.unsliced_n_rows
+        self.unsliced_n_rows == other.unsliced_n_rows
             && self.slice_start == other.slice_start
             && self.slice_stop == other.slice_stop
     }
@@ -132,7 +129,7 @@ impl VTable for Zstd {
     type ArrayData = ZstdData;
 
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValiditySliceHelper;
+    type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
         Self::ID
@@ -143,9 +140,10 @@ impl VTable for Zstd {
         data: &Self::ArrayData,
         dtype: &DType,
         len: usize,
-        _slots: &[Option<ArrayRef>],
+        slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate(dtype, len)
+        let validity = child_to_validity(&slots[0], dtype.nullability());
+        data.validate(dtype, len, &validity)
     }
 
     fn nbuffers(array: ArrayView<'_, Self>) -> usize {
@@ -219,13 +217,7 @@ impl VTable for Zstd {
         };
 
         let slots = vec![validity_to_child(&validity, len)];
-        let data = ZstdData::new(
-            dictionary_buffer,
-            compressed_buffers,
-            metadata,
-            len,
-            validity,
-        );
+        let data = ZstdData::new(dictionary_buffer, compressed_buffers, metadata, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -234,7 +226,11 @@ impl VTable for Zstd {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Zstd::decompress(&array, ctx)?
+        let unsliced_validity =
+            child_to_validity(&array.as_ref().slots()[0], array.dtype().nullability());
+        array
+            .data()
+            .decompress(array.dtype(), &unsliced_validity, ctx)?
             .execute::<ArrayRef>(ctx)
             .map(ExecutionResult::done)
     }
@@ -254,13 +250,10 @@ pub struct Zstd;
 impl Zstd {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
 
-    pub fn try_new(dtype: DType, data: ZstdData) -> VortexResult<ZstdArray> {
+    pub fn try_new(dtype: DType, data: ZstdData, validity: Validity) -> VortexResult<ZstdArray> {
         let len = data.len();
-        data.validate(&dtype, len)?;
-        let slots = vec![validity_to_child(
-            &data.unsliced_validity,
-            data.unsliced_n_rows,
-        )];
+        data.validate(&dtype, len, &validity)?;
+        let slots = vec![validity_to_child(&validity, data.unsliced_n_rows())];
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data).with_slots(slots))
         })
@@ -272,9 +265,11 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
+        let validity = vbv.validity()?;
         Self::try_new(
             vbv.dtype().clone(),
             ZstdData::from_var_bin_view_without_dict(vbv, level, values_per_frame)?,
+            validity,
         )
     }
 
@@ -284,9 +279,11 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
+        let validity = parray.validity()?;
         Self::try_new(
             parray.dtype().clone(),
             ZstdData::from_primitive(parray, level, values_per_frame)?,
+            validity,
         )
     }
 
@@ -296,14 +293,20 @@ impl Zstd {
         level: i32,
         values_per_frame: usize,
     ) -> VortexResult<ZstdArray> {
+        let validity = vbv.validity()?;
         Self::try_new(
             vbv.dtype().clone(),
             ZstdData::from_var_bin_view(vbv, level, values_per_frame)?,
+            validity,
         )
     }
 
     pub fn decompress(array: &ZstdArray, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        array.data().decompress(array.dtype(), ctx)
+        let unsliced_validity =
+            child_to_validity(&array.as_ref().slots()[0], array.dtype().nullability());
+        array
+            .data()
+            .decompress(array.dtype(), &unsliced_validity, ctx)
     }
 }
 
@@ -316,7 +319,6 @@ pub struct ZstdData {
     pub(crate) dictionary: Option<ByteBuffer>,
     pub(crate) frames: Vec<ByteBuffer>,
     pub(crate) metadata: ZstdMetadata,
-    pub(crate) unsliced_validity: Validity,
     unsliced_n_rows: usize,
     slice_start: usize,
     slice_stop: usize,
@@ -436,20 +438,18 @@ impl ZstdData {
         frames: Vec<ByteBuffer>,
         metadata: ZstdMetadata,
         n_rows: usize,
-        validity: Validity,
     ) -> Self {
         Self {
             dictionary,
             frames,
             metadata,
-            unsliced_validity: validity,
             unsliced_n_rows: n_rows,
             slice_start: 0,
             slice_stop: n_rows,
         }
     }
 
-    pub fn validate(&self, dtype: &DType, len: usize) -> VortexResult<()> {
+    pub fn validate(&self, dtype: &DType, len: usize, validity: &Validity) -> VortexResult<()> {
         vortex_ensure!(
             matches!(
                 dtype,
@@ -475,7 +475,7 @@ impl ZstdData {
             self.slice_stop - self.slice_start,
             len
         );
-        if let Some(validity_len) = self.unsliced_validity.maybe_len() {
+        if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == self.unsliced_n_rows,
                 "Validity length {} does not match unsliced row count {}",
@@ -672,13 +672,7 @@ impl ZstdData {
             frames: frame_metas,
         };
 
-        Ok(ZstdData::new(
-            dictionary,
-            frames,
-            metadata,
-            parray.len(),
-            parray.validity()?,
-        ))
+        Ok(ZstdData::new(dictionary, frames, metadata, parray.len()))
     }
 
     /// Creates a ZstdArray from a VarBinView array.
@@ -760,13 +754,7 @@ impl ZstdData {
                 .try_into()?,
             frames: frame_metas,
         };
-        Ok(ZstdData::new(
-            dictionary,
-            frames,
-            metadata,
-            vbv.len(),
-            vbv.validity()?,
-        ))
+        Ok(ZstdData::new(dictionary, frames, metadata, vbv.len()))
     }
 
     pub fn from_canonical(
@@ -802,13 +790,17 @@ impl ZstdData {
         }
     }
 
-    fn decompress(&self, dtype: &DType, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn decompress(
+        &self,
+        dtype: &DType,
+        unsliced_validity: &Validity,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
         let byte_width = Self::byte_width(dtype);
         let slice_n_rows = self.slice_stop - self.slice_start;
-        let slice_value_indices = self
-            .unsliced_validity
+        let slice_value_indices = unsliced_validity
             .execute_mask(self.unsliced_n_rows, ctx)?
             .valid_counts_for_indices(&[self.slice_start, self.slice_stop]);
 
@@ -875,9 +867,7 @@ impl ZstdData {
 
         let decompressed = decompressed.freeze();
         // Last, we slice the exact values requested out of the decompressed data.
-        let mut slice_validity = self
-            .unsliced_validity
-            .slice(self.slice_start..self.slice_stop)?;
+        let mut slice_validity = unsliced_validity.slice(self.slice_start..self.slice_stop)?;
 
         // NOTE: this block handles setting the output type when the validity and DType disagree.
         //
@@ -982,12 +972,12 @@ impl ZstdData {
         self.slice_stop == self.slice_start
     }
 
-    pub fn into_parts(self) -> ZstdDataParts {
+    pub fn into_parts(self, validity: Validity) -> ZstdDataParts {
         ZstdDataParts {
             dictionary: self.dictionary,
             frames: self.frames,
             metadata: self.metadata,
-            validity: self.unsliced_validity,
+            validity,
             n_rows: self.unsliced_n_rows,
             slice_start: self.slice_start,
             slice_stop: self.slice_stop,
@@ -1007,9 +997,10 @@ impl ZstdData {
     }
 }
 
-impl ValiditySliceHelper for ZstdData {
-    fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize) {
-        (&self.unsliced_validity, self.slice_start, self.slice_stop)
+impl ValidityVTable<Zstd> for Zstd {
+    fn validity(array: ArrayView<'_, Zstd>) -> VortexResult<Validity> {
+        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        unsliced_validity.slice(array.slice_start()..array.slice_stop())
     }
 }
 
@@ -1020,11 +1011,11 @@ impl OperationsVTable<Zstd> for Zstd {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let sliced = Zstd::try_new(
-            array.dtype().clone(),
-            array.data().with_slice(index, index + 1),
-        )?;
-        Zstd::decompress(&sliced, &mut ctx)?.scalar_at(0)
+        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        let sliced = array.data().with_slice(index, index + 1);
+        sliced
+            .decompress(array.dtype(), &unsliced_validity, &mut ctx)?
+            .scalar_at(0)
     }
 }
 

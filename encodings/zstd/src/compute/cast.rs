@@ -8,7 +8,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ValiditySliceHelper;
+use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 
 use crate::Zstd;
@@ -33,6 +33,8 @@ impl CastReduce for Zstd {
             }
             (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity
+                let unsliced_validity =
+                    child_to_validity(&array.slots()[0], array.dtype().nullability());
                 Ok(Some(
                     Zstd::try_new(
                         dtype.clone(),
@@ -41,8 +43,8 @@ impl CastReduce for Zstd {
                             array.frames.clone(),
                             array.metadata.clone(),
                             array.unsliced_n_rows(),
-                            array.unsliced_validity.clone(),
                         ),
+                        unsliced_validity,
                     )?
                     .into_array()
                     .slice(array.slice_start()..array.slice_stop())?,
@@ -50,8 +52,10 @@ impl CastReduce for Zstd {
             }
             (Nullability::Nullable, Nullability::NonNullable) => {
                 // null => non-null works if there are no nulls in the sliced range
+                let unsliced_validity =
+                    child_to_validity(&array.slots()[0], array.dtype().nullability());
                 let has_nulls = !matches!(
-                    array.sliced_validity()?,
+                    unsliced_validity.slice(array.slice_start()..array.slice_stop())?,
                     Validity::AllValid | Validity::NonNullable
                 );
 
@@ -69,8 +73,8 @@ impl CastReduce for Zstd {
                             array.frames.clone(),
                             array.metadata.clone(),
                             array.unsliced_n_rows(),
-                            array.unsliced_validity.clone(),
                         ),
+                        unsliced_validity,
                     )?
                     .into_array()
                     .slice(array.slice_start()..array.slice_stop())?,

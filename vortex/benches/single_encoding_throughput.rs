@@ -329,9 +329,11 @@ fn bench_zstd_compress_u32(bencher: Bencher) {
 fn bench_zstd_decompress_u32(bencher: Bencher) {
     let (uint_array, ..) = setup_primitive_arrays();
     let dtype = uint_array.dtype().clone();
+    let validity = uint_array.validity().unwrap();
     let compressed = Zstd::try_new(
         dtype,
         ZstdData::from_array(uint_array.into_array(), 3, 8192).unwrap(),
+        validity,
     )
     .unwrap()
     .into_array();
@@ -414,9 +416,11 @@ fn bench_zstd_decompress_string(bencher: Bencher) {
     let varbinview_arr =
         VarBinViewArray::from_iter_str(gen_varbin_words(NUM_VALUES as usize, 0.00005));
     let dtype = varbinview_arr.dtype().clone();
+    let validity = varbinview_arr.validity().unwrap();
     let compressed = Zstd::try_new(
         dtype,
         ZstdData::from_array(varbinview_arr.clone().into_array(), 3, 8192).unwrap(),
+        validity,
     )
     .unwrap()
     .into_array();

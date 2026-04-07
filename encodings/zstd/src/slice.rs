@@ -7,16 +7,19 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceReduce;
+use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 
 use crate::Zstd;
 
 impl SliceReduce for Zstd {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
         Ok(Some(
             Zstd::try_new(
                 array.dtype().clone(),
                 array.data().with_slice(range.start, range.end),
+                unsliced_validity,
             )?
             .into_array(),
         ))

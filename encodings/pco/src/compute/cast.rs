@@ -6,6 +6,7 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexResult;
 
 use crate::Pco;
@@ -24,10 +25,10 @@ impl CastReduce for Pco {
         // PCO supports: F16, F32, F64, I16, I32, I64, U16, U32, U64
         if array.dtype().eq_ignore_nullability(dtype) {
             // Create a new validity with the target nullability
-            let new_validity = array
-                .unsliced_validity
-                .clone()
-                .cast_nullability(dtype.nullability(), array.len())?;
+            let unsliced_validity =
+                child_to_validity(&array.slots()[0], array.dtype().nullability());
+            let new_validity =
+                unsliced_validity.cast_nullability(dtype.nullability(), array.len())?;
 
             let data = PcoData::new(
                 array.chunk_metas.clone(),
@@ -35,11 +36,12 @@ impl CastReduce for Pco {
                 dtype.as_ptype(),
                 array.metadata.clone(),
                 array.unsliced_n_rows(),
-                new_validity,
             )
             ._slice(array.slice_start(), array.slice_stop());
 
-            return Ok(Some(Pco::try_new(dtype.clone(), data)?.into_array()));
+            return Ok(Some(
+                Pco::try_new(dtype.clone(), data, new_validity)?.into_array(),
+            ));
         }
 
         // For other casts (e.g., numeric type changes), decode to canonical and let PrimitiveArray handle it

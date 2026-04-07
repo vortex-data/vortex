@@ -20,6 +20,7 @@ use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
+use vortex::array::vtable::child_to_validity;
 use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
@@ -214,6 +215,7 @@ impl CudaExecute for ZstdExecutor {
 
 async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     let dtype = array.dtype().clone();
+    let validity = child_to_validity(&array.as_ref().slots()[0], dtype.nullability());
     let ZstdDataParts {
         frames,
         metadata,
@@ -222,7 +224,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         dictionary,
         slice_start,
         slice_stop,
-    } = array.into_data().into_parts();
+    } = array.into_data().into_parts(validity);
 
     // nvCOMP doesn't support ZSTD dictionaries.
     if dictionary.is_some() {

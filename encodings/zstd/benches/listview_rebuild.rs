@@ -18,9 +18,14 @@ fn rebuild_naive(bencher: Bencher) {
     let dudes = VarBinViewArray::from_iter_str(["Washington", "Adams", "Jefferson", "Madison"])
         .into_array();
     let dtype = dudes.dtype().clone();
-    let dudes = Zstd::try_new(dtype, ZstdData::from_array(dudes, 9, 1024).unwrap())
-        .unwrap()
-        .into_array();
+    let validity = dudes.validity().unwrap();
+    let dudes = Zstd::try_new(
+        dtype,
+        ZstdData::from_array(dudes, 9, 1024).unwrap(),
+        validity,
+    )
+    .unwrap()
+    .into_array();
 
     let offsets = std::iter::repeat_n(0u32, 1024)
         .collect::<Buffer<u32>>()
