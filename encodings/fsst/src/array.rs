@@ -347,7 +347,7 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
 ///
 /// Holds the FSST symbol table (`symbols` + `symbol_lengths`) and the raw compressed
 /// codes bytes buffer. The codes offsets and validity live in the outer array's slots
-/// (see [`CODES_OFFSETS_SLOT`] and [`CODES_VALIDITY_SLOT`]).
+/// (slots 1 and 2 respectively).
 ///
 /// A full [`VarBinArray`] representing the codes can be reconstructed on demand via
 /// [`FSSTArrayExt::codes()`], combining this buffer with the offsets/validity from slots.
