@@ -290,4 +290,3 @@ pub fn patches_child_name(idx: usize) -> &'static str {
         _ => vortex_panic!("patches child name index {idx} out of bounds"),
     }
 }
-
