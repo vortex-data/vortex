@@ -47,23 +47,41 @@ pub(super) fn to_arrow_struct(
         Err(array) => array,
     };
 
-    // Attempt to short-circuit if the array is already a Struct:
+    // Attempt to short-circuit if the array is already a Struct and the target
+    // fields match (same count). When target_fields has fewer fields (e.g., due
+    // to nested field pruning), we skip the fast path and fall through to the
+    // cast path which can handle field selection.
     let array = match array.try_downcast::<Struct>() {
         Ok(array) => {
-            let StructDataParts {
-                validity,
-                fields,
-                struct_fields,
-                ..
-            } = array.into_data_parts();
-            let validity = to_arrow_null_buffer(validity, len, ctx)?;
-            return create_from_fields(
-                target_fields.ok_or_else(|| struct_fields.names().clone()),
-                &fields,
-                validity,
-                len,
-                ctx,
-            );
+            let n_struct_fields = match array.dtype() {
+                DType::Struct(sf, _) => sf.nfields(),
+                _ => 0,
+            };
+            // Skip the fast path only when target has strictly fewer fields
+            // (nested field pruning). When target has same or more fields,
+            // use the fast path which will validate the count.
+            let can_fast_path = match target_fields {
+                None => true,
+                Some(fields) => fields.len() >= n_struct_fields,
+            };
+            if can_fast_path {
+                let StructDataParts {
+                    validity,
+                    fields,
+                    struct_fields,
+                    ..
+                } = array.into_data_parts();
+                let validity = to_arrow_null_buffer(validity, len, ctx)?;
+                return create_from_fields(
+                    target_fields.ok_or_else(|| struct_fields.names().clone()),
+                    &fields,
+                    validity,
+                    len,
+                    ctx,
+                );
+            }
+            // Field count mismatch — fall through to cast path.
+            array.into_array()
         }
         Err(array) => array,
     };
