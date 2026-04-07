@@ -203,6 +203,7 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -466,6 +467,7 @@ mod tests {
                 let (ptr, eof) = SequenceId::root().split();
                 // Only allow primitive encodings - filter arrays should fail.
                 let mut allowed = HashSet::default();
+                allowed.insert(Primitive.id());
                 allowed.insert(Dict.id());
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
