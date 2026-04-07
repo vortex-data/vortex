@@ -14,6 +14,6 @@ pub(crate) mod compute;
 mod plugin;
 mod vtable;
 
-pub use plugin::BitPackedPatchedPlugin;
+pub(crate) use plugin::BitPackedPatchedPlugin;
 pub use vtable::BitPacked;
 pub use vtable::BitPackedArray;

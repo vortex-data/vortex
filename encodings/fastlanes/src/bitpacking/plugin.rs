@@ -25,7 +25,7 @@ use crate::BitPackedArrayExt;
 /// Custom deserialization plugin that converts a BitPacked array with interior
 /// Patches into a PatchedArray holding a BitPacked array.
 #[derive(Debug, Clone)]
-pub struct BitPackedPatchedPlugin;
+pub(crate) struct BitPackedPatchedPlugin;
 
 impl ArrayPlugin for BitPackedPatchedPlugin {
     fn id(&self) -> ArrayId {
