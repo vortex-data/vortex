@@ -386,15 +386,17 @@ mod tests {
         );
 
         let stream = fsl.into_array().to_array_stream().sequenced(ptr);
-        let layout = block_on(|handle| {
+        let layout = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
-            strategy.write_stream(
-                ctx,
-                Arc::<TestSegments>::clone(&segments),
-                stream,
-                eof,
-                &session,
-            )
+            strategy
+                .write_stream(
+                    ctx,
+                    Arc::<TestSegments>::clone(&segments),
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
         })?;
 
         // The layout should be a ChunkedLayout with multiple children.
@@ -449,15 +451,17 @@ mod tests {
         );
 
         let stream = elements.into_array().to_array_stream().sequenced(ptr);
-        let layout = block_on(|handle| {
+        let layout = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
-            strategy.write_stream(
-                ctx,
-                Arc::<TestSegments>::clone(&segments),
-                stream,
-                eof,
-                &session,
-            )
+            strategy
+                .write_stream(
+                    ctx,
+                    Arc::<TestSegments>::clone(&segments),
+                    stream,
+                    eof,
+                    &session,
+                )
+                .await
         })?;
 
         assert_eq!(layout.row_count(), num_elements as u64);

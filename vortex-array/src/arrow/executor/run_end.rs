@@ -24,7 +24,6 @@ use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::ArrowArrayExecutor;
-use crate::session::ArraySessionExt;
 
 /// The encoding ID used by `vortex-runend`. We match on this string to avoid a crate dependency.
 const VORTEX_RUNEND_ID: &str = "vortex.runend";

@@ -444,15 +444,12 @@ mod test {
         .into_array()
         .to_array_stream()
         .sequenced(ptr);
-        let layout = block_on(|handle| {
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
-            strategy.write_stream(
-                ctx,
-                Arc::<TestSegments>::clone(&segments),
-                array_stream,
-                eof,
-                &session,
-            )
+            strategy
+                .write_stream(ctx, segments2, array_stream, eof, &session)
+                .await
         })
         .unwrap();
         (segments, layout)

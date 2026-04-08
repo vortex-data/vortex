@@ -314,6 +314,8 @@ impl LayoutStrategy for TableStrategy {
                 let child_eof = eof.split_off();
                 let field = Field::Name(name.clone());
                 let session = session.clone();
+                let ctx = ctx.clone();
+                let segment_sink = Arc::clone(&segment_sink);
                 handle.spawn_nested(move |h| {
                     let validity = Arc::clone(&self.validity);
                     // descend further and try with new fields
@@ -330,8 +332,6 @@ impl LayoutStrategy for TableStrategy {
                                 Arc::clone(&self.fallback)
                             }
                         });
-                    let ctx = ctx.clone();
-                    let segment_sink = Arc::clone(&segment_sink);
                     let session = session.with_handle(h);
 
                     async move {

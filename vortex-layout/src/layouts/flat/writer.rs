@@ -161,7 +161,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
 
         let buffers = chunk.serialize(
             &ctx,
-            &session,
+            session,
             &SerializeOptions {
                 offset: 0,
                 include_padding: self.include_padding,

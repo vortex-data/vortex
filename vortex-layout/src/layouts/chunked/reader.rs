@@ -364,23 +364,26 @@ mod test {
         let segments = Arc::new(TestSegments::default());
         let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
         let (mut sequence_id, eof) = SequenceId::root().split();
-        let layout = block_on(|handle| {
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
-            strategy.write_stream(
-                ctx,
-                Arc::<TestSegments>::clone(&segments),
-                SequentialStreamAdapter::new(
-                    DType::Primitive(PType::I32, NonNullable),
-                    stream::iter([
-                        Ok((sequence_id.advance(), buffer![1, 2, 3].into_array())),
-                        Ok((sequence_id.advance(), buffer![4, 5, 6].into_array())),
-                        Ok((sequence_id.advance(), buffer![7, 8, 9].into_array())),
-                    ]),
+            strategy
+                .write_stream(
+                    ctx,
+                    segments2,
+                    SequentialStreamAdapter::new(
+                        DType::Primitive(PType::I32, NonNullable),
+                        stream::iter([
+                            Ok((sequence_id.advance(), buffer![1, 2, 3].into_array())),
+                            Ok((sequence_id.advance(), buffer![4, 5, 6].into_array())),
+                            Ok((sequence_id.advance(), buffer![7, 8, 9].into_array())),
+                        ]),
+                    )
+                    .sendable(),
+                    eof,
+                    &session,
                 )
-                .sendable(),
-                eof,
-                &session,
-            )
+                .await
         })
         .unwrap();
 

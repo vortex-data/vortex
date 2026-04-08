@@ -442,24 +442,27 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
         );
-        let layout = block_on(|handle| {
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
-            strategy.write_stream(
-                ctx,
-                Arc::<TestSegments>::clone(&segments),
-                StructArray::try_new(
-                    Vec::<FieldName>::new().into(),
-                    vec![],
-                    5,
-                    Validity::NonNullable,
+            strategy
+                .write_stream(
+                    ctx,
+                    segments2,
+                    StructArray::try_new(
+                        Vec::<FieldName>::new().into(),
+                        vec![],
+                        5,
+                        Validity::NonNullable,
+                    )
+                    .unwrap()
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(ptr),
+                    eof,
+                    &session,
                 )
-                .unwrap()
-                .into_array()
-                .to_array_stream()
-                .sequenced(ptr),
-                eof,
-                &session,
-            )
+                .await
         })
         .unwrap();
 
@@ -476,26 +479,29 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
         );
-        let layout = block_on(|handle| {
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
-            strategy.write_stream(
-                ctx,
-                Arc::<TestSegments>::clone(&segments),
-                StructArray::from_fields(
-                    [
-                        ("a", buffer![7, 2, 3].into_array()),
-                        ("b", buffer![4, 5, 6].into_array()),
-                        ("c", buffer![4, 5, 6].into_array()),
-                    ]
-                    .as_slice(),
+            strategy
+                .write_stream(
+                    ctx,
+                    segments2,
+                    StructArray::from_fields(
+                        [
+                            ("a", buffer![7, 2, 3].into_array()),
+                            ("b", buffer![4, 5, 6].into_array()),
+                            ("c", buffer![4, 5, 6].into_array()),
+                        ]
+                        .as_slice(),
+                    )
+                    .unwrap()
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(ptr),
+                    eof,
+                    &session,
                 )
-                .unwrap()
-                .into_array()
-                .to_array_stream()
-                .sequenced(ptr),
-                eof,
-                &session,
-            )
+                .await
         })
         .unwrap();
 
@@ -513,26 +519,29 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
         );
-        let layout = block_on(|handle| {
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
-            strategy.write_stream(
-                ctx,
-                Arc::<TestSegments>::clone(&segments),
-                StructArray::try_from_iter_with_validity(
-                    [
-                        ("a", buffer![7, 2, 3].into_array()),
-                        ("b", buffer![4, 5, 6].into_array()),
-                        ("c", buffer![4, 5, 6].into_array()),
-                    ],
-                    Validity::Array(BoolArray::from_iter([false, true, true]).into_array()),
+            strategy
+                .write_stream(
+                    ctx,
+                    segments2,
+                    StructArray::try_from_iter_with_validity(
+                        [
+                            ("a", buffer![7, 2, 3].into_array()),
+                            ("b", buffer![4, 5, 6].into_array()),
+                            ("c", buffer![4, 5, 6].into_array()),
+                        ],
+                        Validity::Array(BoolArray::from_iter([false, true, true]).into_array()),
+                    )
+                    .unwrap()
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(ptr),
+                    eof,
+                    &session,
                 )
-                .unwrap()
-                .into_array()
-                .to_array_stream()
-                .sequenced(ptr),
-                eof,
-                &session,
-            )
+                .await
         })
         .unwrap();
 
@@ -555,38 +564,43 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
             Arc::new(FlatLayoutStrategy::default()),
         );
-        let layout = block_on(|handle| {
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
-            strategy.write_stream(
-                ctx,
-                Arc::<TestSegments>::clone(&segments),
-                StructArray::try_from_iter_with_validity(
-                    [(
-                        "a",
-                        StructArray::try_from_iter_with_validity(
-                            [(
-                                "b",
-                                StructArray::try_from_iter_with_validity(
-                                    [("c", buffer![4, 5, 6].into_array())],
-                                    Validity::NonNullable,
-                                )
-                                .unwrap()
-                                .into_array(),
-                            )],
-                            Validity::Array(BoolArray::from_iter([true, false, true]).into_array()),
-                        )
-                        .unwrap()
-                        .into_array(),
-                    )],
-                    Validity::NonNullable,
+            strategy
+                .write_stream(
+                    ctx,
+                    segments2,
+                    StructArray::try_from_iter_with_validity(
+                        [(
+                            "a",
+                            StructArray::try_from_iter_with_validity(
+                                [(
+                                    "b",
+                                    StructArray::try_from_iter_with_validity(
+                                        [("c", buffer![4, 5, 6].into_array())],
+                                        Validity::NonNullable,
+                                    )
+                                    .unwrap()
+                                    .into_array(),
+                                )],
+                                Validity::Array(
+                                    BoolArray::from_iter([true, false, true]).into_array(),
+                                ),
+                            )
+                            .unwrap()
+                            .into_array(),
+                        )],
+                        Validity::NonNullable,
+                    )
+                    .unwrap()
+                    .into_array()
+                    .to_array_stream()
+                    .sequenced(ptr),
+                    eof,
+                    &session,
                 )
-                .unwrap()
-                .into_array()
-                .to_array_stream()
-                .sequenced(ptr),
-                eof,
-                &session,
-            )
+                .await
         })
         .unwrap();
 
