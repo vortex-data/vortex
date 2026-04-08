@@ -200,9 +200,9 @@ impl ScalarFnVTable for L2Denorm {
 /// Builds an unexecuted [`L2Denorm`] expression by normalizing `input` and reattaching the exact
 /// norms as the norms child.
 ///
-/// The returned array is a lazy `L2Denorm(normalized, norms)` scalar function array.
-#[allow(dead_code, reason = "TODO(connor): Use this in a scheme")]
-fn normalize_as_l2_denorm(
+/// The returned array is a lazy `L2Denorm(normalized, norms)` scalar function array. The
+/// normalized child is a materialized extension array with unit-norm rows.
+pub(crate) fn normalize_as_l2_denorm(
     options: &ApproxOptions,
     input: ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -216,8 +216,9 @@ fn normalize_as_l2_denorm(
     let norms: PrimitiveArray = norms_array.clone().execute(ctx)?;
 
     let input: ExtensionArray = input.execute(ctx)?;
-    let validity = input.as_ref().validity()?;
-    let normalized_dtype = input.dtype().clone();
+    // The normalized child is always non-nullable. Null rows become zero vectors (since their
+    // norm is zero), and nullability is tracked by the norms child in the L2Denorm wrapper.
+    let normalized_dtype = input.dtype().as_nonnullable();
     let flat = extract_flat_elements(input.storage_array(), tensor_flat_size, ctx)?;
 
     let normalized = match_each_float_ptype!(flat.ptype(), |T| {
@@ -239,7 +240,7 @@ fn normalize_as_l2_denorm(
             normalized_dtype,
             tensor_flat_size,
             row_count,
-            validity,
+            Validity::NonNullable,
             elements,
         )
     })?;

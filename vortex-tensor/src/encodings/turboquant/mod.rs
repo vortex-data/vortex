@@ -17,6 +17,20 @@
 //! TurboQuant minimizes mean-squared reconstruction error (1-8 bits per coordinate)
 //! using MSE-optimal scalar quantization on coordinates of a rotated unit vector.
 //!
+//! The `TurboQuantArray` stores only the quantized unit-norm vector data (codes, centroids,
+//! rotation signs). Per-vector L2 norms are stored separately in an [`L2Denorm`] ScalarFnArray
+//! wrapper. The [`turboquant_encode`] function returns this wrapper:
+//!
+//! ```text
+//! ScalarFnArray(L2Denorm, [TurboQuantArray, norms])
+//! ```
+//!
+//! When executed, the TQ array decompresses to unit-norm vectors, and the [`L2Denorm`] function
+//! lazily re-applies the stored norms to reconstruct the original magnitudes.
+//!
+//! [`L2Denorm`]: crate::scalar_fns::l2_denorm::L2Denorm
+//! [`turboquant_encode`]: crate::encodings::turboquant::turboquant_encode
+//!
 //! The TurboQuant paper analyzes a full random orthogonal rotation. The current Vortex
 //! implementation instead uses a fixed 3-round Walsh-Hadamard-based structured transform with
 //! random sign diagonals. This is a practical approximation chosen for encode/decode efficiency,
@@ -48,9 +62,10 @@
 //! # Compression ratios
 //!
 //! Each vector is stored as `padded_dim * bit_width / 8` bytes of quantized codes plus one stored
-//! norm. In the current implementation, that norm uses the vector's element float type, not a
-//! separate fixed storage precision. Non-power-of-2 dimensions are padded to the next power of 2
-//! for the structured rotation, which reduces the effective ratio for those dimensions.
+//! norm (in the [`L2Denorm`] wrapper). In the current implementation, that norm uses the vector's
+//! element float type, not a separate fixed storage precision. Non-power-of-2 dimensions are
+//! padded to the next power of 2 for the structured rotation, which reduces the effective ratio
+//! for those dimensions.
 //!
 //! The table below assumes f32 input, so the stored norm is 4 bytes.
 //!
