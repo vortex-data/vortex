@@ -152,6 +152,14 @@ impl DatasetArg {
     }
 }
 
+const fn default_formats() -> &'static [&'static str] {
+    if cfg!(feature = "lance") {
+        &["parquet", "vortex", "lance"]
+    } else {
+        &["parquet", "vortex"]
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -159,7 +167,7 @@ struct Args {
         long,
         value_delimiter = ',',
         value_parser = Format::parse_allowed,
-        default_values = ["parquet", "vortex", "lance"]
+        default_values = default_formats()
     )]
     formats: Vec<Format>,
     /// Time limit in seconds for each benchmark target (e.g., 10 for 10 seconds).
