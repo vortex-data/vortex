@@ -128,7 +128,7 @@ mod tests {
 
         let array = bitpacked.as_array();
 
-        let metadata = array.metadata()?.unwrap_or_default();
+        let metadata = array.metadata(&SESSION)?.unwrap_or_default();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -177,7 +177,7 @@ mod tests {
 
         let array = bitpacked.as_array();
 
-        let metadata = array.metadata()?.unwrap_or_default();
+        let metadata = array.metadata(&SESSION)?.unwrap_or_default();
         let children = array.children();
         let buffers = array
             .buffers()
@@ -207,7 +207,7 @@ mod tests {
     fn primitive_array_returns_error() -> VortexResult<()> {
         let array = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
 
-        let metadata = array.metadata()?.unwrap_or_default();
+        let metadata = array.metadata(&SESSION)?.unwrap_or_default();
         let children = array.children();
         let buffers = array
             .buffers()

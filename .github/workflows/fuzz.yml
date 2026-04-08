@@ -109,6 +109,7 @@ jobs:
       fuzz_target: array_ops
       fuzz_name: array_ops_unstable_encodings
       extra_features: "vortex/unstable_encodings"
+      extra_env: "VORTEX_EXPERIMENTAL_PATCHED_ARRAY=1"
       jobs: 16
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
