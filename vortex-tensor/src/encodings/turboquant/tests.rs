@@ -220,6 +220,17 @@ fn empty_turboquant_parts(
     ))
 }
 
+fn normalized_child(
+    ext: &ExtensionArray,
+    ctx: &mut vortex_array::ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    Ok(
+        normalize_as_l2_denorm(&ApproxOptions::Exact, ext.as_ref().clone(), ctx)?
+            .child_at(0)
+            .clone(),
+    )
+}
+
 // -----------------------------------------------------------------------
 // Roundtrip tests
 // -----------------------------------------------------------------------
@@ -397,6 +408,44 @@ fn rejects_dimension_below_128(#[case] dim: usize) {
     };
     let mut ctx = SESSION.create_execution_ctx();
     assert!(turboquant_encode(ext.as_view(), &config, &mut ctx).is_err());
+}
+
+#[test]
+fn checked_encode_accepts_normalized_f16_input() -> VortexResult<()> {
+    let num_rows = 10;
+    let dim = 128;
+    let mut rng = StdRng::seed_from_u64(99);
+    let normal = Normal::new(0.0f32, 1.0).unwrap();
+
+    let mut buf = BufferMut::<half::f16>::with_capacity(num_rows * dim);
+    for _ in 0..(num_rows * dim) {
+        buf.push(half::f16::from_f32(normal.sample(&mut rng)));
+    }
+    let elements = PrimitiveArray::new::<half::f16>(buf.freeze(), Validity::NonNullable);
+    let fsl = FixedSizeListArray::try_new(
+        elements.into_array(),
+        dim.try_into()
+            .expect("somehow got dimension greater than u32::MAX"),
+        Validity::NonNullable,
+        num_rows,
+    )?;
+
+    let ext = make_vector_ext(&fsl);
+    let config = TurboQuantConfig {
+        bit_width: 3,
+        seed: Some(42),
+        num_rounds: 3,
+    };
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let normalized = normalized_child(&ext, &mut ctx)?;
+    let normalized_ext = normalized
+        .as_opt::<Extension>()
+        .vortex_expect("normalized child should be an Extension array");
+
+    let encoded = turboquant_encode(normalized_ext, &config, &mut ctx)?;
+    assert_eq!(encoded.len(), num_rows);
+    Ok(())
 }
 
 fn make_fsl_small(dim: usize) -> FixedSizeListArray {
@@ -1092,8 +1141,9 @@ fn nullable_slice_preserves_validity() -> VortexResult<()> {
 // -----------------------------------------------------------------------
 
 /// Verify that a TurboQuant array (extracted from the L2Denorm wrapper) survives
-/// serialize/deserialize. ScalarFnArray cannot be serialized yet, so we test the TQ child
-/// directly.
+/// serialize/deserialize.
+///
+/// TODO(connor): ScalarFnArray cannot be serialized yet, so we test the TQ child directly.
 #[test]
 fn serde_roundtrip() -> VortexResult<()> {
     use vortex_array::ArrayContext;

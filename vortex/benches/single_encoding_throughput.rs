@@ -439,16 +439,20 @@ mod turboquant_benches {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::Extension;
     use vortex::array::arrays::ExtensionArray;
     use vortex::array::arrays::FixedSizeListArray;
     use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
     use vortex::array::dtype::extension::ExtDType;
     use vortex::array::extension::EmptyMetadata;
     use vortex::array::validity::Validity;
     use vortex_array::VortexSessionExecute;
     use vortex_buffer::BufferMut;
     use vortex_tensor::encodings::turboquant::TurboQuantConfig;
-    use vortex_tensor::encodings::turboquant::turboquant_encode;
+    use vortex_tensor::encodings::turboquant::turboquant_encode_unchecked;
+    use vortex_tensor::scalar_fns::ApproxOptions;
+    use vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm;
     use vortex_tensor::vector::Vector;
 
     use super::SESSION;
@@ -492,18 +496,35 @@ mod turboquant_benches {
         }
     }
 
+    fn setup_normalized_vector_ext(dim: usize) -> ExtensionArray {
+        let ext = setup_vector_ext(dim);
+        let mut ctx = SESSION.create_execution_ctx();
+        let normalized = normalize_as_l2_denorm(&ApproxOptions::Exact, ext.into_array(), &mut ctx)
+            .unwrap()
+            .child_at(0)
+            .clone();
+        normalized.execute::<ExtensionArray>(&mut ctx).unwrap()
+    }
+
     macro_rules! turboquant_bench {
         (compress, $dim:literal, $bits:literal, $name:ident) => {
             paste! {
                 #[divan::bench(name = concat!("turboquant_compress_dim", stringify!($dim), "_", stringify!($bits), "bit"))]
                 fn $name(bencher: Bencher) {
-                    let ext = setup_vector_ext($dim);
+                    let normalized_ext = setup_normalized_vector_ext($dim);
                     let config = turboquant_config($bits);
                     with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
-                        .with_inputs(|| ext.clone())
+                        .with_inputs(|| normalized_ext.clone())
                         .bench_refs(|a| {
                             let mut ctx = SESSION.create_execution_ctx();
-                            turboquant_encode(a.as_view(), &config, &mut ctx).unwrap()
+                            let normalized = a
+                                .as_ref()
+                                .as_opt::<Extension>()
+                                .expect("normalized benchmark input should be an Extension array");
+                            // SAFETY: Benchmark inputs are normalized once up front so the timed
+                            // region measures only TurboQuant encoding.
+                            unsafe { turboquant_encode_unchecked(normalized, &config, &mut ctx) }
+                                .unwrap()
                         });
                 }
             }
@@ -512,10 +533,13 @@ mod turboquant_benches {
             paste! {
                 #[divan::bench(name = concat!("turboquant_decompress_dim", stringify!($dim), "_", stringify!($bits), "bit"))]
                 fn $name(bencher: Bencher) {
-                    let ext = setup_vector_ext($dim);
+                    let normalized_ext = setup_normalized_vector_ext($dim);
                     let config = turboquant_config($bits);
                     let mut ctx = SESSION.create_execution_ctx();
-                    let compressed = turboquant_encode(ext.as_view(), &config, &mut ctx).unwrap();
+                    let compressed = unsafe {
+                        turboquant_encode_unchecked(normalized_ext.as_view(), &config, &mut ctx)
+                    }
+                    .unwrap();
                     with_byte_counter(bencher, (NUM_VECTORS * $dim * 4) as u64)
                         .with_inputs(|| &compressed)
                         .bench_refs(|a| {

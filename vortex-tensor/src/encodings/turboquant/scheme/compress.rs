@@ -18,6 +18,7 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_float_ptype;
@@ -39,9 +40,20 @@ use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::vector::AnyVector;
 
-/// Tolerance for the unit-norm check in [`turboquant_encode`]. Each row's L2 norm must be within
-/// this distance of 1.0 (or be exactly 0.0 for zero vectors).
-const UNIT_NORM_TOLERANCE: f64 = 1e-10;
+/// Returns the acceptable unit-norm drift for the given element precision.
+///
+/// The checked encode path validates the post-normalization storage values, so the tolerance has
+/// to account for quantization back into the vector element type.
+///
+/// These numbers are somewhat arbitrary and are derived from testing reasonable values.
+fn unit_norm_tolerance(element_ptype: PType) -> f64 {
+    match element_ptype {
+        PType::F16 => 2e-3,
+        PType::F32 => 1e-6,
+        PType::F64 => 1e-10,
+        _ => unreachable!("TurboQuant requires float elements, got {element_ptype:?}"),
+    }
+}
 
 /// Configuration for TurboQuant encoding.
 #[derive(Clone, Debug)]
@@ -165,7 +177,7 @@ fn turboquant_quantize_core(
 fn build_turboquant(
     num_rows: usize,
     core: QuantizationResult,
-    ext_dtype: &vortex_array::dtype::DType,
+    ext_dtype: &DType,
 ) -> VortexResult<TurboQuantArray> {
     let padded_dim = core.padded_dim;
     let padded_dim_u32 =
@@ -199,9 +211,9 @@ fn build_turboquant(
 /// **Null vectors are not supported.** The caller must normalize and strip nullability before
 /// calling this function, for example via [`normalize_as_l2_denorm`].
 ///
-/// This function validates that every row has L2 norm within `UNIT_NORM_TOLERANCE` of 1.0 (or is
-/// exactly 0.0). Use [`turboquant_encode_unchecked`] to skip this check when the caller has just
-/// performed normalization.
+/// This function validates that every row has L2 norm within a storage-precision-aware tolerance
+/// of 1.0 (or is exactly 0.0). Use [`turboquant_encode_unchecked`] to skip this check when the
+/// caller has just performed normalization.
 ///
 /// The returned array is a plain [`TurboQuantArray`] that decompresses to unit-norm vectors.
 /// The caller is responsible for wrapping it in an [`L2Denorm`] ScalarFnArray if the original
@@ -232,12 +244,13 @@ pub fn turboquant_encode(
             .as_extension()
             .metadata::<AnyVector>()
             .element_ptype();
+        let tolerance = unit_norm_tolerance(element_ptype);
 
         match_each_float_ptype!(element_ptype, |T| {
             for (i, &norm) in norms.as_slice::<T>().iter().enumerate() {
                 let norm_f64: f64 = ToPrimitive::to_f64(&norm).unwrap_or(f64::NAN);
                 vortex_ensure!(
-                    norm_f64 == 0.0 || (norm_f64 - 1.0).abs() < UNIT_NORM_TOLERANCE,
+                    norm_f64 == 0.0 || (norm_f64 - 1.0).abs() < tolerance,
                     "TurboQuant requires unit-norm input, but row {i} has L2 norm {norm_f64:.6} \
                      (expected 1.0 or 0.0)",
                 );
