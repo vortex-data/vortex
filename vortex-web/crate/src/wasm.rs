@@ -647,8 +647,7 @@ fn build_array_encoding_tree_from_array(
     let buffer_handles = array.buffer_handles();
     let buffer_lengths: Vec<usize> = buffer_handles.iter().map(|b| b.len()).collect();
     let metadata_bytes = session
-        .arrays()
-        .serialize(array)
+        .array_serialize(array)
         .ok()
         .flatten()
         .map(|m| m.len())
