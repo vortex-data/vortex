@@ -61,7 +61,7 @@ impl DictReader {
         let values_len = usize::try_from(layout.values.row_count())?;
         let values = layout.values.new_reader(
             format!("{name}.values").into(),
-            segment_source.clone(),
+            Arc::clone(&segment_source),
             &session,
         )?;
         let codes =
@@ -324,7 +324,7 @@ mod tests {
             let layout: LayoutRef = strategy
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
                         array_to_write.to_array_stream().sequenced(ptr),
@@ -408,7 +408,7 @@ mod tests {
             let layout: LayoutRef = strategy
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
                         array.to_array_stream().sequenced(ptr),
@@ -472,7 +472,7 @@ mod tests {
             let layout: LayoutRef = strategy
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     SequentialStreamAdapter::new(
                         DType::Utf8(Nullability::Nullable),
                         array_to_write.to_array_stream().sequenced(ptr),

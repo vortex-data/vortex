@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant compression scheme for the pluggable compressor.
+//! TurboQuant compression scheme and decompression.
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -17,6 +17,9 @@ use vortex_error::VortexResult;
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::turboquant_encode;
+
+pub(super) mod compress;
+pub(super) mod decompress;
 
 /// TurboQuant compression scheme for [`Vector`] extension types.
 ///
@@ -96,11 +99,11 @@ fn estimate_compression_ratio(bits_per_element: u8, dimensions: u32, num_vectors
         + (config.bit_width as usize) * padded_dim; // MSE codes
 
     // Shared overhead: codebook centroids (2^bit_width f32 values) and
-    // rotation signs (3 * padded_dim bits).
+    // rotation signs (num_rounds * padded_dim bits).
     let num_centroids = 1usize << config.bit_width;
     debug_assert!(num_centroids <= TurboQuant::MAX_CENTROIDS);
     let overhead_bits = num_centroids * 32 // centroids are always f32
-        + 3 * padded_dim; // rotation signs, 1 bit each
+        + config.num_rounds as usize * padded_dim; // rotation signs, 1 bit each
 
     let compressed_size_bits = compressed_bits_per_vector * num_vectors + overhead_bits;
 

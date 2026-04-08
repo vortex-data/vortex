@@ -261,6 +261,7 @@ impl VTable for Patched {
             .ok()
             .vortex_expect("base_array pre-canonicalized to Primitive");
 
+        // TODO(joe): use iterative execution
         let PrimitiveDataParts {
             buffer,
             ptype,

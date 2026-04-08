@@ -81,8 +81,10 @@ pub fn make_object_store(
                     .with_bucket_name(bucket_name)
                     .build()?,
             );
-            session
-                .register_object_store(&Url::parse(&format!("s3://{bucket_name}/"))?, s3.clone());
+            session.register_object_store(
+                &Url::parse(&format!("s3://{bucket_name}/"))?,
+                Arc::<object_store::aws::AmazonS3>::clone(&s3),
+            );
             Ok(s3)
         }
         "gs" => {
@@ -92,13 +94,16 @@ pub fn make_object_store(
                     .with_bucket_name(bucket_name)
                     .build()?,
             );
-            session
-                .register_object_store(&Url::parse(&format!("gs://{bucket_name}/"))?, gcs.clone());
+            session.register_object_store(
+                &Url::parse(&format!("gs://{bucket_name}/"))?,
+                Arc::<object_store::gcp::GoogleCloudStorage>::clone(&gcs),
+            );
             Ok(gcs)
         }
         _ => {
             let fs = Arc::new(LocalFileSystem::default());
-            session.register_object_store(&Url::parse("file:/")?, fs.clone());
+            session
+                .register_object_store(&Url::parse("file:/")?, Arc::<LocalFileSystem>::clone(&fs));
             Ok(fs)
         }
     }

@@ -80,7 +80,7 @@ impl VortexReadAt for ObjectStoreReadAt {
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let store = self.store.clone();
+        let store = Arc::clone(&self.store);
         let path = self.path.clone();
         async move {
             store
@@ -98,7 +98,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let store = self.store.clone();
+        let store = Arc::clone(&self.store);
         let path = self.path.clone();
         let handle = self.handle.clone();
         let range = offset..(offset + length as u64);

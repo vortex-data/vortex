@@ -183,7 +183,7 @@ fn random_fixed_size_list(
     let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
 
     let mut builder =
-        FixedSizeListBuilder::with_capacity(elem_dtype.clone(), list_size, null, array_length);
+        FixedSizeListBuilder::with_capacity(Arc::clone(elem_dtype), list_size, null, array_length);
 
     for _ in 0..array_length {
         if null == Nullability::Nullable && u.arbitrary::<bool>()? {
@@ -229,7 +229,7 @@ fn random_list_with_offset_type<O: IntegerPType>(
 ) -> Result<ArrayRef> {
     let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
 
-    let mut builder = ListViewBuilder::<O, O>::with_capacity(elem_dtype.clone(), null, 20, 10);
+    let mut builder = ListViewBuilder::<O, O>::with_capacity(Arc::clone(elem_dtype), null, 20, 10);
 
     for _ in 0..array_length {
         if null == Nullability::Nullable && u.arbitrary::<bool>()? {
@@ -255,7 +255,7 @@ fn random_list_scalar(
     let elems = (0..list_size)
         .map(|_| random_scalar(u, elem_dtype))
         .collect::<Result<Vec<_>>>()?;
-    Ok(Scalar::list(elem_dtype.clone(), elems, null))
+    Ok(Scalar::list(Arc::clone(elem_dtype), elems, null))
 }
 
 fn random_string(

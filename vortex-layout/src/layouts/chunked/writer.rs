@@ -50,7 +50,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let dtype2 = dtype.clone();
-        let chunk_strategy = self.chunk_strategy.clone();
+        let chunk_strategy = Arc::clone(&self.chunk_strategy);
 
         // We spawn each child to allow parallelism when processing chunks.
         let stream = stream! {
@@ -58,9 +58,9 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
             while let Some(chunk) = stream.next().await {
                 let chunk_eof = eof.split_off();
 
-                let chunk_strategy = chunk_strategy.clone();
+                let chunk_strategy = Arc::clone(&chunk_strategy);
                 let ctx = ctx.clone();
-                let segment_sink = segment_sink.clone();
+                let segment_sink = Arc::clone(&segment_sink);
                 let dtype = dtype2.clone();
 
                 yield handle.spawn_nested(move |handle| async move {

@@ -18,7 +18,6 @@ use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -35,7 +34,6 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
-use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -144,13 +142,10 @@ impl VTable for Slice {
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
 
-        // Child is now canonical — slice it.
-        // TODO(ngates): we should inline canonical slice logic here.
         debug_assert!(array.child().is_canonical());
+        // TODO(ngates): we should inline canonical slice logic here.
         array
             .child()
-            .to_canonical()?
-            .into_array()
             .slice(array.range.clone())
             .map(ExecutionResult::done)
     }

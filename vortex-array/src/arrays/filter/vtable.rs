@@ -15,6 +15,7 @@ use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
@@ -144,18 +145,19 @@ impl VTable for Filter {
         if let Some(canonical) = execute_filter_fast_paths(array.as_view(), ctx)? {
             return Ok(ExecutionResult::done(canonical));
         }
+        let mask_values = match &array.mask {
+            Mask::Values(v) => v.clone(),
+            _ => unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse"),
+        };
 
         let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
 
-        let Mask::Values(mask_values) = &array.mask else {
-            unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse")
-        };
-
-        // Child is pre-canonicalized — apply the filter directly.
-        debug_assert!(array.child().is_canonical());
-        let child = array.child().to_canonical()?;
+        // We rely on the optimization pass that runs prior to this execution for filter pushdown,
+        // so now we can just execute the filter without worrying.
+        // TODO(joe): fix the ownership of AnyCanonical
+        let child = Canonical::from(array.child().as_::<AnyCanonical>());
         Ok(ExecutionResult::done(
-            execute_filter(child, mask_values).into_array(),
+            execute_filter(child, &mask_values).into_array(),
         ))
     }
 

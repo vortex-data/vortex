@@ -77,7 +77,7 @@ impl ScalarFnVTable for InnerProduct {
     type Options = ApproxOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.tensor.inner_product")
+        ScalarFnId::from("vortex.tensor.inner_product")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

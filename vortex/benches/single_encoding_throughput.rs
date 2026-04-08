@@ -488,6 +488,7 @@ mod turboquant_benches {
         TurboQuantConfig {
             bit_width,
             seed: Some(123),
+            num_rounds: 3,
         }
     }
 

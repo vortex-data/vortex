@@ -131,7 +131,7 @@ impl PyVortexDataset {
 #[pymethods]
 impl PyVortexDataset {
     fn schema(self_: PyRef<Self>) -> PyResult<Py<PyAny>> {
-        self_.schema.clone().to_pyarrow(self_.py())
+        Arc::clone(&self_.schema).to_pyarrow(self_.py())
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None, row_range = None))]

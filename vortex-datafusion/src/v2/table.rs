@@ -66,7 +66,7 @@ impl TableProvider for VortexTable {
     }
 
     fn schema(&self) -> SchemaRef {
-        self.arrow_schema.clone()
+        Arc::clone(&self.arrow_schema)
     }
 
     fn table_type(&self) -> TableType {
@@ -81,22 +81,23 @@ impl TableProvider for VortexTable {
         _limit: Option<usize>,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         // Construct the physical node representing this table.
-        let data_source = VortexDataSource::builder(self.data_source.clone(), self.session.clone())
-            .with_arrow_schema(self.arrow_schema.clone())
-            // We push down the projection now since it can make building the physical plan a lot
-            // cheaper, e.g. by only computing stats for the projected columns.
-            .with_some_projection(projection.cloned())
-            // We don't push down filters for two reasons:
-            //  1. Vortex requires a physical expression, not logical. DataFusion will try to push
-            //     the physical filters later.
-            //  2. There's nothing useful we can do with filters now to reduce the amount of work
-            //     we have to do.
-            //
-            // We also don't push down the limit for the same reason, there's nothing useful we
-            // can do with it.
-            .build()
-            .await
-            .map_err(|e| DataFusionError::External(Box::new(e)))?;
+        let data_source =
+            VortexDataSource::builder(Arc::clone(&self.data_source), self.session.clone())
+                .with_arrow_schema(Arc::clone(&self.arrow_schema))
+                // We push down the projection now since it can make building the physical plan a lot
+                // cheaper, e.g. by only computing stats for the projected columns.
+                .with_some_projection(projection.cloned())
+                // We don't push down filters for two reasons:
+                //  1. Vortex requires a physical expression, not logical. DataFusion will try to push
+                //     the physical filters later.
+                //  2. There's nothing useful we can do with filters now to reduce the amount of work
+                //     we have to do.
+                //
+                // We also don't push down the limit for the same reason, there's nothing useful we
+                // can do with it.
+                .build()
+                .await
+                .map_err(|e| DataFusionError::External(Box::new(e)))?;
 
         Ok(DataSourceExec::from_data_source(data_source))
     }

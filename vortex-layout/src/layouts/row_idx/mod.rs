@@ -55,7 +55,7 @@ pub struct RowIdxLayoutReader {
 impl RowIdxLayoutReader {
     pub fn new(row_offset: u64, child: Arc<dyn LayoutReader>, session: VortexSession) -> Self {
         Self {
-            name: child.name().clone(),
+            name: Arc::clone(child.name()),
             row_offset,
             child,
             partition_cache: DashMap::with_hasher(Default::default()),
@@ -205,7 +205,7 @@ impl LayoutReader for RowIdxLayoutReader {
             // during the filter evaluation.
             Partitioning::RowIdx(_) => Ok(mask),
             Partitioning::Child(expr) => self.child.filter_evaluation(row_range, expr, mask),
-            Partitioning::Partitioned(p) => p.clone().into_mask_future(
+            Partitioning::Partitioned(p) => Arc::clone(p).into_mask_future(
                 mask,
                 |annotation, expr, mask| match annotation {
                     Partition::RowIdx => Ok(row_idx_mask_future(
@@ -240,13 +240,12 @@ impl LayoutReader for RowIdxLayoutReader {
             }
             Partitioning::Child(expr) => self.child.projection_evaluation(row_range, expr, mask),
             Partitioning::Partitioned(p) => {
-                p.clone()
-                    .into_array_future(mask, |annotation, expr, mask| match annotation {
-                        Partition::RowIdx => {
-                            Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
-                        }
-                        Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
-                    })
+                Arc::clone(p).into_array_future(mask, |annotation, expr, mask| match annotation {
+                    Partition::RowIdx => {
+                        Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
+                    }
+                    Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
+                })
             }
         }
     }
@@ -337,7 +336,7 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,
@@ -377,7 +376,7 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,
@@ -417,7 +416,7 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
                     handle,

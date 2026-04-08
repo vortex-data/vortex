@@ -60,7 +60,7 @@ impl ChunkedReader {
             .map(|idx| Arc::from(format!("{name}.[{idx}]")))
             .collect();
         let lazy_children = LazyReaderChildren::new(
-            layout.children.clone(),
+            Arc::clone(&layout.children),
             dtypes,
             names,
             segment_source,
@@ -227,7 +227,7 @@ impl LayoutReader for ChunkedReader {
             chunk_evals.push(chunk_eval);
         }
 
-        let name = self.name.clone();
+        let name = Arc::clone(&self.name);
         Ok(MaskFuture::new(mask.len(), async move {
             tracing::debug!(
                 "Chunked pruning evaluation {} (mask = {})",
@@ -270,7 +270,7 @@ impl LayoutReader for ChunkedReader {
             chunk_evals.push(chunk_eval);
         }
 
-        let name = self.name.clone();
+        let name = Arc::clone(&self.name);
         Ok(MaskFuture::new(mask.len(), async move {
             tracing::debug!("Chunked mask evaluation {}", name);
 
@@ -366,7 +366,7 @@ mod test {
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
-                segments.clone(),
+                Arc::<TestSegments>::clone(&segments),
                 SequentialStreamAdapter::new(
                     DType::Primitive(PType::I32, NonNullable),
                     stream::iter([

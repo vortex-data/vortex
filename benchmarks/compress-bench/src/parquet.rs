@@ -53,7 +53,7 @@ impl Compressor for ParquetCompressor {
         // Read the input parquet file
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let schema = builder.schema().clone();
+        let schema = Arc::clone(builder.schema());
         let reader = builder.build()?;
         let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
 
@@ -69,7 +69,7 @@ impl Compressor for ParquetCompressor {
         // First compress to get the bytes we'll decompress
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let schema = builder.schema().clone();
+        let schema = Arc::clone(builder.schema());
         let reader = builder.build()?;
         let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
 

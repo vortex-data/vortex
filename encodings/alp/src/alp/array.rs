@@ -172,7 +172,6 @@ impl VTable for ALP {
         let array = require_child!(array, array.encoded(), ENCODED_SLOT => Primitive);
         require_patches!(
             array,
-            array.patches(),
             PATCH_INDICES_SLOT,
             PATCH_VALUES_SLOT,
             PATCH_CHUNK_OFFSETS_SLOT

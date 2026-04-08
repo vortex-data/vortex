@@ -74,7 +74,7 @@ impl ScalarFnVTable for CosineSimilarity {
     type Options = ApproxOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.tensor.cosine_similarity")
+        ScalarFnId::from("vortex.tensor.cosine_similarity")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

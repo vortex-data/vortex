@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -221,7 +223,7 @@ fn fill_varbinview_array(
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new_handle(
                             result.to_varbinview().views_handle().clone(),
-                            result.to_varbinview().data_buffers().clone(),
+                            Arc::clone(result.to_varbinview().data_buffers()),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )
@@ -255,7 +257,7 @@ fn fill_varbinview_array(
                     if result_nullability == Nullability::Nullable {
                         VarBinViewArray::new_handle(
                             result.to_varbinview().views_handle().clone(),
-                            result.to_varbinview().data_buffers().clone(),
+                            Arc::clone(result.to_varbinview().data_buffers()),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
                         )

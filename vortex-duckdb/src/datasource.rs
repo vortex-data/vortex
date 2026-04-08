@@ -111,7 +111,7 @@ pub struct DataSourceBindData {
 impl Clone for DataSourceBindData {
     fn clone(&self) -> Self {
         Self {
-            data_source: self.data_source.clone(),
+            data_source: Arc::clone(&self.data_source),
             // filter_exprs are consumed once in `init_global`.
             filter_exprs: vec![],
             column_names: self.column_names.clone(),
@@ -265,7 +265,11 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                         }
                     };
                     while let Some(item) = stream.next().await {
-                        if tx.send(item.map(|a| (a, cache.clone()))).await.is_err() {
+                        if tx
+                            .send(item.map(|a| (a, Arc::clone(&cache))))
+                            .await
+                            .is_err()
+                        {
                             // Exit early if the receiver has been dropped, which happens when the
                             // scan is complete or if an error has occurred in another partition.
                             return;

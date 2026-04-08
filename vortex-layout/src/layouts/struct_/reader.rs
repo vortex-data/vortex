@@ -84,7 +84,7 @@ impl StructReader {
         let mut names: Vec<Arc<str>> = struct_dt
             .names()
             .iter()
-            .map(|x| x.inner().clone())
+            .map(|x| Arc::clone(x.inner()))
             .collect();
 
         if layout.dtype.is_nullable() {
@@ -93,10 +93,10 @@ impl StructReader {
         }
 
         let lazy_children = LazyReaderChildren::new(
-            layout.children.clone(),
+            Arc::clone(&layout.children),
             dtypes,
             names,
-            segment_source.clone(),
+            Arc::clone(&segment_source),
             session.clone(),
         );
 
@@ -294,7 +294,7 @@ impl LayoutReader for StructReader {
                 .map_err(|err| {
                     err.with_context(format!("While evaluating filter partition {name}"))
                 }),
-            Partitioned::Multi(partitioned) => partitioned.clone().into_mask_future(
+            Partitioned::Multi(partitioned) => Arc::clone(partitioned).into_mask_future(
                 mask,
                 |name, expr, mask| {
                     self.field_reader(name)?
@@ -340,17 +340,15 @@ impl LayoutReader for StructReader {
             ),
 
             Partitioned::Multi(partitioned) => (
-                partitioned
-                    .clone()
-                    .into_array_future(mask_fut, |name, expr, mask| {
-                        self.field_reader(name)?
-                            .projection_evaluation(row_range, expr, mask)
-                            .map_err(|err| {
-                                err.with_context(format!(
-                                    "While evaluating projection partition {name}"
-                                ))
-                            })
-                    })?,
+                Arc::clone(partitioned).into_array_future(mask_fut, |name, expr, mask| {
+                    self.field_reader(name)?
+                        .projection_evaluation(row_range, expr, mask)
+                        .map_err(|err| {
+                            err.with_context(format!(
+                                "While evaluating projection partition {name}"
+                            ))
+                        })
+                })?,
                 partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>(),
             ),
         };
@@ -446,7 +444,7 @@ mod tests {
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
-                segments.clone(),
+                Arc::<TestSegments>::clone(&segments),
                 StructArray::try_new(
                     Vec::<FieldName>::new().into(),
                     vec![],
@@ -479,7 +477,7 @@ mod tests {
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
-                segments.clone(),
+                Arc::<TestSegments>::clone(&segments),
                 StructArray::from_fields(
                     [
                         ("a", buffer![7, 2, 3].into_array()),
@@ -515,7 +513,7 @@ mod tests {
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
-                segments.clone(),
+                Arc::<TestSegments>::clone(&segments),
                 StructArray::try_from_iter_with_validity(
                     [
                         ("a", buffer![7, 2, 3].into_array()),
@@ -556,7 +554,7 @@ mod tests {
         let layout = block_on(|handle| {
             strategy.write_stream(
                 ctx,
-                segments.clone(),
+                Arc::<TestSegments>::clone(&segments),
                 StructArray::try_from_iter_with_validity(
                     [(
                         "a",

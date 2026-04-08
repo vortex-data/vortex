@@ -266,7 +266,7 @@ mod tests {
             let layout = strategy
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
@@ -304,7 +304,7 @@ mod tests {
             let layout = strategy
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     struct_array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
