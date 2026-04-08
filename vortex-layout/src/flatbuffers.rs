@@ -121,7 +121,7 @@ fn foreign_layout_from_fb(
         .map(|child| foreign_layout_from_fb(child, dtype, layout_ctx))
         .collect::<VortexResult<Vec<_>>>()?;
 
-    Ok(crate::new_foreign_layout(
+    Ok(crate::layouts::foreign::new_foreign_layout(
         encoding_id,
         dtype.clone(),
         fb_layout.row_count(),
