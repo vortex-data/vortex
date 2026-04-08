@@ -39,9 +39,7 @@ fn apply_variant_get(arr: &ArrayRef, field: &str) -> VortexResult<ArrayRef> {
 /// Convert a Vortex result back to an Arrow VariantArray for comparison.
 fn vortex_to_arrow_variant(arr: &ArrayRef) -> ArrowVariantArray {
     let variant = arr.as_::<vortex_array::arrays::Variant>();
-    let pv = variant
-        .child()
-        .as_::<ParquetVariant>();
+    let pv = variant.child().as_::<ParquetVariant>();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     pv.to_arrow(&mut ctx).unwrap()
 }
