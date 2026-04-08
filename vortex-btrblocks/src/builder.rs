@@ -14,7 +14,6 @@ use crate::schemes::bool;
 use crate::schemes::decimal;
 use crate::schemes::float;
 use crate::schemes::integer;
-use crate::schemes::rle;
 use crate::schemes::string;
 use crate::schemes::temporal;
 
@@ -40,7 +39,7 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &integer::IntDictScheme,
     &integer::RunEndScheme,
     &integer::SequenceScheme,
-    &rle::RLE_INTEGER_SCHEME,
+    &integer::IntRLEScheme,
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // Float schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -49,7 +48,7 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &float::ALPRDScheme,
     &float::FloatDictScheme,
     &float::NullDominatedSparseScheme,
-    &rle::RLE_FLOAT_SCHEME,
+    &float::FloatRLEScheme,
     ////////////////////////////////////////////////////////////////////////////////////////////////
     // String schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -162,8 +161,8 @@ impl BtrBlocksCompressorBuilder {
     pub fn only_cuda_compatible(self) -> Self {
         let builder = self.exclude_schemes([
             integer::SparseScheme.id(),
-            rle::RLE_INTEGER_SCHEME.id(),
-            rle::RLE_FLOAT_SCHEME.id(),
+            integer::IntRLEScheme.id(),
+            float::FloatRLEScheme.id(),
             float::NullDominatedSparseScheme.id(),
             string::StringDictScheme.id(),
             string::FSSTScheme.id(),

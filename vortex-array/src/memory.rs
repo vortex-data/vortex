@@ -34,7 +34,7 @@ use vortex_session::SessionExt;
 use vortex_utils::aliases::hash_map::HashMap;
 
 const DEFAULT_MAX_BYTES_PER_THREAD: usize = 64 * 1024 * 1024;
-const FALLBACK_POOL_ALIGNMENT_BYTES: usize = 4 * 1024;
+const POOL_ALIGNMENT_BYTES: usize = 4 * 1024;
 
 // (bucket_size_bytes, max_entries_per_thread)
 const POOL_BUCKETS: &[(usize, usize)] = &[
@@ -560,31 +560,7 @@ fn bucket_index_for_len(len: usize) -> Option<usize> {
 
 fn pooled_alignment() -> Alignment {
     static CACHED: OnceLock<Alignment> = OnceLock::new();
-
-    *CACHED.get_or_init(|| {
-        let page_size = os_page_size().unwrap_or(FALLBACK_POOL_ALIGNMENT_BYTES);
-        if page_size != 0 && page_size.is_power_of_two() && page_size <= (u16::MAX as usize) {
-            Alignment::new(page_size)
-        } else {
-            Alignment::new(FALLBACK_POOL_ALIGNMENT_BYTES)
-        }
-    })
-}
-
-#[cfg(unix)]
-fn os_page_size() -> Option<usize> {
-    // SAFETY: `sysconf` is thread-safe for `_SC_PAGESIZE` and has no aliasing requirements.
-    let value = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
-    if value <= 0 {
-        return None;
-    }
-
-    usize::try_from(value).ok()
-}
-
-#[cfg(not(unix))]
-fn os_page_size() -> Option<usize> {
-    None
+    *CACHED.get_or_init(|| Alignment::new(POOL_ALIGNMENT_BYTES))
 }
 
 #[derive(Debug)]

@@ -19,12 +19,16 @@ use crate::encodings::turboquant::vtable::TurboQuant;
 /// TurboQuant array data.
 ///
 /// TurboQuant is a lossy vector quantization encoding for [`Vector`](crate::vector::Vector)
-/// extension arrays. It stores quantized coordinate codes and per-vector norms, along with shared
+/// extension arrays. It stores quantized coordinate codes for unit-norm vectors, along with shared
 /// codebook centroids and the parameters of the current structured rotation.
+///
+/// Norms should be stored externally in the [`L2Denorm`](crate::scalar_fns::l2_denorm::L2Denorm)
+/// `ScalarFnArray` wrapper.
 ///
 /// See the [module docs](crate::encodings::turboquant) for algorithmic details.
 ///
-/// A degenerate TurboQuant array has zero rows and `bit_width == 0`, with all slots empty.
+/// Note that degenerate TurboQuant arrays have zero rows and `bit_width == 0`, with all slots
+/// empty.
 #[derive(Clone, Debug)]
 pub struct TurboQuantData {
     /// The vector dimension `d`, cached from the `FixedSizeList` storage dtype's list size.
@@ -95,7 +99,6 @@ impl TurboQuantData {
     pub fn validate(
         dtype: &DType,
         codes: &ArrayRef,
-        norms: &ArrayRef,
         centroids: &ArrayRef,
         rotation_signs: &ArrayRef,
     ) -> VortexResult<()> {
@@ -103,8 +106,14 @@ impl TurboQuantData {
         let dimension = vector_metadata.dimensions();
         let padded_dim = dimension.next_power_of_two();
 
+        // TurboQuant arrays are always non-nullable. Nullability should be handled by the external
+        // L2Denorm ScalarFnArray wrapper.
+        vortex_ensure!(
+            !dtype.is_nullable(),
+            "TurboQuant dtype must be non-nullable, got {dtype}",
+        );
+
         // Codes must be a non-nullable FixedSizeList<u8> with list_size == padded_dim.
-        // Null vectors are represented by all-zero codes since validity lives in the norms array.
         let expected_codes_dtype = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
             padded_dim,
@@ -114,23 +123,6 @@ impl TurboQuantData {
             *codes.dtype(),
             expected_codes_dtype,
             "codes dtype does not match expected {expected_codes_dtype}",
-        );
-
-        let num_rows = codes.len();
-        vortex_ensure_eq!(
-            norms.len(),
-            num_rows,
-            "norms length must match codes length",
-        );
-
-        // Norms dtype must match the element ptype of the Vector, with the parent's nullability.
-        // Norms carry the validity of the entire TurboQuant array.
-        let element_ptype = vector_metadata.element_ptype();
-        let expected_norms_dtype = DType::Primitive(element_ptype, dtype.nullability());
-        vortex_ensure_eq!(
-            *norms.dtype(),
-            expected_norms_dtype,
-            "norms dtype does not match expected {expected_norms_dtype}",
         );
 
         // Centroids are always f32 regardless of element type.
@@ -154,6 +146,7 @@ impl TurboQuantData {
             "rotation_signs dtype does not match expected {expected_signs_dtype}",
         );
         // Degenerate (empty) case: all children must be empty, and bit_width is 0.
+        let num_rows = codes.len();
         if num_rows == 0 {
             vortex_ensure!(
                 centroids.is_empty(),
@@ -198,13 +191,11 @@ impl TurboQuantData {
 
     pub(crate) fn make_slots(
         codes: ArrayRef,
-        norms: ArrayRef,
         centroids: ArrayRef,
         rotation_signs: ArrayRef,
     ) -> Vec<Option<ArrayRef>> {
         let mut slots = vec![None; Slot::COUNT];
         slots[Slot::Codes as usize] = Some(codes);
-        slots[Slot::Norms as usize] = Some(norms);
         slots[Slot::Centroids as usize] = Some(centroids);
         slots[Slot::RotationSigns as usize] = Some(rotation_signs);
         slots
@@ -240,12 +231,6 @@ pub trait TurboQuantArrayExt: TypedArrayRef<TurboQuant> {
         self.as_ref().slots()[Slot::Codes as usize]
             .as_ref()
             .vortex_expect("TurboQuantArray codes slot")
-    }
-
-    fn norms(&self) -> &ArrayRef {
-        self.as_ref().slots()[Slot::Norms as usize]
-            .as_ref()
-            .vortex_expect("TurboQuantArray norms slot")
     }
 
     fn centroids(&self) -> &ArrayRef {

@@ -19,13 +19,11 @@ impl TakeExecute for TurboQuant {
     ) -> VortexResult<Option<ArrayRef>> {
         // FSL children handle per-row take natively.
         let taken_codes = array.codes().take(indices.clone())?;
-        let taken_norms = array.norms().take(indices.clone())?;
 
         Ok(Some(
             TurboQuant::try_new_array(
                 array.dtype().clone(),
                 taken_codes,
-                taken_norms,
                 array.centroids().clone(),
                 array.rotation_signs().clone(),
             )?

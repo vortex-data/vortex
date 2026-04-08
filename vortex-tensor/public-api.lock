@@ -16,7 +16,9 @@ pub const vortex_tensor::encodings::turboquant::TurboQuant::MAX_CENTROIDS: usize
 
 pub const vortex_tensor::encodings::turboquant::TurboQuant::MIN_DIMENSION: u32
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::try_new_array(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_tensor::encodings::turboquant::TurboQuantArray>
+pub unsafe fn vortex_tensor::encodings::turboquant::TurboQuant::new_array_unchecked(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> vortex_tensor::encodings::turboquant::TurboQuantArray
+
+pub fn vortex_tensor::encodings::turboquant::TurboQuant::try_new_array(dtype: vortex_array::dtype::DType, codes: vortex_array::array::erased::ArrayRef, centroids: vortex_array::array::erased::ArrayRef, rotation_signs: vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_tensor::encodings::turboquant::TurboQuantArray>
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::validate_dtype(dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_tensor::vector::VectorMatcherMetadata>
 
@@ -34,7 +36,7 @@ pub type vortex_tensor::encodings::turboquant::TurboQuant::ArrayData = vortex_te
 
 pub type vortex_tensor::encodings::turboquant::TurboQuant::OperationsVTable = vortex_tensor::encodings::turboquant::TurboQuant
 
-pub type vortex_tensor::encodings::turboquant::TurboQuant::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
+pub type vortex_tensor::encodings::turboquant::TurboQuant::ValidityVTable = vortex_tensor::encodings::turboquant::TurboQuant
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::buffer(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> vortex_array::buffer::BufferHandle
 
@@ -62,9 +64,9 @@ impl vortex_array::array::vtable::operations::OperationsVTable<vortex_tensor::en
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuant::scalar_at(array: vortex_array::array::view::ArrayView<'_, vortex_tensor::encodings::turboquant::TurboQuant>, index: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-impl vortex_array::array::vtable::validity::ValidityChild<vortex_tensor::encodings::turboquant::TurboQuant> for vortex_tensor::encodings::turboquant::TurboQuant
+impl vortex_array::array::vtable::validity::ValidityVTable<vortex_tensor::encodings::turboquant::TurboQuant> for vortex_tensor::encodings::turboquant::TurboQuant
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuant::validity_child(array: vortex_array::array::view::ArrayView<'_, vortex_tensor::encodings::turboquant::TurboQuant>) -> vortex_array::array::erased::ArrayRef
+pub fn vortex_tensor::encodings::turboquant::TurboQuant::validity(_array: vortex_array::array::view::ArrayView<'_, vortex_tensor::encodings::turboquant::TurboQuant>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
 impl vortex_array::arrays::dict::take::TakeExecute for vortex_tensor::encodings::turboquant::TurboQuant
 
@@ -110,7 +112,7 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuantData::padded_dim(&self) -
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantData::try_new(dimension: u32, bit_width: u8, num_rounds: u8) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantData::validate(dtype: &vortex_array::dtype::DType, codes: &vortex_array::array::erased::ArrayRef, norms: &vortex_array::array::erased::ArrayRef, centroids: &vortex_array::array::erased::ArrayRef, rotation_signs: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
+pub fn vortex_tensor::encodings::turboquant::TurboQuantData::validate(dtype: &vortex_array::dtype::DType, codes: &vortex_array::array::erased::ArrayRef, centroids: &vortex_array::array::erased::ArrayRef, rotation_signs: &vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<()>
 
 impl core::clone::Clone for vortex_tensor::encodings::turboquant::TurboQuantData
 
@@ -164,8 +166,6 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::centroids(&self
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::codes(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::norms(&self) -> &vortex_array::array::erased::ArrayRef
-
 pub fn vortex_tensor::encodings::turboquant::TurboQuantArrayExt::rotation_signs(&self) -> &vortex_array::array::erased::ArrayRef
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_tensor::encodings::turboquant::TurboQuant>> vortex_tensor::encodings::turboquant::TurboQuantArrayExt for T
@@ -174,11 +174,11 @@ pub fn T::centroids(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn T::codes(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn T::norms(&self) -> &vortex_array::array::erased::ArrayRef
-
 pub fn T::rotation_signs(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_tensor::encodings::turboquant::turboquant_encode(ext: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::extension::vtable::Extension>, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub unsafe fn vortex_tensor::encodings::turboquant::turboquant_encode_unchecked(ext: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::extension::vtable::Extension>, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub type vortex_tensor::encodings::turboquant::TurboQuantArray = vortex_array::array::typed::Array<vortex_tensor::encodings::turboquant::TurboQuant>
 
@@ -430,7 +430,9 @@ impl vortex_tensor::scalar_fns::l2_denorm::L2Denorm
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::new(options: &vortex_tensor::scalar_fns::ApproxOptions) -> vortex_array::scalar_fn::typed::ScalarFn<vortex_tensor::scalar_fns::l2_denorm::L2Denorm>
 
-pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::try_new_array(options: &vortex_tensor::scalar_fns::ApproxOptions, normalized: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+pub unsafe fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::new_array_unchecked(options: &vortex_tensor::scalar_fns::ApproxOptions, normalized: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+
+pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::try_new_array(options: &vortex_tensor::scalar_fns::ApproxOptions, normalized: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, len: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
 impl core::clone::Clone for vortex_tensor::scalar_fns::l2_denorm::L2Denorm
 
@@ -457,6 +459,10 @@ pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::is_null_sensitive(&self, 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::return_dtype(&self, _options: &Self::Options, arg_dtypes: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
+
+pub fn vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm(options: &vortex_tensor::scalar_fns::ApproxOptions, input: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+
+pub fn vortex_tensor::scalar_fns::l2_denorm::validate_l2_normalized_rows(input: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub mod vortex_tensor::scalar_fns::l2_norm
 

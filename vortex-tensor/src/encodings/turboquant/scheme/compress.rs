@@ -2,8 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! TurboQuant encoding (quantization) logic.
+//!
+//! The input to [`turboquant_encode`] must be a non-nullable [`Vector`](crate::vector::Vector)
+//! extension array whose rows are already L2-normalized (unit norm). Normalization is handled
+//! externally by [`normalize_as_l2_denorm`](crate::scalar_fns::l2_denorm::normalize_as_l2_denorm),
+//! which the [`TurboQuantScheme`](super::TurboQuantScheme) calls before invoking this function.
 
-use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -16,7 +20,6 @@ use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::match_each_float_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -31,8 +34,7 @@ use crate::encodings::turboquant::array::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::array::centroids::get_centroids;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
 use crate::encodings::turboquant::vtable::TurboQuantArray;
-use crate::scalar_fns::ApproxOptions;
-use crate::scalar_fns::l2_norm::L2Norm;
+use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
 
 /// Configuration for TurboQuant encoding.
 #[derive(Clone, Debug)]
@@ -94,49 +96,24 @@ struct QuantizationResult {
     rotation: RotationMatrix,
     centroids: Vec<f32>,
     all_indices: BufferMut<u8>,
-    /// Native-precision norms (matching the Vector element type). Carries validity: null vectors
-    /// have null norms.
-    norms_array: ArrayRef,
     padded_dim: usize,
 }
 
-/// Core quantization: compute norms via [`L2Norm`], extract f32 elements, then
-/// normalize/rotate/quantize all rows.
+/// Core quantization: rotate and quantize already-normalized rows.
 ///
-/// Norms are computed in the native element precision via the [`L2Norm`] scalar function.
-/// The rotation and centroid lookup happen in f32. Null rows (per the input validity) produce
-/// all-zero codes.
+/// The input `fsl` must contain non-nullable, unit-norm vectors (already L2-normalized). Null
+/// vectors are not supported and must be zeroed out before reaching this function. The rotation
+/// and centroid lookup happen in f32.
 fn turboquant_quantize_core(
-    ext: ArrayView<Extension>,
     fsl: &FixedSizeListArray,
     seed: u64,
     bit_width: u8,
     num_rounds: u8,
-    validity: &Validity,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<QuantizationResult> {
     let dimension =
         usize::try_from(fsl.list_size()).vortex_expect("u32 FixedSizeList dimension fits in usize");
     let num_rows = fsl.len();
-
-    // Compute native-precision norms via the L2Norm scalar fn. L2Norm propagates validity from
-    // the input, so null vectors get null norms automatically.
-    let norms_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, ext.as_ref().clone(), num_rows)?;
-    let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
-    let norms_prim: PrimitiveArray = norms_array.clone().execute(ctx)?;
-
-    // Extract f32 norms for the internal quantization loop.
-    let f32_norms: Vec<f32> = match_each_float_ptype!(norms_prim.ptype(), |T| {
-        norms_prim
-            .as_slice::<T>()
-            .iter()
-            .map(|&v| {
-                // `ToPrimitive::to_f32` is infallible for all float types: f16 -> f32 is lossless,
-                // f32 is identity, and f64 -> f32 saturates to +-inf.
-                ToPrimitive::to_f32(&v).vortex_expect("float-to-f32 conversion is infallible")
-            })
-            .collect()
-    });
 
     let rotation = RotationMatrix::try_new(seed, dimension, num_rounds as usize)?;
     let padded_dim = rotation.padded_dim();
@@ -154,23 +131,12 @@ fn turboquant_quantize_core(
 
     let f32_slice = f32_elements.as_slice::<f32>();
     for row in 0..num_rows {
-        // Null vectors get all-zero codes.
-        if !validity.is_valid(row)? {
-            all_indices.extend(std::iter::repeat_n(0u8, padded_dim));
-            continue;
-        }
-
         let x = &f32_slice[row * dimension..(row + 1) * dimension];
-        let norm = f32_norms[row];
 
-        if norm > 0.0 {
-            let inv_norm = 1.0 / norm;
-            for (dst, &src) in padded[..dimension].iter_mut().zip(x.iter()) {
-                *dst = src * inv_norm;
-            }
-        } else {
-            padded[..dimension].fill(0.0);
-        }
+        // Zero-pad to the next power of 2.
+        padded[..dimension].copy_from_slice(x);
+        padded[dimension..].fill(0.0);
+
         rotation.rotate(&padded, &mut rotated);
 
         for j in 0..padded_dim {
@@ -182,18 +148,18 @@ fn turboquant_quantize_core(
         rotation,
         centroids,
         all_indices,
-        norms_array,
         padded_dim,
     })
 }
 
 /// Build a `TurboQuantArray` from quantization results.
+///
+/// The `ext_dtype` must be a non-nullable [`Vector`](crate::vector::Vector) extension dtype.
 fn build_turboquant(
-    fsl: &FixedSizeListArray,
+    num_rows: usize,
     core: QuantizationResult,
-    ext_dtype: DType,
+    ext_dtype: &DType,
 ) -> VortexResult<TurboQuantArray> {
-    let num_rows = fsl.len();
     let padded_dim = core.padded_dim;
     let padded_dim_u32 =
         u32::try_from(padded_dim).vortex_expect("padded_dim stays representable as u32");
@@ -216,20 +182,57 @@ fn build_turboquant(
 
     let rotation_signs = bitpack_rotation_signs(&core.rotation)?;
 
-    TurboQuant::try_new_array(
-        ext_dtype,
-        codes,
-        core.norms_array,
-        centroids_array,
-        rotation_signs,
-    )
+    TurboQuant::try_new_array(ext_dtype.clone(), codes, centroids_array, rotation_signs)
 }
 
-/// Encode a [`Vector`](crate::vector::Vector) extension array into a `TurboQuantArray`.
+/// Encode a non-nullable, L2-normalized [`Vector`](crate::vector::Vector) extension array into a
+/// [`TurboQuantArray`].
 ///
-/// Nullable inputs are supported: null vectors get all-zero codes and null norms. The validity
-/// of the resulting TurboQuant array is carried by the norms child.
+/// The input must be a non-nullable Vector extension array whose rows are already unit-norm.
+/// **Null vectors are not supported.** The caller must normalize and strip nullability before
+/// calling this function, for example via [`normalize_as_l2_denorm`].
+///
+/// This function validates that every row is L2-normalized (or is exactly 0.0). Use
+/// [`turboquant_encode_unchecked`] to skip this check when the caller has just performed
+/// normalization.
+///
+/// The returned array is a plain [`TurboQuantArray`] that decompresses to unit-norm vectors.
+/// The caller is responsible for wrapping it in an [`L2Denorm`] ScalarFnArray if the original
+/// magnitudes need to be restored.
+///
+/// [`normalize_as_l2_denorm`]: crate::scalar_fns::l2_denorm::normalize_as_l2_denorm
+/// [`L2Denorm`]: crate::scalar_fns::l2_denorm::L2Denorm
 pub fn turboquant_encode(
+    ext: ArrayView<Extension>,
+    config: &TurboQuantConfig,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let ext_dtype = ext.dtype().clone();
+
+    vortex_ensure!(
+        !ext_dtype.is_nullable(),
+        "TurboQuant input must be non-nullable (normalize first via L2Denorm), got {ext_dtype}",
+    );
+
+    validate_l2_normalized_rows(ext.as_ref().clone(), ctx)?;
+
+    // SAFETY: We just validated that the input is non-nullable and all rows are unit-norm.
+    unsafe { turboquant_encode_unchecked(ext, config, ctx) }
+}
+
+/// Encode a non-nullable, L2-normalized [`Vector`](crate::vector::Vector) extension array into a
+/// [`TurboQuantArray`], without validating the unit-norm precondition.
+///
+/// # Safety
+///
+/// The caller must ensure:
+///
+/// - The input dtype is non-nullable.
+/// - Every row is L2-normalized (unit norm) or is a zero vector.
+///
+/// Passing non-unit-norm vectors will not cause memory unsafety, but will produce silently
+/// incorrect quantization results.
+pub unsafe fn turboquant_encode_unchecked(
     ext: ArrayView<Extension>,
     config: &TurboQuantConfig,
     ctx: &mut ExecutionCtx,
@@ -260,13 +263,6 @@ pub fn turboquant_encode(
             0,
         )?;
 
-        // Norms dtype matches the element type and carries the parent's nullability.
-        let element_ptype = fsl.elements().dtype().as_ptype();
-        let norms_nullability = ext_dtype.nullability();
-        let empty_norms: ArrayRef = match_each_float_ptype!(element_ptype, |T| {
-            PrimitiveArray::empty::<T>(norms_nullability).into_array()
-        });
-
         let empty_centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable);
         let empty_signs = FixedSizeListArray::try_new(
             PrimitiveArray::empty::<u8>(Nullability::NonNullable).into_array(),
@@ -274,29 +270,21 @@ pub fn turboquant_encode(
             Validity::NonNullable,
             0,
         )?;
+
         return Ok(TurboQuant::try_new_array(
             ext_dtype,
             empty_codes.into_array(),
-            empty_norms,
             empty_centroids.into_array(),
             empty_signs.into_array(),
         )?
         .into_array());
     }
 
-    let validity = ext.as_ref().validity()?;
     let seed = config.seed.unwrap_or(42);
-    let core = turboquant_quantize_core(
-        ext,
-        &fsl,
-        seed,
-        config.bit_width,
-        config.num_rounds,
-        &validity,
-        ctx,
-    )?;
+    let num_rows = fsl.len();
+    let core = turboquant_quantize_core(&fsl, seed, config.bit_width, config.num_rounds, ctx)?;
 
-    Ok(build_turboquant(&fsl, core, ext_dtype)?.into_array())
+    Ok(build_turboquant(num_rows, core, &ext_dtype)?.into_array())
 }
 
 /// Export rotation signs as a `FixedSizeListArray` wrapping a 1-bit [`BitPackedArray`].
