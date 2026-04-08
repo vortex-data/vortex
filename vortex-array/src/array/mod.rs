@@ -141,6 +141,9 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Compares two arrays of the same concrete type for equality.
     fn dyn_array_eq(&self, other: &ArrayRef, precision: crate::Precision) -> bool;
 
+    /// Replace a single slot in-place. Only called when the Arc refcount is 1.
+    fn replace_slot(&mut self, slot_idx: usize, replacement: ArrayRef);
+
     /// Returns a new array with the given slots.
     fn with_slots(&self, this: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
 
@@ -376,6 +379,10 @@ impl<V: VTable> DynArray for ArrayInner<V> {
                         .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
                     && self.data.array_eq(&other_inner.data, precision)
             })
+    }
+
+    fn replace_slot(&mut self, slot_idx: usize, replacement: ArrayRef) {
+        self.slots[slot_idx] = Some(replacement);
     }
 
     fn with_slots(&self, this: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {

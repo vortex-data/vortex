@@ -91,7 +91,15 @@ impl<V: VTable> ArrayInner<V> {
     pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
         new.vtable
             .validate(&new.data, &new.dtype, new.len, &new.slots)?;
-        Ok(unsafe {
+        Ok(unsafe { Self::new_unchecked(new) })
+    }
+
+    /// Create from [`ArrayParts`] without validation.
+    ///
+    /// # Safety
+    /// Caller must ensure dtype and len match the data.
+    pub unsafe fn new_unchecked(new: ArrayParts<V>) -> Self {
+        unsafe {
             Self::from_data_unchecked(
                 new.vtable,
                 new.dtype,
@@ -100,7 +108,7 @@ impl<V: VTable> ArrayInner<V> {
                 new.slots,
                 ArrayStats::default(),
             )
-        })
+        }
     }
 
     /// Create without validation.
@@ -209,16 +217,7 @@ impl<V: VTable> Array<V> {
     /// Caller must ensure the provided parts are logically consistent.
     #[doc(hidden)]
     pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
-        let inner = ArrayRef::from_inner(Arc::new(unsafe {
-            ArrayInner::<V>::from_data_unchecked(
-                new.vtable,
-                new.dtype,
-                new.len,
-                new.data,
-                new.slots,
-                ArrayStats::default(),
-            )
-        }));
+        let inner = ArrayRef::from_inner(Arc::new(unsafe { ArrayInner::new_unchecked(new) }));
         Self {
             inner,
             _phantom: PhantomData,

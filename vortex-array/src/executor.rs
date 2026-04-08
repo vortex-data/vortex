@@ -105,6 +105,9 @@ impl ArrayRef {
             });
 
         let mut current = self.optimize()?;
+        // self is now unused
+        drop(self);
+
         // Stack frames: (parent, slot_idx, done_predicate_for_slot)
         let mut stack: Vec<(ArrayRef, usize, DonePredicate)> = Vec::new();
 
@@ -120,7 +123,7 @@ impl ArrayRef {
                         return Ok(current);
                     }
                     Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?;
+                        current = unsafe { parent.with_slot_unchecked(slot_idx, current) };
                         current = current.optimize()?;
                         continue;
                     }
@@ -136,7 +139,7 @@ impl ArrayRef {
                         return Ok(current);
                     }
                     Some((parent, slot_idx, _)) => {
-                        current = parent.with_slot(slot_idx, current)?;
+                        current = unsafe { parent.with_slot_unchecked(slot_idx, current) };
                         current = current.optimize()?;
                         continue;
                     }
@@ -335,7 +338,7 @@ impl Executable for ArrayRef {
                 // replacing it, and returning the updated array.
                 let child = array.slots()[i].clone().vortex_expect("valid slot index");
                 let executed_child = child.execute::<ArrayRef>(ctx)?;
-                array.with_slot(i, executed_child)
+                Ok(unsafe { array.with_slot_unchecked(i, executed_child) })
             }
         }
     }
