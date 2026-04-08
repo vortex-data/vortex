@@ -620,11 +620,14 @@ impl FusedPlan {
         } else {
             self.walk(codes, pending_subtrees)?
         };
-        // DICT scalar op: pass byte offset directly (C ABI uses byte offsets).
+        // DICT scalar op: pass byte offset and values ptype directly.
+        // The kernel reads values at values_ptype width and widens to T.
         // output_ptype is the values' ptype — DICT transforms codes → values.
+        let values_ptype_tag = ptype_to_tag(values_ptype);
         pipeline.scalar_ops.push(ScalarOp::dict(
             values_smem_byte_offset,
-            ptype_to_tag(values_ptype),
+            values_ptype_tag,
+            values_ptype_tag,
         ));
         Ok(pipeline)
     }
@@ -673,14 +676,16 @@ impl FusedPlan {
         };
         let values_smem_byte_offset = self.push_smem_stage(values_spec, num_values);
 
-        // Pass byte offsets and PTypeTags directly — the C ABI now uses
-        // byte offsets and per-field ptype tags for cross-stage references.
+        // Pass byte offsets and PTypeTags directly — the kernel reads
+        // ends and values at their native ptype width via load_element.
         Ok(Stage::new(
             SourceOp::runend(
                 ends_smem_byte_offset,
                 values_smem_byte_offset,
                 num_runs as u64,
                 offset,
+                ptype_to_tag(ends_ptype),
+                ptype_to_tag(values_ptype),
             ),
             None,
             self.output_ptype,

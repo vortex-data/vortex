@@ -94,6 +94,25 @@ __device__ inline T load_element(const void *__restrict ptr, PTypeTag ptype, uin
     }
 }
 
+/// Binary search for the first element strictly greater than `value` in
+/// native-width shared memory. Dispatches on `ptype` to read elements at
+/// the correct width.
+__device__ inline uint64_t smem_upper_bound(const void *data, PTypeTag ptype,
+                                             uint64_t len, uint64_t value) {
+    switch (ptype_to_unsigned(ptype)) {
+    case PTYPE_U8:
+        return upper_bound(static_cast<const uint8_t *>(data), len, value);
+    case PTYPE_U16:
+        return upper_bound(static_cast<const uint16_t *>(data), len, value);
+    case PTYPE_U32:
+        return upper_bound(static_cast<const uint32_t *>(data), len, value);
+    case PTYPE_U64:
+        return upper_bound(static_cast<const uint64_t *>(data), len, value);
+    default:
+        __builtin_unreachable();
+    }
+}
+
 /// Per-thread run cursor for RUNEND forward-scan, one entry per thread.
 ///
 /// Stored in shared memory so the cursor persists across successive
@@ -137,10 +156,11 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
         break;
     }
     case ScalarOp::DICT: {
-        const T *dict = reinterpret_cast<const T *>(smem + op.params.dict.values_smem_byte_offset);
+        const void *dict = smem + op.params.dict.values_smem_byte_offset;
+        const PTypeTag vptype = op.params.dict.values_ptype;
 #pragma unroll
         for (uint32_t i = 0; i < N; ++i) {
-            values[i] = dict[static_cast<uint32_t>(values[i])];
+            values[i] = load_element<T>(dict, vptype, static_cast<uint32_t>(values[i]));
         }
         break;
     }
@@ -200,7 +220,7 @@ __device__ inline void source_op(T *out,
                                  const struct SourceOp &src,
                                  const void *raw_input,
                                  PTypeTag ptype,
-                                 const T *smem_src,
+                                 const void *smem_src,
                                  uint32_t smem_base,
                                  uint64_t global_base,
                                  char *__restrict smem) {
@@ -211,7 +231,7 @@ __device__ inline void source_op(T *out,
     case SourceOp::BITUNPACK: {
 #pragma unroll
         for (uint32_t j = 0; j < N; ++j) {
-            out[j] = smem_src[THREAD_POS(smem_base, j)];
+            out[j] = load_element<T>(smem_src, ptype, THREAD_POS(smem_base, j));
         }
         return;
     }
@@ -232,18 +252,21 @@ __device__ inline void source_op(T *out,
         return;
     }
     case SourceOp::RUNEND: {
-        const T *ends = reinterpret_cast<const T *>(smem + src.params.runend.ends_smem_byte_offset);
-        const T *values = reinterpret_cast<const T *>(smem + src.params.runend.values_smem_byte_offset);
+        const void *ends_ptr = smem + src.params.runend.ends_smem_byte_offset;
+        const void *values_ptr = smem + src.params.runend.values_smem_byte_offset;
+        const PTypeTag eptype = src.params.runend.ends_ptype;
+        const PTypeTag vptype = src.params.runend.values_ptype;
         const uint64_t num_runs = src.params.runend.num_runs;
         const uint64_t offset = src.params.runend.offset;
         uint64_t &run = runend_cursors[threadIdx.x];
 #pragma unroll
         for (uint32_t j = 0; j < N; ++j) {
             const uint64_t pos = THREAD_POS(global_base, j) + offset;
-            while (run < num_runs && static_cast<uint64_t>(ends[run]) <= pos) {
+            while (run < num_runs &&
+                   static_cast<uint64_t>(load_element<T>(ends_ptr, eptype, run)) <= pos) {
                 run++;
             }
-            out[j] = values[min(run, num_runs - 1)];
+            out[j] = load_element<T>(values_ptr, vptype, min(run, num_runs - 1));
         }
         return;
     }
@@ -290,15 +313,16 @@ __device__ void execute_output_stage(T *__restrict output,
         // strided position. The RUNEND arm in source_op advances the
         // cursor monotonically, so this avoids a full binary search on
         // every element.
-        const T *ends = reinterpret_cast<const T *>(smem + src.params.runend.ends_smem_byte_offset);
-        runend_cursors[threadIdx.x] = upper_bound(ends,
-                                                  src.params.runend.num_runs,
-                                                  block_start + threadIdx.x + src.params.runend.offset);
+        const void *ends = smem + src.params.runend.ends_smem_byte_offset;
+        runend_cursors[threadIdx.x] = smem_upper_bound(ends,
+                                                       src.params.runend.ends_ptype,
+                                                       src.params.runend.num_runs,
+                                                       block_start + threadIdx.x + src.params.runend.offset);
     }
 
     for (uint32_t elem_idx = 0; elem_idx < block_len;) {
         uint32_t chunk_len;
-        const T *smem_src = nullptr;
+        const void *smem_src = nullptr;
 
         // BITUNPACK uses smem scratch, so the outer loop advances one
         // chunk at a time. LOAD, SEQUENCE, and RUNEND need no smem
@@ -314,7 +338,7 @@ __device__ void execute_output_stage(T *__restrict output,
                          src);
             constexpr uint32_t FL_CHUNK = 1024; // FastLanes chunk size
             const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
-            smem_src = scratch + align;
+            smem_src = scratch + align; // T-wide elements; source_op reads via load_element
             // Write barrier: all threads finished bitunpack, safe to read from scratch.
             __syncthreads();
         } else {
@@ -415,9 +439,11 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             // strided position. The RUNEND arm in source_op advances the
             // cursor monotonically, so this avoids a full binary search on
             // every element.
-            const T *ends = reinterpret_cast<const T *>(smem + src.params.runend.ends_smem_byte_offset);
+            const void *ends = smem + src.params.runend.ends_smem_byte_offset;
             runend_cursors[threadIdx.x] =
-                upper_bound(ends, src.params.runend.num_runs, threadIdx.x + src.params.runend.offset);
+                smem_upper_bound(ends, src.params.runend.ends_ptype,
+                                 src.params.runend.num_runs,
+                                 threadIdx.x + src.params.runend.offset);
         }
         const void *raw_input = reinterpret_cast<const void *>(stage.input_ptr);
         for (uint32_t i = threadIdx.x; i < stage.len; i += blockDim.x) {

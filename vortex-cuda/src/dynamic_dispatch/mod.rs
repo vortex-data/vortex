@@ -326,11 +326,15 @@ impl SourceOp {
     /// * `values_smem_byte_offset` - byte offset to decoded values in smem
     /// * `num_runs` - number of runs (length of ends/values)
     /// * `offset` - logical offset for sliced arrays
+    /// * `ends_ptype` - ptype of decoded ends in smem
+    /// * `values_ptype` - ptype of decoded values in smem
     pub fn runend(
         ends_smem_byte_offset: u32,
         values_smem_byte_offset: u32,
         num_runs: u64,
         offset: u64,
+        ends_ptype: PTypeTag,
+        values_ptype: PTypeTag,
     ) -> Self {
         Self {
             op_code: SourceOp_SourceOpCode_RUNEND,
@@ -340,6 +344,8 @@ impl SourceOp {
                     values_smem_byte_offset,
                     num_runs,
                     offset,
+                    ends_ptype,
+                    values_ptype,
                 },
             },
         }
@@ -392,13 +398,21 @@ impl ScalarOp {
 
     /// Dictionary gather: use current value as index into decoded values
     /// in shared memory (populated by an earlier input stage).
-    pub fn dict(values_smem_byte_offset: u32, output_ptype: PTypeTag) -> Self {
+    ///
+    /// `values_ptype` is the ptype of the decoded values in smem — the
+    /// kernel reads at this width and widens to T via `load_element`.
+    pub fn dict(
+        values_smem_byte_offset: u32,
+        values_ptype: PTypeTag,
+        output_ptype: PTypeTag,
+    ) -> Self {
         Self {
             op_code: ScalarOp_ScalarOpCode_DICT,
             output_ptype,
             params: ScalarParams {
                 dict: ScalarParams_DictParams {
                     values_smem_byte_offset,
+                    values_ptype,
                 },
             },
         }
@@ -596,7 +610,7 @@ mod tests {
                     SourceOp::bitunpack(6, 0),
                     &[
                         ScalarOp::frame_of_ref(42, PTypeTag_PTYPE_U32),
-                        ScalarOp::dict(0, PTypeTag_PTYPE_U32),
+                        ScalarOp::dict(0, PTypeTag_PTYPE_U32, PTypeTag_PTYPE_U32),
                     ],
                 ),
             ],

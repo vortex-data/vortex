@@ -78,6 +78,28 @@ PTYPE_HOST_DEVICE constexpr PTypeTag ptype_to_unsigned(PTypeTag tag) {
         return tag;
     }
 }
+
+/// Byte width of a PTypeTag element.
+PTYPE_HOST_DEVICE constexpr uint32_t ptype_elem_bytes(PTypeTag tag) {
+    switch (tag) {
+    case PTYPE_U8:
+    case PTYPE_I8:
+        return 1;
+    case PTYPE_U16:
+    case PTYPE_I16:
+        return 2;
+    case PTYPE_U32:
+    case PTYPE_I32:
+    case PTYPE_F32:
+        return 4;
+    case PTYPE_U64:
+    case PTYPE_I64:
+    case PTYPE_F64:
+        return 8;
+    default:
+        return 0;
+    }
+}
 #endif
 
 /// Number of threads per CUDA block.
@@ -123,7 +145,9 @@ union SourceParams {
         uint32_t ends_smem_byte_offset;   // byte offset to decoded ends in smem
         uint32_t values_smem_byte_offset; // byte offset to decoded values in smem
         uint64_t num_runs;
-        uint64_t offset; // slice offset into the run-end encoded array
+        uint64_t offset;                  // slice offset into the run-end encoded array
+        enum PTypeTag ends_ptype;         // ptype of decoded ends in smem
+        enum PTypeTag values_ptype;       // ptype of decoded values in smem
     } runend;
 
     /// Generate a linear sequence: `value[i] = base + i * multiplier`.
@@ -167,6 +191,7 @@ union ScalarParams {
     /// element type.
     struct DictParams {
         uint32_t values_smem_byte_offset; // byte offset to decoded dict values in smem
+        enum PTypeTag values_ptype;       // ptype of decoded values in smem
     } dict;
 };
 
