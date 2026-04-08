@@ -296,7 +296,7 @@ mod tests {
         let allocator = DefaultBufferAllocator;
         let mut writable = allocator.allocate(16, Alignment::new(8)).unwrap();
         for (idx, byte) in writable.as_mut_slice().iter_mut().enumerate() {
-            *byte = idx as u8;
+            *byte = u8::try_from(idx).unwrap();
         }
 
         let host = writable.freeze();
