@@ -31,10 +31,15 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityChild;
 use crate::array::ValidityVTableFromChild;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedData;
+use crate::arrays::patched::array::INDICES_SLOT;
+use crate::arrays::patched::array::INNER_SLOT;
+use crate::arrays::patched::array::LANE_OFFSETS_SLOT;
 use crate::arrays::patched::array::SLOT_NAMES;
+use crate::arrays::patched::array::VALUES_SLOT;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
 use crate::arrays::primitive::PrimitiveDataParts;
@@ -45,6 +50,7 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
+use crate::require_child;
 use crate::serde::ArrayChildren;
 
 /// A [`Patched`]-encoded Vortex array.
@@ -242,12 +248,46 @@ impl VTable for Patched {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let inner = array
-            .base_array()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_primitive();
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.base_array(), INNER_SLOT => Primitive);
+        let array = require_child!(array, array.lane_offsets(), LANE_OFFSETS_SLOT => Primitive);
+        let array = require_child!(array, array.patch_indices(), INDICES_SLOT => Primitive);
+        let array = require_child!(array, array.patch_values(), VALUES_SLOT => Primitive);
+
+        let len = array.len();
+        let (data, mut slots) = match array.try_into_parts() {
+            Ok(parts) => (parts.data, parts.slots),
+            Err(array) => {
+                // Arc is shared, clone the fields out.
+                (array.data().clone(), array.slots().to_vec())
+            }
+        };
+        let PatchedData { n_lanes, offset } = data;
+
+        let inner = slots[INNER_SLOT]
+            .take()
+            .vortex_expect("inner slot")
+            .try_downcast::<Primitive>()
+            .ok()
+            .vortex_expect("inner must be primitive");
+        let lane_offsets = slots[LANE_OFFSETS_SLOT]
+            .take()
+            .vortex_expect("lane_offsets slot")
+            .try_downcast::<Primitive>()
+            .ok()
+            .vortex_expect("lane_offsets must be primitive");
+        let indices = slots[INDICES_SLOT]
+            .take()
+            .vortex_expect("indices slot")
+            .try_downcast::<Primitive>()
+            .ok()
+            .vortex_expect("indices must be primitive");
+        let values = slots[VALUES_SLOT]
+            .take()
+            .vortex_expect("values slot")
+            .try_downcast::<Primitive>()
+            .ok()
+            .vortex_expect("values must be primitive");
 
         let PrimitiveDataParts {
             buffer,
@@ -255,32 +295,14 @@ impl VTable for Patched {
             validity,
         } = inner.into_data_parts();
 
-        let lane_offsets = array
-            .lane_offsets()
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
-        let indices = array
-            .patch_indices()
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
-
-        // TODO(aduffy): add support for non-primitive PatchedArray patches application (?)
-        let values = array
-            .patch_values()
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
-
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
-            let offset = array.offset();
-            let len = array.len();
-
             let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
 
             apply_patches_primitive::<V>(
                 &mut output,
                 offset,
                 len,
-                array.n_lanes(),
+                n_lanes,
                 lane_offsets.as_slice::<u32>(),
                 indices.as_slice::<u16>(),
                 values.as_slice::<V>(),
