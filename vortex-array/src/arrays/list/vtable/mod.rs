@@ -23,9 +23,11 @@ use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
+use crate::arrays::Primitive;
 use crate::arrays::list::ListArrayExt;
 use crate::arrays::list::ListData;
 use crate::arrays::list::array::NUM_SLOTS;
+use crate::arrays::list::array::OFFSETS_SLOT;
 use crate::arrays::list::array::SLOT_NAMES;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
@@ -34,6 +36,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::require_child;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 mod operations;
@@ -114,7 +117,7 @@ impl VTable for List {
         let elements = slots[crate::arrays::list::array::ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListArray elements slot");
-        let offsets = slots[crate::arrays::list::array::OFFSETS_SLOT]
+        let offsets = slots[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("ListArray offsets slot");
         vortex_ensure!(
@@ -180,6 +183,7 @@ impl VTable for List {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.offsets(), OFFSETS_SLOT => Primitive);
         Ok(ExecutionResult::done(
             list_view_from_list(array, ctx)?.into_array(),
         ))
