@@ -138,6 +138,42 @@ pub fn vortex_btrblocks::schemes::float::ALPScheme::num_children(&self) -> usize
 
 pub fn vortex_btrblocks::schemes::float::ALPScheme::scheme_name(&self) -> &'static str
 
+pub struct vortex_btrblocks::schemes::float::FloatRLEScheme
+
+impl core::clone::Clone for vortex_btrblocks::schemes::float::FloatRLEScheme
+
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::clone(&self) -> vortex_btrblocks::schemes::float::FloatRLEScheme
+
+impl core::cmp::Eq for vortex_btrblocks::schemes::float::FloatRLEScheme
+
+impl core::cmp::PartialEq for vortex_btrblocks::schemes::float::FloatRLEScheme
+
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::eq(&self, other: &vortex_btrblocks::schemes::float::FloatRLEScheme) -> bool
+
+impl core::fmt::Debug for vortex_btrblocks::schemes::float::FloatRLEScheme
+
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_btrblocks::schemes::float::FloatRLEScheme
+
+impl core::marker::StructuralPartialEq for vortex_btrblocks::schemes::float::FloatRLEScheme
+
+impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::float::FloatRLEScheme
+
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
+
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
+
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
+
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::num_children(&self) -> usize
+
+pub fn vortex_btrblocks::schemes::float::FloatRLEScheme::scheme_name(&self) -> &'static str
+
 pub struct vortex_btrblocks::schemes::float::NullDominatedSparseScheme
 
 impl core::clone::Clone for vortex_btrblocks::schemes::float::NullDominatedSparseScheme
@@ -201,8 +237,6 @@ pub fn vortex_btrblocks::schemes::float::PcoScheme::expected_compression_ratio(&
 pub fn vortex_btrblocks::schemes::float::PcoScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_btrblocks::schemes::float::PcoScheme::scheme_name(&self) -> &'static str
-
-pub const vortex_btrblocks::schemes::float::RLE_FLOAT_SCHEME: vortex_btrblocks::schemes::rle::RLEScheme<vortex_btrblocks::schemes::rle::FloatRLEConfig>
 
 pub mod vortex_btrblocks::schemes::integer
 
@@ -275,6 +309,42 @@ pub fn vortex_btrblocks::schemes::integer::FoRScheme::expected_compression_ratio
 pub fn vortex_btrblocks::schemes::integer::FoRScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_btrblocks::schemes::integer::FoRScheme::scheme_name(&self) -> &'static str
+
+pub struct vortex_btrblocks::schemes::integer::IntRLEScheme
+
+impl core::clone::Clone for vortex_btrblocks::schemes::integer::IntRLEScheme
+
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::clone(&self) -> vortex_btrblocks::schemes::integer::IntRLEScheme
+
+impl core::cmp::Eq for vortex_btrblocks::schemes::integer::IntRLEScheme
+
+impl core::cmp::PartialEq for vortex_btrblocks::schemes::integer::IntRLEScheme
+
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::eq(&self, other: &vortex_btrblocks::schemes::integer::IntRLEScheme) -> bool
+
+impl core::fmt::Debug for vortex_btrblocks::schemes::integer::IntRLEScheme
+
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_btrblocks::schemes::integer::IntRLEScheme
+
+impl core::marker::StructuralPartialEq for vortex_btrblocks::schemes::integer::IntRLEScheme
+
+impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::integer::IntRLEScheme
+
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::ancestor_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::AncestorExclusion>
+
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::compress(&self, compressor: &vortex_compressor::compressor::CascadingCompressor, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
+
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::expected_compression_ratio(&self, data: &mut vortex_compressor::stats::cache::ArrayAndStats, ctx: vortex_compressor::ctx::CompressorContext) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::matches(&self, canonical: &vortex_array::canonical::Canonical) -> bool
+
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::num_children(&self) -> usize
+
+pub fn vortex_btrblocks::schemes::integer::IntRLEScheme::scheme_name(&self) -> &'static str
 
 pub struct vortex_btrblocks::schemes::integer::PcoScheme
 
@@ -445,8 +515,6 @@ pub fn vortex_btrblocks::schemes::integer::ZigZagScheme::matches(&self, canonica
 pub fn vortex_btrblocks::schemes::integer::ZigZagScheme::num_children(&self) -> usize
 
 pub fn vortex_btrblocks::schemes::integer::ZigZagScheme::scheme_name(&self) -> &'static str
-
-pub const vortex_btrblocks::schemes::integer::RLE_INTEGER_SCHEME: vortex_btrblocks::schemes::rle::RLEScheme<vortex_btrblocks::schemes::rle::IntRLEConfig>
 
 pub mod vortex_btrblocks::schemes::string
 

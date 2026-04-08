@@ -252,6 +252,7 @@ impl VTable for Patched {
             .execute::<Canonical>(ctx)?
             .into_primitive();
 
+        // TODO(joe): use iterative execution
         let PrimitiveDataParts {
             buffer,
             ptype,

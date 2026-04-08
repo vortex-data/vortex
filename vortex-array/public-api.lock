@@ -4098,7 +4098,7 @@ pub fn vortex_array::arrays::slice::Slice::child_name(array: vortex_array::Array
 
 pub fn vortex_array::arrays::slice::Slice::deserialize(&self, _dtype: &vortex_array::dtype::DType, _len: usize, _metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::slice::Slice::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6426,7 +6426,7 @@ pub fn vortex_array::arrays::slice::Slice::child_name(array: vortex_array::Array
 
 pub fn vortex_array::arrays::slice::Slice::deserialize(&self, _dtype: &vortex_array::dtype::DType, _len: usize, _metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::slice::Slice::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -8307,6 +8307,8 @@ pub fn vortex_array::builders::PrimitiveBuilder<T>::set_validity(&mut self, vali
 pub unsafe fn vortex_array::builders::PrimitiveBuilder<T>::set_validity_unchecked(&mut self, validity: vortex_mask::Mask)
 
 pub fn vortex_array::builders::builder_with_capacity(dtype: &vortex_array::dtype::DType, capacity: usize) -> alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>
+
+pub fn vortex_array::builders::builder_with_capacity_in(allocator: vortex_array::memory::HostAllocatorRef, dtype: &vortex_array::dtype::DType, capacity: usize) -> alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>
 
 pub mod vortex_array::builtins
 
@@ -13181,6 +13183,110 @@ pub type V::Match<'a> = vortex_array::ArrayView<'a, V>
 pub fn V::matches(array: &vortex_array::ArrayRef) -> bool
 
 pub fn V::try_match<'a>(array: &'a vortex_array::ArrayRef) -> core::option::Option<vortex_array::ArrayView<'a, V>>
+
+pub mod vortex_array::memory
+
+pub struct vortex_array::memory::DefaultHostAllocator
+
+impl core::default::Default for vortex_array::memory::DefaultHostAllocator
+
+pub fn vortex_array::memory::DefaultHostAllocator::default() -> vortex_array::memory::DefaultHostAllocator
+
+impl core::fmt::Debug for vortex_array::memory::DefaultHostAllocator
+
+pub fn vortex_array::memory::DefaultHostAllocator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::memory::HostAllocator for vortex_array::memory::DefaultHostAllocator
+
+pub fn vortex_array::memory::DefaultHostAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+pub struct vortex_array::memory::MemorySession
+
+impl vortex_array::memory::MemorySession
+
+pub fn vortex_array::memory::MemorySession::allocator(&self) -> vortex_array::memory::HostAllocatorRef
+
+pub fn vortex_array::memory::MemorySession::new(allocator: vortex_array::memory::HostAllocatorRef) -> Self
+
+pub fn vortex_array::memory::MemorySession::set_allocator(&mut self, allocator: vortex_array::memory::HostAllocatorRef)
+
+impl core::default::Default for vortex_array::memory::MemorySession
+
+pub fn vortex_array::memory::MemorySession::default() -> Self
+
+impl core::fmt::Debug for vortex_array::memory::MemorySession
+
+pub fn vortex_array::memory::MemorySession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_array::memory::WritableHostBuffer
+
+impl vortex_array::memory::WritableHostBuffer
+
+pub fn vortex_array::memory::WritableHostBuffer::alignment(&self) -> vortex_buffer::alignment::Alignment
+
+pub fn vortex_array::memory::WritableHostBuffer::as_mut_slice(&mut self) -> &mut [u8]
+
+pub fn vortex_array::memory::WritableHostBuffer::as_mut_slice_typed<T>(&mut self) -> vortex_error::VortexResult<&mut [T]>
+
+pub fn vortex_array::memory::WritableHostBuffer::freeze(self) -> vortex_buffer::ByteBuffer
+
+pub fn vortex_array::memory::WritableHostBuffer::freeze_typed<T>(self) -> vortex_error::VortexResult<vortex_buffer::buffer::Buffer<T>>
+
+pub fn vortex_array::memory::WritableHostBuffer::is_empty(&self) -> bool
+
+pub fn vortex_array::memory::WritableHostBuffer::len(&self) -> usize
+
+pub fn vortex_array::memory::WritableHostBuffer::new(inner: alloc::boxed::Box<dyn vortex_array::memory::HostBufferMut>) -> Self
+
+impl core::fmt::Debug for vortex_array::memory::WritableHostBuffer
+
+pub fn vortex_array::memory::WritableHostBuffer::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub trait vortex_array::memory::HostAllocator: core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
+
+pub fn vortex_array::memory::HostAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+impl vortex_array::memory::HostAllocator for vortex_array::memory::DefaultHostAllocator
+
+pub fn vortex_array::memory::DefaultHostAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+pub trait vortex_array::memory::HostAllocatorExt: vortex_array::memory::HostAllocator
+
+pub fn vortex_array::memory::HostAllocatorExt::allocate_typed<T>(&self, len: usize) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+impl<A: vortex_array::memory::HostAllocator + ?core::marker::Sized> vortex_array::memory::HostAllocatorExt for A
+
+pub fn A::allocate_typed<T>(&self, len: usize) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+pub trait vortex_array::memory::HostBufferMut: core::marker::Send + 'static
+
+pub fn vortex_array::memory::HostBufferMut::alignment(&self) -> vortex_buffer::alignment::Alignment
+
+pub fn vortex_array::memory::HostBufferMut::as_mut_slice(&mut self) -> &mut [u8]
+
+pub fn vortex_array::memory::HostBufferMut::freeze(self: alloc::boxed::Box<Self>) -> vortex_buffer::ByteBuffer
+
+pub fn vortex_array::memory::HostBufferMut::is_empty(&self) -> bool
+
+pub fn vortex_array::memory::HostBufferMut::len(&self) -> usize
+
+pub trait vortex_array::memory::MemorySessionExt: vortex_session::SessionExt
+
+pub fn vortex_array::memory::MemorySessionExt::allocator(&self) -> vortex_array::memory::HostAllocatorRef
+
+pub fn vortex_array::memory::MemorySessionExt::memory(&self) -> vortex_session::Ref<'_, vortex_array::memory::MemorySession>
+
+pub fn vortex_array::memory::MemorySessionExt::memory_mut(&self) -> vortex_session::RefMut<'_, vortex_array::memory::MemorySession>
+
+impl<S: vortex_session::SessionExt> vortex_array::memory::MemorySessionExt for S
+
+pub fn S::allocator(&self) -> vortex_array::memory::HostAllocatorRef
+
+pub fn S::memory(&self) -> vortex_session::Ref<'_, vortex_array::memory::MemorySession>
+
+pub fn S::memory_mut(&self) -> vortex_session::RefMut<'_, vortex_array::memory::MemorySession>
+
+pub type vortex_array::memory::HostAllocatorRef = alloc::sync::Arc<dyn vortex_array::memory::HostAllocator>
 
 pub mod vortex_array::normalize
 
@@ -19852,7 +19958,7 @@ pub fn vortex_array::arrays::slice::Slice::child_name(array: vortex_array::Array
 
 pub fn vortex_array::arrays::slice::Slice::deserialize(&self, _dtype: &vortex_array::dtype::DType, _len: usize, _metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::slice::Slice::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20824,7 +20930,7 @@ pub fn vortex_array::arrays::slice::Slice::child_name(array: vortex_array::Array
 
 pub fn vortex_array::arrays::slice::Slice::deserialize(&self, _dtype: &vortex_array::dtype::DType, _len: usize, _metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::slice::Slice::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -22254,6 +22360,8 @@ pub struct vortex_array::ExecutionCtx
 
 impl vortex_array::ExecutionCtx
 
+pub fn vortex_array::ExecutionCtx::allocator(&self) -> vortex_array::memory::HostAllocatorRef
+
 pub fn vortex_array::ExecutionCtx::log(&mut self, msg: core::fmt::Arguments<'_>)
 
 pub fn vortex_array::ExecutionCtx::new(session: vortex_session::VortexSession) -> Self
@@ -23502,7 +23610,7 @@ pub fn vortex_array::arrays::slice::Slice::child_name(array: vortex_array::Array
 
 pub fn vortex_array::arrays::slice::Slice::deserialize(&self, _dtype: &vortex_array::dtype::DType, _len: usize, _metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::slice::Slice::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -24722,7 +24830,7 @@ pub fn vortex_array::arrays::slice::Slice::child_name(array: vortex_array::Array
 
 pub fn vortex_array::arrays::slice::Slice::deserialize(&self, _dtype: &vortex_array::dtype::DType, _len: usize, _metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::slice::Slice::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::slice::Slice::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 

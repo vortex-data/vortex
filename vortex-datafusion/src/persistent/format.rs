@@ -43,6 +43,7 @@ use futures::stream;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
+use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -265,10 +266,11 @@ impl FileFormat for VortexFormat {
                     }
 
                     // Not entry or invalid - open the file
-                    let reader = Arc::new(ObjectStoreReadAt::new(
+                    let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
                         store,
                         object.location.clone(),
                         session.handle(),
+                        session.allocator(),
                     ));
 
                     let vxf = session
@@ -337,10 +339,11 @@ impl FileFormat for VortexFormat {
                 Some(metadata) => metadata,
                 None => {
                     // Not entry - open the file
-                    let reader = Arc::new(ObjectStoreReadAt::new(
+                    let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
                         store,
                         object.location.clone(),
                         session.handle(),
+                        session.allocator(),
                     ));
 
                     let vxf = session

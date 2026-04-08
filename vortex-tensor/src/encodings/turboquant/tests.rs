@@ -11,17 +11,21 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFnVTable;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::extension::EmptyMetadata;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -30,7 +34,10 @@ use crate::encodings::turboquant::TurboQuantArrayExt;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
 use crate::encodings::turboquant::turboquant_encode;
+use crate::encodings::turboquant::turboquant_encode_unchecked;
 use crate::scalar_fns::ApproxOptions;
+use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::vector::Vector;
 
@@ -93,6 +100,42 @@ fn make_vector_ext(fsl: &FixedSizeListArray) -> ExtensionArray {
     ExtensionArray::new(ext_dtype, fsl.clone().into_array())
 }
 
+/// Full encode pipeline: normalize, then TQ-encode, then wrap in L2Denorm.
+///
+/// This mirrors what `TurboQuantScheme::compress()` does: normalize via `normalize_as_l2_denorm`,
+/// then quantize the normalized child via `turboquant_encode_unchecked`, then reassemble.
+fn normalize_and_encode(
+    ext: &ExtensionArray,
+    config: &TurboQuantConfig,
+    ctx: &mut vortex_array::ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let l2_denorm = normalize_as_l2_denorm(&ApproxOptions::Exact, ext.as_ref().clone(), ctx)?;
+    let normalized = l2_denorm.child_at(0).clone();
+    let norms = l2_denorm.child_at(1).clone();
+    let num_rows = l2_denorm.len();
+
+    let normalized_ext = normalized
+        .as_opt::<Extension>()
+        .vortex_expect("normalized child should be an Extension array");
+    // SAFETY: We just normalized the input via `normalize_as_l2_denorm`.
+    let tq = unsafe { turboquant_encode_unchecked(normalized_ext, config, ctx)? };
+
+    Ok(
+        unsafe { L2Denorm::new_array_unchecked(&ApproxOptions::Exact, tq, norms, num_rows) }?
+            .into_array(),
+    )
+}
+
+/// Unwrap an L2Denorm ScalarFnArray into its TQ child and norms child.
+fn unwrap_l2denorm(encoded: &ArrayRef) -> (ArrayRef, ArrayRef) {
+    let sfn = encoded
+        .as_opt::<ScalarFnVTable>()
+        .expect("expected ScalarFnArray");
+    let tq_child = sfn.child_at(0).clone();
+    let norms_child = sfn.child_at(1).clone();
+    (tq_child, norms_child)
+}
+
 fn theoretical_mse_bound(bit_width: u8) -> f32 {
     let sqrt3_pi_over_2 = (3.0f32).sqrt() * std::f32::consts::PI / 2.0;
     sqrt3_pi_over_2 / (4.0f32).powi(bit_width as i32)
@@ -122,7 +165,7 @@ fn per_vector_normalized_mse(
     total / num_rows as f32
 }
 
-/// Encode and decode, returning (original, decoded) flat f32 slices.
+/// Normalize, encode, and decode, returning (original, decoded) flat f32 slices.
 fn encode_decode(
     fsl: &FixedSizeListArray,
     config: &TurboQuantConfig,
@@ -133,8 +176,7 @@ fn encode_decode(
         prim.as_slice::<f32>().to_vec()
     };
     let ext = make_vector_ext(fsl);
-    let config = config.clone();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
+    let encoded = normalize_and_encode(&ext, config, &mut ctx)?;
     let decoded_ext = encoded.execute::<ExtensionArray>(&mut ctx)?;
     let decoded_fsl = decoded_ext
         .storage_array()
@@ -152,13 +194,7 @@ fn encode_decode(
 
 fn empty_turboquant_parts(
     dim: u32,
-) -> VortexResult<(
-    vortex_array::dtype::DType,
-    ArrayRef,
-    ArrayRef,
-    ArrayRef,
-    ArrayRef,
-)> {
+) -> VortexResult<(vortex_array::dtype::DType, ArrayRef, ArrayRef, ArrayRef)> {
     let fsl = make_fsl(0, dim as usize, 42);
     let ext = make_vector_ext(&fsl);
 
@@ -169,7 +205,6 @@ fn empty_turboquant_parts(
         0,
     )?
     .into_array();
-    let norms = PrimitiveArray::empty::<f32>(ext.dtype().nullability()).into_array();
     let centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable).into_array();
     let rotation_signs = FixedSizeListArray::try_new(
         PrimitiveArray::empty::<u8>(Nullability::NonNullable).into_array(),
@@ -179,7 +214,24 @@ fn empty_turboquant_parts(
     )?
     .into_array();
 
-    Ok((ext.dtype().clone(), codes, norms, centroids, rotation_signs))
+    // TQ dtype is non-nullable.
+    Ok((
+        ext.dtype().as_nonnullable(),
+        codes,
+        centroids,
+        rotation_signs,
+    ))
+}
+
+fn normalized_child(
+    ext: &ExtensionArray,
+    ctx: &mut vortex_array::ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    Ok(
+        normalize_as_l2_denorm(&ApproxOptions::Exact, ext.as_ref().clone(), ctx)?
+            .child_at(0)
+            .clone(),
+    )
 }
 
 // -----------------------------------------------------------------------
@@ -207,24 +259,11 @@ fn roundtrip(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
 }
 
 #[test]
-fn empty_try_new_rejects_invalid_norms_dtype() -> VortexResult<()> {
-    let (dtype, codes, _norms, centroids, rotation_signs) = empty_turboquant_parts(128)?;
-    let wrong_norms = PrimitiveArray::empty::<f64>(dtype.nullability()).into_array();
-
-    let err = TurboQuant::try_new_array(dtype, codes, wrong_norms, centroids, rotation_signs)
-        .unwrap_err();
-
-    assert!(err.to_string().contains("norms dtype does not match"));
-    Ok(())
-}
-
-#[test]
 fn empty_try_new_rejects_invalid_centroids_dtype() -> VortexResult<()> {
-    let (dtype, codes, norms, _centroids, rotation_signs) = empty_turboquant_parts(128)?;
+    let (dtype, codes, _centroids, rotation_signs) = empty_turboquant_parts(128)?;
     let wrong_centroids = PrimitiveArray::empty::<f64>(Nullability::NonNullable).into_array();
 
-    let err = TurboQuant::try_new_array(dtype, codes, norms, wrong_centroids, rotation_signs)
-        .unwrap_err();
+    let err = TurboQuant::try_new_array(dtype, codes, wrong_centroids, rotation_signs).unwrap_err();
 
     assert!(
         err.to_string()
@@ -235,11 +274,10 @@ fn empty_try_new_rejects_invalid_centroids_dtype() -> VortexResult<()> {
 
 #[test]
 fn empty_try_new_rejects_invalid_rotation_signs_dtype() -> VortexResult<()> {
-    let (dtype, codes, norms, centroids, _rotation_signs) = empty_turboquant_parts(128)?;
+    let (dtype, codes, centroids, _rotation_signs) = empty_turboquant_parts(128)?;
     let wrong_rotation_signs = PrimitiveArray::empty::<u8>(Nullability::NonNullable).into_array();
 
-    let err = TurboQuant::try_new_array(dtype, codes, norms, centroids, wrong_rotation_signs)
-        .unwrap_err();
+    let err = TurboQuant::try_new_array(dtype, codes, centroids, wrong_rotation_signs).unwrap_err();
 
     assert!(
         err.to_string()
@@ -353,7 +391,7 @@ fn roundtrip_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
     let decoded = encoded.execute::<ExtensionArray>(&mut ctx)?;
     assert_eq!(decoded.len(), num_rows);
     Ok(())
@@ -373,6 +411,44 @@ fn rejects_dimension_below_128(#[case] dim: usize) {
     };
     let mut ctx = SESSION.create_execution_ctx();
     assert!(turboquant_encode(ext.as_view(), &config, &mut ctx).is_err());
+}
+
+#[test]
+fn checked_encode_accepts_normalized_f16_input() -> VortexResult<()> {
+    let num_rows = 10;
+    let dim = 128;
+    let mut rng = StdRng::seed_from_u64(99);
+    let normal = Normal::new(0.0f32, 1.0).unwrap();
+
+    let mut buf = BufferMut::<half::f16>::with_capacity(num_rows * dim);
+    for _ in 0..(num_rows * dim) {
+        buf.push(half::f16::from_f32(normal.sample(&mut rng)));
+    }
+    let elements = PrimitiveArray::new::<half::f16>(buf.freeze(), Validity::NonNullable);
+    let fsl = FixedSizeListArray::try_new(
+        elements.into_array(),
+        dim.try_into()
+            .expect("somehow got dimension greater than u32::MAX"),
+        Validity::NonNullable,
+        num_rows,
+    )?;
+
+    let ext = make_vector_ext(&fsl);
+    let config = TurboQuantConfig {
+        bit_width: 3,
+        seed: Some(42),
+        num_rounds: 3,
+    };
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let normalized = normalized_child(&ext, &mut ctx)?;
+    let normalized_ext = normalized
+        .as_opt::<Extension>()
+        .vortex_expect("normalized child should be an Extension array");
+
+    let encoded = turboquant_encode(normalized_ext, &config, &mut ctx)?;
+    assert_eq!(encoded.len(), num_rows);
+    Ok(())
 }
 
 fn make_fsl_small(dim: usize) -> FixedSizeListArray {
@@ -449,10 +525,11 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     };
     // Verify encoding succeeds with f64 input (f64->f32 conversion).
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
-    let encoded = encoded.as_opt::<TurboQuant>().unwrap();
-    assert_eq!(encoded.norms().len(), num_rows);
-    assert_eq!(encoded.dimension() as usize, dim);
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let (tq_child, norms_child) = unwrap_l2denorm(&encoded);
+    let tq = tq_child.as_opt::<TurboQuant>().unwrap();
+    assert_eq!(norms_child.len(), num_rows);
+    assert_eq!(tq.dimension() as usize, dim);
     Ok(())
 }
 
@@ -484,9 +561,10 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
-    let tq = encoded.as_opt::<TurboQuant>().unwrap();
-    assert_eq!(tq.norms().len(), num_rows);
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let (tq_child, norms_child) = unwrap_l2denorm(&encoded);
+    let tq = tq_child.as_opt::<TurboQuant>().unwrap();
+    assert_eq!(norms_child.len(), num_rows);
     assert_eq!(tq.dimension() as usize, dim);
 
     // Verify roundtrip: decode and check reconstruction is reasonable.
@@ -514,17 +592,15 @@ fn stored_centroids_match_computed() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
-    let encoded = encoded.as_opt::<TurboQuant>().unwrap();
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let (tq_child, _norms) = unwrap_l2denorm(&encoded);
+    let tq = tq_child.as_opt::<TurboQuant>().unwrap();
 
     let mut ctx = SESSION.create_execution_ctx();
-    let stored_centroids_prim = encoded
-        .centroids()
-        .clone()
-        .execute::<PrimitiveArray>(&mut ctx)?;
+    let stored_centroids_prim = tq.centroids().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let stored = stored_centroids_prim.as_slice::<f32>();
 
-    let padded_dim = encoded.padded_dim();
+    let padded_dim = tq.padded_dim();
     let computed = crate::encodings::turboquant::array::centroids::get_centroids(padded_dim, 3)?;
 
     assert_eq!(stored.len(), computed.len());
@@ -545,15 +621,13 @@ fn stored_rotation_signs_produce_correct_decode() -> VortexResult<()> {
         num_rounds: 4,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
-    let encoded = encoded.as_opt::<TurboQuant>().unwrap();
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let (tq_child, _norms) = unwrap_l2denorm(&encoded);
+    let tq = tq_child.as_opt::<TurboQuant>().unwrap();
 
-    // Decode via the stored-signs path (normal decode).
+    // Decode via the full L2Denorm path (TQ decompress + norm scaling).
     let mut ctx = SESSION.create_execution_ctx();
-    let decoded_ext = encoded
-        .array()
-        .clone()
-        .execute::<ExtensionArray>(&mut ctx)?;
+    let decoded_ext = encoded.execute::<ExtensionArray>(&mut ctx)?;
     let decoded_fsl = decoded_ext
         .storage_array()
         .clone()
@@ -567,7 +641,7 @@ fn stored_rotation_signs_produce_correct_decode() -> VortexResult<()> {
     // Verify stored signs match seed-derived signs.
     let rot_from_seed = RotationMatrix::try_new(123, 128, 4)?;
     let expected_u8 = rot_from_seed.export_inverse_signs_u8();
-    let stored_signs_fsl = encoded
+    let stored_signs_fsl = tq
         .rotation_signs()
         .clone()
         .execute::<FixedSizeListArray>(&mut ctx)?;
@@ -601,7 +675,7 @@ fn slice_preserves_data() -> VortexResult<()> {
         num_rounds: 4,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
 
     // Full decompress then slice.
     let mut ctx = SESSION.create_execution_ctx();
@@ -646,7 +720,7 @@ fn scalar_at_matches_decompress() -> VortexResult<()> {
         num_rounds: 2,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
 
     let full_decoded = encoded.clone().execute::<ExtensionArray>(&mut ctx)?;
 
@@ -668,11 +742,11 @@ fn l2_norm_readthrough() -> VortexResult<()> {
         num_rounds: 5,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
-    let tq = encoded.as_opt::<TurboQuant>().unwrap();
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let (_tq_child, norms_child) = unwrap_l2denorm(&encoded);
 
     // Stored norms should match the actual L2 norms of the input.
-    let norms_prim = tq.norms().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let norms_prim = norms_child.execute::<PrimitiveArray>(&mut ctx)?;
     let stored_norms = norms_prim.as_slice::<f32>();
 
     let input_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
@@ -700,8 +774,9 @@ fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
-    let tq = encoded.as_opt::<TurboQuant>().unwrap();
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let (tq_child, norms_child) = unwrap_l2denorm(&encoded);
+    let tq = tq_child.as_opt::<TurboQuant>().unwrap();
 
     // Compute exact cosine similarity from original data.
     let input_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
@@ -710,7 +785,7 @@ fn cosine_similarity_quantized_accuracy() -> VortexResult<()> {
     // Read quantized codes, norms, and centroids for approximate computation.
     let mut ctx = SESSION.create_execution_ctx();
     let pd = tq.padded_dim() as usize;
-    let norms_prim = tq.norms().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let norms_prim = norms_child.execute::<PrimitiveArray>(&mut ctx)?;
     let norms = norms_prim.as_slice::<f32>();
     let codes_fsl = tq.codes().clone().execute::<FixedSizeListArray>(&mut ctx)?;
     let codes_prim = codes_fsl
@@ -778,15 +853,16 @@ fn dot_product_quantized_accuracy() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
-    let tq = encoded.as_opt::<TurboQuant>().unwrap();
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let (tq_child, norms_child) = unwrap_l2denorm(&encoded);
+    let tq = tq_child.as_opt::<TurboQuant>().unwrap();
 
     let input_prim = fsl.elements().clone().execute::<PrimitiveArray>(&mut ctx)?;
     let input_f32 = input_prim.as_slice::<f32>();
 
     let mut ctx = SESSION.create_execution_ctx();
     let pd = tq.padded_dim() as usize;
-    let norms_prim = tq.norms().clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let norms_prim = norms_child.execute::<PrimitiveArray>(&mut ctx)?;
     let norms = norms_prim.as_slice::<f32>();
     let codes_fsl = tq.codes().clone().execute::<FixedSizeListArray>(&mut ctx)?;
     let codes_prim = codes_fsl
@@ -871,7 +947,7 @@ fn encoded_dtype_is_vector_extension() -> VortexResult<()> {
         num_rounds: 2,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
 
     // The encoded TurboQuant array should claim a Vector extension dtype.
     assert!(
@@ -906,7 +982,7 @@ fn nullable_vectors_roundtrip() -> VortexResult<()> {
         num_rounds: 4,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
 
     assert_eq!(encoded.len(), 10);
     assert!(encoded.dtype().is_nullable());
@@ -972,10 +1048,10 @@ fn nullable_norms_match_validity() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
-    let tq = encoded.as_opt::<TurboQuant>().unwrap();
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let (_tq_child, norms_child) = unwrap_l2denorm(&encoded);
 
-    let norms_validity = tq.norms().validity()?;
+    let norms_validity = norms_child.validity()?;
     for i in 0..5 {
         let expected = i % 2 == 0; // rows 0, 2, 4 are valid
         assert_eq!(
@@ -1000,7 +1076,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
 
     // Compute L2Norm on the encoded array.
     let norm_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, encoded, 5)?;
@@ -1045,7 +1121,7 @@ fn nullable_slice_preserves_validity() -> VortexResult<()> {
         num_rounds: 2,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
 
     // Slice rows 1..6 -> [true, false, true, true, false].
     let sliced = encoded.slice(1..6)?;
@@ -1067,7 +1143,10 @@ fn nullable_slice_preserves_validity() -> VortexResult<()> {
 // Serde roundtrip tests
 // -----------------------------------------------------------------------
 
-/// Verify that a TurboQuant array survives serialize/deserialize.
+/// Verify that a TurboQuant array (extracted from the L2Denorm wrapper) survives
+/// serialize/deserialize.
+///
+/// TODO(connor): ScalarFnArray cannot be serialized yet, so we test the TQ child directly.
 #[test]
 fn serde_roundtrip() -> VortexResult<()> {
     use vortex_array::ArrayContext;
@@ -1088,16 +1167,17 @@ fn serde_roundtrip() -> VortexResult<()> {
         num_rounds: 5,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let (tq_child, _norms) = unwrap_l2denorm(&encoded);
 
-    let dtype = encoded.dtype().clone();
-    let len = encoded.len();
+    let dtype = tq_child.dtype().clone();
+    let len = tq_child.len();
 
-    // Serialize.
+    // Serialize the TQ child.
     let array_ctx = ArrayContext::empty();
     let serde_session = VortexSession::empty().with::<ArraySession>();
     serde_session.arrays().register(TurboQuant);
-    let serialized = encoded.serialize(&array_ctx, &serde_session, &SerializeOptions::default())?;
+    let serialized = tq_child.serialize(&array_ctx, &serde_session, &SerializeOptions::default())?;
 
     let mut concat = ByteBufferMut::empty();
     for buf in serialized {
@@ -1116,7 +1196,7 @@ fn serde_roundtrip() -> VortexResult<()> {
     )?;
 
     assert!(
-        decoded.array_eq(&encoded, Precision::Value),
+        decoded.array_eq(&tq_child, Precision::Value),
         "serde roundtrip did not preserve array equality"
     );
     Ok(())
@@ -1143,18 +1223,19 @@ fn serde_roundtrip_empty() -> VortexResult<()> {
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = turboquant_encode(ext.as_view(), &config, &mut ctx)?;
+    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
     assert_eq!(encoded.len(), 0);
+    let (tq_child, _norms) = unwrap_l2denorm(&encoded);
 
-    let dtype = encoded.dtype().clone();
-    let len = encoded.len();
+    let dtype = tq_child.dtype().clone();
+    let len = tq_child.len();
 
     let serde_session = VortexSession::empty().with::<ArraySession>();
     serde_session.arrays().register(TurboQuant);
     serde_session.arrays().register(BitPacked);
 
     let array_ctx = ArrayContext::empty();
-    let serialized = encoded.serialize(&array_ctx, &serde_session, &SerializeOptions::default())?;
+    let serialized = tq_child.serialize(&array_ctx, &serde_session, &SerializeOptions::default())?;
 
     let mut concat = ByteBufferMut::empty();
     for buf in serialized {
@@ -1170,7 +1251,7 @@ fn serde_roundtrip_empty() -> VortexResult<()> {
     )?;
 
     assert!(
-        decoded.array_eq(&encoded, Precision::Value),
+        decoded.array_eq(&tq_child, Precision::Value),
         "serde roundtrip did not preserve array equality"
     );
     Ok(())
