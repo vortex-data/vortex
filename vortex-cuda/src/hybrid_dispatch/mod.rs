@@ -257,7 +257,8 @@ mod tests {
             0u32.into(),
         )
         .vortex_expect("for");
-        let vals = ZstdBuffers::compress(&vals.into_array(), 3).vortex_expect("zstd");
+        let vals = ZstdBuffers::compress(&vals.into_array(), 3, &VortexSession::empty())
+            .vortex_expect("zstd");
 
         // codes = FoR(BitPacked)
         let codes = PrimitiveArray::new(

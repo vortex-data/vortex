@@ -7,7 +7,9 @@ mod operations;
 mod validity;
 
 use std::fmt::Debug;
+use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hasher;
 
 pub use operations::*;
 pub use validity::*;
@@ -22,6 +24,7 @@ use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionResult;
 use crate::IntoArray;
+use crate::Precision;
 pub use crate::array::plugin::*;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::Constant;
@@ -51,7 +54,7 @@ use crate::validity::Validity;
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
-    type ArrayData: 'static + Send + Sync + Clone + Debug + ArrayHash + ArrayEq;
+    type ArrayData: 'static + Send + Sync + Clone + Debug + Display + ArrayHash + ArrayEq;
 
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
@@ -121,15 +124,10 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Serialize metadata into a byte buffer for IPC or file storage.
     /// Return `None` if the array cannot be serialized.
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>>;
-
-    /// Formats a human-readable metadata description for display tooling.
-    fn fmt_metadata(array: ArrayView<'_, Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match Self::serialize(array) {
-            Ok(Some(metadata)) if metadata.is_empty() => f.write_str("EmptyMetadata"),
-            _ => Debug::fmt(array.data(), f),
-        }
-    }
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>>;
 
     /// Deserialize an array from serialized components.
     fn deserialize(
@@ -212,6 +210,25 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 pub use VTable as ArrayVTable;
 
 use crate::array::ArrayId;
+
+/// Empty array metadata struct for encodings with no per-array metadata.
+#[derive(Clone, Debug, Default)]
+pub struct EmptyArrayData;
+
+impl ArrayEq for EmptyArrayData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
+    }
+}
+impl ArrayHash for EmptyArrayData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl Display for EmptyArrayData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
 
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.
 pub struct NotSupported;

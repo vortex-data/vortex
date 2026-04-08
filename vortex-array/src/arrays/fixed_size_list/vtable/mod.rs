@@ -97,7 +97,10 @@ impl VTable for FixedSizeList {
         Self::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 

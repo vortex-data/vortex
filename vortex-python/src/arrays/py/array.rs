@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use pyo3::Bound;
@@ -31,6 +33,12 @@ pub struct PythonArray {
     pub(super) len: usize,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
+}
+
+impl Display for PythonArray {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "len: {}, dtype: {}", self.len, self.dtype)
+    }
 }
 
 impl<'py> FromPyObject<'_, 'py> for PythonArray {

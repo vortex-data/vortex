@@ -24,6 +24,7 @@ use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrow::ArrowArrayExecutor;
+use crate::session::ArraySessionExt;
 
 /// The encoding ID used by `vortex-runend`. We match on this string to avoid a crate dependency.
 const VORTEX_RUNEND_ID: &str = "vortex.runend";
@@ -80,7 +81,7 @@ fn run_end_to_arrow(
 ) -> VortexResult<ArrowArrayRef> {
     let length = array.len();
     let metadata_bytes = array
-        .metadata()?
+        .metadata(ctx.session())?
         .ok_or_else(|| vortex_err!("RunEndArray missing metadata"))?;
     let metadata = RunEndMetadata::decode(&*metadata_bytes)
         .map_err(|e| vortex_err!("Failed to decode RunEndMetadata: {e}"))?;

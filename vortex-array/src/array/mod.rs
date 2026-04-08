@@ -14,6 +14,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
@@ -130,10 +131,10 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
 
     /// Returns the serialized metadata of the array, or `None` if the array does not
     /// support serialization.
-    fn metadata(&self, this: &ArrayRef) -> VortexResult<Option<Vec<u8>>>;
+    fn metadata(&self, this: &ArrayRef, session: &VortexSession) -> VortexResult<Option<Vec<u8>>>;
 
     /// Formats a human-readable metadata description.
-    fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
 
     /// Hashes the array contents including len, dtype, and encoding id.
     fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision);
@@ -337,14 +338,13 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         V::slot_name(view, idx)
     }
 
-    fn metadata(&self, this: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
+    fn metadata(&self, this: &ArrayRef, session: &VortexSession) -> VortexResult<Option<Vec<u8>>> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::serialize(view)
+        V::serialize(view, session)
     }
 
-    fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::fmt_metadata(view, f)
+    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.data, f)
     }
 
     fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision) {

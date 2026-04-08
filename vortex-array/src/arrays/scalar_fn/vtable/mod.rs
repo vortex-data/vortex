@@ -115,7 +115,10 @@ impl VTable for ScalarFnVTable {
         None
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         // Not supported
         Ok(None)
     }

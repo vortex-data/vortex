@@ -165,7 +165,10 @@ impl VTable for BitPacked {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             BitPackedMetadata {
                 bit_width: array.bit_width() as u32,

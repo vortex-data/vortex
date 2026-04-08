@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use arrow_array::Array as ArrowArray;
@@ -69,6 +71,12 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity", "metadata", "value
 ///    (which includes nullability).
 #[derive(Clone, Debug)]
 pub struct ParquetVariantData;
+
+impl Display for ParquetVariantData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
 
 impl ParquetVariant {
     pub fn try_new(

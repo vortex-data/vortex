@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::mem::size_of;
 use std::sync::Arc;
 
@@ -98,6 +100,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 pub struct VarBinViewData {
     pub(super) buffers: Arc<[BufferHandle]>,
     pub(super) views: BufferHandle,
+}
+
+impl Display for VarBinViewData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
 }
 
 pub struct VarBinViewDataParts {

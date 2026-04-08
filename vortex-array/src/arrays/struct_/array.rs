@@ -13,6 +13,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
+use crate::array::EmptyArrayData;
 use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
@@ -149,9 +150,6 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 /// let id_field = struct_array.unmasked_field_by_name("id").unwrap();
 /// assert_eq!(id_field.len(), 3);
 /// ```
-#[derive(Clone, Debug, Default)]
-pub struct StructData;
-
 pub struct StructDataParts {
     pub struct_fields: StructFields,
     pub fields: Arc<[ArrayRef]>,
@@ -251,7 +249,7 @@ impl Array<Struct> {
                 Struct,
                 DType::Struct(dtype, validity.nullability()),
                 length,
-                StructData,
+                EmptyArrayData,
             )
             .with_slots(slots),
         )
@@ -273,7 +271,7 @@ impl Array<Struct> {
         let slots = make_struct_slots(&fields, &validity, length);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Struct, outer_dtype, length, StructData).with_slots(slots),
+                ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
             )
         }
     }
@@ -289,7 +287,7 @@ impl Array<Struct> {
         let outer_dtype = DType::Struct(dtype, validity.nullability());
         let slots = make_struct_slots(&fields, &validity, length);
         Array::try_from_parts(
-            ArrayParts::new(Struct, outer_dtype, length, StructData).with_slots(slots),
+            ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
         )
     }
 
@@ -378,7 +376,7 @@ impl Array<Struct> {
         let slots = make_struct_slots(&[], &Validity::NonNullable, len);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Struct, dtype, len, StructData).with_slots(slots),
+                ArrayParts::new(Struct, dtype, len, EmptyArrayData).with_slots(slots),
             )
         }
     }
@@ -424,7 +422,7 @@ impl Array<Struct> {
                     Struct,
                     DType::Struct(new_dtype, self.dtype().nullability()),
                     len,
-                    StructData,
+                    EmptyArrayData,
                 )
                 .with_slots(new_slots),
             )

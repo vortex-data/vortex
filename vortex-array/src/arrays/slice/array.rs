@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::ops::Range;
 
 use vortex_error::VortexExpect;
@@ -21,6 +23,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 #[derive(Clone, Debug)]
 pub struct SliceData {
     pub(super) range: Range<usize>,
+}
+
+impl Display for SliceData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "range: {}..{}", self.range.start, self.range.end)
+    }
 }
 
 pub struct SliceDataParts {

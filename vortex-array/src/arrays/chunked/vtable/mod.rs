@@ -77,22 +77,6 @@ impl VTable for Chunked {
         Self::ID
     }
 
-    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
-        0
-    }
-
-    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
-        vortex_panic!("ChunkedArray buffer index {idx} out of bounds")
-    }
-
-    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
-        vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
-    }
-
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
     fn validate(
         &self,
         data: &ChunkedData,
@@ -161,6 +145,25 @@ impl VTable for Chunked {
         Ok(())
     }
 
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
+        0
+    }
+
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
+        vortex_panic!("ChunkedArray buffer index {idx} out of bounds")
+    }
+
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
+        vortex_panic!("ChunkedArray buffer_name index {idx} out of bounds")
+    }
+
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(vec![]))
+    }
+
     fn deserialize(
         &self,
         dtype: &DType,
@@ -218,13 +221,6 @@ impl VTable for Chunked {
         .with_slots(slots))
     }
 
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        match idx {
-            CHUNK_OFFSETS_SLOT => "chunk_offsets".to_string(),
-            n => format!("chunks[{}]", n - CHUNKS_OFFSET),
-        }
-    }
-
     fn append_to_builder(
         array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
@@ -236,8 +232,24 @@ impl VTable for Chunked {
         Ok(())
     }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        match idx {
+            CHUNK_OFFSETS_SLOT => "chunk_offsets".to_string(),
+            n => format!("chunks[{}]", n - CHUNKS_OFFSET),
+        }
+    }
+
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
+    }
+
+    fn execute_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn reduce(array: ArrayView<'_, Self>) -> VortexResult<Option<ArrayRef>> {
@@ -254,14 +266,5 @@ impl VTable for Chunked {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn execute_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }

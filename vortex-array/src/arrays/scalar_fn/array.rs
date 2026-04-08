@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -17,6 +20,12 @@ use crate::scalar_fn::ScalarFnRef;
 #[derive(Clone, Debug)]
 pub struct ScalarFnData {
     pub(super) scalar_fn: ScalarFnRef,
+}
+
+impl Display for ScalarFnData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "scalar_fn: {}", self.scalar_fn)
+    }
 }
 
 impl ScalarFnData {

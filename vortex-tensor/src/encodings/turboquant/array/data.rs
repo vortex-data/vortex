@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
@@ -41,6 +43,16 @@ pub struct TurboQuantData {
     ///
     /// This is 0 for degenerate empty arrays.
     pub(crate) num_rounds: u8,
+}
+
+impl Display for TurboQuantData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "dimension: {}, bit_width: {}, num_rounds: {}",
+            self.dimension, self.bit_width, self.num_rounds
+        )
+    }
 }
 
 impl TurboQuantData {

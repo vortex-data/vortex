@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::ops::Range;
 
 use vortex_buffer::Buffer;
@@ -56,6 +58,12 @@ pub struct PatchedData {
     /// should be subtracted out of the remaining offsets to get their final position in the
     /// executed array.
     pub(super) offset: usize,
+}
+
+impl Display for PatchedData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "n_lanes: {}, offset: {}", self.n_lanes, self.offset)
+    }
 }
 
 impl PatchedData {

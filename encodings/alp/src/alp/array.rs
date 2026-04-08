@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -107,7 +109,10 @@ impl VTable for ALP {
         None
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         let exponents = array.exponents();
         Ok(Some(
             ALPMetadata {
@@ -222,6 +227,16 @@ pub struct ALPData {
     patch_offset: Option<usize>,
     patch_offset_within_chunk: Option<usize>,
     exponents: Exponents,
+}
+
+impl Display for ALPData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "exponents: {}", self.exponents)?;
+        if let Some(offset) = self.patch_offset {
+            write!(f, ", patch_offset: {offset}")?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]

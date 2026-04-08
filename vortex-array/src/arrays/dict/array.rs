@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -49,6 +52,12 @@ pub struct DictData {
     /// In case this is incorrect never use this to enable memory unsafe behaviour just semantically
     /// incorrect behaviour.
     pub(super) all_values_referenced: bool,
+}
+
+impl Display for DictData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "all_values_referenced: {}", self.all_values_referenced)
+    }
 }
 
 impl DictData {

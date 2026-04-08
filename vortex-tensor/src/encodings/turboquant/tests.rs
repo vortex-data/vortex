@@ -1095,7 +1095,9 @@ fn serde_roundtrip() -> VortexResult<()> {
 
     // Serialize.
     let array_ctx = ArrayContext::empty();
-    let serialized = encoded.serialize(&array_ctx, &SerializeOptions::default())?;
+    let serde_session = VortexSession::empty().with::<ArraySession>();
+    serde_session.arrays().register(TurboQuant);
+    let serialized = encoded.serialize(&array_ctx, &serde_session, &SerializeOptions::default())?;
 
     let mut concat = ByteBufferMut::empty();
     for buf in serialized {
@@ -1103,8 +1105,6 @@ fn serde_roundtrip() -> VortexResult<()> {
     }
 
     // Deserialize. The session needs TurboQuant and BitPacked (for rotation signs) registered.
-    let serde_session = VortexSession::empty().with::<ArraySession>();
-    serde_session.arrays().register(TurboQuant);
     serde_session.arrays().register(BitPacked);
 
     let parts = SerializedArray::try_from(concat.freeze())?;
@@ -1149,17 +1149,17 @@ fn serde_roundtrip_empty() -> VortexResult<()> {
     let dtype = encoded.dtype().clone();
     let len = encoded.len();
 
+    let serde_session = VortexSession::empty().with::<ArraySession>();
+    serde_session.arrays().register(TurboQuant);
+    serde_session.arrays().register(BitPacked);
+
     let array_ctx = ArrayContext::empty();
-    let serialized = encoded.serialize(&array_ctx, &SerializeOptions::default())?;
+    let serialized = encoded.serialize(&array_ctx, &serde_session, &SerializeOptions::default())?;
 
     let mut concat = ByteBufferMut::empty();
     for buf in serialized {
         concat.extend_from_slice(buf.as_ref());
     }
-
-    let serde_session = VortexSession::empty().with::<ArraySession>();
-    serde_session.arrays().register(TurboQuant);
-    serde_session.arrays().register(BitPacked);
 
     let parts = SerializedArray::try_from(concat.freeze())?;
     let decoded = parts.decode(

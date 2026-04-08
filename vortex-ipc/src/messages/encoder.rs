@@ -59,7 +59,9 @@ impl MessageEncoder {
                 // sending deltas later.
                 let ctx = ArrayContext::empty();
 
-                let array_buffers = array.serialize(&ctx, &SerializeOptions::default())?;
+                let session = vortex_session::VortexSession::empty();
+                let array_buffers =
+                    array.serialize(&ctx, &session, &SerializeOptions::default())?;
                 let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();
 
                 let array_encodings = ctx

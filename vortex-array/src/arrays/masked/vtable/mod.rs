@@ -102,7 +102,10 @@ impl VTable for Masked {
         None
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
@@ -231,7 +234,7 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
             .unwrap();
 
         // Concat into a single buffer.

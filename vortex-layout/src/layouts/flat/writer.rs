@@ -159,8 +159,10 @@ impl LayoutStrategy for FlatLayoutStrategy {
             chunk
         };
 
+        let session = vortex_session::VortexSession::empty();
         let buffers = chunk.serialize(
             &ctx,
+            &session,
             &SerializeOptions {
                 offset: 0,
                 include_padding: self.include_padding,

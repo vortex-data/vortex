@@ -29,7 +29,17 @@ pub trait ArrayPlugin: 'static + Send + Sync {
     /// Returns the ID for this array encoding.
     fn id(&self) -> ArrayId;
 
+    /// Serialize the array metadata.
+    ///
+    /// This function will only be called for arrays where the encoding ID matches that of this
+    /// plugin.
+    fn serialize(&self, array: &ArrayRef, session: &VortexSession)
+    -> VortexResult<Option<Vec<u8>>>;
+
     /// Deserialize an array from serialized components.
+    ///
+    /// The returned array doesn't necessary have to match this plugin's encoding ID. This is
+    /// useful for implementing back-compat logic and deserializing arrays into the new version.
     #[allow(clippy::too_many_arguments)]
     fn deserialize(
         &self,
@@ -51,6 +61,19 @@ impl std::fmt::Debug for dyn ArrayPlugin {
 impl<V: VTable> ArrayPlugin for V {
     fn id(&self) -> ArrayId {
         VTable::id(self)
+    }
+
+    fn serialize(
+        &self,
+        array: &ArrayRef,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
+        assert_eq!(
+            self.id(),
+            array.encoding_id(),
+            "Invoked for incorrect array ID"
+        );
+        V::serialize(array.as_::<V>(), session)
     }
 
     fn deserialize(

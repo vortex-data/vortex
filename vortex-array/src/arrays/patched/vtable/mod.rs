@@ -130,7 +130,10 @@ impl VTable for Patched {
         }
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             PatchedMetadata {
                 n_patches: u32::try_from(array.patch_indices().len())?,
@@ -581,7 +584,9 @@ mod tests {
         let len = array.len();
 
         let ctx = ArrayContext::empty();
-        let serialized = array.serialize(&ctx, &SerializeOptions::default()).unwrap();
+        let serialized = array
+            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .unwrap();
 
         // Concat into a single buffer.
         let mut concat = ByteBufferMut::empty();
