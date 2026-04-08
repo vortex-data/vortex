@@ -28,6 +28,138 @@ pub fn vortex_array::arrays::PrimitiveArray::with_iterator<F, R>(&self, f: F) ->
 
 pub mod vortex_array::aggregate_fn
 
+pub mod vortex_array::aggregate_fn::combined
+
+pub struct vortex_array::aggregate_fn::combined::Combined<T: vortex_array::aggregate_fn::combined::BinaryCombined>(pub T)
+
+impl<T: vortex_array::aggregate_fn::combined::BinaryCombined> vortex_array::aggregate_fn::combined::Combined<T>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::new(inner: T) -> Self
+
+impl<T: core::clone::Clone + vortex_array::aggregate_fn::combined::BinaryCombined> core::clone::Clone for vortex_array::aggregate_fn::combined::Combined<T>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::clone(&self) -> vortex_array::aggregate_fn::combined::Combined<T>
+
+impl<T: core::fmt::Debug + vortex_array::aggregate_fn::combined::BinaryCombined> core::fmt::Debug for vortex_array::aggregate_fn::combined::Combined<T>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<T: vortex_array::aggregate_fn::combined::BinaryCombined> vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::combined::Combined<T>
+
+pub type vortex_array::aggregate_fn::combined::Combined<T>::Options = vortex_array::aggregate_fn::combined::PairOptions<<<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Left as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Right as vortex_array::aggregate_fn::AggregateFnVTable>::Options>
+
+pub type vortex_array::aggregate_fn::combined::Combined<T>::Partial = (<<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Left as vortex_array::aggregate_fn::AggregateFnVTable>::Partial, <<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Right as vortex_array::aggregate_fn::AggregateFnVTable>::Partial)
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::accumulate(&self, _state: &mut Self::Partial, _batch: &vortex_array::Columnar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::combine_partials(&self, partial: &mut Self::Partial, other: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::empty_partial(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::finalize(&self, states: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::is_saturated(&self, partial: &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::reset(&self, partial: &mut Self::Partial)
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::try_accumulate(&self, state: &mut Self::Partial, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub struct vortex_array::aggregate_fn::combined::PairOptions<L, R>(pub L, pub R)
+
+impl<L, R> core::marker::StructuralPartialEq for vortex_array::aggregate_fn::combined::PairOptions<L, R>
+
+impl<L: core::clone::Clone, R: core::clone::Clone> core::clone::Clone for vortex_array::aggregate_fn::combined::PairOptions<L, R>
+
+pub fn vortex_array::aggregate_fn::combined::PairOptions<L, R>::clone(&self) -> vortex_array::aggregate_fn::combined::PairOptions<L, R>
+
+impl<L: core::cmp::Eq, R: core::cmp::Eq> core::cmp::Eq for vortex_array::aggregate_fn::combined::PairOptions<L, R>
+
+impl<L: core::cmp::PartialEq, R: core::cmp::PartialEq> core::cmp::PartialEq for vortex_array::aggregate_fn::combined::PairOptions<L, R>
+
+pub fn vortex_array::aggregate_fn::combined::PairOptions<L, R>::eq(&self, other: &vortex_array::aggregate_fn::combined::PairOptions<L, R>) -> bool
+
+impl<L: core::fmt::Debug, R: core::fmt::Debug> core::fmt::Debug for vortex_array::aggregate_fn::combined::PairOptions<L, R>
+
+pub fn vortex_array::aggregate_fn::combined::PairOptions<L, R>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<L: core::fmt::Display, R: core::fmt::Display> core::fmt::Display for vortex_array::aggregate_fn::combined::PairOptions<L, R>
+
+pub fn vortex_array::aggregate_fn::combined::PairOptions<L, R>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<L: core::hash::Hash, R: core::hash::Hash> core::hash::Hash for vortex_array::aggregate_fn::combined::PairOptions<L, R>
+
+pub fn vortex_array::aggregate_fn::combined::PairOptions<L, R>::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+
+pub trait vortex_array::aggregate_fn::combined::BinaryCombined: 'static + core::marker::Send + core::marker::Sync + core::clone::Clone
+
+pub type vortex_array::aggregate_fn::combined::BinaryCombined::Left: vortex_array::aggregate_fn::AggregateFnVTable
+
+pub type vortex_array::aggregate_fn::combined::BinaryCombined::Right: vortex_array::aggregate_fn::AggregateFnVTable
+
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::coerce_args(&self, options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
+
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::finalize(&self, left: vortex_array::ArrayRef, right: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::left(&self) -> Self::Left
+
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::left_name(&self) -> &'static str
+
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::right(&self) -> Self::Right
+
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::right_name(&self) -> &'static str
+
+pub fn vortex_array::aggregate_fn::combined::BinaryCombined::serialize(&self, options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+impl vortex_array::aggregate_fn::combined::BinaryCombined for vortex_array::aggregate_fn::fns::mean::Mean
+
+pub type vortex_array::aggregate_fn::fns::mean::Mean::Left = vortex_array::aggregate_fn::fns::sum::Sum
+
+pub type vortex_array::aggregate_fn::fns::mean::Mean::Right = vortex_array::aggregate_fn::fns::count::Count
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::coerce_args(&self, _options: &vortex_array::aggregate_fn::combined::PairOptions<<vortex_array::aggregate_fn::fns::sum::Sum as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <vortex_array::aggregate_fn::fns::count::Count as vortex_array::aggregate_fn::AggregateFnVTable>::Options>, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize(&self, sum: vortex_array::ArrayRef, count: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::left(&self) -> vortex_array::aggregate_fn::fns::sum::Sum
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::left_name(&self) -> &'static str
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::right(&self) -> vortex_array::aggregate_fn::fns::count::Count
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::right_name(&self) -> &'static str
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::serialize(&self, options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub type vortex_array::aggregate_fn::combined::CombinedOptions<T> = vortex_array::aggregate_fn::combined::PairOptions<<<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Left as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Right as vortex_array::aggregate_fn::AggregateFnVTable>::Options>
+
 pub mod vortex_array::aggregate_fn::fns
 
 pub mod vortex_array::aggregate_fn::fns::count
@@ -341,6 +473,50 @@ pub fn vortex_array::aggregate_fn::fns::last::Last::try_accumulate(&self, partia
 pub struct vortex_array::aggregate_fn::fns::last::LastPartial
 
 pub fn vortex_array::aggregate_fn::fns::last::last(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub mod vortex_array::aggregate_fn::fns::mean
+
+pub struct vortex_array::aggregate_fn::fns::mean::Mean
+
+impl vortex_array::aggregate_fn::fns::mean::Mean
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::combined() -> vortex_array::aggregate_fn::combined::Combined<Self>
+
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::mean::Mean
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::clone(&self) -> vortex_array::aggregate_fn::fns::mean::Mean
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::mean::Mean
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::combined::BinaryCombined for vortex_array::aggregate_fn::fns::mean::Mean
+
+pub type vortex_array::aggregate_fn::fns::mean::Mean::Left = vortex_array::aggregate_fn::fns::sum::Sum
+
+pub type vortex_array::aggregate_fn::fns::mean::Mean::Right = vortex_array::aggregate_fn::fns::count::Count
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::coerce_args(&self, _options: &vortex_array::aggregate_fn::combined::PairOptions<<vortex_array::aggregate_fn::fns::sum::Sum as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <vortex_array::aggregate_fn::fns::count::Count as vortex_array::aggregate_fn::AggregateFnVTable>::Options>, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize(&self, sum: vortex_array::ArrayRef, count: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::left(&self) -> vortex_array::aggregate_fn::fns::sum::Sum
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::left_name(&self) -> &'static str
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::return_dtype(&self, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::right(&self) -> vortex_array::aggregate_fn::fns::count::Count
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::right_name(&self) -> &'static str
+
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::serialize(&self, options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::mean::mean(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub mod vortex_array::aggregate_fn::fns::min_max
 
@@ -1067,6 +1243,42 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, _options: &Se
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::try_accumulate(&self, _state: &mut Self::Partial, _batch: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+impl<T: vortex_array::aggregate_fn::combined::BinaryCombined> vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::combined::Combined<T>
+
+pub type vortex_array::aggregate_fn::combined::Combined<T>::Options = vortex_array::aggregate_fn::combined::PairOptions<<<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Left as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Right as vortex_array::aggregate_fn::AggregateFnVTable>::Options>
+
+pub type vortex_array::aggregate_fn::combined::Combined<T>::Partial = (<<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Left as vortex_array::aggregate_fn::AggregateFnVTable>::Partial, <<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Right as vortex_array::aggregate_fn::AggregateFnVTable>::Partial)
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::accumulate(&self, _state: &mut Self::Partial, _batch: &vortex_array::Columnar, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::coerce_args(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::combine_partials(&self, partial: &mut Self::Partial, other: vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::empty_partial(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::finalize(&self, states: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::finalize_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::is_saturated(&self, partial: &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::partial_dtype(&self, options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::reset(&self, partial: &mut Self::Partial)
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::return_dtype(&self, _options: &Self::Options, input_dtype: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::serialize(&self, options: &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::to_scalar(&self, partial: &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::try_accumulate(&self, state: &mut Self::Partial, batch: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 pub trait vortex_array::aggregate_fn::AggregateFnVTableExt: vortex_array::aggregate_fn::AggregateFnVTable
 

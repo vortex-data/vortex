@@ -4,17 +4,29 @@
 //! Generic adapter for aggregates whose result is computed from two child
 //! aggregate functions, e.g. `Mean = Sum / Count`.
 
-use std::fmt::{self, Debug, Display, Formatter};
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::{self};
 use std::hash::Hash;
 
-use vortex_error::{VortexResult, vortex_bail, vortex_err};
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
-use crate::aggregate_fn::{AggregateFnId, AggregateFnVTable};
+use crate::ArrayRef;
+use crate::Columnar;
+use crate::ExecutionCtx;
+use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::dtype::{DType, FieldName, FieldNames, Nullability, StructFields};
+use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
+use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::scalar::Scalar;
-use crate::{ArrayRef, Columnar, ExecutionCtx};
 
 /// Pair of options for the two children of a [`BinaryCombined`] aggregate.
 ///
@@ -122,11 +134,7 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
         BinaryCombined::serialize(&self.0, options)
     }
 
-    fn deserialize(
-        &self,
-        metadata: &[u8],
-        session: &VortexSession,
-    ) -> VortexResult<Self::Options> {
+    fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<Self::Options> {
         BinaryCombined::deserialize(&self.0, metadata, session)
     }
 
@@ -206,18 +214,15 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
     ) -> VortexResult<bool> {
         let mut canonical: Option<Columnar> = None;
         if !self.0.left().try_accumulate(&mut state.0, batch, ctx)? {
-            canonical = Some(batch.clone().execute::<Columnar>(ctx)?);
-            self.0
-                .left()
-                .accumulate(&mut state.0, canonical.as_ref().expect("just set"), ctx)?;
+            let c = canonical.insert(batch.clone().execute::<Columnar>(ctx)?);
+            self.0.left().accumulate(&mut state.0, c, ctx)?;
         }
         if !self.0.right().try_accumulate(&mut state.1, batch, ctx)? {
-            if canonical.is_none() {
-                canonical = Some(batch.clone().execute::<Columnar>(ctx)?);
-            }
-            self.0
-                .right()
-                .accumulate(&mut state.1, canonical.as_ref().expect("just set"), ctx)?;
+            let c = match canonical.as_ref() {
+                Some(c) => c,
+                None => canonical.insert(batch.clone().execute::<Columnar>(ctx)?),
+            };
+            self.0.right().accumulate(&mut state.1, c, ctx)?;
         }
         Ok(true)
     }
@@ -243,10 +248,7 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
 fn struct_dtype(left_name: &str, right_name: &str, left: DType, right: DType) -> DType {
     DType::Struct(
         StructFields::new(
-            FieldNames::from_iter([
-                FieldName::from(left_name),
-                FieldName::from(right_name),
-            ]),
+            FieldNames::from_iter([FieldName::from(left_name), FieldName::from(right_name)]),
             vec![left, right],
         ),
         Nullability::NonNullable,

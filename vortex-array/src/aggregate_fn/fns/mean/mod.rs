@@ -5,14 +5,23 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::aggregate_fn::combined::{BinaryCombined, Combined, PairOptions};
+use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::DynAccumulator;
+use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::combined::BinaryCombined;
+use crate::aggregate_fn::combined::Combined;
+use crate::aggregate_fn::combined::PairOptions;
 use crate::aggregate_fn::fns::count::Count;
 use crate::aggregate_fn::fns::sum::Sum;
-use crate::aggregate_fn::{
-    Accumulator, AggregateFnId, AggregateFnVTable, DynAccumulator, EmptyOptions,
-};
 use crate::builtins::ArrayBuiltins;
-use crate::dtype::{DType, DecimalDType, MAX_PRECISION, MAX_SCALE, Nullability, PType};
+use crate::dtype::DType;
+use crate::dtype::DecimalDType;
+use crate::dtype::MAX_PRECISION;
+use crate::dtype::MAX_SCALE;
+use crate::dtype::Nullability;
+use crate::dtype::PType;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
@@ -20,14 +29,12 @@ use crate::scalar_fn::fns::operators::Operator;
 ///
 /// See [`Mean`] for details.
 pub fn mean(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
-    let options = PairOptions(EmptyOptions, EmptyOptions);
-    let vtable = Mean::combined();
-
-    let coerced_dtype = vtable.coerce_args(&options, array.dtype())?;
-    let coerced = array.cast(coerced_dtype.clone())?;
-
-    let mut acc = Accumulator::try_new(vtable, options, coerced_dtype)?;
-    acc.accumulate(&coerced, ctx)?;
+    let mut acc = Accumulator::try_new(
+        Mean::combined(),
+        PairOptions(EmptyOptions, EmptyOptions),
+        array.dtype().clone(),
+    )?;
+    acc.accumulate(array, ctx)?;
     acc.finish()
 }
 
@@ -75,41 +82,66 @@ impl BinaryCombined for Mean {
     }
 
     fn return_dtype(&self, input_dtype: &DType) -> Option<DType> {
-        let coerced = coerced_dtype(input_dtype)?;
-        // Mean is always nullable: an empty / all-null group returns null.
-        Some(coerced.with_nullability(Nullability::Nullable))
+        Some(mean_output_dtype(input_dtype)?.with_nullability(Nullability::Nullable))
     }
 
     fn finalize(&self, sum: ArrayRef, count: ArrayRef) -> VortexResult<ArrayRef> {
-        let count_cast = count.cast(sum.dtype().clone())?;
-        sum.binary(count_cast, Operator::Div)
+        let target = match sum.dtype() {
+            DType::Decimal(..) => sum.dtype().with_nullability(Nullability::Nullable),
+            _ => DType::Primitive(PType::F64, Nullability::Nullable),
+        };
+        let sum_cast = sum.cast(target.clone())?;
+        let count_cast = count.cast(target)?;
+        sum_cast.binary(count_cast, Operator::Div)
     }
 
     fn coerce_args(
         &self,
-        _options: &PairOptions<<Sum as AggregateFnVTable>::Options, <Count as AggregateFnVTable>::Options>,
+        _options: &PairOptions<
+            <Sum as AggregateFnVTable>::Options,
+            <Count as AggregateFnVTable>::Options,
+        >,
         input_dtype: &DType,
     ) -> VortexResult<DType> {
-        Ok(coerced_dtype(input_dtype).unwrap_or_else(|| input_dtype.clone()))
+        // Advisory hint for query planners: where possible, cast input to the
+        // type we're going to compute the mean in.
+        Ok(coerced_input_dtype(input_dtype).unwrap_or_else(|| input_dtype.clone()))
     }
 }
 
-/// Decide what to coerce the input dtype to before feeding it to `Sum` and `Count`.
+/// Hint for callers: what to cast the input to before accumulation.
 ///
-/// Returns `None` for unsupported input types so callers can fall through.
-fn coerced_dtype(input_dtype: &DType) -> Option<DType> {
+/// - Bool stays as bool — `Sum` has a native bool path and bool → f64 isn't
+///   currently a direct cast in vortex.
+/// - Primitive numerics → `f64` so the sum and finalize work without overflow.
+/// - Decimals → decimal with widened precision and scale (`+4` each, capped),
+///   matching DataFusion's `coerce_avg_type`.
+fn coerced_input_dtype(input_dtype: &DType) -> Option<DType> {
     match input_dtype {
-        DType::Bool(n) | DType::Primitive(_, n) => {
-            Some(DType::Primitive(PType::F64, *n))
-        }
+        DType::Bool(_) => Some(input_dtype.clone()),
+        DType::Primitive(_, n) => Some(DType::Primitive(PType::F64, *n)),
         DType::Decimal(d, n) => {
-            // Mirrors DataFusion's `coerce_avg_type`: precision and scale each
-            // grow by 4, capped at the maximum allowed.
             let new_precision = u8::min(MAX_PRECISION, d.precision().saturating_add(4));
             let new_scale = i8::min(MAX_SCALE, d.scale().saturating_add(4));
             Some(DType::Decimal(
                 DecimalDType::new(new_precision, new_scale),
                 *n,
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn mean_output_dtype(input_dtype: &DType) -> Option<DType> {
+    match input_dtype {
+        DType::Bool(_) | DType::Primitive(..) => {
+            Some(DType::Primitive(PType::F64, Nullability::Nullable))
+        }
+        DType::Decimal(d, _) => {
+            let new_precision = u8::min(MAX_PRECISION, d.precision().saturating_add(10));
+            Some(DType::Decimal(
+                DecimalDType::new(new_precision, d.scale()),
+                Nullability::Nullable,
             ))
         }
         _ => None,
@@ -125,14 +157,18 @@ mod tests {
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrays::{BoolArray, ChunkedArray, ConstantArray, PrimitiveArray};
+    use crate::arrays::BoolArray;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::DecimalArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::scalar::DecimalValue;
     use crate::validity::Validity;
 
     #[test]
     fn mean_all_valid() -> VortexResult<()> {
-        let array =
-            PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0, 5.0], Validity::NonNullable)
-                .into_array();
+        let array = PrimitiveArray::new(buffer![1.0f64, 2.0, 3.0, 4.0, 5.0], Validity::NonNullable)
+            .into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mean(&array, &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(3.0));
@@ -184,6 +220,25 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let result = mean(&chunked.into_array(), &mut ctx)?;
         assert_eq!(result.as_primitive().as_::<f64>(), Some(3.0));
+        Ok(())
+    }
+
+    // TODO: vortex's cast kernel doesn't currently support `u64 → decimal`,
+    #[test]
+    #[ignore = "u64 → decimal cast not yet supported"]
+    fn mean_decimal() -> VortexResult<()> {
+        // 1.00, 2.00, 3.00 in decimal(5, 2). Mean = 2.00.
+        let values = buffer![100i128, 200i128, 300i128];
+        let dt = DecimalDType::new(5, 2);
+        let array = DecimalArray::new(values, dt, Validity::NonNullable).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let result = mean(&array, &mut ctx)?;
+        // `Sum` widens precision by +10, so the result lives in decimal(15, 2).
+        // 2.00 in scale=2 is the integer 200.
+        assert_eq!(
+            result.as_decimal().decimal_value(),
+            Some(DecimalValue::I128(200))
+        );
         Ok(())
     }
 
