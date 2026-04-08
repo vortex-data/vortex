@@ -460,6 +460,35 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
     }
 }
 
+/// Dispatch an input stage at the stage's native element width.
+///
+/// The final ptype (after all scalar ops) determines the write width.
+/// For input stages, source_ptype and final_ptype always have the same
+/// unsigned width — FoR/ZigZag preserve width, and type-changing ops
+/// (DICT, ALP) either don't appear in input stages or preserve width.
+__device__ void execute_input_stage_dispatch(const Stage &stage, char *__restrict smem) {
+    PTypeTag final_ptype = stage.source_ptype;
+    if (stage.num_scalar_ops > 0) {
+        final_ptype = stage.scalar_ops[stage.num_scalar_ops - 1].output_ptype;
+    }
+    switch (ptype_to_unsigned(final_ptype)) {
+    case PTYPE_U8:
+        execute_input_stage<uint8_t>(stage, smem);
+        break;
+    case PTYPE_U16:
+        execute_input_stage<uint16_t>(stage, smem);
+        break;
+    case PTYPE_U32:
+        execute_input_stage<uint32_t>(stage, smem);
+        break;
+    case PTYPE_U64:
+        execute_input_stage<uint64_t>(stage, smem);
+        break;
+    default:
+        __builtin_unreachable();
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Kernel entry
 // ═══════════════════════════════════════════════════════════════════════════
@@ -477,7 +506,7 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
 
     for (uint8_t i = 0; i < last; ++i) {
         Stage input_stage = parse_stage(cursor);
-        execute_input_stage<T>(input_stage, smem);
+        execute_input_stage_dispatch(input_stage, smem);
     }
 
     Stage output_stage = parse_stage(cursor);

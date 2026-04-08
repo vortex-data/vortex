@@ -695,25 +695,23 @@ impl FusedPlan {
     /// Add a stage that decodes fully into shared memory before the output
     /// stage runs. Returns the shared memory byte offset where the data starts.
     ///
-    /// The smem region is sized at the stage's output ptype width — i.e.
-    /// the ptype after all scalar ops have run. For stages that go through
-    /// type-changing scalar ops (e.g. dict values with FoR→ALP), the final
-    /// smem footprint is `len × final_ptype_byte_width`. If there are no
-    /// scalar ops, the source_ptype determines the width.
+    /// The smem region is sized at the stage's final ptype width — i.e. the
+    /// ptype after all scalar ops have run. `execute_input_stage_dispatch`
+    /// writes at this native width, and readers (DICT gathers, RUNEND
+    /// lookups) widen from native width via `load_element<T>`.
     fn push_smem_stage(&mut self, spec: Stage, len: u32) -> u32 {
         let smem_byte_offset = self.smem_byte_cursor;
-        // The kernel's execute_input_stage<T> always writes T-wide elements
-        // into smem (reinterpret_cast<T*>), so we must allocate at least
-        // output_elem_bytes per element — even if the stage's final ptype
-        // is narrower. Otherwise the writes overflow into the next region.
+        // Input stages now write at their native element width via
+        // execute_input_stage_dispatch, so allocate exactly at the
+        // stage's final ptype width. Readers (DICT gathers, RUNEND
+        // lookups) widen from native width via load_element<T>().
         let final_ptype = spec
             .scalar_ops
             .last()
             .map(|op| op.output_ptype)
             .unwrap_or(spec.source_ptype);
         let final_elem_bytes = tag_to_ptype(final_ptype).byte_width() as u32;
-        let elem_bytes = final_elem_bytes.max(self.output_elem_bytes);
-        let stage_bytes = len * elem_bytes;
+        let stage_bytes = len * final_elem_bytes;
         self.stages.push((spec, smem_byte_offset, len));
         self.smem_byte_cursor += stage_bytes;
         smem_byte_offset
