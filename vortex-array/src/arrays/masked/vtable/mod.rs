@@ -17,6 +17,7 @@ use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
