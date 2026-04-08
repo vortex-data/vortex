@@ -722,7 +722,7 @@ mod test {
     fn test_display_tree_nullable_primitive_validity_child() {
         let array =
             PrimitiveArray::from_option_iter([Some(1i64), Some(2), None, Some(3)]).into_array();
-        let expected = "root: vortex.primitive(i64?, len=4) nbytes=33 B (100.00%)\n  metadata: EmptyMetadata\n  buffer: values host 32 B (align=8) (96.97%)\n  validity: vortex.bool(bool, len=4) nbytes=1 B (3.03%)\n    metadata: BoolMetadata { offset: 0 }\n    buffer: bits host 1 B (align=1) (100.00%)\n";
+        let expected = "root: vortex.primitive(i64?, len=4) nbytes=33 B (100.00%)\n  metadata: ptype: i64\n  buffer: values host 32 B (align=8) (96.97%)\n  validity: vortex.bool(bool, len=4) nbytes=1 B (3.03%)\n    metadata: offset: 0\n    buffer: bits host 1 B (align=1) (100.00%)\n";
         assert_eq!(format!("{}", array.display_tree()), expected);
     }
 

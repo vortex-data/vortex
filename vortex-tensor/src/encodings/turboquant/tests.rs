@@ -1177,7 +1177,8 @@ fn serde_roundtrip() -> VortexResult<()> {
     let array_ctx = ArrayContext::empty();
     let serde_session = VortexSession::empty().with::<ArraySession>();
     serde_session.arrays().register(TurboQuant);
-    let serialized = tq_child.serialize(&array_ctx, &serde_session, &SerializeOptions::default())?;
+    let serialized =
+        tq_child.serialize(&array_ctx, &serde_session, &SerializeOptions::default())?;
 
     let mut concat = ByteBufferMut::empty();
     for buf in serialized {
@@ -1235,7 +1236,8 @@ fn serde_roundtrip_empty() -> VortexResult<()> {
     serde_session.arrays().register(BitPacked);
 
     let array_ctx = ArrayContext::empty();
-    let serialized = tq_child.serialize(&array_ctx, &serde_session, &SerializeOptions::default())?;
+    let serialized =
+        tq_child.serialize(&array_ctx, &serde_session, &SerializeOptions::default())?;
 
     let mut concat = ByteBufferMut::empty();
     for buf in serialized {
