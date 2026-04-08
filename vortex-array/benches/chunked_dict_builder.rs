@@ -32,33 +32,13 @@ const BENCH_ARGS: &[(usize, usize, usize)] = &[
 ];
 
 #[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
-fn chunked_dict_primitive_canonical_into<T: NativePType>(
-    bencher: Bencher,
-    (len, unique_values, chunk_count): (usize, usize, usize),
-) where
-    StandardUniform: Distribution<T>,
-{
-    let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
-
-    bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
-        let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk
-            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
-            .vortex_expect("append failed");
-        builder.finish()
-    })
-}
-
-#[divan::bench(types = [u32, u64, f32, f64], args = BENCH_ARGS)]
 fn chunked_dict_primitive_into_canonical<T: NativePType>(
     bencher: Bencher,
     (len, unique_values, chunk_count): (usize, usize, usize),
 ) where
     StandardUniform: Distribution<T>,
 {
-    let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
-
     bencher
         .with_inputs(|| (gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count), SESSION.create_execution_ctx()))
-        .bench_values(|(chunk, mut ctx)| chunk.execute::<Canonical>(&mut ctx))
+        .bench_values(|(chunk, mut ctx)| (chunk.execute::<Canonical>(&mut ctx), ctx))
 }
