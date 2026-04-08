@@ -6,6 +6,7 @@ use std::sync::Arc;
 use futures::executor::block_on;
 use parking_lot::RwLock;
 use vortex_array::dtype::DType;
+use vortex_array::memory::MemorySessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -61,7 +62,9 @@ pub struct VortexOpenOptions {
     labels: Vec<Label>,
 }
 
-pub trait OpenOptionsSessionExt: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt {
+pub trait OpenOptionsSessionExt:
+    ArraySessionExt + LayoutSessionExt + RuntimeSessionExt + MemorySessionExt
+{
     /// Create a new [`VortexOpenOptions`] using the provided session to open a file.
     fn open_options(&self) -> VortexOpenOptions {
         VortexOpenOptions {
@@ -77,7 +80,10 @@ pub trait OpenOptionsSessionExt: ArraySessionExt + LayoutSessionExt + RuntimeSes
         }
     }
 }
-impl<S: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt> OpenOptionsSessionExt for S {}
+impl<S: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt + MemorySessionExt>
+    OpenOptionsSessionExt for S
+{
+}
 
 impl VortexOpenOptions {
     /// Configure the initial read size for the Vortex file.
@@ -157,7 +163,8 @@ impl VortexOpenOptions {
     pub async fn open_path(self, path: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
         use vortex_io::std_file::FileReadAt;
         let handle = self.session.handle();
-        let source = Arc::new(FileReadAt::open(path, handle)?);
+        let allocator = self.session.allocator();
+        let source = Arc::new(FileReadAt::open_with_allocator(path, handle, allocator)?);
         self.open(source).await
     }
 
@@ -329,10 +336,12 @@ impl VortexOpenOptions {
         use vortex_io::object_store::ObjectStoreReadAt;
 
         let handle = self.session.handle();
-        let source = Arc::new(ObjectStoreReadAt::new(
+        let allocator = self.session.allocator();
+        let source = Arc::new(ObjectStoreReadAt::new_with_allocator(
             object_store.clone(),
             path.into(),
             handle,
+            allocator,
         ));
         self.open(source).await
     }
@@ -347,9 +356,15 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::dtype::session::DTypeSession;
+    use vortex_array::memory::BufferAllocator;
+    use vortex_array::memory::DefaultBufferAllocator;
+    use vortex_array::memory::MemorySessionExt;
+    use vortex_array::memory::WritableHostBuffer;
     use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::session::ArraySession;
+    use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
+    use vortex_buffer::ByteBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
@@ -388,6 +403,22 @@ mod tests {
 
         fn concurrency(&self) -> usize {
             self.inner.concurrency()
+        }
+    }
+
+    #[derive(Debug)]
+    struct CountingAllocator {
+        allocations: Arc<AtomicUsize>,
+    }
+
+    impl BufferAllocator for CountingAllocator {
+        fn allocate_host(
+            &self,
+            len: usize,
+            alignment: Alignment,
+        ) -> VortexResult<WritableHostBuffer> {
+            self.allocations.fetch_add(1, Ordering::Relaxed);
+            DefaultBufferAllocator.allocate_host(len, alignment)
         }
     }
 
@@ -446,5 +477,47 @@ mod tests {
         );
         let read = total_read.load(Ordering::Relaxed);
         assert!(read < 1024 * 1024, "Read {} bytes, expected < 1MB", read);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test]
+    async fn test_open_path_uses_memory_session_allocator() {
+        let session = VortexSession::empty()
+            .with::<DTypeSession>()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<ScalarFnSession>()
+            .with::<RuntimeSession>();
+
+        crate::register_default_encodings(&session);
+
+        let mut buf = ByteBufferMut::empty();
+        let array = Buffer::from((0i32..16_384).collect::<Vec<i32>>()).into_array();
+        session
+            .write_options()
+            .write(&mut buf, array.to_array_stream())
+            .await
+            .unwrap();
+
+        let file_path = std::env::temp_dir().join(format!(
+            "vortex-open-memory-session-{}.vx",
+            std::process::id()
+        ));
+        std::fs::write(&file_path, ByteBuffer::from(buf).as_slice()).unwrap();
+
+        let allocations = Arc::new(AtomicUsize::new(0));
+        session
+            .memory_mut()
+            .set_allocator(Arc::new(CountingAllocator {
+                allocations: Arc::clone(&allocations),
+            }));
+
+        let _file = session.open_options().open_path(&file_path).await.unwrap();
+        std::fs::remove_file(&file_path).unwrap();
+
+        assert!(
+            allocations.load(Ordering::Relaxed) > 0,
+            "expected at least one host allocation from MemorySession"
+        );
     }
 }

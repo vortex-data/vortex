@@ -34,6 +34,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::matcher::Matcher;
+use crate::memory::BufferAllocatorRef;
+use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
 
 /// Maximum number of iterations to attempt when executing an array before giving up and returning
@@ -208,6 +210,11 @@ impl ExecutionCtx {
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+
+    /// Get the session-scoped host allocator for this execution context.
+    pub fn allocator(&self) -> BufferAllocatorRef {
+        self.session.allocator()
     }
 
     /// Log an execution step at the current depth.

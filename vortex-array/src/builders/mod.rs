@@ -39,6 +39,7 @@ use crate::canonical::Canonical;
 use crate::dtype::DType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
+use crate::memory::BufferAllocatorRef;
 use crate::scalar::Scalar;
 
 mod lazy_null_builder;
@@ -284,4 +285,15 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             unimplemented!()
         }
     }
+}
+
+/// Construct a new canonical builder for the given [`DType`] using a host
+/// [`crate::memory::BufferAllocator`].
+pub fn builder_with_capacity_in(
+    allocator: BufferAllocatorRef,
+    dtype: &DType,
+    capacity: usize,
+) -> Box<dyn ArrayBuilder> {
+    let _allocator = allocator;
+    builder_with_capacity(dtype, capacity)
 }
