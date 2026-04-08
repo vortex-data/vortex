@@ -187,7 +187,13 @@ impl VTable for FSST {
 
         if buffers.len() == 2 {
             return Self::deserialize_legacy(
-                self, dtype, len, &metadata, &symbols, &symbol_lengths, children,
+                self,
+                dtype,
+                len,
+                &metadata,
+                &symbols,
+                &symbol_lengths,
+                children,
             );
         }
 
