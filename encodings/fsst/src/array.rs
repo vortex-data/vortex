@@ -160,7 +160,7 @@ impl VTable for FSST {
     ///
     /// The codes VarBinArray child is decomposed: its bytes become the `codes_bytes` buffer,
     /// and its offsets/validity are extracted into slots.
-    /// See [`FSST::deserialize_legacy`].
+    /// See `FSST::deserialize_legacy`.
     ///
     /// ## Current format (3 buffers, 2-3 children)
     ///
