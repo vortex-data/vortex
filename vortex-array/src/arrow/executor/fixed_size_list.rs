@@ -57,7 +57,7 @@ fn list_to_list(
 
     Ok(Arc::new(
         arrow_array::FixedSizeListArray::try_new_with_length(
-            elements_field.clone(),
+            Arc::clone(elements_field),
             list_size,
             elements,
             null_buffer,

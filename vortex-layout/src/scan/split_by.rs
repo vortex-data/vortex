@@ -78,7 +78,7 @@ mod test {
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     buffer![1_i32; 10]
                         .into_array()
                         .to_array_stream()

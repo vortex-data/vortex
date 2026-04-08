@@ -64,7 +64,7 @@ pub(crate) fn new_exporter(
     let cached_elements = cache
         .values_cache
         .get(&values_key)
-        .map(|entry| entry.value().1.clone());
+        .map(|entry| Arc::clone(&entry.value().1));
 
     let shared_elements = match cached_elements {
         Some(elements) => elements,
@@ -82,7 +82,7 @@ pub(crate) fn new_exporter(
             let shared_elements = Arc::new(Mutex::new(duckdb_elements));
             cache
                 .values_cache
-                .insert(values_key, (elements, shared_elements.clone()));
+                .insert(values_key, (elements, Arc::clone(&shared_elements)));
 
             shared_elements
         }

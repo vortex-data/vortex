@@ -126,9 +126,6 @@ where
             continue;
         };
 
-        println!("result {}", result.display_tree());
-        println!("result {}", result.display_values());
-
         let actual_values = to_vec_of_scalar(&result);
 
         // Check each element for overflow/underflow

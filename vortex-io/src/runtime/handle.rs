@@ -88,7 +88,7 @@ impl Handle {
         Fut: Future<Output = R> + Send + 'static,
         R: Send + 'static,
     {
-        self.spawn(f(Handle::new(self.runtime.clone())))
+        self.spawn(f(Handle::new(Weak::clone(&self.runtime))))
     }
 
     /// Spawn a CPU-bound task for execution on the runtime.

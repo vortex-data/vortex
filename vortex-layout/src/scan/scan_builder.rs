@@ -559,7 +559,7 @@ mod test {
     #[test]
     fn into_stream_is_lazy() {
         let calls = Arc::new(AtomicUsize::new(0));
-        let reader = Arc::new(CountingLayoutReader::new(calls.clone()));
+        let reader = Arc::new(CountingLayoutReader::new(Arc::clone(&calls)));
 
         let session = crate::scan::test::SCAN_SESSION.clone();
 
@@ -654,7 +654,7 @@ mod test {
     #[test]
     fn into_stream_executes_after_prepare() -> VortexResult<()> {
         let calls = Arc::new(AtomicUsize::new(0));
-        let reader = Arc::new(SplittingLayoutReader::new(calls.clone()));
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
 
         let runtime = SingleThreadRuntime::default();
         let session = crate::scan::test::session_with_handle(runtime.handle());
@@ -755,7 +755,10 @@ mod test {
         let guard = gate.lock();
 
         let calls = Arc::new(AtomicUsize::new(0));
-        let reader = Arc::new(BlockingSplitsLayoutReader::new(gate.clone(), calls.clone()));
+        let reader = Arc::new(BlockingSplitsLayoutReader::new(
+            Arc::clone(&gate),
+            Arc::clone(&calls),
+        ));
 
         let runtime = SingleThreadRuntime::default();
         let session = crate::scan::test::session_with_handle(runtime.handle());

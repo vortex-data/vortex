@@ -113,7 +113,7 @@ pub(super) fn execute_sparse(
             execute_varbin(array, dtype.clone(), fill_value, ctx)?
         }
         DType::List(values_dtype, nullability) => {
-            execute_sparse_lists(array, values_dtype.clone(), *nullability, ctx)?
+            execute_sparse_lists(array, Arc::clone(values_dtype), *nullability, ctx)?
         }
         DType::FixedSizeList(.., nullability) => {
             execute_sparse_fixed_size_list(array, *nullability, ctx)?

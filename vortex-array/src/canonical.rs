@@ -1099,9 +1099,7 @@ mod test {
                 .is_some()
         );
 
-        let inner_struct = arrow_struct
-            .column(1)
-            .clone()
+        let inner_struct = Arc::clone(arrow_struct.column(1))
             .as_any()
             .downcast_ref::<ArrowStructArray>()
             .cloned()

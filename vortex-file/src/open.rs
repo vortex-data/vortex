@@ -191,7 +191,7 @@ impl VortexOpenOptions {
 
         let segment_source = Arc::new(BufferSegmentSource::new(
             buffer,
-            footer.segment_map().clone(),
+            Arc::clone(footer.segment_map()),
         ));
 
         Ok(VortexFile {
@@ -232,7 +232,7 @@ impl VortexOpenOptions {
 
         // Create a segment source backed by the VortexRead implementation.
         let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
-            footer.segment_map().clone(),
+            Arc::clone(footer.segment_map()),
             reader,
             self.session.handle(),
             metrics,
@@ -338,7 +338,7 @@ impl VortexOpenOptions {
         let handle = self.session.handle();
         let allocator = self.session.allocator();
         let source = Arc::new(ObjectStoreReadAt::new_with_allocator(
-            object_store.clone(),
+            Arc::clone(object_store),
             path.into(),
             handle,
             allocator,
@@ -457,8 +457,8 @@ mod tests {
         let first_read_len = Arc::new(AtomicUsize::new(0));
         let reader = CountingRead {
             inner: buffer,
-            total_read: total_read.clone(),
-            first_read_len: first_read_len.clone(),
+            total_read: Arc::clone(&total_read),
+            first_read_len: Arc::clone(&first_read_len),
         };
 
         // Open the file

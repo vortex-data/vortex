@@ -78,7 +78,7 @@ impl VortexFile {
     /// This may spawn a background I/O driver that will exit when the returned segment source
     /// is dropped.
     pub fn segment_source(&self) -> Arc<dyn SegmentSource> {
-        self.segment_source.clone()
+        Arc::clone(&self.segment_source)
     }
 
     /// Create a new layout reader for the file.

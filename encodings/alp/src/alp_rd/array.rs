@@ -228,7 +228,6 @@ impl VTable for ALPRD {
         let array = require_child!(array, array.right_parts(), 1 => Primitive);
         require_patches!(
             array,
-            array.left_parts_patches(),
             LP_PATCH_INDICES_SLOT,
             LP_PATCH_VALUES_SLOT,
             LP_PATCH_CHUNK_OFFSETS_SLOT

@@ -198,7 +198,7 @@ impl VortexLayer {
         let handle = WriterHandle::spawn(session, rx, output_dir, batch_size);
         (
             Self {
-                sender: signal.clone(),
+                sender: Arc::clone(&signal),
             },
             handle,
             ShutdownSignal { inner: signal },

@@ -121,7 +121,7 @@ pub fn read_layout_tree(bytes: ByteBuffer) -> VortexResult<()> {
     runtime()?.block_on(async {
         let session = VortexSession::default().with_tokio();
         let file = session.open_options().open_buffer(bytes)?;
-        let root_layout = file.footer().layout().clone();
+        let root_layout = Arc::clone(file.footer().layout());
         let segment_source = file.segment_source();
 
         for layout_result in root_layout.depth_first_traversal() {
@@ -133,7 +133,7 @@ pub fn read_layout_tree(bytes: ByteBuffer) -> VortexResult<()> {
             if row_count == 0 {
                 continue;
             }
-            let reader = layout.new_reader("".into(), segment_source.clone(), &session)?;
+            let reader = layout.new_reader("".into(), Arc::clone(&segment_source), &session)?;
             let len =
                 usize::try_from(row_count).map_err(|e| vortex_err!("row count overflow: {e}"))?;
             reader

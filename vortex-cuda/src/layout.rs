@@ -246,7 +246,7 @@ impl CudaFlatReader {
                 let session = self.session.clone();
                 let dtype = self.layout.dtype.clone();
                 let array_tree = self.layout.array_tree.clone();
-                let host_buffers = self.layout.host_buffers.clone();
+                let host_buffers = Arc::clone(&self.layout.host_buffers);
 
                 async move {
                     let segment = segment_fut.await?;
@@ -308,7 +308,7 @@ impl LayoutReader for CudaFlatReader {
             .vortex_expect("Row range begin must fit within CudaFlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within CudaFlatLayout size");
-        let name = self.name.clone();
+        let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
         let session = self.session.clone();
@@ -356,7 +356,7 @@ impl LayoutReader for CudaFlatReader {
             .vortex_expect("Row range begin must fit within CudaFlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within CudaFlatLayout size");
-        let name = self.name.clone();
+        let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
 

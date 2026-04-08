@@ -52,7 +52,7 @@ impl LayoutStrategy for BufferedStrategy {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
 
-        let buffered_bytes_counter = self.buffered_bytes.clone();
+        let buffered_bytes_counter = Arc::clone(&self.buffered_bytes);
         let buffered_stream = try_stream! {
             let stream = stream.peekable();
             pin_mut!(stream);

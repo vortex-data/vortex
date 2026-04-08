@@ -16,6 +16,7 @@ use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_error::VortexResult;
 
 use crate::FSST;
+use crate::FSSTArrayExt;
 use crate::dfa::FsstMatcher;
 use crate::dfa::dfa_scan_to_bitbuf;
 

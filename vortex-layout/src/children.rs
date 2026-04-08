@@ -43,7 +43,7 @@ impl Debug for dyn LayoutChildren {
 
 impl LayoutChildren for Arc<dyn LayoutChildren> {
     fn to_arc(&self) -> Arc<dyn LayoutChildren> {
-        self.clone()
+        Arc::clone(self)
     }
 
     fn child(&self, idx: usize, dtype: &DType) -> VortexResult<LayoutRef> {
@@ -84,7 +84,7 @@ impl LayoutChildren for OwnedLayoutChildren {
         if child.dtype() != dtype {
             vortex_bail!("Child dtype mismatch: {} != {}", child.dtype(), dtype);
         }
-        Ok(child.clone())
+        Ok(Arc::clone(child))
     }
 
     fn child_row_count(&self, idx: usize) -> u64 {

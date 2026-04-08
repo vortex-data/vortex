@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
@@ -41,7 +42,7 @@ impl TakeExecute for VarBinView {
             Ok(Some(
                 VarBinViewArray::new_handle_unchecked(
                     BufferHandle::new_host(views_buffer.into_byte_buffer()),
-                    array.data_buffers().clone(),
+                    Arc::clone(array.data_buffers()),
                     array
                         .dtype()
                         .union_nullability(indices.dtype().nullability()),

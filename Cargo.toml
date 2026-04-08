@@ -349,6 +349,7 @@ needless_range_loop = "allow"
 or_fun_call = "deny"
 panic = "deny"
 # panic_in_result_fn = "deny" -- we cannot disable this for tests to use assertions
+clone_on_ref_ptr = "deny"
 redundant_clone = "deny"
 same_name_method = "deny"
 tests_outside_test_module = "deny"

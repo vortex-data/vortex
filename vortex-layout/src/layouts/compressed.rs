@@ -85,12 +85,12 @@ impl LayoutStrategy for CompressingStrategy {
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
-        let compressor = self.compressor.clone();
+        let compressor = Arc::clone(&self.compressor);
 
         let handle2 = handle.clone();
         let stream = stream
             .map(move |chunk| {
-                let compressor = compressor.clone();
+                let compressor = Arc::clone(&compressor);
                 handle2.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
                     // Compute the stats for the chunk prior to compression

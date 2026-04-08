@@ -118,7 +118,7 @@ impl BlockingRuntime for TokioRuntime {
     type BlockingIterator<'a, R: 'a> = TokioBlockingIterator<'a, R>;
 
     fn handle(&self) -> Handle {
-        let executor: Arc<dyn Executor> = self.0.clone();
+        let executor: Arc<dyn Executor> = Arc::clone(&self.0) as Arc<dyn Executor>;
         Handle::new(Arc::downgrade(&executor))
     }
 
@@ -130,7 +130,7 @@ impl BlockingRuntime for TokioRuntime {
         if tokio::runtime::Handle::try_current().is_ok() {
             vortex_error::vortex_panic!("block_on cannot be called from within a Tokio runtime");
         }
-        let handle = self.0.clone();
+        let handle = Arc::clone(&self.0);
         tokio::task::block_in_place(move || handle.block_on(fut))
     }
 
@@ -145,7 +145,7 @@ impl BlockingRuntime for TokioRuntime {
                 "block_on_stream cannot be called from within a Tokio runtime"
             );
         }
-        let handle = self.0.clone();
+        let handle = Arc::clone(&self.0);
         let stream = Box::pin(stream);
         TokioBlockingIterator { handle, stream }
     }
@@ -197,7 +197,7 @@ mod tests {
         let runtime = TokioRuntime::from(tokio_rt.handle());
 
         let counter = Arc::new(AtomicUsize::new(0));
-        let c = counter.clone();
+        let c = Arc::clone(&counter);
 
         // Create a channel to ensure the future doesn't complete immediately
         let (send, recv) = tokio::sync::oneshot::channel::<()>();

@@ -165,9 +165,16 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
 
     /// Execute this array by returning an [`ExecutionResult`].
     ///
-    /// Instead of recursively executing children, implementations should return
-    /// [`ExecutionResult::execute_slot`] to request that the scheduler execute a slot first,
-    /// or [`ExecutionResult::done`] when the encoding can produce a result directly.
+    /// Execution is **iterative**, not recursive. Instead of recursively executing children,
+    /// implementations should return [`ExecutionResult::execute_slot`] to request that the
+    /// scheduler execute a slot first, or [`ExecutionResult::done`] when the encoding can
+    /// produce a result directly.
+    ///
+    /// For good examples of this pattern, see:
+    /// - [`Dict::execute`](crate::arrays::dict::vtable::Dict::execute) — demonstrates
+    ///   requiring children via `require_child!` and producing a result once they are canonical.
+    /// - `BitPacked::execute` (in `vortex-fastlanes`) — demonstrates requiring patches and
+    ///   validity via `require_patches!`/`require_validity!`.
     ///
     /// Array execution is designed such that repeated execution of an array will eventually
     /// converge to a canonical representation. Implementations of this function should therefore

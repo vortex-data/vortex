@@ -77,7 +77,7 @@ impl ArrayHash for FSSTData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         self.symbols.array_hash(state, precision);
         self.symbol_lengths.array_hash(state, precision);
-        self.codes.clone().into_array().array_hash(state, precision);
+        self.codes_bytes.as_host().array_hash(state, precision);
     }
 }
 
@@ -88,10 +88,9 @@ impl ArrayEq for FSSTData {
                 .symbol_lengths
                 .array_eq(&other.symbol_lengths, precision)
             && self
-                .codes
-                .clone()
-                .into_array()
-                .array_eq(&other.codes.clone().into_array(), precision)
+                .codes_bytes
+                .as_host()
+                .array_eq(other.codes_bytes.as_host(), precision)
     }
 }
 
@@ -122,7 +121,7 @@ impl VTable for FSST {
         match idx {
             0 => BufferHandle::new_host(array.symbols().clone().into_byte_buffer()),
             1 => BufferHandle::new_host(array.symbol_lengths().clone().into_byte_buffer()),
-            2 => array.codes.bytes_handle().clone(),
+            2 => array.codes_bytes_handle().clone(),
             _ => vortex_panic!("FSSTArray buffer index {idx} out of bounds"),
         }
     }
@@ -137,15 +136,42 @@ impl VTable for FSST {
     }
 
     fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        let codes_offsets = array.as_ref().slots()[CODES_OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("FSSTArray codes_offsets slot");
         Ok(Some(
             FSSTMetadata {
                 uncompressed_lengths_ptype: array.uncompressed_lengths().dtype().as_ptype().into(),
-                codes_offsets_ptype: array.codes.offsets().dtype().as_ptype().into(),
+                codes_offsets_ptype: codes_offsets.dtype().as_ptype().into(),
             }
             .encode_to_vec(),
         ))
     }
 
+    /// Deserializes an FSST array from its serialized components.
+    ///
+    /// Supports two serialization formats:
+    ///
+    /// ## Legacy format (2 buffers, 2 children)
+    ///
+    /// The original FSST layout stored the compressed codes as a full `VarBinArray` child.
+    /// - **Buffers**: `[symbols, symbol_lengths]`
+    /// - **Children**: `[codes (VarBinArray), uncompressed_lengths (Primitive)]`
+    ///
+    /// The codes VarBinArray child is decomposed: its bytes become the `codes_bytes` buffer,
+    /// and its offsets/validity are extracted into slots.
+    /// See `FSST::deserialize_legacy`.
+    ///
+    /// ## Current format (3 buffers, 2-3 children)
+    ///
+    /// The current layout stores the compressed bytes as a raw buffer alongside the symbol
+    /// table, with offsets and validity as separate children.
+    /// - **Buffers**: `[symbols, symbol_lengths, compressed_codes_bytes]`
+    /// - **Children**: `[uncompressed_lengths, codes_offsets, (optional) codes_validity]`
+    ///
+    /// The `codes_bytes` buffer is stored directly in `FSSTData`. A `VarBinArray` for the
+    /// codes can be reconstructed on demand via [`FSSTArrayExt::codes()`] using the bytes
+    /// from `FSSTData` combined with offsets and validity from the array's slots.
     fn deserialize(
         &self,
         dtype: &DType,
@@ -159,44 +185,18 @@ impl VTable for FSST {
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
         let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
 
-        // Check for the legacy deserialization path.
         if buffers.len() == 2 {
-            if children.len() != 2 {
-                vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
-            }
-            let codes = children.get(0, &DType::Binary(dtype.nullability()), len)?;
-            let codes: VarBinArray = codes
-                .as_opt::<VarBin>()
-                .ok_or_else(|| {
-                    vortex_err!(
-                        "Expected VarBinArray for codes, got {}",
-                        codes.encoding_id()
-                    )
-                })?
-                .into_owned();
-            let uncompressed_lengths = children.get(
-                1,
-                &DType::Primitive(
-                    metadata.get_uncompressed_lengths_ptype()?,
-                    Nullability::NonNullable,
-                ),
-                len,
-            )?;
-
-            FSSTData::validate_parts(
-                &symbols,
-                &symbol_lengths,
-                &codes,
-                &uncompressed_lengths,
+            return Self::deserialize_legacy(
+                self,
                 dtype,
                 len,
-            )?;
-            let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
-            let data = FSSTData::try_new(symbols, symbol_lengths, codes, dtype)?;
-            return Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots));
+                &metadata,
+                &symbols,
+                &symbol_lengths,
+                children,
+            );
         }
 
-        // Check for the current deserialization path.
         if buffers.len() == 3 {
             let uncompressed_lengths = children.get(
                 0,
@@ -207,7 +207,7 @@ impl VTable for FSST {
                 len,
             )?;
 
-            let codes_buffer = ByteBuffer::from_byte_buffer(buffers[2].clone().try_to_host_sync()?);
+            let codes_bytes = buffers[2].clone();
             let codes_offsets = children.get(
                 1,
                 &DType::Primitive(
@@ -224,26 +224,25 @@ impl VTable for FSST {
                 let validity = children.get(2, &Validity::DTYPE, len)?;
                 Validity::Array(validity)
             } else {
-                vortex_bail!("Expected 0 or 1 child, got {}", children.len());
+                vortex_bail!("Expected 2 or 3 children, got {}", children.len());
             };
-
-            let codes = VarBinArray::try_new(
-                codes_offsets,
-                codes_buffer,
-                DType::Binary(dtype.nullability()),
-                codes_validity,
-            )?;
 
             FSSTData::validate_parts(
                 &symbols,
                 &symbol_lengths,
-                &codes,
+                &codes_bytes,
+                &codes_offsets,
+                dtype.nullability(),
                 &uncompressed_lengths,
                 dtype,
                 len,
             )?;
-            let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
-            let data = FSSTData::try_new(symbols, symbol_lengths, codes, dtype)?;
+            let slots = vec![
+                Some(uncompressed_lengths),
+                Some(codes_offsets),
+                validity_to_child(&codes_validity, len),
+            ];
+            let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
             return Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots));
         }
 
@@ -317,12 +316,22 @@ pub(crate) const NUM_SLOTS: usize = 3;
 pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
     ["uncompressed_lengths", "codes_offsets", "codes_validity"];
 
+/// The inner data for an FSST-compressed array.
+///
+/// Holds the FSST symbol table (`symbols` + `symbol_lengths`) and the raw compressed
+/// codes bytes buffer. The codes offsets and validity live in the outer array's slots
+/// (slots 1 and 2 respectively).
+///
+/// A full [`VarBinArray`] representing the codes can be reconstructed on demand via
+/// [`FSSTArrayExt::codes()`], combining this buffer with the offsets/validity from slots.
 #[derive(Clone)]
 pub struct FSSTData {
     symbols: Buffer<Symbol>,
     symbol_lengths: Buffer<u8>,
-    // TODO(joe): this was broken by a previous pr. This will not be updated if a slot is replaced.
-    codes: VarBinArray,
+    /// The raw compressed codes bytes, equivalent to `VarBinData::bytes`.
+    codes_bytes: BufferHandle,
+    /// Cached length (number of elements).
+    len: usize,
 
     /// Memoized compressor used for push-down of compute by compressing the RHS.
     compressor: Arc<LazyLock<Compressor, Box<dyn Fn() -> Compressor + Send>>>,
@@ -333,8 +342,11 @@ impl Debug for FSSTData {
         f.debug_struct("FSSTArray")
             .field("symbols", &self.symbols)
             .field("symbol_lengths", &self.symbol_lengths)
-            .field("codes", &self.codes)
+            .field("codes_bytes_len", &self.codes_bytes.len())
+            .field("len", &self.len)
             .field("uncompressed_lengths", &"<outer slot>")
+            .field("codes_offsets", &"<outer slot>")
+            .field("codes_validity", &"<outer slot>")
             .finish()
     }
 }
@@ -346,6 +358,10 @@ impl FSST {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.fsst");
 
     /// Build an FSST array from a set of `symbols` and `codes`.
+    ///
+    /// The `codes` VarBinArray is decomposed: its bytes are stored in [`FSSTData`], while
+    /// its offsets and validity become array slots. The codes VarBinArray can be
+    /// reconstructed on demand via [`FSSTArrayExt::codes()`].
     pub fn try_new(
         dtype: DType,
         symbols: Buffer<Symbol>,
@@ -354,7 +370,7 @@ impl FSST {
         uncompressed_lengths: ArrayRef,
     ) -> VortexResult<FSSTArray> {
         let len = codes.len();
-        FSSTData::validate_parts(
+        FSSTData::validate_parts_from_codes(
             &symbols,
             &symbol_lengths,
             &codes,
@@ -362,20 +378,60 @@ impl FSST {
             &dtype,
             len,
         )?;
-        let slots = vec![
-            Some(uncompressed_lengths),
-            Some(codes.offsets().clone()),
-            validity_to_child(
-                &codes
-                    .validity()
-                    .vortex_expect("FSST codes validity should be derivable"),
-                codes.len(),
-            ),
-        ];
-        let data = FSSTData::try_new(symbols, symbol_lengths, codes, &dtype)?;
+        let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
+        let codes_bytes = codes.bytes_handle().clone();
+        let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
         })
+    }
+
+    /// Legacy deserialization path (2 buffers): the codes were stored as a full
+    /// `VarBinArray` child. We decompose the VarBinArray into its bytes (stored in
+    /// FSSTData) and offsets/validity (stored in slots).
+    fn deserialize_legacy(
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &FSSTMetadata,
+        symbols: &Buffer<Symbol>,
+        symbol_lengths: &Buffer<u8>,
+        children: &dyn ArrayChildren,
+    ) -> VortexResult<ArrayParts<Self>> {
+        if children.len() != 2 {
+            vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
+        }
+        let codes = children.get(0, &DType::Binary(dtype.nullability()), len)?;
+        let codes: VarBinArray = codes
+            .as_opt::<VarBin>()
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Expected VarBinArray for codes, got {}",
+                    codes.encoding_id()
+                )
+            })?
+            .into_owned();
+        let uncompressed_lengths = children.get(
+            1,
+            &DType::Primitive(
+                metadata.get_uncompressed_lengths_ptype()?,
+                Nullability::NonNullable,
+            ),
+            len,
+        )?;
+
+        FSSTData::validate_parts_from_codes(
+            symbols,
+            symbol_lengths,
+            &codes,
+            &uncompressed_lengths,
+            dtype,
+            len,
+        )?;
+        let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
+        let codes_bytes = codes.bytes_handle().clone();
+        let data = FSSTData::try_new(symbols.clone(), symbol_lengths.clone(), codes_bytes, len)?;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     pub(crate) unsafe fn new_unchecked(
@@ -386,17 +442,9 @@ impl FSST {
         uncompressed_lengths: ArrayRef,
     ) -> FSSTArray {
         let len = codes.len();
-        let slots = vec![
-            Some(uncompressed_lengths),
-            Some(codes.offsets().clone()),
-            validity_to_child(
-                &codes
-                    .validity()
-                    .vortex_expect("FSST codes validity should be derivable"),
-                codes.len(),
-            ),
-        ];
-        let data = unsafe { FSSTData::new_unchecked(symbols, symbol_lengths, codes) };
+        let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
+        let codes_bytes = codes.bytes_handle().clone();
+        let data = unsafe { FSSTData::new_unchecked(symbols, symbol_lengths, codes_bytes, len) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
         }
@@ -417,22 +465,33 @@ impl FSSTData {
         ]
     }
 
-    /// Build an FSST array from a set of `symbols` and `codes`.
+    /// Build FSST data from a set of `symbols`, `symbol_lengths`, and compressed codes bytes.
     ///
     /// Symbols are 8-bytes and can represent short strings, each of which is assigned
     /// a code.
     ///
-    /// The `codes` array is a Binary array where each binary datum is a sequence of 8-bit codes.
-    /// Each code corresponds either to a symbol, or to the "escape code",
-    /// which tells the decoder to emit the following byte without doing a table lookup.
+    /// The `codes_bytes` buffer contains the concatenated compressed bytecodes for all elements.
+    /// Each element's compressed bytecodes are a sequence of 8-bit codes, where each code
+    /// corresponds either to a symbol or to the "escape code" (which tells the decoder to
+    /// emit the following byte without doing a table lookup).
+    ///
+    /// The offsets and validity for the codes are stored in the array's slots, not here.
+    /// Use [`FSSTArrayExt::codes()`] to reconstruct a full `VarBinArray`.
     pub fn try_new(
         symbols: Buffer<Symbol>,
         symbol_lengths: Buffer<u8>,
-        codes: VarBinArray,
-        _dtype: &DType,
+        codes_bytes: BufferHandle,
+        len: usize,
     ) -> VortexResult<Self> {
         // SAFETY: all components validated above
-        unsafe { Ok(Self::new_unchecked(symbols, symbol_lengths, codes)) }
+        unsafe {
+            Ok(Self::new_unchecked(
+                symbols,
+                symbol_lengths,
+                codes_bytes,
+                len,
+            ))
+        }
     }
 
     pub fn validate(
@@ -441,20 +500,29 @@ impl FSSTData {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
+        let codes_offsets = slots[CODES_OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("FSSTArray codes_offsets slot");
         Self::validate_parts(
             &self.symbols,
             &self.symbol_lengths,
-            &self.codes,
+            &self.codes_bytes,
+            codes_offsets,
+            dtype.nullability(),
             uncompressed_lengths_from_slots(slots),
             dtype,
             len,
         )
     }
 
+    /// Validate using the decomposed components (codes bytes + offsets + nullability).
+    #[allow(clippy::too_many_arguments)]
     fn validate_parts(
         symbols: &Buffer<Symbol>,
         symbol_lengths: &Buffer<u8>,
-        codes: &VarBinArray,
+        codes_bytes: &BufferHandle,
+        codes_offsets: &ArrayRef,
+        codes_nullability: Nullability,
         uncompressed_lengths: &ArrayRef,
         dtype: &DType,
         len: usize,
@@ -464,7 +532,6 @@ impl FSSTData {
             "FSST arrays must be Binary or Utf8, found {dtype}"
         );
 
-        // Check: symbols must not have length > MAX_CODE
         if symbols.len() > 255 {
             vortex_bail!(InvalidArgument: "symbols array must have length <= 255");
         }
@@ -472,7 +539,9 @@ impl FSSTData {
             vortex_bail!(InvalidArgument: "symbols and symbol_lengths arrays must have same length");
         }
 
-        if codes.len() != len {
+        // codes_offsets.len() - 1 == number of elements
+        let codes_len = codes_offsets.len().saturating_sub(1);
+        if codes_len != len {
             vortex_bail!(InvalidArgument: "codes must have same len as outer array");
         }
 
@@ -484,21 +553,59 @@ impl FSSTData {
             vortex_bail!(InvalidArgument: "uncompressed_lengths must have integer type and cannot be nullable, found {}", uncompressed_lengths.dtype());
         }
 
-        // Check: strings must be a Binary array.
-        if !matches!(codes.dtype(), DType::Binary(_)) {
-            vortex_bail!(InvalidArgument: "codes array must be DType::Binary type");
+        // Offsets must be non-nullable integer.
+        if !codes_offsets.dtype().is_int() || codes_offsets.dtype().is_nullable() {
+            vortex_bail!(InvalidArgument: "codes offsets must be non-nullable integer type, found {}", codes_offsets.dtype());
         }
-        if codes.dtype().nullability() != dtype.nullability() {
+
+        if codes_nullability != dtype.nullability() {
             vortex_bail!(InvalidArgument: "codes nullability must match outer dtype nullability");
+        }
+
+        // Validate that last offset doesn't exceed bytes length (when host-resident).
+        if codes_bytes.is_on_host() && codes_offsets.is_host() && !codes_offsets.is_empty() {
+            let last_offset: usize = (&codes_offsets
+                .scalar_at(codes_offsets.len() - 1)
+                .vortex_expect("offsets must support scalar_at"))
+                .try_into()
+                .vortex_expect("Failed to convert offset to usize");
+            vortex_ensure!(
+                last_offset <= codes_bytes.len(),
+                InvalidArgument: "Last codes offset {} exceeds codes bytes length {}",
+                last_offset,
+                codes_bytes.len()
+            );
         }
 
         Ok(())
     }
 
+    /// Validate using a VarBinArray for the codes (convenience for construction paths).
+    fn validate_parts_from_codes(
+        symbols: &Buffer<Symbol>,
+        symbol_lengths: &Buffer<u8>,
+        codes: &VarBinArray,
+        uncompressed_lengths: &ArrayRef,
+        dtype: &DType,
+        len: usize,
+    ) -> VortexResult<()> {
+        Self::validate_parts(
+            symbols,
+            symbol_lengths,
+            codes.bytes_handle(),
+            codes.offsets(),
+            codes.dtype().nullability(),
+            uncompressed_lengths,
+            dtype,
+            len,
+        )
+    }
+
     pub(crate) unsafe fn new_unchecked(
         symbols: Buffer<Symbol>,
         symbol_lengths: Buffer<u8>,
-        codes: VarBinArray,
+        codes_bytes: BufferHandle,
+        len: usize,
     ) -> Self {
         let symbols2 = symbols.clone();
         let symbol_lengths2 = symbol_lengths.clone();
@@ -509,40 +616,40 @@ impl FSSTData {
         Self {
             symbols,
             symbol_lengths,
-            codes,
+            codes_bytes,
+            len,
             compressor,
         }
     }
 
     /// Returns the number of elements in the array.
     pub fn len(&self) -> usize {
-        self.codes.len()
+        self.len
     }
 
     /// Returns `true` if the array contains no elements.
     pub fn is_empty(&self) -> bool {
-        self.codes.len() == 0
+        self.len == 0
     }
 
-    /// Access the symbol table array
+    /// Access the symbol table array.
     pub fn symbols(&self) -> &Buffer<Symbol> {
         &self.symbols
     }
 
-    /// Access the symbol table array
+    /// Access the symbol lengths array.
     pub fn symbol_lengths(&self) -> &Buffer<u8> {
         &self.symbol_lengths
     }
 
-    /// Access the codes array
-    pub fn codes(&self) -> &VarBinArray {
-        &self.codes
+    /// Access the compressed codes bytes buffer handle (may be on host or device).
+    pub fn codes_bytes_handle(&self) -> &BufferHandle {
+        &self.codes_bytes
     }
 
-    /// Get the DType of the codes array
-    #[inline]
-    pub fn codes_dtype(&self) -> &DType {
-        self.codes.dtype()
+    /// Access the compressed codes bytes on the host.
+    pub fn codes_bytes(&self) -> &ByteBuffer {
+        self.codes_bytes.as_host()
     }
 
     /// Build a [`Decompressor`][fsst::Decompressor] that can be used to decompress values from
@@ -570,6 +677,34 @@ pub trait FSSTArrayExt: TypedArrayRef<FSST> {
 
     fn uncompressed_lengths_dtype(&self) -> &DType {
         self.uncompressed_lengths().dtype()
+    }
+
+    /// Reconstruct a [`VarBinArray`] for the compressed codes by combining the bytes
+    /// from [`FSSTData`] with the offsets and validity stored in the array's slots.
+    fn codes(&self) -> VarBinArray {
+        let offsets = self.as_ref().slots()[CODES_OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("FSSTArray codes_offsets slot")
+            .clone();
+        let validity = child_to_validity(
+            &self.as_ref().slots()[CODES_VALIDITY_SLOT],
+            self.as_ref().dtype().nullability(),
+        );
+        let codes_bytes = self.codes_bytes_handle().clone();
+        // SAFETY: components were validated at construction time.
+        unsafe {
+            VarBinArray::new_unchecked_from_handle(
+                offsets,
+                codes_bytes,
+                DType::Binary(self.as_ref().dtype().nullability()),
+                validity,
+            )
+        }
+    }
+
+    /// Get the DType of the codes array.
+    fn codes_dtype(&self) -> DType {
+        DType::Binary(self.as_ref().dtype().nullability())
     }
 }
 
@@ -644,7 +779,7 @@ mod test {
             &compressor,
         );
 
-        let compressed_codes = fsst_array.codes().clone();
+        let compressed_codes = fsst_array.codes();
 
         // There were two buffers:
         // 1. The 8 byte symbols

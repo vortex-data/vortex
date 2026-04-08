@@ -84,9 +84,9 @@ pub struct vortex_fsst::FSSTData
 
 impl vortex_fsst::FSSTData
 
-pub fn vortex_fsst::FSSTData::codes(&self) -> &vortex_array::arrays::varbin::vtable::VarBinArray
+pub fn vortex_fsst::FSSTData::codes_bytes(&self) -> &vortex_buffer::ByteBuffer
 
-pub fn vortex_fsst::FSSTData::codes_dtype(&self) -> &vortex_array::dtype::DType
+pub fn vortex_fsst::FSSTData::codes_bytes_handle(&self) -> &vortex_array::buffer::BufferHandle
 
 pub fn vortex_fsst::FSSTData::compressor(&self) -> &fsst::Compressor
 
@@ -100,7 +100,7 @@ pub fn vortex_fsst::FSSTData::symbol_lengths(&self) -> &vortex_buffer::buffer::B
 
 pub fn vortex_fsst::FSSTData::symbols(&self) -> &vortex_buffer::buffer::Buffer<fsst::Symbol>
 
-pub fn vortex_fsst::FSSTData::try_new(symbols: vortex_buffer::buffer::Buffer<fsst::Symbol>, symbol_lengths: vortex_buffer::buffer::Buffer<u8>, codes: vortex_array::arrays::varbin::vtable::VarBinArray, _dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
+pub fn vortex_fsst::FSSTData::try_new(symbols: vortex_buffer::buffer::Buffer<fsst::Symbol>, symbol_lengths: vortex_buffer::buffer::Buffer<u8>, codes_bytes: vortex_array::buffer::BufferHandle, len: usize) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_fsst::FSSTData::validate(&self, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
@@ -156,11 +156,19 @@ pub fn vortex_fsst::FSSTMetadata::encoded_len(&self) -> usize
 
 pub trait vortex_fsst::FSSTArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_fsst::FSST>
 
+pub fn vortex_fsst::FSSTArrayExt::codes(&self) -> vortex_array::arrays::varbin::vtable::VarBinArray
+
+pub fn vortex_fsst::FSSTArrayExt::codes_dtype(&self) -> vortex_array::dtype::DType
+
 pub fn vortex_fsst::FSSTArrayExt::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_fsst::FSSTArrayExt::uncompressed_lengths_dtype(&self) -> &vortex_array::dtype::DType
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_fsst::FSST>> vortex_fsst::FSSTArrayExt for T
+
+pub fn T::codes(&self) -> vortex_array::arrays::varbin::vtable::VarBinArray
+
+pub fn T::codes_dtype(&self) -> vortex_array::dtype::DType
 
 pub fn T::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
 

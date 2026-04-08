@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use arrow_array::RecordBatch;
 use arrow_array::RecordBatchReader;
 use arrow_array::cast::AsArray;
@@ -104,7 +106,7 @@ where
 {
     #[inline]
     fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+        Arc::clone(&self.schema)
     }
 }
 
@@ -195,14 +197,14 @@ mod tests {
     fn test_record_batch_iterator_adapter() -> VortexResult<()> {
         let schema = create_arrow_schema();
         let batch1 = RecordBatch::try_new(
-            schema.clone(),
+            Arc::clone(&schema),
             vec![
                 Arc::new(Int32Array::from(vec![Some(1), Some(2)])) as ArrowArrayRef,
                 Arc::new(StringArray::from(vec![Some("Alice"), Some("Bob")])) as ArrowArrayRef,
             ],
         )?;
         let batch2 = RecordBatch::try_new(
-            schema.clone(),
+            Arc::clone(&schema),
             vec![
                 Arc::new(Int32Array::from(vec![None, Some(4)])) as ArrowArrayRef,
                 Arc::new(StringArray::from(vec![Some("Charlie"), None])) as ArrowArrayRef,
@@ -212,7 +214,7 @@ mod tests {
         let iter = vec![Ok(batch1), Ok(batch2)].into_iter();
         let mut adapter = RecordBatchIteratorAdapter {
             iter,
-            schema: schema.clone(),
+            schema: Arc::clone(&schema),
         };
 
         // Test RecordBatchReader trait
@@ -238,7 +240,7 @@ mod tests {
         let iter = vec![Err(error)].into_iter();
         let mut adapter = RecordBatchIteratorAdapter {
             iter,
-            schema: schema.clone(),
+            schema: Arc::clone(&schema),
         };
 
         // Test that error is propagated
@@ -251,7 +253,7 @@ mod tests {
     fn test_mixed_success_and_error() {
         let schema = create_arrow_schema();
         let batch = RecordBatch::try_new(
-            schema.clone(),
+            Arc::clone(&schema),
             vec![
                 Arc::new(Int32Array::from(vec![Some(1)])) as ArrowArrayRef,
                 Arc::new(StringArray::from(vec![Some("Test")])) as ArrowArrayRef,

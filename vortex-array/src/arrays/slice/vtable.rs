@@ -18,8 +18,6 @@ use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::Canonical;
-use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
@@ -36,6 +34,7 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
+use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -141,21 +140,13 @@ impl VTable for Slice {
         vortex_bail!("Slice array is not serializable")
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // Execute the child to get canonical form, then slice it
-        let Some(canonical) = array.child().as_opt::<AnyCanonical>() else {
-            // If the child is not canonical, recurse.
-            return array
-                .child()
-                .clone()
-                .execute::<ArrayRef>(ctx)?
-                .slice(array.slice_range().clone())
-                .map(ExecutionResult::done);
-        };
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
 
+        debug_assert!(array.child().is_canonical());
         // TODO(ngates): we should inline canonical slice logic here.
-        Canonical::from(canonical)
-            .into_array()
+        array
+            .child()
             .slice(array.range.clone())
             .map(ExecutionResult::done)
     }
