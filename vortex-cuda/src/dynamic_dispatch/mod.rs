@@ -1706,7 +1706,7 @@ mod tests {
     #[crate::test]
     async fn test_dict_bitpacked_u8_codes_u32_values() -> VortexResult<()> {
         // Dict with BitPacked u8 codes (narrower than u32 output) and u32 values.
-        // Codes become a pending subtree, values fuse.
+        // Native-width BITUNPACK unpacks codes at u8, then DICT gathers u32 values.
         let dict_values: Vec<u32> = vec![100, 200, 300, 400];
         let len = 2048;
         let codes: Vec<u8> = (0..len).map(|i| (i % dict_values.len()) as u8).collect();
@@ -1721,8 +1721,8 @@ mod tests {
 
         let plan = DispatchPlan::new(&array)?;
         assert!(
-            matches!(plan, DispatchPlan::PartiallyFused { .. }),
-            "expected PartiallyFused for mixed-width Dict with BitPacked codes"
+            matches!(plan, DispatchPlan::Fused(..)),
+            "expected Fused for Dict with BitPacked u8 codes (native-width support)"
         );
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;

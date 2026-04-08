@@ -203,6 +203,44 @@ __device__ inline void bitunpack(const T *__restrict packed,
     }
 }
 
+/// Cooperative bitunpack at the source's native element width.
+///
+/// Dispatches on `source_ptype` to call `bitunpack<NativeT>`, unpacking
+/// FastLanes-packed data into `dst` at the correct word size. The caller
+/// must cast `packed` and `dst` to the correct alignment before calling
+/// — both are `void*` here to allow callers to pass heterogeneous types.
+__device__ inline void bitunpack_dispatch(const void *__restrict packed,
+                                          void *__restrict dst,
+                                          uint64_t chunk_start,
+                                          uint32_t chunk_len,
+                                          const struct SourceOp &src,
+                                          PTypeTag source_ptype) {
+    switch (ptype_to_unsigned(source_ptype)) {
+    case PTYPE_U8:
+        bitunpack<uint8_t>(static_cast<const uint8_t *>(packed),
+                           static_cast<uint8_t *>(dst),
+                           chunk_start, chunk_len, src);
+        break;
+    case PTYPE_U16:
+        bitunpack<uint16_t>(static_cast<const uint16_t *>(packed),
+                            static_cast<uint16_t *>(dst),
+                            chunk_start, chunk_len, src);
+        break;
+    case PTYPE_U32:
+        bitunpack<uint32_t>(static_cast<const uint32_t *>(packed),
+                            static_cast<uint32_t *>(dst),
+                            chunk_start, chunk_len, src);
+        break;
+    case PTYPE_U64:
+        bitunpack<uint64_t>(static_cast<const uint64_t *>(packed),
+                            static_cast<uint64_t *>(dst),
+                            chunk_start, chunk_len, src);
+        break;
+    default:
+        __builtin_unreachable();
+    }
+}
+
 /// Read N values from a source op into `out`.
 ///
 /// Dispatches on `src.op_code` to handle each encoding:
@@ -330,15 +368,17 @@ __device__ void execute_output_stage(T *__restrict output,
         // tiling happens in the inner tile_idx loop.
         if (src.op_code == SourceOp::BITUNPACK) {
             chunk_len = bitunpack_tile_len(stage, block_len, elem_idx);
-            T *scratch = reinterpret_cast<T *>(smem + stage.smem_byte_offset);
-            bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr),
-                         scratch,
-                         block_start + elem_idx,
-                         chunk_len,
-                         src);
+            char *scratch = smem + stage.smem_byte_offset;
+            bitunpack_dispatch(reinterpret_cast<const void *>(stage.input_ptr),
+                               scratch,
+                               block_start + elem_idx,
+                               chunk_len,
+                               src,
+                               ptype);
             constexpr uint32_t FL_CHUNK = 1024; // FastLanes chunk size
             const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
-            smem_src = scratch + align; // T-wide elements; source_op reads via load_element
+            const uint32_t src_elem = ptype_elem_bytes(ptype);
+            smem_src = scratch + align * src_elem; // native-width elements; source_op widens via load_element
             // Write barrier: all threads finished bitunpack, safe to read from scratch.
             __syncthreads();
         } else {
@@ -415,7 +455,8 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
     const auto &src = stage.source;
 
     if (src.op_code == SourceOp::BITUNPACK) {
-        bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr), smem_out, 0, stage.len, src);
+        bitunpack_dispatch(reinterpret_cast<const void *>(stage.input_ptr),
+                           smem_out, 0, stage.len, src, stage.source_ptype);
         smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
         // Write barrier: cooperative bitunpack finished, safe to read
         // decoded elements in the scalar-op loop below.

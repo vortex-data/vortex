@@ -293,8 +293,16 @@ impl FusedPlan {
     }
 
     /// Dynamic shared memory bytes passed to the CUDA launch config.
+    ///
+    /// The scratch region for the output stage's BITUNPACK stores elements
+    /// at the source ptype width, which may be narrower than the output.
     fn dynamic_shared_mem_bytes(&self) -> u32 {
-        self.smem_byte_cursor + SMEM_TILE_SIZE * self.output_elem_bytes
+        let scratch_elem_bytes = self
+            .stages
+            .last()
+            .map(|(stage, ..)| tag_to_ptype(stage.source_ptype).byte_width() as u32)
+            .unwrap_or(self.output_elem_bytes);
+        self.smem_byte_cursor + SMEM_TILE_SIZE * scratch_elem_bytes
     }
 
     /// Total shared memory (fixed + dynamic) for limit checking.
@@ -563,31 +571,6 @@ impl FusedPlan {
         Ok(pipeline)
     }
 
-    /// Handle a child array whose element width differs from the output type.
-    ///
-    /// If the child is a `Primitive`, its buffer is grabbed directly as a LOAD
-    /// source — no separate kernel launch needed, since `load_element<T>()`
-    /// handles the widening in-kernel. Otherwise, the child is recorded as a
-    /// pending subtree for separate execution.
-    fn walk_mixed_width_child(
-        &mut self,
-        child: ArrayRef,
-        pending_subtrees: &mut Vec<ArrayRef>,
-    ) -> VortexResult<Stage> {
-        let ptype = PType::try_from(child.dtype())?;
-        if child.encoding_id() == Primitive::ID {
-            return self.walk_primitive(child);
-        }
-        let buf_idx = self.source_buffers.len();
-        self.source_buffers.push(None);
-        pending_subtrees.push(child);
-        Ok(Stage::new(
-            SourceOp::load(),
-            Some(buf_idx),
-            ptype_to_tag(ptype),
-        ))
-    }
-
     fn walk_dict(
         &mut self,
         array: ArrayRef,
@@ -598,28 +581,15 @@ impl FusedPlan {
         let codes = dict.codes().clone();
 
         let values_ptype = PType::try_from(values.dtype())?;
-        let values_elem_bytes = values_ptype.byte_width() as u32;
-        let codes_ptype = PType::try_from(codes.dtype())?;
-        let codes_elem_bytes = codes_ptype.byte_width() as u32;
 
-        // If values have a different width than the output type, they
-        // can't be fused into the same kernel instantiation. Primitives
-        // are handled directly (just grab the buffer); other encodings
-        // become pending subtrees executed by a separate kernel.
+        // Both values and codes are walked unconditionally — input stages
+        // decode at native width via execute_input_stage_dispatch, and
+        // the kernel widens via load_element<T> when reading.
         let values_len = values.len() as u32;
-        let values_spec = if values_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(values, pending_subtrees)?
-        } else {
-            self.walk(values, pending_subtrees)?
-        };
+        let values_spec = self.walk(values, pending_subtrees)?;
         let values_smem_byte_offset = self.push_smem_stage(values_spec, values_len);
 
-        // Same for codes.
-        let mut pipeline = if codes_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(codes, pending_subtrees)?
-        } else {
-            self.walk(codes, pending_subtrees)?
-        };
+        let mut pipeline = self.walk(codes, pending_subtrees)?;
         // DICT scalar op: pass byte offset and values ptype directly.
         // The kernel reads values at values_ptype width and widens to T.
         // output_ptype is the values' ptype — DICT transforms codes → values.
@@ -655,25 +625,14 @@ impl FusedPlan {
         let num_values = values.len() as u32;
 
         let ends_ptype = PType::try_from(ends.dtype())?;
-        let ends_elem_bytes = ends_ptype.byte_width() as u32;
         let values_ptype = PType::try_from(values.dtype())?;
-        let values_elem_bytes = values_ptype.byte_width() as u32;
 
-        // If ends or values have a different width than the output type,
-        // they can't be fused into the same kernel instantiation.
-        // Primitives are handled directly; others become pending subtrees.
-        let ends_spec = if ends_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(ends, pending_subtrees)?
-        } else {
-            self.walk(ends, pending_subtrees)?
-        };
+        // Both ends and values are walked unconditionally — input stages
+        // decode at native width, and the kernel widens via load_element.
+        let ends_spec = self.walk(ends, pending_subtrees)?;
         let ends_smem_byte_offset = self.push_smem_stage(ends_spec, num_runs);
 
-        let values_spec = if values_elem_bytes != self.output_elem_bytes {
-            self.walk_mixed_width_child(values, pending_subtrees)?
-        } else {
-            self.walk(values, pending_subtrees)?
-        };
+        let values_spec = self.walk(values, pending_subtrees)?;
         let values_smem_byte_offset = self.push_smem_stage(values_spec, num_values);
 
         // Pass byte offsets and PTypeTags directly — the kernel reads
