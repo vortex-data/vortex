@@ -33,6 +33,7 @@ pub mod fns;
 pub mod kernels;
 pub mod proto;
 pub mod session;
+pub mod combined;
 
 /// A unique identifier for an aggregate function.
 pub type AggregateFnId = ArcRef<str>;
