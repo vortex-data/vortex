@@ -158,19 +158,9 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
     case ScalarOp::DICT: {
         const void *dict = smem + op.params.dict.values_smem_byte_offset;
         const PTypeTag vptype = op.params.dict.values_ptype;
-        if (ptype_elem_bytes(vptype) == sizeof(T)) {
-            // Fast path: values stored at T width — direct indexed read.
-            const T *typed_dict = static_cast<const T *>(dict);
 #pragma unroll
-            for (uint32_t i = 0; i < N; ++i) {
-                values[i] = typed_dict[static_cast<uint32_t>(values[i])];
-            }
-        } else {
-            // Slow path: values stored at a different width — widen via load_element.
-#pragma unroll
-            for (uint32_t i = 0; i < N; ++i) {
-                values[i] = load_element<T>(dict, vptype, static_cast<uint32_t>(values[i]));
-            }
+        for (uint32_t i = 0; i < N; ++i) {
+            values[i] = load_element<T>(dict, vptype, static_cast<uint32_t>(values[i]));
         }
         break;
     }
@@ -277,19 +267,9 @@ __device__ inline void source_op(T *out,
 
     switch (src.op_code) {
     case SourceOp::BITUNPACK: {
-        if (ptype_elem_bytes(ptype) == sizeof(T)) {
-            // Fast path: smem stores T-width elements — direct indexed read.
-            const T *typed_src = static_cast<const T *>(smem_src);
 #pragma unroll
-            for (uint32_t j = 0; j < N; ++j) {
-                out[j] = typed_src[THREAD_POS(smem_base, j)];
-            }
-        } else {
-            // Slow path: smem stores narrower elements — widen via load_element.
-#pragma unroll
-            for (uint32_t j = 0; j < N; ++j) {
-                out[j] = load_element<T>(smem_src, ptype, THREAD_POS(smem_base, j));
-            }
+        for (uint32_t j = 0; j < N; ++j) {
+            out[j] = load_element<T>(smem_src, ptype, THREAD_POS(smem_base, j));
         }
         return;
     }
@@ -317,29 +297,14 @@ __device__ inline void source_op(T *out,
         const uint64_t num_runs = src.params.runend.num_runs;
         const uint64_t offset = src.params.runend.offset;
         uint64_t &run = runend_cursors[threadIdx.x];
-        if (ptype_elem_bytes(eptype) == sizeof(T) && ptype_elem_bytes(vptype) == sizeof(T)) {
-            // Fast path: ends and values stored at T width — direct reads.
-            const T *ends = static_cast<const T *>(ends_ptr);
-            const T *values = static_cast<const T *>(values_ptr);
 #pragma unroll
-            for (uint32_t j = 0; j < N; ++j) {
-                const uint64_t pos = THREAD_POS(global_base, j) + offset;
-                while (run < num_runs && static_cast<uint64_t>(ends[run]) <= pos) {
-                    run++;
-                }
-                out[j] = values[min(run, num_runs - 1)];
+        for (uint32_t j = 0; j < N; ++j) {
+            const uint64_t pos = THREAD_POS(global_base, j) + offset;
+            while (run < num_runs &&
+                   static_cast<uint64_t>(load_element<T>(ends_ptr, eptype, run)) <= pos) {
+                run++;
             }
-        } else {
-            // Slow path: ends or values stored at a different width — widen via load_element.
-#pragma unroll
-            for (uint32_t j = 0; j < N; ++j) {
-                const uint64_t pos = THREAD_POS(global_base, j) + offset;
-                while (run < num_runs &&
-                       static_cast<uint64_t>(load_element<T>(ends_ptr, eptype, run)) <= pos) {
-                    run++;
-                }
-                out[j] = load_element<T>(values_ptr, vptype, min(run, num_runs - 1));
-            }
+            out[j] = load_element<T>(values_ptr, vptype, min(run, num_runs - 1));
         }
         return;
     }
@@ -386,15 +351,11 @@ __device__ void execute_output_stage(T *__restrict output,
         // strided position. The RUNEND arm in source_op advances the
         // cursor monotonically, so this avoids a full binary search on
         // every element.
-        const PTypeTag eptype = src.params.runend.ends_ptype;
-        const uint64_t seed_val = block_start + threadIdx.x + src.params.runend.offset;
-        if (ptype_elem_bytes(eptype) == sizeof(T)) {
-            const T *ends = reinterpret_cast<const T *>(smem + src.params.runend.ends_smem_byte_offset);
-            runend_cursors[threadIdx.x] = upper_bound(ends, src.params.runend.num_runs, seed_val);
-        } else {
-            const void *ends = smem + src.params.runend.ends_smem_byte_offset;
-            runend_cursors[threadIdx.x] = smem_upper_bound(ends, eptype, src.params.runend.num_runs, seed_val);
-        }
+        const void *ends = smem + src.params.runend.ends_smem_byte_offset;
+        runend_cursors[threadIdx.x] = smem_upper_bound(ends,
+                                                       src.params.runend.ends_ptype,
+                                                       src.params.runend.num_runs,
+                                                       block_start + threadIdx.x + src.params.runend.offset);
     }
 
     for (uint32_t elem_idx = 0; elem_idx < block_len;) {
@@ -407,21 +368,17 @@ __device__ void execute_output_stage(T *__restrict output,
         // tiling happens in the inner tile_idx loop.
         if (src.op_code == SourceOp::BITUNPACK) {
             chunk_len = bitunpack_tile_len(stage, block_len, elem_idx);
+            char *scratch = smem + stage.smem_byte_offset;
+            bitunpack_dispatch(reinterpret_cast<const void *>(stage.input_ptr),
+                               scratch,
+                               block_start + elem_idx,
+                               chunk_len,
+                               src,
+                               ptype);
             constexpr uint32_t FL_CHUNK = 1024; // FastLanes chunk size
             const uint32_t align = (block_start + elem_idx + src.params.bitunpack.element_offset) % FL_CHUNK;
-            if (ptype_elem_bytes(ptype) == sizeof(T)) {
-                // Fast path: source width matches T — unpack directly as T.
-                T *scratch = reinterpret_cast<T *>(smem + stage.smem_byte_offset);
-                bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr),
-                             scratch, block_start + elem_idx, chunk_len, src);
-                smem_src = scratch + align;
-            } else {
-                // Slow path: source is narrower — unpack at native width.
-                char *scratch = smem + stage.smem_byte_offset;
-                bitunpack_dispatch(reinterpret_cast<const void *>(stage.input_ptr),
-                                   scratch, block_start + elem_idx, chunk_len, src, ptype);
-                smem_src = scratch + align * ptype_elem_bytes(ptype);
-            }
+            const uint32_t src_elem = ptype_elem_bytes(ptype);
+            smem_src = scratch + align * src_elem; // native-width elements; source_op widens via load_element
             // Write barrier: all threads finished bitunpack, safe to read from scratch.
             __syncthreads();
         } else {
@@ -498,10 +455,8 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
     const auto &src = stage.source;
 
     if (src.op_code == SourceOp::BITUNPACK) {
-        // T is the native type (from execute_input_stage_dispatch), so
-        // bitunpack<T> directly unpacks at the correct width.
-        bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr),
-                     smem_out, 0, stage.len, src);
+        bitunpack_dispatch(reinterpret_cast<const void *>(stage.input_ptr),
+                           smem_out, 0, stage.len, src, stage.source_ptype);
         smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
         // Write barrier: cooperative bitunpack finished, safe to read
         // decoded elements in the scalar-op loop below.
