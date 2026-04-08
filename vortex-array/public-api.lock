@@ -13298,6 +13298,26 @@ impl core::fmt::Debug for vortex_array::memory::MemorySession
 
 pub fn vortex_array::memory::MemorySession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
+pub struct vortex_array::memory::PooledHostAllocator
+
+impl vortex_array::memory::PooledHostAllocator
+
+pub fn vortex_array::memory::PooledHostAllocator::max_bytes_per_thread(&self) -> usize
+
+pub fn vortex_array::memory::PooledHostAllocator::new(max_bytes_per_thread: usize, metrics_registry: alloc::sync::Arc<dyn vortex_metrics::MetricsRegistry>) -> Self
+
+impl core::default::Default for vortex_array::memory::PooledHostAllocator
+
+pub fn vortex_array::memory::PooledHostAllocator::default() -> Self
+
+impl core::fmt::Debug for vortex_array::memory::PooledHostAllocator
+
+pub fn vortex_array::memory::PooledHostAllocator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::memory::HostAllocator for vortex_array::memory::PooledHostAllocator
+
+pub fn vortex_array::memory::PooledHostAllocator::allocate(&self, len: usize, requested_alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
 pub struct vortex_array::memory::WritableHostBuffer
 
 impl vortex_array::memory::WritableHostBuffer
@@ -13329,6 +13349,10 @@ pub fn vortex_array::memory::HostAllocator::allocate(&self, len: usize, alignmen
 impl vortex_array::memory::HostAllocator for vortex_array::memory::DefaultHostAllocator
 
 pub fn vortex_array::memory::DefaultHostAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+impl vortex_array::memory::HostAllocator for vortex_array::memory::PooledHostAllocator
+
+pub fn vortex_array::memory::PooledHostAllocator::allocate(&self, len: usize, requested_alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
 
 pub trait vortex_array::memory::HostAllocatorExt: vortex_array::memory::HostAllocator
 

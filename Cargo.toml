@@ -164,6 +164,7 @@ jiff = "0.2.0"
 kanal = "0.1.1"
 lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
+libc = "0.2.177"
 libloading = "0.8"
 liblzma = "0.4"
 log = { version = "0.4.21" }
