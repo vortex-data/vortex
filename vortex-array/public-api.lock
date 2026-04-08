@@ -8388,6 +8388,8 @@ pub unsafe fn vortex_array::builders::PrimitiveBuilder<T>::set_validity_unchecke
 
 pub fn vortex_array::builders::builder_with_capacity(dtype: &vortex_array::dtype::DType, capacity: usize) -> alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>
 
+pub fn vortex_array::builders::builder_with_capacity_in(allocator: vortex_array::memory::BufferAllocatorRef, dtype: &vortex_array::dtype::DType, capacity: usize) -> alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>
+
 pub mod vortex_array::builtins
 
 pub trait vortex_array::builtins::ArrayBuiltins: core::marker::Sized
@@ -13261,6 +13263,110 @@ pub type V::Match<'a> = vortex_array::ArrayView<'a, V>
 pub fn V::matches(array: &vortex_array::ArrayRef) -> bool
 
 pub fn V::try_match<'a>(array: &'a vortex_array::ArrayRef) -> core::option::Option<vortex_array::ArrayView<'a, V>>
+
+pub mod vortex_array::memory
+
+pub struct vortex_array::memory::DefaultBufferAllocator
+
+impl core::default::Default for vortex_array::memory::DefaultBufferAllocator
+
+pub fn vortex_array::memory::DefaultBufferAllocator::default() -> vortex_array::memory::DefaultBufferAllocator
+
+impl core::fmt::Debug for vortex_array::memory::DefaultBufferAllocator
+
+pub fn vortex_array::memory::DefaultBufferAllocator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::memory::BufferAllocator for vortex_array::memory::DefaultBufferAllocator
+
+pub fn vortex_array::memory::DefaultBufferAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+pub struct vortex_array::memory::MemorySession
+
+impl vortex_array::memory::MemorySession
+
+pub fn vortex_array::memory::MemorySession::allocator(&self) -> vortex_array::memory::BufferAllocatorRef
+
+pub fn vortex_array::memory::MemorySession::new(allocator: vortex_array::memory::BufferAllocatorRef) -> Self
+
+pub fn vortex_array::memory::MemorySession::set_allocator(&mut self, allocator: vortex_array::memory::BufferAllocatorRef)
+
+impl core::default::Default for vortex_array::memory::MemorySession
+
+pub fn vortex_array::memory::MemorySession::default() -> Self
+
+impl core::fmt::Debug for vortex_array::memory::MemorySession
+
+pub fn vortex_array::memory::MemorySession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_array::memory::WritableHostBuffer
+
+impl vortex_array::memory::WritableHostBuffer
+
+pub fn vortex_array::memory::WritableHostBuffer::alignment(&self) -> vortex_buffer::alignment::Alignment
+
+pub fn vortex_array::memory::WritableHostBuffer::as_mut_slice(&mut self) -> &mut [u8]
+
+pub fn vortex_array::memory::WritableHostBuffer::as_mut_slice_typed<T>(&mut self) -> vortex_error::VortexResult<&mut [T]>
+
+pub fn vortex_array::memory::WritableHostBuffer::freeze(self) -> vortex_buffer::ByteBuffer
+
+pub fn vortex_array::memory::WritableHostBuffer::freeze_typed<T>(self) -> vortex_error::VortexResult<vortex_buffer::buffer::Buffer<T>>
+
+pub fn vortex_array::memory::WritableHostBuffer::is_empty(&self) -> bool
+
+pub fn vortex_array::memory::WritableHostBuffer::len(&self) -> usize
+
+pub fn vortex_array::memory::WritableHostBuffer::new(inner: alloc::boxed::Box<dyn vortex_array::memory::HostBufferMut>) -> Self
+
+impl core::fmt::Debug for vortex_array::memory::WritableHostBuffer
+
+pub fn vortex_array::memory::WritableHostBuffer::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub trait vortex_array::memory::BufferAllocator: core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
+
+pub fn vortex_array::memory::BufferAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+impl vortex_array::memory::BufferAllocator for vortex_array::memory::DefaultBufferAllocator
+
+pub fn vortex_array::memory::DefaultBufferAllocator::allocate(&self, len: usize, alignment: vortex_buffer::alignment::Alignment) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+pub trait vortex_array::memory::BufferAllocatorExt: vortex_array::memory::BufferAllocator
+
+pub fn vortex_array::memory::BufferAllocatorExt::allocate_typed<T>(&self, len: usize) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+impl<A: vortex_array::memory::BufferAllocator + ?core::marker::Sized> vortex_array::memory::BufferAllocatorExt for A
+
+pub fn A::allocate_typed<T>(&self, len: usize) -> vortex_error::VortexResult<vortex_array::memory::WritableHostBuffer>
+
+pub trait vortex_array::memory::HostBufferMut: core::marker::Send + 'static
+
+pub fn vortex_array::memory::HostBufferMut::alignment(&self) -> vortex_buffer::alignment::Alignment
+
+pub fn vortex_array::memory::HostBufferMut::as_mut_slice(&mut self) -> &mut [u8]
+
+pub fn vortex_array::memory::HostBufferMut::freeze(self: alloc::boxed::Box<Self>) -> vortex_buffer::ByteBuffer
+
+pub fn vortex_array::memory::HostBufferMut::is_empty(&self) -> bool
+
+pub fn vortex_array::memory::HostBufferMut::len(&self) -> usize
+
+pub trait vortex_array::memory::MemorySessionExt: vortex_session::SessionExt
+
+pub fn vortex_array::memory::MemorySessionExt::allocator(&self) -> vortex_array::memory::BufferAllocatorRef
+
+pub fn vortex_array::memory::MemorySessionExt::memory(&self) -> vortex_session::Ref<'_, vortex_array::memory::MemorySession>
+
+pub fn vortex_array::memory::MemorySessionExt::memory_mut(&self) -> vortex_session::RefMut<'_, vortex_array::memory::MemorySession>
+
+impl<S: vortex_session::SessionExt> vortex_array::memory::MemorySessionExt for S
+
+pub fn S::allocator(&self) -> vortex_array::memory::BufferAllocatorRef
+
+pub fn S::memory(&self) -> vortex_session::Ref<'_, vortex_array::memory::MemorySession>
+
+pub fn S::memory_mut(&self) -> vortex_session::RefMut<'_, vortex_array::memory::MemorySession>
+
+pub type vortex_array::memory::BufferAllocatorRef = alloc::sync::Arc<dyn vortex_array::memory::BufferAllocator>
 
 pub mod vortex_array::normalize
 
@@ -22361,6 +22467,8 @@ pub fn vortex_array::EmptyMetadata::serialize(self) -> alloc::vec::Vec<u8>
 pub struct vortex_array::ExecutionCtx
 
 impl vortex_array::ExecutionCtx
+
+pub fn vortex_array::ExecutionCtx::allocator(&self) -> vortex_array::memory::BufferAllocatorRef
 
 pub fn vortex_array::ExecutionCtx::log(&mut self, msg: core::fmt::Arguments<'_>)
 

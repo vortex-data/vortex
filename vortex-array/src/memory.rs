@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
@@ -23,6 +24,11 @@ use vortex_session::SessionExt;
 pub trait HostBufferMut: Send + 'static {
     /// Returns the logical byte length of the buffer.
     fn len(&self) -> usize;
+
+    /// Whether the buffer is empty.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 
     /// Returns the alignment of the buffer.
     fn alignment(&self) -> Alignment;
@@ -72,23 +78,21 @@ impl WritableHostBuffer {
             InvalidArgument: "Cannot create typed mutable slice for zero-sized type {}",
             std::any::type_name::<T>()
         );
+        vortex_ensure!(
+            self.alignment().is_aligned_to(Alignment::of::<T>()),
+            InvalidArgument: "Buffer is not sufficiently aligned for type {}",
+            std::any::type_name::<T>()
+        );
 
         let bytes = self.as_mut_slice();
         let byte_len = bytes.len();
         let ptr = bytes.as_mut_ptr();
         let type_size = size_of::<T>();
-        let type_align = align_of::<T>();
 
         vortex_ensure!(
-            byte_len % type_size == 0,
+            byte_len.is_multiple_of(type_size),
             InvalidArgument: "Buffer length {byte_len} is not a multiple of {} for {}",
             type_size,
-            std::any::type_name::<T>()
-        );
-        vortex_ensure!(
-            (ptr as usize) % type_align == 0,
-            InvalidArgument: "Buffer pointer is not aligned to {} for {}",
-            type_align,
             std::any::type_name::<T>()
         );
 
@@ -100,6 +104,35 @@ impl WritableHostBuffer {
     /// Freeze the writable buffer into an immutable [`ByteBuffer`].
     pub fn freeze(self) -> ByteBuffer {
         self.inner.freeze()
+    }
+
+    /// Freeze the writable buffer into a typed immutable [`Buffer<T>`].
+    pub fn freeze_typed<T>(self) -> VortexResult<Buffer<T>> {
+        vortex_ensure!(
+            size_of::<T>() != 0,
+            InvalidArgument: "Cannot freeze typed buffer for zero-sized type {}",
+            std::any::type_name::<T>()
+        );
+
+        let buffer = self.freeze();
+        let byte_len = buffer.len();
+        let type_size = size_of::<T>();
+        let type_align = Alignment::of::<T>();
+
+        vortex_ensure!(
+            byte_len % type_size == 0,
+            InvalidArgument: "Buffer length {byte_len} is not a multiple of {} for {}",
+            type_size,
+            std::any::type_name::<T>()
+        );
+        vortex_ensure!(
+            buffer.is_aligned(type_align),
+            InvalidArgument: "Buffer pointer is not aligned to {} for {}",
+            type_align,
+            std::any::type_name::<T>()
+        );
+
+        Ok(Buffer::from_byte_buffer(buffer))
     }
 }
 
@@ -317,6 +350,28 @@ mod tests {
         let allocator = DefaultBufferAllocator;
         let mut writable = allocator.allocate(7, Alignment::none()).unwrap();
         let err = writable.as_mut_slice_typed::<u32>().unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("not a multiple of"));
+    }
+
+    #[test]
+    fn freeze_typed_round_trip() {
+        let allocator = DefaultBufferAllocator;
+        let mut writable = allocator.allocate_typed::<u64>(4).unwrap();
+        writable
+            .as_mut_slice_typed::<u64>()
+            .unwrap()
+            .copy_from_slice(&[1, 3, 5, 7]);
+
+        let frozen = writable.freeze_typed::<u64>().unwrap();
+        assert_eq!(frozen.as_slice(), [1, 3, 5, 7]);
+    }
+
+    #[test]
+    fn freeze_typed_rejects_length_mismatch() {
+        let allocator = DefaultBufferAllocator;
+        let writable = allocator.allocate(7, Alignment::none()).unwrap();
+        let err = writable.freeze_typed::<u32>().unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("not a multiple of"));
     }
