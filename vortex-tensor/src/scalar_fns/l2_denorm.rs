@@ -5,6 +5,7 @@
 
 use std::fmt::Formatter;
 
+use num_traits::ToPrimitive;
 use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
@@ -16,6 +17,7 @@ use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::match_each_float_ptype;
@@ -27,9 +29,11 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 
 use crate::matcher::AnyTensor;
@@ -53,30 +57,104 @@ pub struct L2Denorm;
 impl L2Denorm {
     /// Creates a new [`ScalarFn`] wrapping the L2 denormalization operation with the given
     /// [`ApproxOptions`] controlling approximation behavior.
+    ///
+    /// This is a low-level scalar-function descriptor constructor. To build a semantically valid
+    /// [`L2Denorm`] array, prefer [`try_new_array`](Self::try_new_array).
     pub fn new(options: &ApproxOptions) -> ScalarFn<L2Denorm> {
         ScalarFn::new(L2Denorm, options.clone())
     }
 
-    /// Constructs a [`ScalarFnArray`] that lazily re-applies `norms` to `normalized`.
+    /// Constructs a validated [`ScalarFnArray`] that lazily re-applies `norms` to `normalized`.
+    ///
+    /// This is the correct constructor for [`L2Denorm`] arrays. In addition to the structural
+    /// checks performed by [`ScalarFnArray::try_new`], it validates that every valid row of the
+    /// `normalized` child has L2 norm `1.0` (or `0.0` for zero rows), within the tolerance implied
+    /// by the child element precision.
     ///
     /// # Errors
     ///
     /// Returns an error if the [`ScalarFnArray`] cannot be constructed (e.g. due to dtype
-    /// mismatches).
+    /// mismatches) or if the `normalized` child is not row-wise L2-normalized.
     pub fn try_new_array(
         options: &ApproxOptions,
         normalized: ArrayRef,
         norms: ArrayRef,
         len: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScalarFnArray> {
-        // TODO(connor): Should figure out a way to do validation here instead of inside
-        // `return_dtype()` which this calls?
+        validate_l2_normalized_rows(normalized.clone(), ctx)?;
+
+        // SAFETY: We just validated that it is normalized.
+        unsafe { Self::new_array_unchecked(options, normalized, norms, len) }
+    }
+
+    /// Constructs an [`L2Denorm`] array without validating that the `normalized` child is actually
+    /// row-wise L2-normalized.
+    ///
+    /// This escape hatch is intended for advanced callers that already established, or
+    /// intentionally relax, the normalized-child invariant. Structural validation still runs via
+    /// [`ScalarFnArray::try_new`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the `normalized` child is semantically suitable for L2
+    /// denormalization, which typically means every valid row is unit-norm or zero. Violating this
+    /// invariant will not cause memory unsafety, but may produce incorrect results.
+    pub unsafe fn new_array_unchecked(
+        options: &ApproxOptions,
+        normalized: ArrayRef,
+        norms: ArrayRef,
+        len: usize,
+    ) -> VortexResult<ScalarFnArray> {
         ScalarFnArray::try_new(
             L2Denorm::new(options).erased(),
             vec![normalized, norms],
             len,
         )
     }
+}
+
+/// Returns the acceptable unit-norm drift for the given element precision.
+fn unit_norm_tolerance(element_ptype: PType) -> f64 {
+    match element_ptype {
+        PType::F16 => 2e-3,
+        PType::F32 => 2e-6,
+        PType::F64 => 1e-10,
+        _ => unreachable!("L2Denorm requires float elements, got {element_ptype:?}"),
+    }
+}
+
+/// Validates that every valid row of `input` is already L2-normalized.
+pub fn validate_l2_normalized_rows(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    let row_count = input.len();
+    if row_count == 0 {
+        return Ok(());
+    }
+
+    let tensor_match = validate_tensor_float_input(input.dtype())?;
+    let element_ptype = tensor_match.element_ptype();
+    let tolerance = unit_norm_tolerance(element_ptype);
+
+    let norms_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, input, row_count)?;
+    let norms: PrimitiveArray = norms_sfn.into_array().execute(ctx)?;
+    let norms_validity = norms.validity()?;
+
+    match_each_float_ptype!(element_ptype, |T| {
+        for (i, &norm) in norms.as_slice::<T>().iter().enumerate() {
+            if !norms_validity.is_valid(i)? {
+                continue;
+            }
+
+            let norm_f64 = ToPrimitive::to_f64(&norm).unwrap_or(f64::NAN);
+            vortex_ensure!(
+                norm_f64 == 0.0 || (norm_f64 - 1.0).abs() <= tolerance,
+                "L2Denorm normalized child must have L2 norm 1.0 or 0.0, but row {i} has \
+                 {norm_f64:.6}",
+            );
+        }
+    });
+
+    Ok(())
 }
 
 impl ScalarFnVTable for L2Denorm {
@@ -201,8 +279,23 @@ impl ScalarFnVTable for L2Denorm {
 /// norms as the norms child.
 ///
 /// The returned array is a lazy `L2Denorm(normalized, norms)` scalar function array.
-#[allow(dead_code, reason = "TODO(connor): Use this in a scheme")]
-fn normalize_as_l2_denorm(
+///
+/// # Normalized child
+///
+/// The normalized child is always **non-nullable** with [`Validity::NonNullable`]. Every non-null
+/// row with a positive L2 norm is divided by its norm to produce a unit-norm vector.
+///
+/// Rows that are null in the original input are **zeroed out** in the normalized output. This is
+/// necessary because null rows may have undefined (garbage) physical storage values, and we do not
+/// want to let those propagate into downstream encodings (like TurboQuant).
+///
+/// # Nullability
+///
+/// Nullability is tracked entirely by the norms child. Null input rows produce null norms via
+/// [`L2Norm`]'s validity propagation. When the [`L2Denorm`] wrapper is executed, its validity is
+/// `and(normalized_validity, norms_validity)`, which correctly identifies originally-null rows
+/// since the normalized child is all-valid and the norms child carries the original nulls.
+pub fn normalize_as_l2_denorm(
     options: &ApproxOptions,
     input: ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -214,38 +307,45 @@ fn normalize_as_l2_denorm(
     let norms_sfn = L2Norm::try_new_array(options, input.clone(), row_count)?;
     let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
     let norms: PrimitiveArray = norms_array.clone().execute(ctx)?;
+    let norms_validity = norms.validity()?;
 
     let input: ExtensionArray = input.execute(ctx)?;
-    let validity = input.as_ref().validity()?;
-    let normalized_dtype = input.dtype().clone();
+    let normalized_dtype = input.dtype().as_nonnullable();
     let flat = extract_flat_elements(input.storage_array(), tensor_flat_size, ctx)?;
 
     let normalized = match_each_float_ptype!(flat.ptype(), |T| {
         let norm_values = norms.as_slice::<T>();
-        let elements: Buffer<T> = (0..row_count)
-            .flat_map(|i| {
-                let norm = norm_values[i];
-                flat.row::<T>(i).iter().map(move |&x| {
-                    if norm == T::zero() {
-                        T::zero()
-                    } else {
-                        x / norm
-                    }
-                })
-            })
-            .collect();
+
+        let total_elements = row_count * tensor_flat_size;
+        let mut elements = BufferMut::<T>::with_capacity(total_elements);
+        for i in 0..row_count {
+            let is_valid = norms_validity.is_valid(i)?;
+            let norm = norm_values[i];
+
+            // SAFETY: We allocated `row_count * tensor_flat_size` capacity and push exactly
+            // `tensor_flat_size` elements per row.
+
+            // Null rows must be explicitly zeroed out.
+            if !is_valid || norm == T::zero() {
+                unsafe { elements.push_n_unchecked(T::zero(), tensor_flat_size) };
+            } else {
+                for &x in flat.row::<T>(i) {
+                    unsafe { elements.push_unchecked(x / norm) };
+                }
+            }
+        }
 
         build_tensor_array(
             normalized_dtype,
             tensor_flat_size,
             row_count,
-            validity,
-            elements,
+            Validity::NonNullable,
+            elements.freeze(),
         )
     })?;
 
     // TODO(connor): Need to figure out a way to not run validation.
-    L2Denorm::try_new_array(options, normalized, norms_array, row_count)
+    L2Denorm::try_new_array(options, normalized, norms_array, row_count, ctx)
 }
 
 /// Rebuilds a tensor-like extension array from flat primitive elements.
@@ -284,15 +384,14 @@ mod tests {
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::MaskedArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::ScalarFnArray;
     use vortex_array::arrays::extension::ExtensionArrayExt;
     use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
     use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::extension::EmptyMetadata;
     use vortex_array::extension::datetime::Date;
     use vortex_array::extension::datetime::TimeUnit;
-    use vortex_array::scalar_fn::ScalarFn;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -304,20 +403,22 @@ mod tests {
     use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
+    use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::constant_tensor_array;
     use crate::utils::test_helpers::constant_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
+    use crate::vector::Vector;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     /// Evaluates L2 denorm on a tensor/vector array and returns the executed array.
     fn eval_l2_denorm(normalized: ArrayRef, norms: ArrayRef, len: usize) -> VortexResult<ArrayRef> {
-        let scalar_fn = ScalarFn::new(L2Denorm, ApproxOptions::Exact).erased();
-        let result = ScalarFnArray::try_new(scalar_fn, vec![normalized, norms], len)?;
         let mut ctx = SESSION.create_execution_ctx();
+        let result =
+            L2Denorm::try_new_array(&ApproxOptions::Exact, normalized, norms, len, &mut ctx)?;
         result.into_array().execute(&mut ctx)
     }
 
@@ -340,6 +441,16 @@ mod tests {
         let ext_dtype =
             ExtDType::<Date>::try_new(TimeUnit::Days, storage.dtype().clone())?.erased();
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
+    }
+
+    fn f16_vector_array(dim: u32, elements: &[f32]) -> VortexResult<ArrayRef> {
+        let row_count = elements.len() / dim as usize;
+        let values: Vec<_> = elements.iter().copied().map(half::f16::from_f32).collect();
+        let elems: ArrayRef = Buffer::copy_from(values.as_slice()).into_array();
+        let fsl = FixedSizeListArray::new(elems, dim, Validity::NonNullable, row_count);
+
+        let ext_dtype = ExtDType::<Vector>::try_new(EmptyMetadata, fsl.dtype().clone())?.erased();
+        Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
     }
 
     fn tensor_snapshot(array: ArrayRef) -> VortexResult<(DType, Vec<bool>, Vec<f64>)> {
@@ -412,7 +523,8 @@ mod tests {
         let lhs = PrimitiveArray::from_iter([1.0f64, 2.0]).into_array();
         let rhs = PrimitiveArray::from_iter([1.0f64, 1.0]).into_array();
 
-        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, lhs, rhs, 2);
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, lhs, rhs, 2, &mut ctx);
         assert!(result.is_err());
     }
 
@@ -421,7 +533,8 @@ mod tests {
         let lhs = non_tensor_extension_array()?;
         let rhs = PrimitiveArray::from_iter([1.0f64, 1.0]).into_array();
 
-        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, lhs, rhs, 2);
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, lhs, rhs, 2, &mut ctx);
         assert!(result.is_err());
         Ok(())
     }
@@ -431,7 +544,8 @@ mod tests {
         let lhs = integer_tensor_array(&[2], &[1, 2, 3, 4])?;
         let rhs = PrimitiveArray::from_iter([1.0f64, 1.0]).into_array();
 
-        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, lhs, rhs, 2);
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, lhs, rhs, 2, &mut ctx);
         assert!(result.is_err());
         Ok(())
     }
@@ -441,8 +555,49 @@ mod tests {
         let lhs = vector_array(2, &[1.0, 0.0, 0.0, 1.0])?;
         let rhs = PrimitiveArray::from_iter([1.0f32, 1.0]).into_array();
 
-        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, lhs, rhs, 2);
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, lhs, rhs, 2, &mut ctx);
         assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn validate_l2_normalized_rows_accepts_normalized_f16_input() -> VortexResult<()> {
+        let input = f16_vector_array(2, &[3.0, 4.0, 0.0, 0.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let roundtrip = normalize_as_l2_denorm(&ApproxOptions::Exact, input, &mut ctx)?;
+        validate_l2_normalized_rows(roundtrip.child_at(0).clone(), &mut ctx)?;
+        Ok(())
+    }
+
+    #[test]
+    fn validate_l2_normalized_rows_rejects_unnormalized_input() -> VortexResult<()> {
+        let input = vector_array(2, &[3.0, 4.0, 1.0, 0.0])?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = validate_l2_normalized_rows(input, &mut ctx);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn l2_denorm_try_new_array_rejects_unnormalized_child() -> VortexResult<()> {
+        let normalized = vector_array(2, &[3.0, 4.0, 1.0, 0.0])?;
+        let norms = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, normalized, norms, 2, &mut ctx);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn l2_denorm_new_array_unchecked_accepts_unnormalized_child() -> VortexResult<()> {
+        let normalized = vector_array(2, &[3.0, 4.0, 1.0, 0.0])?;
+        let norms = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
+
+        let result =
+            unsafe { L2Denorm::new_array_unchecked(&ApproxOptions::Exact, normalized, norms, 2) };
+        assert!(result.is_ok());
         Ok(())
     }
 
