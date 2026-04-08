@@ -21,6 +21,8 @@ pub use source::VortexSource;
 #[cfg(test)]
 mod tests {
 
+    use std::sync::Arc;
+
     use datafusion::arrow::util::pretty::pretty_format_batches;
     use datafusion_physical_plan::display::DisplayableExecutionPlan;
     use insta::assert_snapshot;
@@ -65,7 +67,8 @@ mod tests {
             Validity::NonNullable,
         )?;
 
-        let mut writer = ObjectStoreWrite::new(ctx.store.clone(), &"test.vortex".into()).await?;
+        let mut writer =
+            ObjectStoreWrite::new(Arc::clone(&ctx.store), &"test.vortex".into()).await?;
 
         let summary = session
             .write_options()

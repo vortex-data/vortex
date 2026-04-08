@@ -5,6 +5,7 @@
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::Serialize;
 use vortex::array::stream::ArrayStreamExt;
@@ -115,7 +116,7 @@ async fn exec_layout_tree(
     let footer = vxf.footer();
 
     if json {
-        let tree = layout_to_json(footer.layout().clone())?;
+        let tree = layout_to_json(Arc::clone(footer.layout()))?;
         let json_output = serde_json::to_string_pretty(&tree)
             .map_err(|e| vortex::error::vortex_err!("Failed to serialize JSON: {e}"))?;
         println!("{json_output}");

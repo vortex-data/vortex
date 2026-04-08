@@ -183,7 +183,11 @@ fn scalar_helper_inner(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyRes
                 .iter()
                 .map(|e| scalar_helper_inner(&e, Some(element_dtype)))
                 .try_collect()?;
-            Scalar::list(element_dtype.clone(), elements, Nullability::NonNullable);
+            Scalar::list(
+                Arc::clone(element_dtype),
+                elements,
+                Nullability::NonNullable,
+            );
         } else {
             // If no dtype was provided, we need to infer the element dtype from the list contents.
             // We do this in a greedy way taking the first element dtype we find.

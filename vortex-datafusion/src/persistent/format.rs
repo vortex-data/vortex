@@ -246,10 +246,10 @@ impl FileFormat for VortexFormat {
 
         let mut file_schemas = stream::iter(objects.iter().cloned())
             .map(|object| {
-                let store = store.clone();
+                let store = Arc::clone(store);
                 let session = self.session.clone();
                 let opts = self.opts.clone();
-                let cache = file_metadata_cache.clone();
+                let cache = Arc::clone(&file_metadata_cache);
 
                 SpawnedTask::spawn(async move {
                     // Check if we have entry metadata for this file
@@ -309,7 +309,7 @@ impl FileFormat for VortexFormat {
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
         let object = object.clone();
-        let store = store.clone();
+        let store = Arc::clone(store);
         let session = self.session.clone();
         let opts = self.opts.clone();
         let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
@@ -516,7 +516,7 @@ impl FileFormat for VortexFormat {
             return not_impl_err!("Overwrites are not implemented yet for Vortex");
         }
 
-        let schema = conf.output_schema().clone();
+        let schema = Arc::clone(conf.output_schema());
         let sink = Arc::new(VortexSink::new(conf, schema, self.session.clone()));
 
         Ok(Arc::new(DataSinkExec::new(input, sink, order_requirements)) as _)

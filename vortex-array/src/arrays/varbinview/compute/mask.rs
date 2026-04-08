@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -18,7 +20,7 @@ impl MaskReduce for VarBinView {
             Ok(Some(
                 VarBinViewArray::new_handle_unchecked(
                     array.views_handle().clone(),
-                    array.data_buffers().clone(),
+                    Arc::clone(array.data_buffers()),
                     array.dtype().as_nullable(),
                     array.validity()?.and(Validity::Array(mask.clone()))?,
                 )
