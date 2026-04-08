@@ -94,6 +94,73 @@ __device__ inline T load_element(const void *__restrict ptr, PTypeTag ptype, uin
     }
 }
 
+/// Batch-load N elements from `ptr` at `ptype` width, widening to T.
+/// Switches on ptype once, then unrolls N direct typed loads -- avoids
+/// paying the 10-case switch per element.
+///
+/// Usage: LOAD_ELEMENTS_N(T, N, out, ptr, ptype, IDX_EXPR)
+///   - out[j] receives the j-th loaded value (j = 0..N-1)
+///   - IDX_EXPR is an expression in terms of `j` giving the index
+// clang-format off
+#define LOAD_ELEMENTS_N(T, N, out, ptr, ptype, IDX_EXPR)                    \
+    do {                                                                     \
+        switch (ptype) {                                                     \
+        case PTYPE_U8: {                                                     \
+            const auto *_p = static_cast<const uint8_t *>(ptr);              \
+            _Pragma("unroll") for (uint32_t j = 0; j < (N); ++j)            \
+                (out)[j] = static_cast<T>(_p[IDX_EXPR]);                     \
+            break;                                                           \
+        }                                                                    \
+        case PTYPE_I8: {                                                     \
+            const auto *_p = static_cast<const int8_t *>(ptr);               \
+            _Pragma("unroll") for (uint32_t j = 0; j < (N); ++j)            \
+                (out)[j] = static_cast<T>(_p[IDX_EXPR]);                     \
+            break;                                                           \
+        }                                                                    \
+        case PTYPE_U16: {                                                    \
+            const auto *_p = static_cast<const uint16_t *>(ptr);             \
+            _Pragma("unroll") for (uint32_t j = 0; j < (N); ++j)            \
+                (out)[j] = static_cast<T>(_p[IDX_EXPR]);                     \
+            break;                                                           \
+        }                                                                    \
+        case PTYPE_I16: {                                                    \
+            const auto *_p = static_cast<const int16_t *>(ptr);              \
+            _Pragma("unroll") for (uint32_t j = 0; j < (N); ++j)            \
+                (out)[j] = static_cast<T>(_p[IDX_EXPR]);                     \
+            break;                                                           \
+        }                                                                    \
+        case PTYPE_U32:                                                      \
+        case PTYPE_F32: {                                                    \
+            const auto *_p = static_cast<const uint32_t *>(ptr);             \
+            _Pragma("unroll") for (uint32_t j = 0; j < (N); ++j)            \
+                (out)[j] = static_cast<T>(_p[IDX_EXPR]);                     \
+            break;                                                           \
+        }                                                                    \
+        case PTYPE_I32: {                                                    \
+            const auto *_p = static_cast<const int32_t *>(ptr);              \
+            _Pragma("unroll") for (uint32_t j = 0; j < (N); ++j)            \
+                (out)[j] = static_cast<T>(_p[IDX_EXPR]);                     \
+            break;                                                           \
+        }                                                                    \
+        case PTYPE_U64:                                                      \
+        case PTYPE_F64: {                                                    \
+            const auto *_p = static_cast<const uint64_t *>(ptr);             \
+            _Pragma("unroll") for (uint32_t j = 0; j < (N); ++j)            \
+                (out)[j] = static_cast<T>(_p[IDX_EXPR]);                     \
+            break;                                                           \
+        }                                                                    \
+        case PTYPE_I64: {                                                    \
+            const auto *_p = static_cast<const int64_t *>(ptr);              \
+            _Pragma("unroll") for (uint32_t j = 0; j < (N); ++j)            \
+                (out)[j] = static_cast<T>(_p[IDX_EXPR]);                     \
+            break;                                                           \
+        }                                                                    \
+        default:                                                             \
+            __builtin_unreachable();                                         \
+        }                                                                    \
+    } while (0)
+// clang-format on
+
 /// Binary search for the first element strictly greater than `value` in
 /// native-width shared memory. Dispatches on `ptype` to read elements at
 /// the correct width.
@@ -158,10 +225,7 @@ __device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__r
     case ScalarOp::DICT: {
         const void *dict = smem + op.params.dict.values_smem_byte_offset;
         const PTypeTag vptype = op.params.dict.values_ptype;
-#pragma unroll
-        for (uint32_t i = 0; i < N; ++i) {
-            values[i] = load_element<T>(dict, vptype, static_cast<uint32_t>(values[i]));
-        }
+        LOAD_ELEMENTS_N(T, N, values, dict, vptype, static_cast<uint32_t>(values[j]));
         break;
     }
     default:
@@ -267,17 +331,11 @@ __device__ inline void source_op(T *out,
 
     switch (src.op_code) {
     case SourceOp::BITUNPACK: {
-#pragma unroll
-        for (uint32_t j = 0; j < N; ++j) {
-            out[j] = load_element<T>(smem_src, ptype, THREAD_POS(smem_base, j));
-        }
+        LOAD_ELEMENTS_N(T, N, out, smem_src, ptype, THREAD_POS(smem_base, j));
         return;
     }
     case SourceOp::LOAD: {
-#pragma unroll
-        for (uint32_t j = 0; j < N; ++j) {
-            out[j] = load_element<T>(raw_input, ptype, THREAD_POS(global_base, j));
-        }
+        LOAD_ELEMENTS_N(T, N, out, raw_input, ptype, THREAD_POS(global_base, j));
         return;
     }
     case SourceOp::SEQUENCE: {
@@ -455,8 +513,10 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
     const auto &src = stage.source;
 
     if (src.op_code == SourceOp::BITUNPACK) {
-        bitunpack_dispatch(reinterpret_cast<const void *>(stage.input_ptr),
-                           smem_out, 0, stage.len, src, stage.source_ptype);
+        // T is the native type from execute_input_stage_dispatch, so call
+        // bitunpack<T> directly instead of bitunpack_dispatch.
+        bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr),
+                     smem_out, 0, stage.len, src);
         smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
         // Write barrier: cooperative bitunpack finished, safe to read
         // decoded elements in the scalar-op loop below.
