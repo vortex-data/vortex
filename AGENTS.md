@@ -20,6 +20,8 @@
 * if cargo fails with `sccache: error: Operation not permitted`, rerun the command with `RUSTC_WRAPPER=` so rustc runs
   directly.
 * run docs doctests from the docs directory (`make -C docs doctest`) so the correct Sphinx Makefile target is used.
+* before triaging or rerunning CI for a PR, check PR state/head first (`gh pr view <pr> --json state,mergedAt,headRefOid`)
+  and stop if it is already merged/closed.
 
 ## Architecture
 
