@@ -120,7 +120,10 @@ fn normalize_and_encode(
     // SAFETY: We just normalized the input via `normalize_as_l2_denorm`.
     let tq = unsafe { turboquant_encode_unchecked(normalized_ext, config, ctx)? };
 
-    Ok(L2Denorm::try_new_array(&ApproxOptions::Exact, tq, norms, num_rows)?.into_array())
+    Ok(
+        unsafe { L2Denorm::new_array_unchecked(&ApproxOptions::Exact, tq, norms, num_rows) }?
+            .into_array(),
+    )
 }
 
 /// Unwrap an L2Denorm ScalarFnArray into its TQ child and norms child.

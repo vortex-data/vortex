@@ -116,8 +116,12 @@ impl Scheme for TurboQuantScheme {
         // guaranteed to be unit-norm (or zero for originally-null rows).
         let tq = unsafe { turboquant_encode_unchecked(normalized_ext, &config, &mut ctx)? };
 
-        // Reassemble L2Denorm(TurboQuant, norms).
-        Ok(L2Denorm::try_new_array(&ApproxOptions::Exact, tq, norms, num_rows)?.into_array())
+        // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
+        // bypass the strict normalized-row validation when reattaching the stored norms.
+        Ok(
+            unsafe { L2Denorm::new_array_unchecked(&ApproxOptions::Exact, tq, norms, num_rows) }?
+                .into_array(),
+        )
     }
 }
 

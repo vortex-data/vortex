@@ -26,7 +26,6 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
-#[cfg(debug_assertions)]
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -133,9 +132,10 @@ impl TurboQuant {
 
         let dimension = dtype
             .as_extension_opt()
-            .and_then(|ext| ext.metadata_opt::<AnyVector>())
-            .map(|m| m.dimensions())
-            .unwrap_or(0);
+            .vortex_expect("we validated the dtype")
+            .metadata_opt::<AnyVector>()
+            .vortex_expect("we validated that this is a vector")
+            .dimensions();
 
         let bit_width = if centroids.is_empty() {
             0
