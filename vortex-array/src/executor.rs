@@ -488,55 +488,52 @@ macro_rules! require_opt_child {
     };
 }
 
-/// Require that all children of a [`Patches`](crate::patches::Patches) (indices, values, and
-/// optionally chunk_offsets) are `Primitive`. If no patches are present, this is a no-op.
+/// Require that patch slots (indices, values, and optionally chunk_offsets) are `Primitive`.
+/// If no patches are present (slots are `None`), this is a no-op.
 ///
 /// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
 ///
 /// ```ignore
-/// require_patches!(array, array.patches(), PATCH_INDICES_SLOT, PATCH_VALUES_SLOT, PATCH_CHUNK_OFFSETS_SLOT);
+/// require_patches!(array, PATCH_INDICES_SLOT, PATCH_VALUES_SLOT, PATCH_CHUNK_OFFSETS_SLOT);
 /// ```
 #[macro_export]
 macro_rules! require_patches {
-    ($parent:expr, $patches:expr, $indices_slot:expr, $values_slot:expr, $chunk_offsets_slot:expr) => {
-        let __patches = $patches;
+    ($parent:expr, $indices_slot:expr, $values_slot:expr, $chunk_offsets_slot:expr) => {
         $crate::require_opt_child!(
             $parent,
-            __patches.as_ref().map(|p| p.indices()),
+            $parent.slots()[$indices_slot].as_ref(),
             $indices_slot => $crate::arrays::Primitive
         );
-        let __patches = $patches;
         $crate::require_opt_child!(
             $parent,
-            __patches.as_ref().map(|p| p.values()),
+            $parent.slots()[$values_slot].as_ref(),
             $values_slot => $crate::arrays::Primitive
         );
-        let __patches = $patches;
         $crate::require_opt_child!(
             $parent,
-            __patches.as_ref().and_then(|p| p.chunk_offsets().as_ref()),
+            $parent.slots()[$chunk_offsets_slot].as_ref(),
             $chunk_offsets_slot => $crate::arrays::Primitive
         );
     };
 }
 
-/// Require that a [`Validity::Array`](crate::validity::Validity::Array) child matches `$M`. If validity is not array-backed
-/// (e.g. `NonNullable` or `AllValid`), this is a no-op. If it is array-backed but does not
-/// match `$M`, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
+/// Require that the validity slot is a [`Bool`](crate::arrays::Bool) array. If validity is not
+/// array-backed (e.g. `NonNullable` or `AllValid`), this is a no-op. If it is array-backed but
+/// not `Bool`, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
 ///
 /// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
 ///
 /// ```ignore
-/// require_validity!(array, &array.validity, VALIDITY_SLOT => AnyCanonical);
+/// require_validity!(array, VALIDITY_SLOT);
 /// ```
 #[macro_export]
 macro_rules! require_validity {
-    ($parent:expr, $validity:expr, $idx:expr => $M:ty) => {
-        if let $crate::validity::Validity::Array(v) = $validity {
-            if !v.is::<$M>() {
-                return Ok($crate::ExecutionResult::execute_slot::<$M>($parent, $idx));
-            }
-        }
+    ($parent:expr, $idx:expr) => {
+        $crate::require_opt_child!(
+            $parent,
+            $parent.slots()[$idx].as_ref(),
+            $idx => $crate::arrays::Bool
+        );
     };
 }
 

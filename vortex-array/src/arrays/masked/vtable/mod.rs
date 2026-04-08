@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
@@ -29,12 +30,15 @@ use crate::arrays::masked::MaskedArrayExt;
 use crate::arrays::masked::MaskedData;
 use crate::arrays::masked::array::CHILD_SLOT;
 use crate::arrays::masked::array::SLOT_NAMES;
+use crate::arrays::masked::array::VALIDITY_SLOT;
 use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
+use crate::require_child;
+use crate::require_validity;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -166,7 +170,10 @@ impl VTable for Masked {
         // While we could manually convert the dtype, `mask_validity_canonical` is already O(1) for
         // `AllTrue` masks (no data copying), so there's no benefit.
 
-        let child = array.child().clone().execute::<Canonical>(ctx)?;
+        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
+        require_validity!(array, VALIDITY_SLOT);
+
+        let child = Canonical::from(array.child().as_::<AnyCanonical>());
         Ok(ExecutionResult::done(
             mask_validity_canonical(child, &validity_mask, ctx)?.into_array(),
         ))

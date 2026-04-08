@@ -5,7 +5,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 
 use prost::Message;
-use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -283,17 +282,11 @@ impl VTable for BitPacked {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         require_patches!(
             array,
-            array.patches(),
             PATCH_INDICES_SLOT,
             PATCH_VALUES_SLOT,
             PATCH_CHUNK_OFFSETS_SLOT
         );
-        let validity = array.validity()?;
-        require_validity!(
-            array,
-            &validity,
-            VALIDITY_SLOT => AnyCanonical
-        );
+        require_validity!(array, VALIDITY_SLOT);
 
         Ok(ExecutionResult::done(
             unpack_array(array.as_view(), ctx)?.into_array(),
