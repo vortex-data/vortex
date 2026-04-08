@@ -48,7 +48,6 @@
 use tracing::trace;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
@@ -75,17 +74,15 @@ pub async fn try_gpu_dispatch(
 
     match DispatchPlan::new(array)? {
         DispatchPlan::Fused(plan) => {
-            let output_ptype = PType::try_from(array.dtype())?;
             let materialized = plan.materialize(ctx)?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, "fully-fused dispatch");
-            materialized.execute(output_ptype, array.len(), ctx)
+            materialized.execute(array.len(), ctx)
         }
         DispatchPlan::PartiallyFused {
             plan,
             pending_subtrees,
         } => {
-            let output_ptype = PType::try_from(array.dtype())?;
             let mut subtree_buffers = Vec::with_capacity(pending_subtrees.len());
 
             // TODO(0ax1): execute subtrees concurrently using separate CUDA streams.
@@ -99,7 +96,7 @@ pub async fn try_gpu_dispatch(
             let materialized = plan.materialize_with_subtrees(subtree_buffers, ctx)?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, num_subtrees, "partially-fused dispatch");
-            materialized.execute(output_ptype, array.len(), ctx)
+            materialized.execute(array.len(), ctx)
         }
         DispatchPlan::Unfused => {
             // Unfused kernel dispatch fallback.

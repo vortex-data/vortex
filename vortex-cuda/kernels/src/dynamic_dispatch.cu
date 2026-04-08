@@ -54,9 +54,6 @@
 #include "dynamic_dispatch.h"
 #include "types.cuh"
 
-/// Number of threads per CUDA block (must match the Rust launch config).
-constexpr uint32_t BLOCK_SIZE = 64;
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Primitives
 // ═══════════════════════════════════════════════════════════════════════════
@@ -70,26 +67,41 @@ __device__ inline uint64_t upper_bound(const T *data, uint64_t len, uint64_t val
 }
 
 /// Read one element from global memory at `ptype` width, widen to T.
+/// Signed types are sign-extended; unsigned types are zero-extended.
 template <typename T>
 __device__ inline T load_element(const void *__restrict ptr, PTypeTag ptype, uint64_t idx) {
-    switch (ptype_to_unsigned(ptype)) {
+    switch (ptype) {
     case PTYPE_U8:
         return static_cast<T>(static_cast<const uint8_t *>(ptr)[idx]);
+    case PTYPE_I8:
+        return static_cast<T>(static_cast<const int8_t *>(ptr)[idx]);
     case PTYPE_U16:
         return static_cast<T>(static_cast<const uint16_t *>(ptr)[idx]);
+    case PTYPE_I16:
+        return static_cast<T>(static_cast<const int16_t *>(ptr)[idx]);
     case PTYPE_U32:
+    case PTYPE_F32:
         return static_cast<T>(static_cast<const uint32_t *>(ptr)[idx]);
+    case PTYPE_I32:
+        return static_cast<T>(static_cast<const int32_t *>(ptr)[idx]);
     case PTYPE_U64:
+    case PTYPE_F64:
         return static_cast<T>(static_cast<const uint64_t *>(ptr)[idx]);
+    case PTYPE_I64:
+        return static_cast<T>(static_cast<const int64_t *>(ptr)[idx]);
     default:
         __builtin_unreachable();
     }
 }
 
-/// RUNEND forward-scan cursor for each thread, stored in shared memory so
-/// source_op can advance it across calls. Pre-seeded with upper_bound before
-/// the tile loop; the RUNEND arm in source_op advances it monotonically.
-/// Sized to BLOCK_SIZE to match the kernel block size, one entry per thread.
+/// Per-thread run cursor for RUNEND forward-scan, one entry per thread.
+///
+/// Stored in shared memory so the cursor persists across successive
+/// source_op calls in the tile loop. Each thread's positions are
+/// monotonically increasing across tiles, so the cursor only advances
+/// forward — the next tile picks up exactly where the previous one
+/// stopped, avoiding a binary search per tile. The only binary search
+/// is the initial upper_bound seed before the tile loop begins.
 __shared__ uint64_t runend_cursors[BLOCK_SIZE];
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -98,20 +110,20 @@ __shared__ uint64_t runend_cursors[BLOCK_SIZE];
 
 /// Apply one scalar operation to N values in registers.
 template <typename T, uint32_t N>
-__device__ inline void scalar_op(T *v, const struct ScalarOp &op, char *__restrict smem) {
+__device__ inline void scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem) {
     switch (op.op_code) {
     case ScalarOp::FOR: {
         const T ref = static_cast<T>(op.params.frame_of_ref.reference);
 #pragma unroll
         for (uint32_t i = 0; i < N; ++i) {
-            v[i] += ref;
+            values[i] += ref;
         }
         break;
     }
     case ScalarOp::ZIGZAG: {
 #pragma unroll
         for (uint32_t i = 0; i < N; ++i) {
-            v[i] = (v[i] >> 1) ^ static_cast<T>(-(v[i] & 1));
+            values[i] = (values[i] >> 1) ^ static_cast<T>(-(values[i] & 1));
         }
         break;
     }
@@ -119,8 +131,8 @@ __device__ inline void scalar_op(T *v, const struct ScalarOp &op, char *__restri
         const float f = op.params.alp.f, e = op.params.alp.e;
 #pragma unroll
         for (uint32_t i = 0; i < N; ++i) {
-            float r = static_cast<float>(static_cast<int32_t>(v[i])) * f * e;
-            v[i] = static_cast<T>(__float_as_uint(r));
+            float r = static_cast<float>(static_cast<int32_t>(values[i])) * f * e;
+            values[i] = static_cast<T>(__float_as_uint(r));
         }
         break;
     }
@@ -128,7 +140,7 @@ __device__ inline void scalar_op(T *v, const struct ScalarOp &op, char *__restri
         const T *dict = reinterpret_cast<const T *>(smem + op.params.dict.values_smem_byte_offset);
 #pragma unroll
         for (uint32_t i = 0; i < N; ++i) {
-            v[i] = dict[static_cast<uint32_t>(v[i])];
+            values[i] = dict[static_cast<uint32_t>(values[i])];
         }
         break;
     }
@@ -182,7 +194,7 @@ __device__ inline void bitunpack(const T *__restrict packed,
 /// Position calculation (via THREAD_POS macro):
 ///   N > 1 (batched): pos = base + j·blockDim.x + threadIdx.x.
 ///                    Caller passes the tile base WITHOUT threadIdx.x.
-///   N = 1 (single):  base IS the exact position. No stride added.
+///   N = 1 (single):  base is the exact position. No stride added.
 template <typename T, uint32_t N>
 __device__ inline void source_op(T *out,
                                  const struct SourceOp &src,
@@ -247,7 +259,8 @@ __device__ inline void source_op(T *out,
 // ═══════════════════════════════════════════════════════════════════════════
 //
 // BITUNPACK tiles at SMEM_TILE_SIZE: cooperative unpack → smem → sync →
-// batched read.  All other source ops: single pass, no smem scratch.
+// batched read.  LOAD, SEQUENCE, and RUNEND need no smem scratch and
+// process the full block in a single outer iteration, tiled by tile_idx.
 
 /// How many elements to process in this BITUNPACK tile iteration.
 /// The first tile may be shorter due to `element_offset` alignment;
@@ -257,7 +270,7 @@ __device__ inline uint32_t bitunpack_tile_len(const Stage &stage, uint32_t block
     return min(SMEM_TILE_SIZE - off, block_len - tile_off);
 }
 
-/// Process the final (output) stage: decode source → apply scalar ops →
+/// Process the final / output stage: decode source → apply scalar ops →
 /// streaming-store to global memory. Handles the full block, tiling through
 /// smem scratch for BITUNPACK.
 template <typename T>
@@ -273,6 +286,10 @@ __device__ void execute_output_stage(T *__restrict output,
     const PTypeTag ptype = stage.source_ptype;
 
     if (src.op_code == SourceOp::RUNEND) {
+        // Seed each thread's cursor with the run containing its first
+        // strided position. The RUNEND arm in source_op advances the
+        // cursor monotonically, so this avoids a full binary search on
+        // every element.
         const T *ends = reinterpret_cast<const T *>(smem + src.params.runend.ends_smem_byte_offset);
         runend_cursors[threadIdx.x] = upper_bound(ends,
                                                   src.params.runend.num_runs,
@@ -283,9 +300,10 @@ __device__ void execute_output_stage(T *__restrict output,
         uint32_t chunk_len;
         const T *smem_src = nullptr;
 
-        // BITUNPACK chunks the block into shared-memory-sized tiles, so this
-        // advances by one tile per iteration. All other source ops process the
-        // entire block in a single iteration (chunk_len = block_len).
+        // BITUNPACK uses smem scratch, so the outer loop advances one
+        // chunk at a time. LOAD, SEQUENCE, and RUNEND need no smem
+        // scratch, so chunk_len = block_len (single outer iteration);
+        // tiling happens in the inner tile_idx loop.
         if (src.op_code == SourceOp::BITUNPACK) {
             chunk_len = bitunpack_tile_len(stage, block_len, elem_idx);
             T *scratch = reinterpret_cast<T *>(smem + stage.smem_byte_offset);
@@ -323,8 +341,12 @@ __device__ void execute_output_stage(T *__restrict output,
 
 #pragma unroll
             for (uint32_t j = 0; j < VALUES_PER_TILE; ++j) {
-                // __stcs bypasses L1 and invalidates the L2 line after write,
-                // avoiding eviction of input-side data from the cache.
+                // st.cs (cache streaming): marks this line for earliest
+                // eviction in L1 and L2. Output data is written once and
+                // never read again by this kernel, so keeping it cached
+                // would only compete with the packed input buffers and
+                // smem-resident dict/runend data that the next tiles still
+                // need to read. Evict-first lets those stay resident.
                 __stcs(&output[tile_start + j * blockDim.x + threadIdx.x], values[j]);
             }
         }
@@ -338,8 +360,6 @@ __device__ void execute_output_stage(T *__restrict output,
             for (uint8_t op = 0; op < stage.num_scalar_ops; ++op) {
                 scalar_op<T, 1>(&val, stage.scalar_ops[op], smem);
             }
-            // __stcs bypasses L1 and invalidates the L2 line after write,
-            // avoiding eviction of input-side data from the cache.
             __stcs(&output[gpos], val);
         }
 
@@ -359,6 +379,12 @@ __device__ void execute_output_stage(T *__restrict output,
 /// Decode one input stage (dict values, run-end endpoints, etc.) into its
 /// shared memory region so the output stage can reference it later.
 /// Applies any scalar ops in-place before returning.
+///
+/// Unlike execute_output_stage, this does not tile — the entire stage is
+/// decoded in one pass. The output stage needs random access into these
+/// smem regions (e.g. DICT gathers by arbitrary code value), so the data
+/// must be fully resident. The smem limit check in the Rust plan builder
+/// ensures the stage fits; if it doesn't, the plan falls back to Unfused.
 template <typename T>
 __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
     T *smem_out = reinterpret_cast<T *>(smem + stage.smem_byte_offset);
@@ -367,6 +393,8 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
     if (src.op_code == SourceOp::BITUNPACK) {
         bitunpack<T>(reinterpret_cast<const T *>(stage.input_ptr), smem_out, 0, stage.len, src);
         smem_out += src.params.bitunpack.element_offset % SMEM_TILE_SIZE;
+        // Write barrier: cooperative bitunpack finished, safe to read
+        // decoded elements in the scalar-op loop below.
         __syncthreads();
 
         if (stage.num_scalar_ops > 0) {
@@ -377,10 +405,16 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
                 }
                 smem_out[i] = val;
             }
+            // Write barrier: scalar ops applied in-place, smem region is
+            // now fully populated for subsequent stages to read.
             __syncthreads();
         }
     } else {
         if (src.op_code == SourceOp::RUNEND) {
+            // Seed each thread's cursor with the run containing its first
+            // strided position. The RUNEND arm in source_op advances the
+            // cursor monotonically, so this avoids a full binary search on
+            // every element.
             const T *ends = reinterpret_cast<const T *>(smem + src.params.runend.ends_smem_byte_offset);
             runend_cursors[threadIdx.x] =
                 upper_bound(ends, src.params.runend.num_runs, threadIdx.x + src.params.runend.offset);
@@ -394,6 +428,8 @@ __device__ void execute_input_stage(const Stage &stage, char *__restrict smem) {
             }
             smem_out[i] = val;
         }
+        // Write barrier: smem region is fully populated for subsequent
+        // stages to read.
         __syncthreads();
     }
 }
@@ -428,6 +464,13 @@ dynamic_dispatch(T *__restrict output, uint64_t array_len, const uint8_t *__rest
                             static_cast<uint32_t>(block_end - block_start));
 }
 
+// Kernels are instantiated only for unsigned integer types. Signed and
+// floating-point arrays reuse the unsigned kernel of the same width —
+// the data is bit-identical under reinterpretation, and all arithmetic
+// in the pipeline (FoR add, ZigZag decode, ALP decode, DICT gather) is
+// correct on the unsigned representation. The one place where signedness
+// matters is load_element(), which dispatches on the per-op PTypeTag to
+// sign-extend or zero-extend when widening a narrow source to T.
 #define GENERATE_KERNEL(suffix, Type)                                                                        \
     extern "C" __global__ void dynamic_dispatch_##suffix(Type *__restrict output,                            \
                                                          uint64_t array_len,                                 \

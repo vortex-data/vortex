@@ -23,7 +23,7 @@
 /// ALP transforms encoded integers (i32) into floats (f32).
 ///
 /// `PTypeTag` is a compact enum that identifies the primitive type at each
-/// point in the pipeline.  The kernel uses it to dispatch typed memory
+/// point in the pipeline. The kernel uses it to dispatch typed memory
 /// operations (LOAD, BITUNPACK) and cross-stage references (DICT gather,
 /// RUNEND lookup) at the correct element width and signedness.
 
@@ -34,7 +34,7 @@
 /// Compact tag identifying a Vortex PType for GPU dispatch.
 ///
 /// NOTE: These values intentionally skip F16 (which Rust PType includes),
-/// so numeric values do NOT match Rust PType directly.  The Rust
+/// so numeric values do NOT match Rust PType directly. The Rust
 /// `ptype_to_tag()` function handles the mapping at plan-build time.
 ///
 /// The kernel uses this to:
@@ -55,35 +55,13 @@ enum PTypeTag : uint8_t {
     PTYPE_F64 = 9,
 };
 
-/// Return the byte width of a PTypeTag.
+/// Return the unsigned equivalent of a PTypeTag (same width).
 #ifdef __cplusplus
 #ifdef __CUDACC__
 #define PTYPE_HOST_DEVICE __host__ __device__
 #else
 #define PTYPE_HOST_DEVICE
 #endif
-PTYPE_HOST_DEVICE constexpr uint8_t ptype_byte_width(PTypeTag tag) {
-    switch (tag) {
-    case PTYPE_U8:
-    case PTYPE_I8:
-        return 1;
-    case PTYPE_U16:
-    case PTYPE_I16:
-        return 2;
-    case PTYPE_U32:
-    case PTYPE_I32:
-    case PTYPE_F32:
-        return 4;
-    case PTYPE_U64:
-    case PTYPE_I64:
-    case PTYPE_F64:
-        return 8;
-    default:
-        return 0;
-    }
-}
-
-/// Return the unsigned equivalent of a PTypeTag (same width).
 PTYPE_HOST_DEVICE constexpr PTypeTag ptype_to_unsigned(PTypeTag tag) {
     switch (tag) {
     case PTYPE_I8:
@@ -102,11 +80,19 @@ PTYPE_HOST_DEVICE constexpr PTypeTag ptype_to_unsigned(PTypeTag tag) {
 }
 #endif
 
+/// Number of threads per CUDA block.
+#define BLOCK_SIZE 64
+
 /// Elements processed per CUDA block.
 #define ELEMENTS_PER_BLOCK 2048
 
 /// Each tile is flushed to global before the next is decoded.
 #define SMEM_TILE_SIZE 1024
+
+/// Fixed shared memory declared in the kernel (bytes), excluded from
+/// the dynamic shared memory budget. Accounts for
+/// `runend_cursors[BLOCK_SIZE]` — one uint64_t cursor per thread.
+#define KERNEL_FIXED_SHARED_BYTES (BLOCK_SIZE * sizeof(uint64_t))
 
 #ifdef __cplusplus
 extern "C" {
@@ -127,7 +113,7 @@ union SourceParams {
 
     /// Decode run-end encoding using ends and values already in shared memory.
     ///
-    /// The smem offsets are **byte offsets** so that ends and values can have
+    /// The smem offsets are byte offsets so that ends and values can have
     /// different element widths.
     struct RunEndParams {
         uint32_t ends_smem_byte_offset;   // byte offset to decoded ends in smem
@@ -151,7 +137,7 @@ struct SourceOp {
 /// Scalar ops: element-wise transforms in registers.
 ///
 /// Each scalar op declares its `output_ptype` — the PType of the values it
-/// produces.  Most ops preserve the input type (FOR, ZIGZAG), but some
+/// produces. Most ops preserve the input type (FOR, ZIGZAG), but some
 /// change it:
 ///   - ALP: encoded int → float (e.g. i32 → f32)
 ///   - DICT: codes type → values type (e.g. u8 → u32)
@@ -171,8 +157,8 @@ union ScalarParams {
 
     /// Dictionary gather: use current value as index into decoded values in smem.
     ///
-    /// `values_smem_byte_offset` is a **byte offset** so that values can have
-    /// a different element width than the codes.  The plan builder uses
+    /// `values_smem_byte_offset` is a byte offset so that values can have
+    /// a different element width than the codes. The plan builder uses
     /// `output_ptype` (on the enclosing ScalarOp) to determine the values'
     /// element type.
     struct DictParams {
@@ -182,8 +168,8 @@ union ScalarParams {
 
 struct ScalarOp {
     enum ScalarOpCode { FOR, ZIGZAG, ALP, DICT } op_code;
-    /// The PType this op produces.  For type-preserving ops (FOR, ZIGZAG)
-    /// this equals the input PType.  For type-changing ops (ALP, DICT) this
+    /// The PType this op produces. For type-preserving ops (FOR, ZIGZAG)
+    /// this equals the input PType. For type-changing ops (ALP, DICT) this
     /// is the new output PType.
     enum PTypeTag output_ptype;
     union ScalarParams params;
@@ -192,10 +178,10 @@ struct ScalarOp {
 /// Packed stage header, followed by `num_scalar_ops` inline ScalarOps.
 ///
 /// `source_ptype` identifies the PType that the source op (BITUNPACK, LOAD,
-/// etc.) produces.  This may differ from the output PType when scalar ops
+/// etc.) produces. This may differ from the output PType when scalar ops
 /// change the type (e.g. DICT transforms u8 codes into u32 values).
 ///
-/// `smem_byte_offset` is a **byte offset** into the dynamic shared memory
+/// `smem_byte_offset` is a byte offset into the dynamic shared memory
 /// pool so that stages with different element widths can coexist.
 struct PackedStage {
     uint64_t input_ptr;        // global memory pointer to this stage's encoded input
@@ -226,7 +212,7 @@ struct __attribute__((aligned(8))) PlanHeader {
 /// shared memory region for the output stage to reference. The output stage
 /// decodes the root encoding and writes to global memory.
 ///
-/// `source_ptype` is the PType produced by the source op.  Scalar ops may
+/// `source_ptype` is the PType produced by the source op. Scalar ops may
 /// change the type; the final output PType is given by the last scalar op's
 /// `output_ptype` (or `source_ptype` if there are no scalar ops).
 struct Stage {

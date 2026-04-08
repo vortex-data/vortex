@@ -18,7 +18,6 @@
 
 use std::borrow::Borrow;
 use std::mem::size_of;
-use std::slice::from_raw_parts;
 use std::sync::Arc;
 
 use cudarc::driver::DevicePtr;
@@ -66,28 +65,37 @@ pub fn ptype_to_tag(ptype: PType) -> PTypeTag {
     }
 }
 
-/// Return the byte width of a `PTypeTag`.
-pub fn ptype_byte_width(tag: PTypeTag) -> u8 {
+/// Convert a C `PTypeTag` back to a Rust `PType`.
+pub fn tag_to_ptype(tag: PTypeTag) -> PType {
     match tag {
-        PTypeTag_PTYPE_U8 | PTypeTag_PTYPE_I8 => 1,
-        PTypeTag_PTYPE_U16 | PTypeTag_PTYPE_I16 => 2,
-        PTypeTag_PTYPE_U32 | PTypeTag_PTYPE_I32 | PTypeTag_PTYPE_F32 => 4,
-        PTypeTag_PTYPE_U64 | PTypeTag_PTYPE_I64 | PTypeTag_PTYPE_F64 => 8,
+        PTypeTag_PTYPE_U8 => PType::U8,
+        PTypeTag_PTYPE_U16 => PType::U16,
+        PTypeTag_PTYPE_U32 => PType::U32,
+        PTypeTag_PTYPE_U64 => PType::U64,
+        PTypeTag_PTYPE_I8 => PType::I8,
+        PTypeTag_PTYPE_I16 => PType::I16,
+        PTypeTag_PTYPE_I32 => PType::I32,
+        PTypeTag_PTYPE_I64 => PType::I64,
+        PTypeTag_PTYPE_F32 => PType::F32,
+        PTypeTag_PTYPE_F64 => PType::F64,
         _ => unreachable!("unknown PTypeTag {tag}"),
     }
 }
 
-/// Reinterpret a `&T` as a byte slice for serialization into the packed plan.
+/// Serialize a `#[repr(C)]` struct to a byte vector for the packed plan.
 ///
-/// # Safety
-///
-/// The caller must ensure `T` is a `#[repr(C)]` type whose layout is
-/// compatible with the C ABI.  All the types we serialise (`PlanHeader`,
-/// `PackedStage`, `ScalarOp`) are bindgen-generated `#[repr(C)]` structs.
-/// Padding bytes may be uninitialised on the Rust side, but the C reader
-/// never inspects them, so the values are irrelevant.
-fn as_bytes<T: Sized>(val: &T) -> &[u8] {
-    unsafe { from_raw_parts(std::ptr::addr_of!(*val).cast(), size_of::<T>()) }
+/// Copies field data into a pre-zeroed buffer so padding holes are
+/// deterministically zero, avoiding UB from reading uninitialised bytes.
+fn as_bytes<T: Sized>(val: &T) -> Vec<u8> {
+    let n = size_of::<T>();
+    let mut buf = vec![0u8; n];
+    // SAFETY: T is a bindgen-generated #[repr(C)] struct with only
+    // integer/float/enum fields. We overwrite the zeroed buffer with
+    // the struct's bytes; padding holes keep their zero value.
+    unsafe {
+        std::ptr::copy_nonoverlapping(std::ptr::addr_of!(*val).cast::<u8>(), buf.as_mut_ptr(), n);
+    }
+    buf
 }
 
 /// A stage used to build a [`CudaDispatchPlan`] on the host side.
@@ -193,15 +201,13 @@ impl CudaDispatchPlan {
 
         let mut buffer = ByteBufferMut::with_capacity_aligned(total_size, Alignment::of::<u32>());
 
-        // Write header.
         let header = PlanHeader {
             num_stages: stages.len() as u8,
             output_ptype,
             plan_size_bytes: total_size as u16,
         };
-        buffer.extend_from_slice(as_bytes(&header));
+        buffer.extend_from_slice(&as_bytes(&header));
 
-        // Write each stage header followed by its scalar ops.
         for stage in &stages {
             let packed_stage = PackedStage {
                 input_ptr: stage.input_ptr,
@@ -211,9 +217,9 @@ impl CudaDispatchPlan {
                 num_scalar_ops: stage.scalar_ops.len() as u8,
                 source_ptype: stage.source_ptype,
             };
-            buffer.extend_from_slice(as_bytes(&packed_stage));
+            buffer.extend_from_slice(&as_bytes(&packed_stage));
             for op in &stage.scalar_ops {
-                buffer.extend_from_slice(as_bytes(op));
+                buffer.extend_from_slice(&as_bytes(op));
             }
         }
 
@@ -230,8 +236,16 @@ impl CudaDispatchPlan {
 
     /// Number of stages in the plan.
     pub fn num_stages(&self) -> u8 {
-        let header: PlanHeader = unsafe { *self.buffer.as_ptr().cast() };
-        header.num_stages
+        self.header().num_stages
+    }
+
+    /// PType of the final output array.
+    pub fn output_ptype(&self) -> PType {
+        tag_to_ptype(self.header().output_ptype)
+    }
+
+    fn header(&self) -> PlanHeader {
+        unsafe { *self.buffer.as_ptr().cast() }
     }
 
     /// Parse and return a read-only view of the stage at `index`.
@@ -392,12 +406,10 @@ impl ScalarOp {
 }
 
 impl MaterializedPlan {
-    pub fn execute(
-        self,
-        output_ptype: PType,
-        len: usize,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
+    pub fn execute(self, len: usize, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
+        let output_ptype = self.dispatch_plan.output_ptype();
+        // The CUDA kernels are instantiated for unsigned integer types only;
+        // map signed/float ptypes to their same-width unsigned counterpart.
         let unsigned_ptype = match output_ptype {
             PType::U8 | PType::I8 => PType::U8,
             PType::U16 | PType::I16 => PType::U16,
@@ -435,10 +447,10 @@ impl MaterializedPlan {
         );
 
         let cuda_function = ctx.load_function("dynamic_dispatch", &[T::PTYPE])?;
-        let num_blocks = u32::try_from(len.div_ceil(2048))?;
+        let num_blocks = u32::try_from(len.div_ceil(ELEMENTS_PER_BLOCK as usize))?;
         let config = LaunchConfig {
             grid_dim: (num_blocks, 1, 1),
-            block_dim: (64, 1, 1),
+            block_dim: (BLOCK_SIZE, 1, 1),
             shared_mem_bytes: self.shared_mem_bytes,
         };
 
@@ -491,12 +503,6 @@ mod tests {
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
 
-    use super::CudaDispatchPlan;
-    use super::DispatchPlan;
-    use super::MaterializedStage;
-    use super::SMEM_TILE_SIZE;
-    use super::ScalarOp;
-    use super::SourceOp;
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::CudaBufferExt;
@@ -569,8 +575,9 @@ mod tests {
 
     #[crate::test]
     fn test_plan_structure() {
-        // Stage 0: input dict values (BP→FoR) into smem[0..256)
-        // Stage 1: output codes (BP→FoR→DICT) into smem[256..1280), gather from smem[0]
+        // Stage 0: input dict values (BP→FoR), 256 u32 elements → smem bytes [0..1024)
+        // Stage 1: output codes (BP→FoR→DICT), 1024 elements, gather from smem byte 0
+        let values_smem_bytes: u32 = 256 * 4; // 256 u32 elements × 4 bytes
         let plan = CudaDispatchPlan::new(
             [
                 MaterializedStage::new(
@@ -583,7 +590,7 @@ mod tests {
                 ),
                 MaterializedStage::new(
                     0xBBBB,
-                    256,
+                    values_smem_bytes,
                     1024,
                     PTypeTag_PTYPE_U32,
                     SourceOp::bitunpack(6, 0),
@@ -607,7 +614,7 @@ mod tests {
 
         // Output stage
         let s1 = plan.stage(1);
-        assert_eq!(s1.smem_byte_offset, 256);
+        assert_eq!(s1.smem_byte_offset, values_smem_bytes);
         assert_eq!(s1.len, SMEM_TILE_SIZE);
         assert_eq!(s1.source_ptype, PTypeTag_PTYPE_U32);
         assert_eq!(s1.input_ptr, 0xBBBB);
@@ -706,10 +713,10 @@ mod tests {
         launch_builder.arg(&array_len_u64);
         launch_builder.arg(&plan_ptr);
 
-        let num_blocks = u32::try_from(output_len.div_ceil(2048))?;
+        let num_blocks = u32::try_from(output_len.div_ceil(ELEMENTS_PER_BLOCK as usize))?;
         let config = LaunchConfig {
             grid_dim: (num_blocks, 1, 1),
-            block_dim: (64, 1, 1),
+            block_dim: (BLOCK_SIZE, 1, 1),
             shared_mem_bytes,
         };
         unsafe {
@@ -1734,6 +1741,71 @@ mod tests {
             .collect();
         let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
         vortex::array::assert_arrays_eq!(expected_arr, result);
+
+        Ok(())
+    }
+
+    /// Verify that `load_element<T>` sign-extends signed narrow types when
+    /// widening to a wider T. E.g. i8(-1) = 0xFF must become u32(0xFFFFFFFF)
+    /// (the bit-pattern for i32(-1)), not u32(0x000000FF) = 255.
+    #[crate::test]
+    fn test_load_element_sign_extends_i8_to_u32() -> VortexResult<()> {
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+
+        let i8_values: Vec<i8> = vec![-1, -2, -3, 127, -128, 0, 1, 42];
+        let len = i8_values.len();
+        let device_buf = Arc::new(cuda_ctx.stream().clone_htod(&i8_values).expect("htod"));
+        let (input_ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
+
+        // Build a single-stage LOAD plan: source ptype = I8, output ptype = U32.
+        // The kernel (instantiated as u32) must sign-extend each i8 element.
+        let plan = CudaDispatchPlan::new(
+            [MaterializedStage::new(
+                input_ptr,
+                0,
+                len as u32,
+                PTypeTag_PTYPE_I8,
+                SourceOp::load(),
+                &[],
+            )],
+            PTypeTag_PTYPE_U32,
+        );
+
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan, SMEM_TILE_SIZE * 4)?;
+
+        // Expected: each i8 sign-extended to i32, then viewed as u32.
+        let expected: Vec<u32> = i8_values.iter().map(|&v| (v as i32) as u32).collect();
+        assert_eq!(actual, expected);
+
+        Ok(())
+    }
+
+    /// Same as above but for i16 → u32 widening.
+    #[crate::test]
+    fn test_load_element_sign_extends_i16_to_u32() -> VortexResult<()> {
+        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+
+        let i16_values: Vec<i16> = vec![-1, -256, -32768, 32767, 0, 1, -100, 12345];
+        let len = i16_values.len();
+        let device_buf = Arc::new(cuda_ctx.stream().clone_htod(&i16_values).expect("htod"));
+        let (input_ptr, _) = device_buf.device_ptr(cuda_ctx.stream());
+
+        let plan = CudaDispatchPlan::new(
+            [MaterializedStage::new(
+                input_ptr,
+                0,
+                len as u32,
+                PTypeTag_PTYPE_I16,
+                SourceOp::load(),
+                &[],
+            )],
+            PTypeTag_PTYPE_U32,
+        );
+
+        let actual = run_dynamic_dispatch_plan(&cuda_ctx, len, &plan, SMEM_TILE_SIZE * 4)?;
+
+        let expected: Vec<u32> = i16_values.iter().map(|&v| (v as i32) as u32).collect();
+        assert_eq!(actual, expected);
 
         Ok(())
     }
