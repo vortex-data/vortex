@@ -25,7 +25,7 @@ use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
-use crate::memory::BufferAllocatorExt;
+use crate::memory::HostAllocatorExt;
 use crate::validity::Validity;
 
 pub(super) fn _canonicalize(
@@ -230,8 +230,8 @@ mod tests {
     use crate::dtype::DType::Primitive;
     use crate::dtype::Nullability::NonNullable;
     use crate::dtype::PType::I32;
-    use crate::memory::BufferAllocator;
-    use crate::memory::DefaultBufferAllocator;
+    use crate::memory::DefaultHostAllocator;
+    use crate::memory::HostAllocator;
     use crate::memory::MemorySessionExt;
     use crate::memory::WritableHostBuffer;
     use crate::validity::Validity;
@@ -241,14 +241,14 @@ mod tests {
         allocations: Arc<AtomicUsize>,
     }
 
-    impl BufferAllocator for CountingAllocator {
+    impl HostAllocator for CountingAllocator {
         fn allocate(
             &self,
             len: usize,
             alignment: vortex_buffer::Alignment,
         ) -> VortexResult<WritableHostBuffer> {
             self.allocations.fetch_add(1, Ordering::Relaxed);
-            DefaultBufferAllocator.allocate(len, alignment)
+            DefaultHostAllocator.allocate(len, alignment)
         }
     }
 

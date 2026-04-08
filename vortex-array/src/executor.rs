@@ -34,7 +34,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::matcher::Matcher;
-use crate::memory::BufferAllocatorRef;
+use crate::memory::HostAllocatorRef;
 use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
 
@@ -213,7 +213,7 @@ impl ExecutionCtx {
     }
 
     /// Get the session-scoped host allocator for this execution context.
-    pub fn allocator(&self) -> BufferAllocatorRef {
+    pub fn allocator(&self) -> HostAllocatorRef {
         self.session.allocator()
     }
 

@@ -356,8 +356,8 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::dtype::session::DTypeSession;
-    use vortex_array::memory::BufferAllocator;
-    use vortex_array::memory::DefaultBufferAllocator;
+    use vortex_array::memory::DefaultHostAllocator;
+    use vortex_array::memory::HostAllocator;
     use vortex_array::memory::MemorySessionExt;
     use vortex_array::memory::WritableHostBuffer;
     use vortex_array::scalar_fn::session::ScalarFnSession;
@@ -411,10 +411,10 @@ mod tests {
         allocations: Arc<AtomicUsize>,
     }
 
-    impl BufferAllocator for CountingAllocator {
+    impl HostAllocator for CountingAllocator {
         fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer> {
             self.allocations.fetch_add(1, Ordering::Relaxed);
-            DefaultBufferAllocator.allocate(len, alignment)
+            DefaultHostAllocator.allocate(len, alignment)
         }
     }
 

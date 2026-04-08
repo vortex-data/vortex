@@ -14,8 +14,8 @@ use object_store::ObjectStore;
 use object_store::ObjectStoreExt;
 use object_store::path::Path as ObjectPath;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::memory::BufferAllocatorRef;
-use vortex_array::memory::DefaultBufferAllocator;
+use vortex_array::memory::DefaultHostAllocator;
+use vortex_array::memory::HostAllocatorRef;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -36,7 +36,7 @@ pub struct ObjectStoreReadAt {
     path: ObjectPath,
     uri: Arc<str>,
     handle: Handle,
-    allocator: BufferAllocatorRef,
+    allocator: HostAllocatorRef,
     concurrency: usize,
     coalesce_config: Option<CoalesceConfig>,
 }
@@ -44,7 +44,7 @@ pub struct ObjectStoreReadAt {
 impl ObjectStoreReadAt {
     /// Create a new object store source.
     pub fn new(store: Arc<dyn ObjectStore>, path: ObjectPath, handle: Handle) -> Self {
-        Self::new_with_allocator(store, path, handle, Arc::new(DefaultBufferAllocator))
+        Self::new_with_allocator(store, path, handle, Arc::new(DefaultHostAllocator))
     }
 
     /// Create a new object store source with a custom writable buffer allocator.
@@ -52,7 +52,7 @@ impl ObjectStoreReadAt {
         store: Arc<dyn ObjectStore>,
         path: ObjectPath,
         handle: Handle,
-        allocator: BufferAllocatorRef,
+        allocator: HostAllocatorRef,
     ) -> Self {
         let uri = Arc::from(path.to_string());
         Self {

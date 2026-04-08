@@ -17,8 +17,8 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::memory::BufferAllocatorRef;
-use vortex_array::memory::DefaultBufferAllocator;
+use vortex_array::memory::DefaultHostAllocator;
+use vortex_array::memory::HostAllocatorRef;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 
@@ -66,20 +66,20 @@ pub struct FileReadAt {
     uri: Arc<str>,
     file: Arc<File>,
     handle: Handle,
-    allocator: BufferAllocatorRef,
+    allocator: HostAllocatorRef,
 }
 
 impl FileReadAt {
     /// Open a file for reading.
     pub fn open(path: impl AsRef<Path>, handle: Handle) -> VortexResult<Self> {
-        Self::open_with_allocator(path, handle, Arc::new(DefaultBufferAllocator))
+        Self::open_with_allocator(path, handle, Arc::new(DefaultHostAllocator))
     }
 
     /// Open a file for reading using a custom writable buffer allocator.
     pub fn open_with_allocator(
         path: impl AsRef<Path>,
         handle: Handle,
-        allocator: BufferAllocatorRef,
+        allocator: HostAllocatorRef,
     ) -> VortexResult<Self> {
         let path = path.as_ref();
         let uri = path.to_string_lossy().to_string().into();

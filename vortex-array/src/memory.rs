@@ -39,7 +39,7 @@ pub trait HostBufferMut: Send + 'static {
     fn freeze(self: Box<Self>) -> ByteBuffer;
 }
 
-/// Exact-size writable host buffer returned by a [`BufferAllocator`].
+/// Exact-size writable host buffer returned by a [`HostAllocator`].
 pub struct WritableHostBuffer {
     inner: Box<dyn HostBufferMut>,
 }
@@ -145,16 +145,16 @@ impl Debug for WritableHostBuffer {
 }
 
 /// Allocator for exact-size writable host buffers.
-pub trait BufferAllocator: Debug + Send + Sync + 'static {
+pub trait HostAllocator: Debug + Send + Sync + 'static {
     /// Allocate a writable host buffer with the requested byte length and alignment.
     fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer>;
 }
 
 /// Shared allocator reference used throughout session-scoped memory APIs.
-pub type BufferAllocatorRef = Arc<dyn BufferAllocator>;
+pub type HostAllocatorRef = Arc<dyn HostAllocator>;
 
-/// Extension methods for [`BufferAllocator`]s.
-pub trait BufferAllocatorExt: BufferAllocator {
+/// Extension methods for [`HostAllocator`]s.
+pub trait HostAllocatorExt: HostAllocator {
     /// Allocate host memory for `len` elements of `T` using `Alignment::of::<T>()`.
     fn allocate_typed<T>(&self, len: usize) -> VortexResult<WritableHostBuffer> {
         let bytes = len.checked_mul(size_of::<T>()).ok_or_else(|| {
@@ -168,34 +168,34 @@ pub trait BufferAllocatorExt: BufferAllocator {
     }
 }
 
-impl<A: BufferAllocator + ?Sized> BufferAllocatorExt for A {}
+impl<A: HostAllocator + ?Sized> HostAllocatorExt for A {}
 
 /// Session-scoped memory configuration for Vortex arrays.
 #[derive(Debug)]
 pub struct MemorySession {
-    allocator: BufferAllocatorRef,
+    allocator: HostAllocatorRef,
 }
 
 impl MemorySession {
     /// Creates a new session memory configuration using the provided allocator.
-    pub fn new(allocator: BufferAllocatorRef) -> Self {
+    pub fn new(allocator: HostAllocatorRef) -> Self {
         Self { allocator }
     }
 
     /// Returns the configured allocator.
-    pub fn allocator(&self) -> BufferAllocatorRef {
+    pub fn allocator(&self) -> HostAllocatorRef {
         Arc::clone(&self.allocator)
     }
 
     /// Updates the configured allocator.
-    pub fn set_allocator(&mut self, allocator: BufferAllocatorRef) {
+    pub fn set_allocator(&mut self, allocator: HostAllocatorRef) {
         self.allocator = allocator;
     }
 }
 
 impl Default for MemorySession {
     fn default() -> Self {
-        Self::new(Arc::new(DefaultBufferAllocator))
+        Self::new(Arc::new(DefaultHostAllocator))
     }
 }
 
@@ -207,7 +207,7 @@ pub trait MemorySessionExt: SessionExt {
     }
 
     /// Returns the configured host allocator for this execution/session context.
-    fn allocator(&self) -> BufferAllocatorRef {
+    fn allocator(&self) -> HostAllocatorRef {
         self.memory().allocator()
     }
 
@@ -221,9 +221,9 @@ impl<S: SessionExt> MemorySessionExt for S {}
 
 /// Default host allocator.
 #[derive(Debug, Default)]
-pub struct DefaultBufferAllocator;
+pub struct DefaultHostAllocator;
 
-impl BufferAllocator for DefaultBufferAllocator {
+impl HostAllocator for DefaultHostAllocator {
     fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer> {
         let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
         // SAFETY: We fully initialize this slice before freezing it.
@@ -284,16 +284,16 @@ mod tests {
         allocations: Arc<AtomicUsize>,
     }
 
-    impl BufferAllocator for CountingAllocator {
+    impl HostAllocator for CountingAllocator {
         fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer> {
             self.allocations.fetch_add(1, Ordering::Relaxed);
-            DefaultBufferAllocator.allocate(len, alignment)
+            DefaultHostAllocator.allocate(len, alignment)
         }
     }
 
     #[test]
     fn writable_host_buffer_freeze_round_trip() {
-        let allocator = DefaultBufferAllocator;
+        let allocator = DefaultHostAllocator;
         let mut writable = allocator.allocate(16, Alignment::new(8)).unwrap();
         for (idx, byte) in writable.as_mut_slice().iter_mut().enumerate() {
             *byte = u8::try_from(idx).unwrap();
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn typed_allocation_uses_type_alignment() {
-        let allocator = DefaultBufferAllocator;
+        let allocator = DefaultHostAllocator;
         let writable = allocator.allocate_typed::<u64>(4).unwrap();
         assert_eq!(writable.len(), 4 * size_of::<u64>());
         assert_eq!(writable.alignment(), Alignment::of::<u64>());
@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn typed_mut_slice_round_trip() {
-        let allocator = DefaultBufferAllocator;
+        let allocator = DefaultHostAllocator;
         let mut writable = allocator.allocate_typed::<u64>(4).unwrap();
         writable
             .as_mut_slice_typed::<u64>()
@@ -346,14 +346,14 @@ mod tests {
 
     #[test]
     fn typed_mut_slice_rejects_length_mismatch() {
-        let allocator = DefaultBufferAllocator;
+        let allocator = DefaultHostAllocator;
         let mut writable = allocator.allocate(7, Alignment::none()).unwrap();
         assert!(writable.as_mut_slice_typed::<u32>().is_err());
     }
 
     #[test]
     fn freeze_typed_round_trip() {
-        let allocator = DefaultBufferAllocator;
+        let allocator = DefaultHostAllocator;
         let mut writable = allocator.allocate_typed::<u64>(4).unwrap();
         writable
             .as_mut_slice_typed::<u64>()
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn freeze_typed_rejects_length_mismatch() {
-        let allocator = DefaultBufferAllocator;
+        let allocator = DefaultHostAllocator;
         let writable = allocator.allocate(7, Alignment::none()).unwrap();
         let err = writable.freeze_typed::<u32>().unwrap_err();
         let msg = format!("{err}");
