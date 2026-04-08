@@ -77,7 +77,7 @@ pub enum DisplayOptions {
     ///     ("y", buffer![3, 4].into_array()),
     /// ]).unwrap().into_array();
     /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2) nbytes=16 B (100.00%)
-    ///   metadata: 
+    ///   metadata:\x20
     ///   x: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
     ///     metadata: ptype: i32
     ///     buffer: values host 8 B (align=4) (100.00%)
@@ -106,7 +106,7 @@ pub enum DisplayOptions {
     ///     ("y", buffer![3, 4].into_array()),
     /// ]).unwrap().into_array();
     /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2) nbytes=16 B (100.00%)
-    ///   metadata: 
+    ///   metadata:\x20
     ///   x: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
     ///     metadata: ptype: i32
     ///   y: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
@@ -134,7 +134,7 @@ pub enum DisplayOptions {
     ///     ("y", buffer![3, 4].into_array()),
     /// ]).unwrap().into_array();
     /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2)
-    ///   metadata: 
+    ///   metadata:\x20
     ///   x: vortex.primitive(i32, len=2)
     ///     metadata: ptype: i32
     ///     buffer: values host 8 B (align=4)
@@ -215,7 +215,7 @@ pub enum DisplayOptions {
     ///     ("y", buffer![3, 4].into_array()),
     /// ]).unwrap().into_array();
     /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2)
-    ///   metadata: 
+    ///   metadata:\x20
     ///   x: vortex.primitive(i32, len=2)
     ///     metadata: ptype: i32
     ///   y: vortex.primitive(i32, len=2)
