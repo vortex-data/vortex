@@ -142,7 +142,8 @@ mod tests {
             &metadata,
             &buffers,
             &children,
-            &SESSION     )?;
+            &SESSION,
+        )?;
 
         let patched: PatchedArray = deserialized
             .try_downcast()

@@ -18654,13 +18654,13 @@ pub fn vortex_array::serde::ArrayChildren::is_empty(&self) -> bool
 
 pub fn vortex_array::serde::ArrayChildren::len(&self) -> usize
 
-impl vortex_array::serde::ArrayChildren for &[vortex_array::ArrayRef]
+impl<T: core::convert::AsRef<[vortex_array::ArrayRef]>> vortex_array::serde::ArrayChildren for T
 
-pub fn &[vortex_array::ArrayRef]::get(&self, index: usize, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn T::get(&self, index: usize, dtype: &vortex_array::dtype::DType, len: usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn &[vortex_array::ArrayRef]::is_empty(&self) -> bool
+pub fn T::is_empty(&self) -> bool
 
-pub fn &[vortex_array::ArrayRef]::len(&self) -> usize
+pub fn T::len(&self) -> usize
 
 pub mod vortex_array::session
 
