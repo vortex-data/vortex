@@ -61,6 +61,24 @@ impl VortexSession {
         }
         self
     }
+
+    /// Allow deserializing unknown plugin IDs as non-executable foreign placeholders.
+    pub fn allow_unknown(self) -> Self {
+        let mut policy = <Self as SessionExt>::get_mut::<UnknownPluginPolicy>(&self);
+        policy.allow_unknown = true;
+        drop(policy);
+        self
+    }
+
+    /// Returns whether unknown plugins should deserialize as foreign placeholders.
+    pub fn allows_unknown(&self) -> bool {
+        <Self as SessionExt>::get::<UnknownPluginPolicy>(self).allow_unknown
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct UnknownPluginPolicy {
+    allow_unknown: bool,
 }
 
 /// Trait for accessing and modifying the state of a Vortex session.
@@ -243,5 +261,19 @@ impl<'a, T> RefMut<'a, T> {
         F: FnOnce(&mut T) -> &mut U,
     {
         RefMut(self.0.map(f))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::VortexSession;
+
+    #[test]
+    fn allow_unknown_flag_is_opt_in() {
+        let session = VortexSession::empty();
+        assert!(!session.allows_unknown());
+
+        let session = session.allow_unknown();
+        assert!(session.allows_unknown());
     }
 }

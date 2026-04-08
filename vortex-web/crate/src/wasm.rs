@@ -124,7 +124,6 @@ impl VortexReadAt for BlobReadAt {
 /// The `File` (a `Blob`) is read lazily — only the footer is read at open time.
 #[wasm_bindgen]
 pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, JsValue> {
-    let session = VortexSession::default().with_handle(WasmRuntime::handle());
     let blob: &web_sys::Blob = file.as_ref();
     let file_size = blob.size() as usize;
     let reader = Arc::new(BlobReadAt {
@@ -132,7 +131,7 @@ pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, J
         size: file_size as u64,
     });
 
-    let vxf = session
+    let vxf = SESSION
         .open_options()
         .open(reader)
         .await
@@ -143,7 +142,7 @@ pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, J
 
     Ok(VortexFileHandle {
         vxf,
-        session,
+        session: SESSION.clone(),
         file_size,
         array_read_ctx,
     })

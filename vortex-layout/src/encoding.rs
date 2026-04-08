@@ -126,10 +126,56 @@ impl dyn LayoutEncoding + '_ {
     }
 }
 
+/// Placeholder layout encoding used when deserializing an unknown layout encoding ID.
+#[derive(Clone, Debug)]
+pub(crate) struct ForeignLayoutEncoding {
+    id: LayoutEncodingId,
+}
+
+impl ForeignLayoutEncoding {
+    pub(crate) fn new(id: LayoutEncodingId) -> Self {
+        Self { id }
+    }
+}
+
+impl LayoutEncoding for ForeignLayoutEncoding {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn id(&self) -> LayoutEncodingId {
+        self.id.clone()
+    }
+
+    fn build(
+        &self,
+        dtype: &DType,
+        row_count: u64,
+        metadata: &[u8],
+        segment_ids: Vec<SegmentId>,
+        children: &dyn LayoutChildren,
+        _ctx: &ReadContext,
+    ) -> VortexResult<LayoutRef> {
+        let child_layouts = (0..children.nchildren())
+            .map(|idx| children.child(idx, dtype))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        Ok(crate::new_foreign_layout(
+            self.id.clone(),
+            dtype.clone(),
+            row_count,
+            metadata.to_vec(),
+            segment_ids,
+            child_layouts,
+        ))
+    }
+}
+
 mod private {
     use super::*;
 
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for LayoutEncodingAdapter<V> {}
+    impl Sealed for ForeignLayoutEncoding {}
 }
