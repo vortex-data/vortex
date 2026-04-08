@@ -401,6 +401,29 @@ impl ArrayRef {
     /// `DType` and `len` as the existing slot.
     ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
+    pub unsafe fn with_slot_unchecked(
+        mut self,
+        slot_idx: usize,
+        replacement: ArrayRef,
+    ) -> ArrayRef {
+        // Fast path: if we have the only reference, mutate in place.
+        if let Some(inner) = Arc::get_mut(&mut self.0) {
+            inner.replace_slot(slot_idx, replacement);
+            return self;
+        }
+
+        // Slow path: clone the slots and rebuild.
+        let mut slots = self.slots().to_vec();
+        slots[slot_idx] = Some(replacement);
+        self.with_slots(slots).vortex_expect("cannot fail")
+    }
+
+    /// Returns a new array with the slot at `slot_idx` replaced by `replacement`.
+    ///
+    /// This is only valid for physical rewrites: the replacement must have the same logical
+    /// `DType` and `len` as the existing slot.
+    ///
+    /// Takes ownership to allow in-place mutation when the refcount is 1.
     pub fn with_slot(self, slot_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
         let slots = self.slots().to_vec();
         let nslots = slots.len();
