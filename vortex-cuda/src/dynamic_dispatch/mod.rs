@@ -1088,14 +1088,15 @@ mod tests {
         let re = RunEnd::new(ends_arr, values_arr);
         let array = re.into_array();
 
-        // Mixed-width RunEnd (u64 ends, u32 values) should produce a PartiallyFused plan.
+        // Ends (u64) are wider than values (u32), so the kernel would truncate
+        // ends via load_element<T>. The plan builder rejects this as Unfused.
         let plan = DispatchPlan::new(&array)?;
         assert!(
-            matches!(plan, DispatchPlan::PartiallyFused { .. }),
-            "expected PartiallyFused for mixed-width RunEnd"
+            matches!(plan, DispatchPlan::Unfused),
+            "expected Unfused for RunEnd with wider ends"
         );
 
-        // Execute through the hybrid dispatch path (handles widening).
+        // Execute through the non-fused dispatch path.
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let canonical = try_gpu_dispatch(&array, &mut cuda_ctx).await?;
         let result = CanonicalCudaExt::into_host(canonical).await?.into_array();
@@ -1653,10 +1654,12 @@ mod tests {
         let re = RunEnd::new(ends_arr, values_arr);
         let array = re.into_array();
 
+        // Ends (u32) are wider than values (u16), so the kernel would truncate
+        // ends via load_element<T>. The plan builder rejects this as Unfused.
         let plan = DispatchPlan::new(&array)?;
         assert!(
-            matches!(plan, DispatchPlan::PartiallyFused { .. }),
-            "expected PartiallyFused for mixed-width RunEnd"
+            matches!(plan, DispatchPlan::Unfused),
+            "expected Unfused for RunEnd with wider ends"
         );
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;

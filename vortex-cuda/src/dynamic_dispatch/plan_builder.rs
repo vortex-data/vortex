@@ -72,16 +72,28 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     if id == Dict::ID {
         let arr = array.as_::<Dict>();
         // Dict codes and values may have different byte widths.
-        // The kernel handles mixed widths via widening input stages.
-        return PType::try_from(arr.values().dtype()).is_ok()
-            && PType::try_from(arr.codes().dtype()).is_ok();
+        // The kernel handles mixed widths via widening input stages,
+        // but only when codes are no wider than values (the output type).
+        // Wider codes would be truncated by load_element<T>().
+        let values_ptype = PType::try_from(arr.values().dtype());
+        let codes_ptype = PType::try_from(arr.codes().dtype());
+        return match (values_ptype, codes_ptype) {
+            (Ok(vp), Ok(cp)) => cp.byte_width() <= vp.byte_width(),
+            _ => false,
+        };
     }
     if id == RunEnd::ID {
         let arr = array.as_::<RunEnd>();
         // RunEnd ends and values may have different byte widths.
-        // The kernel handles mixed widths via widening input stages.
-        return PType::try_from(arr.ends().dtype()).is_ok()
-            && PType::try_from(arr.values().dtype()).is_ok();
+        // The kernel handles mixed widths via widening input stages,
+        // but only when ends are no wider than values (the output type).
+        // Wider ends would be truncated by load_element<T>().
+        let ends_ptype = PType::try_from(arr.ends().dtype());
+        let values_ptype = PType::try_from(arr.values().dtype());
+        return match (ends_ptype, values_ptype) {
+            (Ok(ep), Ok(vp)) => ep.byte_width() <= vp.byte_width(),
+            _ => false,
+        };
     }
     id == FoR::ID
         || id == ZigZag::ID
