@@ -18,7 +18,6 @@ use futures::FutureExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use serde::Serialize;
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
@@ -35,8 +34,6 @@ use vortex::file::VERSION;
 use vortex::file::VortexFile;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
-use vortex::io::runtime::wasm::WasmRuntime;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutChildType;
 use vortex::layout::LayoutRef;
 use vortex::layout::layouts::flat::Flat;
@@ -45,6 +42,8 @@ use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
+
+use crate::SESSION;
 
 /// Initialize the WASM module (sets up panic hook for better error messages).
 #[wasm_bindgen(start)]
