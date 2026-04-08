@@ -108,21 +108,20 @@
 mod array;
 pub use array::data::TurboQuantArrayExt;
 pub use array::data::TurboQuantData;
-pub use array::scheme::TurboQuantScheme;
 
 pub(crate) mod compute;
 
 mod metadata;
 
 mod vtable;
+
 pub use vtable::TurboQuant;
 pub use vtable::TurboQuantArray;
 
-mod compress;
-pub use compress::TurboQuantConfig;
-pub use compress::turboquant_encode;
-
-mod decompress;
+mod scheme;
+pub use scheme::TurboQuantScheme;
+pub use scheme::compress::TurboQuantConfig;
+pub use scheme::compress::turboquant_encode;
 
 #[cfg(test)]
 mod tests;

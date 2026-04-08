@@ -9,5 +9,3 @@ pub(crate) mod slots;
 
 pub(crate) mod centroids;
 pub(crate) mod rotation;
-
-pub(crate) mod scheme;

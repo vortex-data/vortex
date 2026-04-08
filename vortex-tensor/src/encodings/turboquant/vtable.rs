@@ -38,8 +38,8 @@ use crate::encodings::turboquant::TurboQuantData;
 use crate::encodings::turboquant::array::slots::Slot;
 use crate::encodings::turboquant::compute::rules::PARENT_KERNELS;
 use crate::encodings::turboquant::compute::rules::RULES;
-use crate::encodings::turboquant::decompress::execute_decompress;
 use crate::encodings::turboquant::metadata::TurboQuantMetadata;
+use crate::encodings::turboquant::scheme::decompress::execute_decompress;
 use crate::vector::AnyVector;
 use crate::vector::VectorMatcherMetadata;
 

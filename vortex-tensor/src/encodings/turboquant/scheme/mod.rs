@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant compression scheme for the pluggable compressor.
+//! TurboQuant compression scheme and decompression.
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -17,6 +17,9 @@ use vortex_error::VortexResult;
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::turboquant_encode;
+
+pub(super) mod compress;
+pub(super) mod decompress;
 
 /// TurboQuant compression scheme for [`Vector`] extension types.
 ///
