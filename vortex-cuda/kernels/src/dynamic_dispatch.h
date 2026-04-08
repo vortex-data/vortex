@@ -92,7 +92,11 @@ PTYPE_HOST_DEVICE constexpr PTypeTag ptype_to_unsigned(PTypeTag tag) {
 /// Fixed shared memory declared in the kernel (bytes), excluded from
 /// the dynamic shared memory budget. Accounts for
 /// `runend_cursors[BLOCK_SIZE]` — one uint64_t cursor per thread.
-#define KERNEL_FIXED_SHARED_BYTES (BLOCK_SIZE * sizeof(uint64_t))
+///
+/// Uses a literal (64 * 8 = 512) instead of `BLOCK_SIZE * sizeof(uint64_t)`
+/// so that bindgen can export it as a Rust constant (bindgen cannot evaluate
+/// expressions involving other macros or sizeof).
+#define KERNEL_FIXED_SHARED_BYTES 512
 
 #ifdef __cplusplus
 extern "C" {
