@@ -445,7 +445,7 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
-        _handle: vortex::io::runtime::Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();
@@ -507,10 +507,9 @@ impl LayoutStrategy for CudaFlatLayoutStrategy {
         // Scan for constant array buffers before serialization (while data is still on host).
         let host_buffers = extract_constant_buffers(&chunk);
 
-        let session = VortexSession::empty();
         let buffers = chunk.serialize(
             &ctx,
-            &session,
+            session,
             &SerializeOptions {
                 offset: 0,
                 include_padding: options.include_padding,

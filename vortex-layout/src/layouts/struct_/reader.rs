@@ -419,6 +419,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
 
     use crate::LayoutRef;
@@ -442,6 +443,7 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
         );
         let layout = block_on(|handle| {
+            let session = SESSION.clone().with_handle(handle);
             strategy.write_stream(
                 ctx,
                 Arc::<TestSegments>::clone(&segments),
@@ -456,7 +458,7 @@ mod tests {
                 .to_array_stream()
                 .sequenced(ptr),
                 eof,
-                handle,
+                &session,
             )
         })
         .unwrap();
@@ -475,6 +477,7 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
         );
         let layout = block_on(|handle| {
+            let session = SESSION.clone().with_handle(handle);
             strategy.write_stream(
                 ctx,
                 Arc::<TestSegments>::clone(&segments),
@@ -491,7 +494,7 @@ mod tests {
                 .to_array_stream()
                 .sequenced(ptr),
                 eof,
-                handle,
+                &session,
             )
         })
         .unwrap();
@@ -511,6 +514,7 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
         );
         let layout = block_on(|handle| {
+            let session = SESSION.clone().with_handle(handle);
             strategy.write_stream(
                 ctx,
                 Arc::<TestSegments>::clone(&segments),
@@ -527,7 +531,7 @@ mod tests {
                 .to_array_stream()
                 .sequenced(ptr),
                 eof,
-                handle,
+                &session,
             )
         })
         .unwrap();
@@ -552,6 +556,7 @@ mod tests {
             Arc::new(FlatLayoutStrategy::default()),
         );
         let layout = block_on(|handle| {
+            let session = SESSION.clone().with_handle(handle);
             strategy.write_stream(
                 ctx,
                 Arc::<TestSegments>::clone(&segments),
@@ -580,7 +585,7 @@ mod tests {
                 .to_array_stream()
                 .sequenced(ptr),
                 eof,
-                handle,
+                &session,
             )
         })
         .unwrap();

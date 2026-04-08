@@ -12,7 +12,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::runtime::Handle;
+use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -44,7 +44,7 @@ impl LayoutStrategy for CollectStrategy {
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         // Read the whole stream, then write one Chunked stream to the inner thing
         let dtype = stream.dtype().clone();
@@ -68,7 +68,7 @@ impl LayoutStrategy for CollectStrategy {
         let adapted = Box::pin(SequentialStreamAdapter::new(dtype, collected_stream));
 
         self.child
-            .write_stream(ctx, segment_sink, adapted, eof, handle)
+            .write_stream(ctx, segment_sink, adapted, eof, session)
             .await
     }
 

@@ -33,7 +33,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::kanal_ext::KanalExt;
-use vortex_io::runtime::Handle;
+use vortex_io::session::RuntimeSessionExt;
+use vortex_session::VortexSession;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
@@ -130,13 +131,13 @@ impl LayoutStrategy for DictStrategy {
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         // Fallback if dtype is not supported
         if !dict_layout_supported(stream.dtype()) {
             return self
                 .fallback
-                .write_stream(ctx, segment_sink, stream, eof, handle)
+                .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }
 
@@ -158,7 +159,7 @@ impl LayoutStrategy for DictStrategy {
             // first chunk did not compress to dict, or did not exist. Skip dict layout
             return self
                 .fallback
-                .write_stream(ctx, segment_sink, stream, eof, handle)
+                .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }
 
@@ -171,6 +172,7 @@ impl LayoutStrategy for DictStrategy {
         // Each of these pairs becomes a child dict layout.
         let runs = DictionaryTransformer::new(dict_stream);
 
+        let handle = session.handle();
         let dtype2 = dtype.clone();
         let child_layouts = stream! {
             pin_mut!(runs);
@@ -180,13 +182,15 @@ impl LayoutStrategy for DictStrategy {
                 let codes_eof = eof.split_off();
                 let ctx2 = ctx.clone();
                 let segment_sink2 = Arc::clone(&segment_sink);
+                let session2 = session.clone();
                 let codes_fut = handle.spawn_nested(move |h| async move {
+                    let session2 = session2.with_handle(h);
                     codes.write_stream(
                         ctx2,
                         segment_sink2,
                         codes_stream.sendable(),
                         codes_eof,
-                        h,
+                        &session2,
                     ).await
                 });
 
@@ -195,13 +199,15 @@ impl LayoutStrategy for DictStrategy {
                 let ctx2 = ctx.clone();
                 let segment_sink2 = Arc::clone(&segment_sink);
                 let dtype2 = dtype2.clone();
+                let session2 = session.clone();
                 let values_layout = handle.spawn_nested(move |h| async move {
+                    let session2 = session2.with_handle(h);
                     values.write_stream(
                         ctx2,
                         segment_sink2,
                         SequentialStreamAdapter::new(dtype2, once(values_fut)).sendable(),
                         values_eof,
-                        h,
+                        &session2,
                     ).await
                 });
 

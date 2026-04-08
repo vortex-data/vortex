@@ -278,6 +278,7 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutId;
     use crate::LayoutRef;
@@ -295,6 +296,7 @@ mod tests {
     #[test]
     fn reading_nested_packs_works() {
         block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -331,7 +333,7 @@ mod tests {
                     )
                     .sendable(),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -393,6 +395,7 @@ mod tests {
         #[case] expected: Vec<bool>,
     ) {
         block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -415,7 +418,7 @@ mod tests {
                     )
                     .sendable(),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -442,6 +445,7 @@ mod tests {
     #[test]
     fn reading_is_null_works() {
         block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -479,7 +483,7 @@ mod tests {
                     )
                     .sendable(),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();

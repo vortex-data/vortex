@@ -60,6 +60,7 @@ mod test {
     use vortex_array::dtype::FieldPath;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
 
     use super::*;
     use crate::LayoutReaderRef;
@@ -75,6 +76,7 @@ mod test {
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let layout = block_on(|handle| async {
+            let session = SCAN_SESSION.clone().with_handle(handle);
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
@@ -84,7 +86,7 @@ mod test {
                         .to_array_stream()
                         .sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
         })

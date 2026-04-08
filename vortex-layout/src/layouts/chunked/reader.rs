@@ -343,6 +343,7 @@ mod test {
     use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutRef;
     use crate::LayoutStrategy;
@@ -364,6 +365,7 @@ mod test {
         let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
         let (mut sequence_id, eof) = SequenceId::root().split();
         let layout = block_on(|handle| {
+            let session = SESSION.clone().with_handle(handle);
             strategy.write_stream(
                 ctx,
                 Arc::<TestSegments>::clone(&segments),
@@ -377,7 +379,7 @@ mod test {
                 )
                 .sendable(),
                 eof,
-                handle,
+                &session,
             )
         })
         .unwrap();

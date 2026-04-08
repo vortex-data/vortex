@@ -179,7 +179,9 @@ impl VortexWriteOptions {
         // We spawn the layout future so it is driven in the background while we write the
         // buffer stream, so we don't need to poll it until all buffers have been drained.
         let ctx2 = ctx.clone();
-        let layout_fut = self.session.handle().spawn_nested(|h| async move {
+        let session = self.session.clone();
+        let layout_fut = self.session.handle().spawn_nested(move |h| async move {
+            let session = session.with_handle(h);
             let layout = self
                 .strategy
                 .write_stream(
@@ -187,7 +189,7 @@ impl VortexWriteOptions {
                     Arc::<BufferedSegmentSink>::clone(&segments),
                     stream,
                     eof,
-                    h,
+                    &session,
                 )
                 .await?;
             Ok::<_, VortexError>((layout, segments.segment_specs()))

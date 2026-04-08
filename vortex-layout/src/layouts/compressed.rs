@@ -10,7 +10,8 @@ use vortex_array::ArrayRef;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
-use vortex_io::runtime::Handle;
+use vortex_io::session::RuntimeSessionExt;
+use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -82,16 +83,16 @@ impl LayoutStrategy for CompressingStrategy {
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let compressor = Arc::clone(&self.compressor);
 
-        let handle2 = handle.clone();
+        let handle = session.handle();
         let stream = stream
             .map(move |chunk| {
                 let compressor = Arc::clone(&compressor);
-                handle2.spawn_cpu(move || {
+                handle.spawn_cpu(move || {
                     let (sequence_id, chunk) = chunk?;
                     // Compute the stats for the chunk prior to compression
                     chunk
@@ -108,7 +109,7 @@ impl LayoutStrategy for CompressingStrategy {
                 segment_sink,
                 SequentialStreamAdapter::new(dtype, stream).sendable(),
                 eof,
-                handle,
+                session,
             )
             .await
     }

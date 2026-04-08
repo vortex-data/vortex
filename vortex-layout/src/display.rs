@@ -230,6 +230,7 @@ mod tests {
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
     use vortex_utils::env::EnvVarGuard;
 
     use crate::IntoLayout;
@@ -242,12 +243,14 @@ mod tests {
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::strategy::LayoutStrategy;
+    use crate::test::SESSION;
 
     /// Test display_tree with inline array_tree metadata (no segment source needed).
     #[test]
     fn test_display_tree_inline_array_tree() {
         let _guard = EnvVarGuard::set("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
         block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
 
@@ -267,7 +270,7 @@ mod tests {
                     Arc::<TestSegments>::clone(&segments),
                     array1.into_array().to_array_stream().sequenced(ptr1),
                     eof1,
-                    handle.clone(),
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -294,7 +297,7 @@ mod tests {
                         .to_array_stream()
                         .sequenced(ptr2),
                     eof2,
-                    handle.clone(),
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -342,6 +345,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
         // Ensure inline array node is disabled for this test
         let _guard = EnvVarGuard::remove("FLAT_LAYOUT_INLINE_ARRAY_NODE");
         block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
 
@@ -354,7 +358,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
                     Arc::<TestSegments>::clone(&segments),
                     array1.into_array().to_array_stream().sequenced(ptr1),
                     eof1,
-                    handle.clone(),
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -368,7 +372,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
                     Arc::<TestSegments>::clone(&segments),
                     array2.into_array().to_array_stream().sequenced(ptr2),
                     eof2,
-                    handle.clone(),
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -407,13 +411,14 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
         // Create a simple primitive array
         let array = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::AllValid);
         let layout = block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx.clone(),
                     Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap()
@@ -449,13 +454,14 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
         // Create a simple primitive array
         let array = PrimitiveArray::new(buffer![10i64, 20, 30], Validity::NonNullable);
         let layout = block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
                     Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap()

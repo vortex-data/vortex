@@ -27,7 +27,8 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::kanal_ext::KanalExt;
-use vortex_io::runtime::Handle;
+use vortex_io::session::RuntimeSessionExt;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -195,7 +196,7 @@ impl LayoutStrategy for TableStrategy {
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
 
@@ -203,7 +204,7 @@ impl LayoutStrategy for TableStrategy {
         if !dtype.is_struct() {
             return self
                 .fallback
-                .write_stream(ctx, segment_sink, stream, eof, handle)
+                .write_stream(ctx, segment_sink, stream, eof, session)
                 .await;
         }
 
@@ -260,6 +261,7 @@ impl LayoutStrategy for TableStrategy {
             (0..stream_count).map(|_| kanal::bounded_async(1)).unzip();
 
         // Spawn a task to fan out column chunks to their respective transposed streams
+        let handle = session.handle();
         handle
             .spawn(async move {
                 pin_mut!(columns_vec_stream);
@@ -311,7 +313,8 @@ impl LayoutStrategy for TableStrategy {
                         .sendable();
                 let child_eof = eof.split_off();
                 let field = Field::Name(name.clone());
-                handle.spawn_nested(|h| {
+                let session = session.clone();
+                handle.spawn_nested(move |h| {
                     let validity = Arc::clone(&self.validity);
                     // descend further and try with new fields
                     let writer = self
@@ -329,6 +332,7 @@ impl LayoutStrategy for TableStrategy {
                         });
                     let ctx = ctx.clone();
                     let segment_sink = Arc::clone(&segment_sink);
+                    let session = session.with_handle(h);
 
                     async move {
                         // If we have a matching writer, we use it.
@@ -336,12 +340,12 @@ impl LayoutStrategy for TableStrategy {
                         // Write validity stream
                         if index == 0 && is_nullable {
                             validity
-                                .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                .write_stream(ctx, segment_sink, column_stream, child_eof, &session)
                                 .await
                         } else {
                             // Use the underlying writer, otherwise use the fallback writer.
                             writer
-                                .write_stream(ctx, segment_sink, column_stream, child_eof, h)
+                                .write_stream(ctx, segment_sink, column_stream, child_eof, &session)
                                 .await
                         }
                     }

@@ -12,7 +12,7 @@ use futures::StreamExt as _;
 use futures::pin_mut;
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
-use vortex_io::runtime::Handle;
+use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -47,7 +47,7 @@ impl LayoutStrategy for BufferedStrategy {
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,
-        handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
         let buffer_size = self.buffer_size;
@@ -102,7 +102,7 @@ impl LayoutStrategy for BufferedStrategy {
                 segment_sink,
                 SequentialStreamAdapter::new(dtype, buffered_stream).sendable(),
                 eof,
-                handle,
+                session,
             )
             .await
     }

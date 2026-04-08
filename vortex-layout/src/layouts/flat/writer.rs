@@ -22,7 +22,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::runtime::Handle;
+use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -100,7 +100,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
-        _handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let Some(chunk) = stream.next().await else {
@@ -159,7 +159,6 @@ impl LayoutStrategy for FlatLayoutStrategy {
             chunk
         };
 
-        let session = vortex_session::VortexSession::empty();
         let buffers = chunk.serialize(
             &ctx,
             &session,
@@ -225,6 +224,7 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::AllOr;
     use vortex_mask::Mask;
     use vortex_utils::aliases::hash_set::HashSet;
@@ -242,6 +242,7 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -252,7 +253,7 @@ mod tests {
                     Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -279,6 +280,7 @@ mod tests {
     #[test]
     fn truncates_variable_size_stats() {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -301,7 +303,7 @@ mod tests {
                     Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -338,6 +340,7 @@ mod tests {
     #[test]
     fn struct_array_round_trip() {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);
             validity_builder.append(false);
@@ -368,7 +371,7 @@ mod tests {
                         Arc::<TestSegments>::clone(&segments),
                         array.into_array().to_array_stream().sequenced(ptr),
                         eof,
-                        handle,
+                        &session,
                     )
                     .await
                     .unwrap();
@@ -417,6 +420,7 @@ mod tests {
     #[test]
     fn flat_invalid_array_fails() -> VortexResult<()> {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let prim: PrimitiveArray = (0..10).collect();
             let filter = prim.filter(Mask::from_indices(10, vec![2, 3]))?;
 
@@ -435,7 +439,7 @@ mod tests {
                         Arc::<TestSegments>::clone(&segments),
                         filter.into_array().to_array_stream().sequenced(ptr),
                         eof,
-                        handle,
+                        &session,
                     )
                     .await;
 
@@ -456,6 +460,7 @@ mod tests {
     #[test]
     fn flat_valid_array_writes() -> VortexResult<()> {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let codes: PrimitiveArray = (0u32..10).collect();
             let values: PrimitiveArray = (0..10).collect();
             let dict = DictArray::new(codes.into_array(), values.into_array());
@@ -476,7 +481,7 @@ mod tests {
                         Arc::<TestSegments>::clone(&segments),
                         dict.into_array().to_array_stream().sequenced(ptr),
                         eof,
-                        handle,
+                        &session,
                     )
                     .await;
 

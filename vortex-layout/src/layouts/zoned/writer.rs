@@ -11,7 +11,8 @@ use vortex_array::IntoArray;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_error::VortexResult;
-use vortex_io::runtime::Handle;
+use vortex_io::session::RuntimeSessionExt;
+use vortex_session::VortexSession;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
@@ -77,9 +78,10 @@ impl LayoutStrategy for ZonedStrategy {
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
-        handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let stats = Arc::clone(&self.options.stats);
+        let handle = session.handle();
         let handle2 = handle.clone();
 
         let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
@@ -131,7 +133,7 @@ impl LayoutStrategy for ZonedStrategy {
                 Arc::clone(&segment_sink),
                 stream,
                 data_eof,
-                handle.clone(),
+                session,
             )
             .await?;
 
@@ -151,7 +153,7 @@ impl LayoutStrategy for ZonedStrategy {
             .sequenced(eof.split_off());
         let zones_layout = self
             .stats
-            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, handle)
+            .write_stream(ctx, Arc::clone(&segment_sink), stats_stream, eof, session)
             .await?;
 
         Ok(ZonedLayout::new(
