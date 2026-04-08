@@ -156,7 +156,7 @@ pub fn vortex_array::aggregate_fn::fns::mean::Mean::right(&self) -> vortex_array
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::right_name(&self) -> &'static str
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::serialize(&self, options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::serialize(&self, _options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub type vortex_array::aggregate_fn::combined::CombinedOptions<T> = vortex_array::aggregate_fn::combined::PairOptions<<<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Left as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Right as vortex_array::aggregate_fn::AggregateFnVTable>::Options>
 
@@ -514,7 +514,7 @@ pub fn vortex_array::aggregate_fn::fns::mean::Mean::right(&self) -> vortex_array
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::right_name(&self) -> &'static str
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::serialize(&self, options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::aggregate_fn::fns::mean::Mean::serialize(&self, _options: &vortex_array::aggregate_fn::combined::CombinedOptions<Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::aggregate_fn::fns::mean::mean(array: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
