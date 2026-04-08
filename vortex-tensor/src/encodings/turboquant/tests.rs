@@ -8,6 +8,7 @@ use rand::rngs::StdRng;
 use rand_distr::Distribution;
 use rand_distr::Normal;
 use rstest::rstest;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ExtensionArray;
@@ -15,6 +16,7 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::dtype::Nullability;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::extension::EmptyMetadata;
 use vortex_array::session::ArraySession;
@@ -148,6 +150,38 @@ fn encode_decode(
     Ok((original, decoded_elements))
 }
 
+fn empty_turboquant_parts(
+    dim: u32,
+) -> VortexResult<(
+    vortex_array::dtype::DType,
+    ArrayRef,
+    ArrayRef,
+    ArrayRef,
+    ArrayRef,
+)> {
+    let fsl = make_fsl(0, dim as usize, 42);
+    let ext = make_vector_ext(&fsl);
+
+    let codes = FixedSizeListArray::try_new(
+        PrimitiveArray::empty::<u8>(Nullability::NonNullable).into_array(),
+        dim,
+        Validity::NonNullable,
+        0,
+    )?
+    .into_array();
+    let norms = PrimitiveArray::empty::<f32>(ext.dtype().nullability()).into_array();
+    let centroids = PrimitiveArray::empty::<f32>(Nullability::NonNullable).into_array();
+    let rotation_signs = FixedSizeListArray::try_new(
+        PrimitiveArray::empty::<u8>(Nullability::NonNullable).into_array(),
+        dim,
+        Validity::NonNullable,
+        0,
+    )?
+    .into_array();
+
+    Ok((ext.dtype().clone(), codes, norms, centroids, rotation_signs))
+}
+
 // -----------------------------------------------------------------------
 // Roundtrip tests
 // -----------------------------------------------------------------------
@@ -169,6 +203,48 @@ fn roundtrip(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
     assert_eq!(decoded.len(), original.len());
+    Ok(())
+}
+
+#[test]
+fn empty_try_new_rejects_invalid_norms_dtype() -> VortexResult<()> {
+    let (dtype, codes, _norms, centroids, rotation_signs) = empty_turboquant_parts(128)?;
+    let wrong_norms = PrimitiveArray::empty::<f64>(dtype.nullability()).into_array();
+
+    let err = TurboQuant::try_new_array(dtype, codes, wrong_norms, centroids, rotation_signs)
+        .unwrap_err();
+
+    assert!(err.to_string().contains("norms dtype does not match"));
+    Ok(())
+}
+
+#[test]
+fn empty_try_new_rejects_invalid_centroids_dtype() -> VortexResult<()> {
+    let (dtype, codes, norms, _centroids, rotation_signs) = empty_turboquant_parts(128)?;
+    let wrong_centroids = PrimitiveArray::empty::<f64>(Nullability::NonNullable).into_array();
+
+    let err = TurboQuant::try_new_array(dtype, codes, norms, wrong_centroids, rotation_signs)
+        .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("centroids dtype must be non-nullable f32")
+    );
+    Ok(())
+}
+
+#[test]
+fn empty_try_new_rejects_invalid_rotation_signs_dtype() -> VortexResult<()> {
+    let (dtype, codes, norms, centroids, _rotation_signs) = empty_turboquant_parts(128)?;
+    let wrong_rotation_signs = PrimitiveArray::empty::<u8>(Nullability::NonNullable).into_array();
+
+    let err = TurboQuant::try_new_array(dtype, codes, norms, centroids, wrong_rotation_signs)
+        .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("rotation_signs dtype does not match")
+    );
     Ok(())
 }
 

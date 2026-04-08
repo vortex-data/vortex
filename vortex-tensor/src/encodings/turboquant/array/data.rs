@@ -123,41 +123,6 @@ impl TurboQuantData {
             "norms length must match codes length",
         );
 
-        // Degenerate (empty) case: all children must be empty, and bit_width is 0.
-        if num_rows == 0 {
-            vortex_ensure!(
-                centroids.is_empty(),
-                "degenerate TurboQuant must have empty centroids, got length {}",
-                centroids.len()
-            );
-            vortex_ensure!(
-                rotation_signs.is_empty(),
-                "degenerate TurboQuant must have empty rotation_signs, got length {}",
-                rotation_signs.len()
-            );
-            return Ok(());
-        }
-
-        // Non-degenerate: derive and validate bit_width from centroids.
-        let num_centroids = centroids.len();
-        vortex_ensure!(
-            num_centroids.is_power_of_two()
-                && (2..=TurboQuant::MAX_CENTROIDS).contains(&num_centroids),
-            "centroids length must be a power of 2 in [2, {}], got {num_centroids}",
-            TurboQuant::MAX_CENTROIDS
-        );
-
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "Guaranteed to be [1,8] by the preceding power-of-2 and range checks."
-        )]
-        let bit_width = num_centroids.trailing_zeros() as u8;
-        vortex_ensure!(
-            (1..=TurboQuant::MAX_BIT_WIDTH).contains(&bit_width),
-            "derived bit_width must be 1-{}, got {bit_width}",
-            TurboQuant::MAX_BIT_WIDTH
-        );
-
         // Norms dtype must match the element ptype of the Vector, with the parent's nullability.
         // Norms carry the validity of the entire TurboQuant array.
         let element_ptype = vector_metadata.element_ptype();
@@ -188,9 +153,44 @@ impl TurboQuantData {
             expected_signs_dtype,
             "rotation_signs dtype does not match expected {expected_signs_dtype}",
         );
+        // Degenerate (empty) case: all children must be empty, and bit_width is 0.
+        if num_rows == 0 {
+            vortex_ensure!(
+                centroids.is_empty(),
+                "degenerate TurboQuant must have empty centroids, got length {}",
+                centroids.len()
+            );
+            vortex_ensure!(
+                rotation_signs.is_empty(),
+                "degenerate TurboQuant must have empty rotation_signs, got length {}",
+                rotation_signs.len()
+            );
+            return Ok(());
+        }
+
         vortex_ensure!(
             !rotation_signs.is_empty(),
             "rotation_signs must have at least 1 round"
+        );
+
+        // Non-degenerate: derive and validate bit_width from centroids.
+        let num_centroids = centroids.len();
+        vortex_ensure!(
+            num_centroids.is_power_of_two()
+                && (2..=TurboQuant::MAX_CENTROIDS).contains(&num_centroids),
+            "centroids length must be a power of 2 in [2, {}], got {num_centroids}",
+            TurboQuant::MAX_CENTROIDS
+        );
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "Guaranteed to be [1,8] by the preceding power-of-2 and range checks."
+        )]
+        let bit_width = num_centroids.trailing_zeros() as u8;
+        vortex_ensure!(
+            (1..=TurboQuant::MAX_BIT_WIDTH).contains(&bit_width),
+            "derived bit_width must be 1-{}, got {bit_width}",
+            TurboQuant::MAX_BIT_WIDTH
         );
 
         Ok(())
