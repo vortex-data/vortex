@@ -65,6 +65,9 @@ struct Args {
     #[arg(long, default_value_t = false)]
     track_memory: bool,
 
+    #[arg(long, default_value_t = false)]
+    show_session_metrics: bool,
+
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
 }
@@ -123,6 +126,10 @@ async fn main() -> anyhow::Result<()> {
     let benchmark_id = format!("lance-{}", benchmark.dataset_name());
     let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
     runner.export_to(&args.display_format, writer)?;
+
+    if args.show_session_metrics {
+        vortex_bench::print_session_metrics();
+    }
 
     Ok(())
 }

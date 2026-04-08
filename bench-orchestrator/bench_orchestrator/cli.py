@@ -76,6 +76,9 @@ def run(
     iterations: Annotated[int, typer.Option("--iterations", "-i", help="Iterations per query")] = 5,
     label: Annotated[str | None, typer.Option("--label", "-l", help="Label for this run")] = None,
     track_memory: Annotated[bool, typer.Option("--track-memory", help="Track memory usage")] = False,
+    show_session_metrics: Annotated[
+        bool, typer.Option("--show-session-metrics", help="Print session metrics after each engine run")
+    ] = False,
     samply: Annotated[bool, typer.Option("--samply", help="Record a profile using samply")] = False,
     sample_rate: Annotated[int, typer.Option("--sample-rate", help="Sample rate to run samply with")] = None,
     tracing: Annotated[bool, typer.Option("--tracing", help="Record a trace for use with perfetto")] = False,
@@ -161,6 +164,7 @@ def run(
                     iterations=iterations,
                     options=bench_opts,
                     track_memory=track_memory,
+                    show_session_metrics=show_session_metrics,
                     samply=samply,
                     sample_rate=sample_rate,
                     tracing=tracing,

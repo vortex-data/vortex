@@ -107,6 +107,7 @@ if [[ -n "$df_formats" ]]; then
     # shellcheck disable=SC2086
     target/release_debug/datafusion-bench "$subcommand" \
         -d gh-json \
+        --show-session-metrics \
         --formats "$df_formats" \
         $opts \
         -o df-results.json
@@ -118,6 +119,7 @@ if [[ -n "$ddb_formats" ]]; then
     # shellcheck disable=SC2086
     target/release_debug/duckdb-bench "$subcommand" \
         -d gh-json \
+        --show-session-metrics \
         --formats "$ddb_formats" \
         $opts \
         --delete-duckdb-database \
@@ -131,6 +133,7 @@ if ! $is_remote && [[ "$has_lance" == "true" ]] && [[ -f "target/release_debug/l
     # shellcheck disable=SC2086
     target/release_debug/lance-bench "$subcommand" \
         -d gh-json \
+        --show-session-metrics \
         $opts \
         -o lance-results.json
 

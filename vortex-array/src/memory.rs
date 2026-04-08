@@ -25,6 +25,7 @@ use vortex_metrics::DefaultMetricsRegistry;
 use vortex_metrics::Gauge;
 use vortex_metrics::Histogram;
 use vortex_metrics::Label;
+use vortex_metrics::Metric;
 use vortex_metrics::MetricBuilder;
 use vortex_metrics::MetricsRegistry;
 use vortex_session::Ref;
@@ -53,6 +54,18 @@ static NEXT_POOLED_ALLOCATOR_ID: AtomicU64 = AtomicU64::new(1);
 thread_local! {
     static POOLED_HOST_ALLOCATOR_POOLS: RefCell<HashMap<u64, ThreadLocalAllocatorPool>> =
         RefCell::new(HashMap::new());
+}
+
+fn default_pooled_metrics_registry() -> DefaultMetricsRegistry {
+    static REGISTRY: OnceLock<DefaultMetricsRegistry> = OnceLock::new();
+    REGISTRY
+        .get_or_init(DefaultMetricsRegistry::default)
+        .clone()
+}
+
+/// Returns a snapshot of metrics recorded by default-constructed pooled host allocators.
+pub fn default_pooled_allocator_metrics_snapshot() -> Vec<Metric> {
+    default_pooled_metrics_registry().snapshot()
 }
 
 /// Mutable host buffer contract used by [`WritableHostBuffer`].
@@ -305,7 +318,7 @@ impl Default for PooledHostAllocator {
     fn default() -> Self {
         Self::new(
             DEFAULT_MAX_BYTES_PER_THREAD,
-            Arc::new(DefaultMetricsRegistry::default()),
+            Arc::new(default_pooled_metrics_registry()),
         )
     }
 }

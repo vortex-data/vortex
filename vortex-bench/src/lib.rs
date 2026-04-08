@@ -59,6 +59,7 @@ pub use benchmark::TableSpec;
 pub use datasets::BenchmarkDataset;
 pub use output::BenchmarkOutput;
 pub use output::create_output_writer;
+pub use utils::metrics::print_session_metrics;
 use vortex::VortexSessionDefault;
 pub use vortex::error::vortex_panic;
 use vortex::io::session::RuntimeSessionExt;

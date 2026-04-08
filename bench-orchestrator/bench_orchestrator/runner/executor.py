@@ -34,6 +34,7 @@ class BenchmarkExecutor:
         iterations: int = 5,
         options: dict[str, str] | None = None,
         track_memory: bool = False,
+        show_session_metrics: bool = False,
         samply: bool = False,
         sample_rate: int | None = None,
         tracing: bool = False,
@@ -50,6 +51,7 @@ class BenchmarkExecutor:
             iterations: Number of runs per query
             options: Additional options (e.g., scale_factor)
             track_memory: Enable memory tracking
+            show_session_metrics: Print session metrics at the end of the benchmark process
             on_result: Callback for each result line (for streaming)
 
         Returns:
@@ -73,6 +75,8 @@ class BenchmarkExecutor:
             cmd.extend(["--exclude-queries", ",".join(map(str, exclude_queries))])
         if track_memory:
             cmd.append("--track-memory")
+        if show_session_metrics:
+            cmd.append("--show-session-metrics")
         if tracing:
             cmd.append("--tracing")
         if options:

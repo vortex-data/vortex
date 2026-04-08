@@ -13390,6 +13390,8 @@ pub fn S::memory(&self) -> vortex_session::Ref<'_, vortex_array::memory::MemoryS
 
 pub fn S::memory_mut(&self) -> vortex_session::RefMut<'_, vortex_array::memory::MemorySession>
 
+pub fn vortex_array::memory::default_pooled_allocator_metrics_snapshot() -> alloc::vec::Vec<vortex_metrics::Metric>
+
 pub type vortex_array::memory::HostAllocatorRef = alloc::sync::Arc<dyn vortex_array::memory::HostAllocator>
 
 pub mod vortex_array::normalize
