@@ -19,6 +19,7 @@
   permissions instead of retrying in sandbox.
 * if cargo fails with `sccache: error: Operation not permitted`, rerun the command with `RUSTC_WRAPPER=` so rustc runs
   directly.
+* run docs doctests from the docs directory (`make -C docs doctest`) so the correct Sphinx Makefile target is used.
 
 ## Architecture
 
