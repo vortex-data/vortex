@@ -3358,7 +3358,7 @@ pub fn vortex_array::arrays::patched::Patched::child_name(array: vortex_array::A
 
 pub fn vortex_array::arrays::patched::Patched::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::patched::Patched::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -6198,7 +6198,7 @@ pub fn vortex_array::arrays::patched::Patched::child_name(array: vortex_array::A
 
 pub fn vortex_array::arrays::patched::Patched::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::patched::Patched::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -19856,7 +19856,7 @@ pub fn vortex_array::arrays::patched::Patched::child_name(array: vortex_array::A
 
 pub fn vortex_array::arrays::patched::Patched::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::patched::Patched::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -20872,7 +20872,7 @@ pub fn vortex_array::arrays::patched::Patched::child_name(array: vortex_array::A
 
 pub fn vortex_array::arrays::patched::Patched::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::patched::Patched::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -23576,7 +23576,7 @@ pub fn vortex_array::arrays::patched::Patched::child_name(array: vortex_array::A
 
 pub fn vortex_array::arrays::patched::Patched::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::patched::Patched::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
@@ -24840,7 +24840,7 @@ pub fn vortex_array::arrays::patched::Patched::child_name(array: vortex_array::A
 
 pub fn vortex_array::arrays::patched::Patched::deserialize(&self, dtype: &vortex_array::dtype::DType, len: usize, metadata: &[u8], _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayParts<Self>>
 
-pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
+pub fn vortex_array::arrays::patched::Patched::execute(array: vortex_array::Array<Self>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ExecutionResult>
 
 pub fn vortex_array::arrays::patched::Patched::execute_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
