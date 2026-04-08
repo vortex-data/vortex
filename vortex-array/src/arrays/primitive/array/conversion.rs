@@ -54,35 +54,18 @@ impl PrimitiveArray {
 
     /// Consume the array and get a host Buffer containing the data values.
     pub fn into_buffer<T: NativePType>(self) -> Buffer<T> {
-        if T::PTYPE != self.ptype() {
-            vortex_panic!(
-                "Attempted to get buffer of type {} from array of type {}",
-                T::PTYPE,
-                self.ptype()
-            )
-        }
-
-        Buffer::from_byte_buffer(self.buffer.into_host_sync())
+        self.into_data().into_buffer()
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
     /// if the buffer is uniquely owned, otherwise will make a copy.
     pub fn into_buffer_mut<T: NativePType>(self) -> BufferMut<T> {
-        self.try_into_buffer_mut()
-            .unwrap_or_else(|buffer| BufferMut::<T>::copy_from(&buffer))
+        self.into_data().into_buffer_mut()
     }
 
     /// Try to extract a mutable buffer from the PrimitiveArray with zero copy.
     pub fn try_into_buffer_mut<T: NativePType>(self) -> Result<BufferMut<T>, Buffer<T>> {
-        if T::PTYPE != self.ptype() {
-            vortex_panic!(
-                "Attempted to get buffer_mut of type {} from array of type {}",
-                T::PTYPE,
-                self.ptype()
-            )
-        }
-        let buffer = Buffer::<T>::from_byte_buffer(self.buffer.into_host_sync());
-        buffer.try_into_mut()
+        self.into_data().try_into_buffer_mut()
     }
 }
 

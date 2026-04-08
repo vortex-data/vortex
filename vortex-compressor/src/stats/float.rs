@@ -27,7 +27,7 @@ use super::GenerateStatsOptions;
 pub struct DistinctInfo<T> {
     /// The set of distinct float values.
     distinct_values: HashSet<NativeValue<T>, FxBuildHasher>,
-    /// The count of unique values.
+    /// The count of unique values. This _must_ be non-zero.
     distinct_count: u32,
 }
 
@@ -92,8 +92,6 @@ impl_from_typed!(f64, ErasedStats::F64);
 /// Array of floating-point numbers and relevant stats for compression.
 #[derive(Debug, Clone)]
 pub struct FloatStats {
-    /// The underlying source array.
-    src: PrimitiveArray,
     /// Cache for `validity.false_count()`.
     null_count: u32,
     /// Cache for `validity.true_count()`.
@@ -136,11 +134,6 @@ impl FloatStats {
             .vortex_expect("FloatStats::generate_opts should not fail")
     }
 
-    /// Returns the underlying source array.
-    pub fn source(&self) -> &PrimitiveArray {
-        &self.src
-    }
-
     /// Returns the number of null values.
     pub fn null_count(&self) -> u32 {
         self.null_count
@@ -174,15 +167,15 @@ where
     // Special case: empty array.
     if array.is_empty() {
         return Ok(FloatStats {
-            src: array.clone(),
             null_count: 0,
             value_count: 0,
             average_run_length: 0,
             erased: TypedStats { distinct: None }.into(),
         });
-    } else if array.all_invalid()? {
+    }
+
+    if array.all_invalid()? {
         return Ok(FloatStats {
-            src: array.clone(),
             null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
@@ -259,7 +252,6 @@ where
     Ok(FloatStats {
         null_count,
         value_count,
-        src: array.clone(),
         average_run_length: value_count / runs,
         erased: TypedStats { distinct }.into(),
     })

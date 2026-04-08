@@ -39,9 +39,11 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
 use crate::arrays::primitive::compute::take::take_primitive_scalar;
+use crate::arrays::primitive::vtable::Primitive;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
@@ -56,8 +58,8 @@ impl TakeImpl for TakeKernelAVX2 {
     #[inline(always)]
     fn take(
         &self,
-        values: &PrimitiveArray,
-        indices: &PrimitiveArray,
+        values: ArrayView<'_, Primitive>,
+        indices: ArrayView<'_, Primitive>,
         validity: Validity,
     ) -> VortexResult<ArrayRef> {
         assert!(indices.ptype().is_unsigned_int());

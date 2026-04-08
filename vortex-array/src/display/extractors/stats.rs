@@ -4,16 +4,17 @@
 use std::fmt::Write;
 use std::fmt::{self};
 
-use crate::DynArray;
+use crate::ArrayRef;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
+use crate::validity::Validity;
 
 /// Display wrapper for array statistics in compact format.
 ///
 /// Produces output like ` [nulls=3, min=5, max=100]` (with leading space).
-pub(crate) struct StatsDisplay<'a>(pub(crate) &'a dyn DynArray);
+pub(crate) struct StatsDisplay<'a>(pub(crate) &'a ArrayRef);
 
 impl fmt::Display for StatsDisplay<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -39,16 +40,17 @@ impl fmt::Display for StatsDisplay<'_> {
                 write!(f, "nulls={}", nc)?;
             }
         } else if self.0.dtype().is_nullable() {
-            match self.0.all_valid() {
-                Ok(true) => {
+            match self.0.validity() {
+                Ok(Validity::NonNullable | Validity::AllValid) => {
                     sep(f)?;
                     f.write_str("all_valid")?;
                 }
-                Ok(false) => {
-                    if self.0.all_invalid().unwrap_or(false) {
-                        sep(f)?;
-                        f.write_str("all_invalid")?;
-                    }
+                Ok(Validity::AllInvalid) => {
+                    sep(f)?;
+                    f.write_str("all_invalid")?;
+                }
+                Ok(Validity::Array(_)) => {
+                    // Avoid computing validity-array stats as a side effect of display.
                 }
                 Err(e) => {
                     tracing::warn!("Failed to check validity: {e}");
@@ -117,7 +119,7 @@ pub struct StatsExtractor;
 impl TreeExtractor for StatsExtractor {
     fn write_header(
         &self,
-        array: &dyn DynArray,
+        array: &ArrayRef,
         _ctx: &TreeContext,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {

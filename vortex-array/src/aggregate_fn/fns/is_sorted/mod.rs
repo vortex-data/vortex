@@ -13,7 +13,6 @@ use std::fmt::Formatter;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use self::bool::check_bool_sorted;
 use self::decimal::check_decimal_sorted;
@@ -23,7 +22,6 @@ use self::varbin::check_varbinview_sorted;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
@@ -232,27 +230,8 @@ impl AggregateFnVTable for IsSorted {
         AggregateFnId::new_ref("vortex.is_sorted")
     }
 
-    fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![u8::from(options.strict)]))
-    }
-
-    fn deserialize(
-        &self,
-        metadata: &[u8],
-        _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::Options> {
-        let &[strict_byte] = metadata else {
-            vortex_bail!(
-                "IsSorted: expected 1 byte of metadata, got {}",
-                metadata.len()
-            );
-        };
-        let strict = match strict_byte {
-            0 => false,
-            1 => true,
-            _ => vortex_bail!("IsSorted: expected 0 or 1 for strict, got {}", strict_byte),
-        };
-        Ok(IsSortedOptions { strict })
+    fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        unimplemented!("IsSorted is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

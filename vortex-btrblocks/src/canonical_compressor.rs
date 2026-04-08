@@ -25,9 +25,9 @@ use crate::CascadingCompressor;
 /// // Default compressor - all schemes allowed.
 /// let compressor = BtrBlocksCompressor::default();
 ///
-/// // Exclude specific schemes using the builder.
+/// // Remove specific schemes using the builder.
 /// let compressor = BtrBlocksCompressorBuilder::default()
-///     .exclude([IntDictScheme.id()])
+///     .exclude_schemes([IntDictScheme.id()])
 ///     .build();
 /// ```
 #[derive(Clone)]
@@ -60,7 +60,6 @@ impl Default for BtrBlocksCompressor {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Constant;

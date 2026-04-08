@@ -6,7 +6,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::RecursiveCanonical;
@@ -66,7 +65,7 @@ pub fn test_cast_conformance(array: &ArrayRef) {
 
 fn test_cast_identity(array: &ArrayRef) {
     // Casting to the same type should be a no-op
-    let result = cast_and_execute(&array.to_array(), array.dtype().clone())
+    let result = cast_and_execute(&array.clone(), array.dtype().clone())
         .vortex_expect("cast should succeed in conformance test");
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), array.dtype());
@@ -86,7 +85,7 @@ fn test_cast_identity(array: &ArrayRef) {
 
 fn test_cast_from_null(array: &ArrayRef) {
     // Null can be cast to itself
-    let result = cast_and_execute(&array.to_array(), DType::Null)
+    let result = cast_and_execute(&array.clone(), DType::Null)
         .vortex_expect("cast should succeed in conformance test");
     assert_eq!(result.len(), array.len());
     assert_eq!(result.dtype(), &DType::Null);
@@ -101,7 +100,7 @@ fn test_cast_from_null(array: &ArrayRef) {
     ];
 
     for dtype in nullable_types {
-        let result = cast_and_execute(&array.to_array(), dtype.clone())
+        let result = cast_and_execute(&array.clone(), dtype.clone())
             .vortex_expect("cast should succeed in conformance test");
         assert_eq!(result.len(), array.len());
         assert_eq!(result.dtype(), &dtype);
@@ -124,7 +123,7 @@ fn test_cast_from_null(array: &ArrayRef) {
     ];
 
     for dtype in non_nullable_types {
-        assert!(cast_and_execute(&array.to_array(), dtype.clone()).is_err());
+        assert!(cast_and_execute(&array.clone(), dtype.clone()).is_err());
     }
 }
 
@@ -134,7 +133,7 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
         .vortex_expect("invalid_count should succeed in conformance test")
         == 0
     {
-        let non_nullable = cast_and_execute(&array.to_array(), array.dtype().as_nonnullable())
+        let non_nullable = cast_and_execute(&array.clone(), array.dtype().as_nonnullable())
             .vortex_expect("arrays without nulls can cast to non-nullable");
         assert_eq!(non_nullable.dtype(), &array.dtype().as_nonnullable());
         assert_eq!(non_nullable.len(), array.len());
@@ -171,7 +170,7 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
             // array can be casted to DType::Null.
             return;
         }
-        cast_and_execute(&array.to_array(), array.dtype().as_nonnullable())
+        cast_and_execute(&array.clone(), array.dtype().as_nonnullable())
             .err()
             .unwrap_or_else(|| {
                 vortex_panic!(
@@ -183,7 +182,7 @@ fn test_cast_to_non_nullable(array: &ArrayRef) {
 }
 
 fn test_cast_to_nullable(array: &ArrayRef) {
-    let nullable = cast_and_execute(&array.to_array(), array.dtype().as_nullable())
+    let nullable = cast_and_execute(&array.clone(), array.dtype().as_nullable())
         .vortex_expect("arrays without nulls can cast to nullable");
     assert_eq!(nullable.dtype(), &array.dtype().as_nullable());
     assert_eq!(nullable.len(), array.len());
@@ -256,7 +255,7 @@ fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip
         && (!fits(&min, target_ptype) || !fits(&max, target_ptype))
     {
         cast_and_execute(
-            &array.to_array(),
+            &array.clone(),
             DType::Primitive(target_ptype, array.dtype().nullability()),
         )
         .err()
@@ -275,7 +274,7 @@ fn test_cast_to_primitive(array: &ArrayRef, target_ptype: PType, test_round_trip
 
     // Otherwise, all values must fit.
     let casted = cast_and_execute(
-        &array.to_array(),
+        &array.clone(),
         DType::Primitive(target_ptype, array.dtype().nullability()),
     )
     .unwrap_or_else(|e| {

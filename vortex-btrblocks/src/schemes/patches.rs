@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::patches::Patches;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;

@@ -14,11 +14,9 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
 use vortex::array::ArrayContext;
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
-use vortex::array::ArrayVisitor;
-use vortex::array::ArrayVisitorExt;
 use vortex::array::DeserializeMetadata;
-use vortex::array::DynArray;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
 use vortex::array::VortexSessionExecute;
@@ -29,9 +27,8 @@ use vortex::array::expr::stats::Stat;
 use vortex::array::expr::stats::StatsProvider;
 use vortex::array::normalize::NormalizeOptions;
 use vortex::array::normalize::Operation;
-use vortex::array::serde::ArrayParts;
 use vortex::array::serde::SerializeOptions;
-use vortex::array::session::ArrayRegistry;
+use vortex::array::serde::SerializedArray;
 use vortex::array::stats::StatsSetRef;
 use vortex::buffer::BufferString;
 use vortex::buffer::ByteBuffer;
@@ -66,6 +63,7 @@ use vortex::scalar::upper_bound;
 use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
 use vortex::utils::aliases::hash_map::HashMap;
+use vortex::utils::aliases::hash_set::HashSet;
 
 /// A buffer inlined into layout metadata for host-side access.
 #[derive(Clone, prost::Message)]
@@ -252,7 +250,7 @@ impl CudaFlatReader {
 
                 async move {
                     let segment = segment_fut.await?;
-                    let parts = ArrayParts::from_flatbuffer_and_segment_with_overrides(
+                    let parts = SerializedArray::from_flatbuffer_and_segment_with_overrides(
                         array_tree,
                         segment,
                         &host_buffers,
@@ -393,7 +391,7 @@ pub struct CudaFlatLayoutStrategy {
     /// Maximum length of variable length statistics.
     pub max_variable_length_statistics_size: usize,
     /// Optional set of allowed array encodings for normalization.
-    pub allowed_encodings: Option<ArrayRegistry>,
+    pub allowed_encodings: Option<HashSet<ArrayId>>,
 }
 
 impl Default for CudaFlatLayoutStrategy {
@@ -417,7 +415,7 @@ impl CudaFlatLayoutStrategy {
         self
     }
 
-    pub fn with_allow_encodings(mut self, allow_encodings: ArrayRegistry) -> Self {
+    pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
         self.allowed_encodings = Some(allow_encodings);
         self
     }

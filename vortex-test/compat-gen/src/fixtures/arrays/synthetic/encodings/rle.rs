@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::encodings::fastlanes::RLE;
-use vortex::encodings::fastlanes::RLEArray;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -69,14 +68,14 @@ impl FlatLayoutFixture for RleFixture {
                 "short_runs_u8",
             ]),
             vec![
-                RLEArray::encode(&runs_i32)?.into_array(),
-                RLEArray::encode(&single_run)?.into_array(),
-                RLEArray::encode(&nullable_runs)?.into_array(),
-                RLEArray::encode(&alternating_singletons)?.into_array(),
-                RLEArray::encode(&exact_boundary_runs)?.into_array(),
-                RLEArray::encode(&giant_final_run)?.into_array(),
-                RLEArray::encode(&all_null_i32)?.into_array(),
-                RLEArray::encode(&short_runs_u8)?.into_array(),
+                RLE::encode(&runs_i32)?.into_array(),
+                RLE::encode(&single_run)?.into_array(),
+                RLE::encode(&nullable_runs)?.into_array(),
+                RLE::encode(&alternating_singletons)?.into_array(),
+                RLE::encode(&exact_boundary_runs)?.into_array(),
+                RLE::encode(&giant_final_run)?.into_array(),
+                RLE::encode(&all_null_i32)?.into_array(),
+                RLE::encode(&short_runs_u8)?.into_array(),
             ],
             N,
             Validity::NonNullable,

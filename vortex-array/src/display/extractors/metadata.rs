@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use crate::DynArray;
+use crate::ArrayRef;
 use crate::display::extractor::IndentedFormatter;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
@@ -14,7 +14,7 @@ pub struct MetadataExtractor;
 impl TreeExtractor for MetadataExtractor {
     fn write_details(
         &self,
-        array: &dyn DynArray,
+        array: &ArrayRef,
         _ctx: &TreeContext,
         f: &mut IndentedFormatter<'_, '_>,
     ) -> fmt::Result {

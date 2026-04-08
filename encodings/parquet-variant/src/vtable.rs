@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
 use std::hash::Hasher;
-use std::sync::Arc;
 
 use prost::Message;
+use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
+use vortex_array::ArrayId;
+use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
@@ -18,13 +20,10 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
-use vortex_array::vtable;
-use vortex_array::vtable::Array;
-use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::VTable;
-use vortex_array::vtable::ValidityVTableFromValidityHelper;
+use vortex_array::vtable::child_to_validity;
+use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -32,10 +31,14 @@ use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 
-use crate::array::NUM_SLOTS;
-use crate::array::ParquetVariantArray;
+use crate::array::METADATA_SLOT;
+use crate::array::ParquetVariantArrayExt;
+use crate::array::ParquetVariantData;
 use crate::array::SLOT_NAMES;
+use crate::array::TYPED_VALUE_SLOT;
 use crate::array::VALIDITY_SLOT;
+use crate::array::VALUE_SLOT;
+use crate::array::validate_parts;
 use crate::kernel::PARENT_KERNELS;
 
 /// VTable for [`ParquetVariantArray`].
@@ -44,23 +47,6 @@ pub struct ParquetVariant;
 
 impl ParquetVariant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.parquet.variant");
-}
-
-/// Serialized metadata for a [`ParquetVariantArray`].
-#[derive(Clone, Debug)]
-pub struct ParquetVariantMetadata {
-    /// Whether the un-shredded `value` child is present.
-    pub has_value: bool,
-    /// Whether the `value` child is nullable.
-    ///
-    /// In partially-shredded layouts, rows whose data lives entirely in `typed_value` have a
-    /// null `value` slot, so the Arrow field is marked nullable. This flag preserves that
-    /// distinction across serialization round-trips.
-    pub value_nullable: bool,
-    /// DType of the shredded `typed_value`, if present.
-    ///
-    /// This is required to deserialize non-variant shredded children.
-    pub typed_value_dtype: Option<DType>,
 }
 
 #[derive(Clone, prost::Message)]
@@ -76,155 +62,100 @@ struct ParquetVariantMetadataProto {
     pub value_nullable: bool,
 }
 
-vtable!(ParquetVariant);
+/// A [`ParquetVariant`]-encoded Vortex array.
+pub type ParquetVariantArray = Array<ParquetVariant>;
 
 impl VTable for ParquetVariant {
-    type Array = ParquetVariantArray;
-    type Metadata = ParquetVariantMetadata;
+    type ArrayData = ParquetVariantData;
     type OperationsVTable = Self;
-    type ValidityVTable = ValidityVTableFromValidityHelper;
-
-    fn vtable(_array: &Self::Array) -> &Self {
-        &ParquetVariant
-    }
+    type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &ParquetVariantArray) -> usize {
-        array.metadata_array().len()
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        let _ = data;
+        let validity = child_to_validity(&slots[VALIDITY_SLOT], dtype.nullability());
+        let metadata = slots[METADATA_SLOT]
+            .as_ref()
+            .ok_or_else(|| vortex_err!("ParquetVariantArray metadata slot"))?;
+        validate_parts(
+            &validity,
+            metadata,
+            slots[VALUE_SLOT].as_ref(),
+            slots[TYPED_VALUE_SLOT].as_ref(),
+            dtype,
+            len,
+        )
     }
 
-    fn dtype(array: &ParquetVariantArray) -> &DType {
-        &array.dtype
-    }
-
-    fn stats(array: &ParquetVariantArray) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: Hasher>(array: &ParquetVariantArray, state: &mut H, precision: Precision) {
-        array.validity.array_hash(state, precision);
-        array.metadata_array().array_hash(state, precision);
-        // Hash discriminators so that (value=Some, typed_value=None) and
-        // (value=None, typed_value=Some) produce different hashes.
-        array.value_array().is_some().hash(state);
-        if let Some(value) = array.value_array() {
-            value.array_hash(state, precision);
-        }
-        array.typed_value_array().is_some().hash(state);
-        if let Some(typed_value) = array.typed_value_array() {
-            typed_value.array_hash(state, precision);
-        }
-    }
-
-    fn array_eq(
-        array: &ParquetVariantArray,
-        other: &ParquetVariantArray,
-        precision: Precision,
-    ) -> bool {
-        if !array.validity.array_eq(&other.validity, precision)
-            || !array
-                .metadata_array()
-                .array_eq(other.metadata_array(), precision)
-        {
-            return false;
-        }
-        match (array.value_array(), other.value_array()) {
-            (Some(a), Some(b)) => {
-                if !a.array_eq(b, precision) {
-                    return false;
-                }
-            }
-            (None, None) => {}
-            _ => return false,
-        }
-        match (array.typed_value_array(), other.typed_value_array()) {
-            (Some(a), Some(b)) => a.array_eq(b, precision),
-            (None, None) => true,
-            _ => false,
-        }
-    }
-
-    fn nbuffers(_array: &ParquetVariantArray) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &ParquetVariantArray, idx: usize) -> BufferHandle {
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("ParquetVariantArray buffer index {idx} out of bounds")
     }
 
-    fn buffer_name(_array: &ParquetVariantArray, _idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, _idx: usize) -> Option<String> {
         None
     }
 
-    fn slots(array: &ParquetVariantArray) -> &[Option<ArrayRef>] {
-        &array.slots
-    }
-
-    fn slot_name(_array: &ParquetVariantArray, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn metadata(array: &ParquetVariantArray) -> VortexResult<Self::Metadata> {
-        Ok(ParquetVariantMetadata {
-            has_value: array.value_array().is_some(),
-            value_nullable: array.value_array().is_some_and(|v| v.dtype().is_nullable()),
-            typed_value_dtype: array.typed_value_array().map(|tv| tv.dtype().clone()),
-        })
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        let typed_value_dtype = metadata
-            .typed_value_dtype
-            .as_ref()
-            .map(|dtype| dtype.try_into())
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        let typed_value_dtype = array
+            .typed_value_array()
+            .map(|tv| tv.dtype().try_into())
             .transpose()?;
         Ok(Some(
             ParquetVariantMetadataProto {
-                has_value: metadata.has_value,
+                has_value: array.value_array().is_some(),
                 typed_value_dtype,
-                value_nullable: metadata.value_nullable,
+                value_nullable: array.value_array().is_some_and(|v| v.dtype().is_nullable()),
             }
             .encode_to_vec(),
         ))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
-        _buffers: &[BufferHandle],
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+        buffers: &[BufferHandle],
+        children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        let proto = ParquetVariantMetadataProto::decode(bytes)?;
+    ) -> VortexResult<ArrayParts<Self>> {
+        vortex_ensure!(
+            buffers.is_empty(),
+            "ParquetVariantArray expects 0 buffers, got {}",
+            buffers.len()
+        );
+
+        let proto = ParquetVariantMetadataProto::decode(metadata)?;
         let typed_value_dtype = match proto.typed_value_dtype.as_ref() {
             Some(dtype) => Some(DType::from_proto(dtype, session)?),
             None => None,
         };
-        Ok(ParquetVariantMetadata {
-            has_value: proto.has_value,
-            value_nullable: proto.value_nullable,
-            typed_value_dtype,
-        })
-    }
 
-    fn build(
-        dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<ParquetVariantArray> {
         vortex_ensure!(matches!(dtype, DType::Variant(_)), "Expected Variant DType");
-        let has_typed_value = metadata.typed_value_dtype.is_some();
+        let has_typed_value = typed_value_dtype.is_some();
         vortex_ensure!(
-            metadata.has_value || has_typed_value,
+            proto.has_value || has_typed_value,
             "At least one of value or typed_value must be present"
         );
 
-        let expected_children = 1 + metadata.has_value as usize + has_typed_value as usize;
+        let expected_children = 1 + proto.has_value as usize + has_typed_value as usize;
         vortex_ensure!(
             children.len() == expected_children || children.len() == expected_children + 1,
             "Expected {} or {} children, got {}",
@@ -242,12 +173,8 @@ impl VTable for ParquetVariant {
             children.get(child_idx, &DType::Binary(Nullability::NonNullable), len)?;
         child_idx += 1;
 
-        let value = if metadata.has_value {
-            let v = children.get(
-                child_idx,
-                &DType::Binary(metadata.value_nullable.into()),
-                len,
-            )?;
+        let value = if proto.has_value {
+            let v = children.get(child_idx, &DType::Binary(proto.value_nullable.into()), len)?;
             child_idx += 1;
             Some(v)
         } else {
@@ -256,9 +183,7 @@ impl VTable for ParquetVariant {
 
         let typed_value = if has_typed_value {
             // typed_value can be any type — primitive, list, struct, etc.
-            let dtype = metadata
-                .typed_value_dtype
-                .clone()
+            let dtype = typed_value_dtype
                 .ok_or_else(|| vortex_err!("typed_value_dtype missing for typed_value child"))?;
             let tv = children.get(child_idx, &dtype, len)?;
             Some(tv)
@@ -266,37 +191,47 @@ impl VTable for ParquetVariant {
             None
         };
 
-        ParquetVariantArray::try_new(validity, variant_metadata, value, typed_value)
+        ParquetVariantData::validate_parts(
+            &validity,
+            &variant_metadata,
+            value.as_ref(),
+            typed_value.as_ref(),
+            dtype,
+            len,
+        )?;
+        let slots = vec![
+            validity_to_child(&validity, len),
+            Some(variant_metadata),
+            value,
+            typed_value,
+        ];
+        let data = ParquetVariantData;
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "ParquetVariantArray expects {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        // Update validity from the validity slot.
-        if let Some(validity_child) = &slots[VALIDITY_SLOT] {
-            array.validity = Validity::Array(validity_child.clone());
-        }
-        array.slots = slots;
-        Ok(())
-    }
-
-    fn execute(array: Arc<Array<Self>>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
             VariantArray::new(array.as_ref().clone().into_array()).into_array(),
         ))
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+}
+
+impl ArrayHash for ParquetVariantData {
+    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
+}
+
+impl ArrayEq for ParquetVariantData {
+    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
+        true
     }
 }
 
@@ -313,8 +248,8 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
-    use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
+    use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -324,8 +259,7 @@ mod tests {
     use vortex_session::registry::ReadContext;
 
     use crate::ParquetVariant;
-    use crate::ParquetVariantArray;
-
+    use crate::array::ParquetVariantArrayExt;
     fn roundtrip(array: ArrayRef) -> ArrayRef {
         let dtype = array.dtype().clone();
         let len = array.len();
@@ -343,7 +277,7 @@ mod tests {
         session.arrays().register(ParquetVariant);
         session.arrays().register(Variant);
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         parts
             .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
             .unwrap()
@@ -357,7 +291,7 @@ mod tests {
         let inner_metadata =
             VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
         let inner_value = VarBinViewArray::from_iter_bin([b"\x02", b"\x03", b"\x04"]).into_array();
-        let inner_pv = ParquetVariantArray::try_new(
+        let inner_pv = ParquetVariant::try_new(
             Validity::NonNullable,
             inner_metadata,
             Some(inner_value),
@@ -366,7 +300,7 @@ mod tests {
         .unwrap();
         let typed_value = VariantArray::new(inner_pv.into_array()).into_array();
 
-        let outer_pv = ParquetVariantArray::try_new(
+        let outer_pv = ParquetVariant::try_new(
             Validity::NonNullable,
             outer_metadata,
             None,
@@ -389,7 +323,7 @@ mod tests {
         let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11", b"\x12"]).into_array();
         let validity = Validity::from(BitBuffer::from_iter([true, false, true]));
 
-        let pv = ParquetVariantArray::try_new(validity, metadata, Some(value), None).unwrap();
+        let pv = ParquetVariant::try_new(validity, metadata, Some(value), None).unwrap();
         let array = pv.into_array();
         let decoded = roundtrip(array.clone());
 
@@ -406,7 +340,7 @@ mod tests {
             VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
         let typed_value = buffer![10i32, 20, 30].into_array();
 
-        let outer_pv = ParquetVariantArray::try_new(
+        let outer_pv = ParquetVariant::try_new(
             Validity::NonNullable,
             outer_metadata,
             None,

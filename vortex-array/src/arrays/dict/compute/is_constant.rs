@@ -11,6 +11,7 @@ use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Dict;
+use crate::arrays::dict::DictArrayExt;
 use crate::scalar::Scalar;
 
 /// Dict-specific is_constant kernel.

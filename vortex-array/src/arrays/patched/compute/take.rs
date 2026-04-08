@@ -6,13 +6,14 @@ use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::primitive::PrimitiveArrayParts;
+use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::primitive::PrimitiveDataParts;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
@@ -20,7 +21,7 @@ use crate::match_each_unsigned_integer_ptype;
 
 impl TakeExecute for Patched {
     fn take(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -35,11 +36,11 @@ impl TakeExecute for Patched {
             .take(indices.clone())?
             .execute::<PrimitiveArray>(ctx)?;
 
-        let PrimitiveArrayParts {
+        let PrimitiveDataParts {
             buffer,
             validity,
             ptype,
-        } = inner.into_parts();
+        } = inner.into_data_parts();
 
         let indices_ptype = indices.dtype().as_ptype();
 
@@ -62,9 +63,9 @@ impl TakeExecute for Patched {
                 take_map(
                     output.as_mut(),
                     indices.as_slice::<I>(),
-                    array.offset,
-                    array.len,
-                    array.n_lanes,
+                    array.offset(),
+                    array.len(),
+                    array.n_lanes(),
                     lane_offsets.as_slice::<u32>(),
                     patch_indices.as_slice::<u16>(),
                     patch_values.as_slice::<V>(),
@@ -134,10 +135,9 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
-    use crate::arrays::PatchedArray;
+    use crate::arrays::Patched;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
@@ -160,7 +160,9 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        PatchedArray::from_array_and_patches(values, &patches, &mut ctx)?.slice(slice)
+        Patched::from_array_and_patches(values, &patches, &mut ctx)?
+            .into_array()
+            .slice(slice)
     }
 
     #[test]

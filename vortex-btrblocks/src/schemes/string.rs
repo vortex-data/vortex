@@ -8,14 +8,17 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::VarBinArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;
-use vortex_fsst::FSSTArray;
+use vortex_fsst::FSST;
+use vortex_fsst::FSSTArrayExt;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_sparse::Sparse;
-use vortex_sparse::SparseArray;
 
 use super::integer::IntDictScheme;
 use super::integer::SparseScheme as IntSparseScheme;
@@ -65,18 +68,23 @@ impl Scheme for FSSTScheme {
         2
     }
 
+    fn expected_compression_ratio(
+        &self,
+        _data: &mut ArrayAndStats,
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Sample
+    }
+
     fn compress(
         &self,
         compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.string_stats();
-
-        let fsst = {
-            let compressor_fsst = fsst_train_compressor(stats.source());
-            fsst_compress(stats.source(), &compressor_fsst)
-        };
+        let utf8 = data.array_as_utf8();
+        let compressor_fsst = fsst_train_compressor(&utf8);
+        let fsst = fsst_compress(&utf8, utf8.len(), utf8.dtype(), &compressor_fsst);
 
         let compressed_original_lengths = compressor.compress_child(
             &fsst
@@ -99,10 +107,10 @@ impl Scheme for FSSTScheme {
             compressed_codes_offsets,
             fsst.codes().bytes().clone(),
             fsst.codes().dtype().clone(),
-            fsst.codes().validity(),
+            fsst.codes().validity()?,
         )?;
 
-        let fsst = FSSTArray::try_new(
+        let fsst = FSST::try_new(
             fsst.dtype().clone(),
             fsst.symbols().clone(),
             fsst.symbol_lengths().clone(),
@@ -144,24 +152,25 @@ impl Scheme for NullDominatedSparseScheme {
 
     fn expected_compression_ratio(
         &self,
-        _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+    ) -> CompressionEstimate {
+        let len = data.array_len() as f64;
         let stats = data.string_stats();
+        let value_count = stats.value_count();
 
-        if stats.value_count() == 0 {
-            // All nulls should use ConstantScheme.
-            return Ok(0.0);
+        // All-null arrays should be compressed as constant instead anyways.
+        if value_count == 0 {
+            return CompressionEstimate::Skip;
         }
 
-        // If the majority is null, will compress well.
-        if stats.null_count() as f64 / stats.source().len() as f64 > 0.9 {
-            return Ok(stats.source().len() as f64 / stats.value_count() as f64);
+        // If the majority (90%) of values is null, this will compress well.
+        if stats.null_count() as f64 / len > 0.9 {
+            return CompressionEstimate::Ratio(len / value_count as f64);
         }
 
         // Otherwise we don't go this route.
-        Ok(0.0)
+        CompressionEstimate::Skip
     }
 
     fn compress(
@@ -170,10 +179,8 @@ impl Scheme for NullDominatedSparseScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.string_stats();
-
         // We pass None as we only run this pathway for NULL-dominated string arrays.
-        let sparse_encoded = SparseArray::encode(&stats.source().clone().into_array(), None)?;
+        let sparse_encoded = Sparse::encode(data.array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             // Compress the indices only (not the values for strings).
@@ -181,7 +188,7 @@ impl Scheme for NullDominatedSparseScheme {
             let compressed_indices =
                 compressor.compress_child(&indices.into_array(), &ctx, self.id(), 0)?;
 
-            SparseArray::try_new(
+            Sparse::try_new(
                 compressed_indices,
                 sparse.patches().values().clone(),
                 sparse.len(),
@@ -204,19 +211,22 @@ impl Scheme for ZstdScheme {
         is_utf8_string(canonical)
     }
 
+    fn expected_compression_ratio(
+        &self,
+        _data: &mut ArrayAndStats,
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Sample
+    }
+
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.string_stats();
-
-        let compacted = stats.source().compact_buffers()?;
-        Ok(
-            vortex_zstd::ZstdArray::from_var_bin_view_without_dict(&compacted, 3, 8192)?
-                .into_array(),
-        )
+        let compacted = data.array_as_utf8().compact_buffers()?;
+        Ok(vortex_zstd::Zstd::from_var_bin_view_without_dict(&compacted, 3, 8192)?.into_array())
     }
 }
 
@@ -230,18 +240,21 @@ impl Scheme for ZstdBuffersScheme {
         is_utf8_string(canonical)
     }
 
+    fn expected_compression_ratio(
+        &self,
+        _data: &mut ArrayAndStats,
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Sample
+    }
+
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.string_stats();
-
-        Ok(
-            vortex_zstd::ZstdBuffersArray::compress(&stats.source().clone().into_array(), 3)?
-                .into_array(),
-        )
+        Ok(vortex_zstd::ZstdBuffers::compress(data.array(), 3)?.into_array())
     }
 }
 

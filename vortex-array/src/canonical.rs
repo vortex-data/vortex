@@ -13,10 +13,11 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::array::ArrayView;
+use crate::array::child_to_validity;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
@@ -37,13 +38,16 @@ use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
-use crate::arrays::bool::BoolArrayParts;
-use crate::arrays::decimal::DecimalArrayParts;
-use crate::arrays::listview::ListViewArrayParts;
+use crate::arrays::bool::BoolDataParts;
+use crate::arrays::decimal::DecimalDataParts;
+use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrays::primitive::PrimitiveArrayParts;
-use crate::arrays::struct_::StructArrayParts;
-use crate::arrays::varbinview::VarBinViewArrayParts;
+use crate::arrays::primitive::PrimitiveDataParts;
+use crate::arrays::struct_::StructDataParts;
+use crate::arrays::varbinview::VarBinViewDataParts;
+use crate::arrays::variant::VariantArrayExt;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -55,7 +59,7 @@ use crate::validity::Validity;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
-/// Any array can be decoded into canonical form via the [`to_canonical`](DynArray::to_canonical)
+/// Any array can be decoded into canonical form via the `to_canonical`
 /// trait method. This is the simplest encoding for a type, and will not be compressed but may
 /// contain compressed child arrays.
 ///
@@ -410,12 +414,6 @@ impl Canonical {
     }
 }
 
-impl AsRef<dyn DynArray> for Canonical {
-    fn as_ref(&self) -> &(dyn DynArray + 'static) {
-        match_each_canonical!(self, |arr| arr.as_ref())
-    }
-}
-
 impl IntoArray for Canonical {
     fn into_array(self) -> ArrayRef {
         match_each_canonical!(self, |arr| arr.into_array())
@@ -462,7 +460,7 @@ pub trait ToCanonical {
 }
 
 // Blanket impl for all Array encodings.
-impl<A: DynArray + ?Sized> ToCanonical for A {
+impl ToCanonical for ArrayRef {
     fn to_null(&self) -> NullArray {
         self.to_canonical()
             .vortex_expect("to_canonical failed")
@@ -550,33 +548,30 @@ impl Executable for CanonicalValidity {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(CanonicalValidity(n)),
             Canonical::Bool(b) => {
-                let BoolArrayParts {
-                    bits,
-                    offset,
-                    len,
-                    validity,
-                } = b.into_parts();
+                let validity = child_to_validity(&b.slots()[0], b.dtype().nullability());
+                let len = b.len();
+                let BoolDataParts { bits, offset, len } = b.into_data().into_parts(len);
                 Ok(CanonicalValidity(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))
             }
             Canonical::Primitive(p) => {
-                let PrimitiveArrayParts {
+                let PrimitiveDataParts {
                     ptype,
                     buffer,
                     validity,
-                } = p.into_parts();
+                } = p.into_data_parts();
                 Ok(CanonicalValidity(Canonical::Primitive(unsafe {
                     PrimitiveArray::new_unchecked_from_handle(buffer, ptype, validity.execute(ctx)?)
                 })))
             }
             Canonical::Decimal(d) => {
-                let DecimalArrayParts {
+                let DecimalDataParts {
                     decimal_dtype,
                     values,
                     values_type,
                     validity,
-                } = d.into_parts();
+                } = d.into_data_parts();
                 Ok(CanonicalValidity(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(
                         values,
@@ -587,12 +582,12 @@ impl Executable for CanonicalValidity {
                 })))
             }
             Canonical::VarBinView(vbv) => {
-                let VarBinViewArrayParts {
+                let VarBinViewDataParts {
                     dtype,
                     buffers,
                     views,
                     validity,
-                } = vbv.into_parts();
+                } = vbv.into_data_parts();
                 Ok(CanonicalValidity(Canonical::VarBinView(unsafe {
                     VarBinViewArray::new_handle_unchecked(
                         views,
@@ -604,13 +599,13 @@ impl Executable for CanonicalValidity {
             }
             Canonical::List(l) => {
                 let zctl = l.is_zero_copy_to_list();
-                let ListViewArrayParts {
+                let ListViewDataParts {
                     elements,
                     offsets,
                     sizes,
                     validity,
                     ..
-                } = l.into_parts();
+                } = l.into_data_parts();
                 Ok(CanonicalValidity(Canonical::List(unsafe {
                     ListViewArray::new_unchecked(elements, offsets, sizes, validity.execute(ctx)?)
                         .with_zero_copy_to_list(zctl)
@@ -619,18 +614,20 @@ impl Executable for CanonicalValidity {
             Canonical::FixedSizeList(fsl) => {
                 let list_size = fsl.list_size();
                 let len = fsl.len();
-                let (elements, validity, _) = fsl.into_parts();
+                let parts = fsl.into_data_parts();
+                let elements = parts.elements;
+                let validity = parts.validity;
                 Ok(CanonicalValidity(Canonical::FixedSizeList(
                     FixedSizeListArray::new(elements, list_size, validity.execute(ctx)?, len),
                 )))
             }
             Canonical::Struct(st) => {
                 let len = st.len();
-                let StructArrayParts {
+                let StructDataParts {
                     struct_fields,
                     fields,
                     validity,
-                } = st.into_parts();
+                } = st.into_data_parts();
                 Ok(CanonicalValidity(Canonical::Struct(unsafe {
                     StructArray::new_unchecked(fields, struct_fields, len, validity.execute(ctx)?)
                 })))
@@ -670,33 +667,30 @@ impl Executable for RecursiveCanonical {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(RecursiveCanonical(n)),
             Canonical::Bool(b) => {
-                let BoolArrayParts {
-                    bits,
-                    offset,
-                    len,
-                    validity,
-                } = b.into_parts();
+                let validity = child_to_validity(&b.slots()[0], b.dtype().nullability());
+                let len = b.len();
+                let BoolDataParts { bits, offset, len } = b.into_data().into_parts(len);
                 Ok(RecursiveCanonical(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))
             }
             Canonical::Primitive(p) => {
-                let PrimitiveArrayParts {
+                let PrimitiveDataParts {
                     ptype,
                     buffer,
                     validity,
-                } = p.into_parts();
+                } = p.into_data_parts();
                 Ok(RecursiveCanonical(Canonical::Primitive(unsafe {
                     PrimitiveArray::new_unchecked_from_handle(buffer, ptype, validity.execute(ctx)?)
                 })))
             }
             Canonical::Decimal(d) => {
-                let DecimalArrayParts {
+                let DecimalDataParts {
                     decimal_dtype,
                     values,
                     values_type,
                     validity,
-                } = d.into_parts();
+                } = d.into_data_parts();
                 Ok(RecursiveCanonical(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(
                         values,
@@ -707,12 +701,12 @@ impl Executable for RecursiveCanonical {
                 })))
             }
             Canonical::VarBinView(vbv) => {
-                let VarBinViewArrayParts {
+                let VarBinViewDataParts {
                     dtype,
                     buffers,
                     views,
                     validity,
-                } = vbv.into_parts();
+                } = vbv.into_data_parts();
                 Ok(RecursiveCanonical(Canonical::VarBinView(unsafe {
                     VarBinViewArray::new_handle_unchecked(
                         views,
@@ -724,13 +718,13 @@ impl Executable for RecursiveCanonical {
             }
             Canonical::List(l) => {
                 let zctl = l.is_zero_copy_to_list();
-                let ListViewArrayParts {
+                let ListViewDataParts {
                     elements,
                     offsets,
                     sizes,
                     validity,
                     ..
-                } = l.into_parts();
+                } = l.into_data_parts();
                 Ok(RecursiveCanonical(Canonical::List(unsafe {
                     ListViewArray::new_unchecked(
                         elements.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
@@ -744,7 +738,9 @@ impl Executable for RecursiveCanonical {
             Canonical::FixedSizeList(fsl) => {
                 let list_size = fsl.list_size();
                 let len = fsl.len();
-                let (elements, validity, _) = fsl.into_parts();
+                let parts = fsl.into_data_parts();
+                let elements = parts.elements;
+                let validity = parts.validity;
                 Ok(RecursiveCanonical(Canonical::FixedSizeList(
                     FixedSizeListArray::new(
                         elements.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
@@ -756,11 +752,11 @@ impl Executable for RecursiveCanonical {
             }
             Canonical::Struct(st) => {
                 let len = st.len();
-                let StructArrayParts {
+                let StructDataParts {
                     struct_fields,
                     fields,
                     validity,
-                } = st.into_parts();
+                } = st.into_data_parts();
                 let executed_fields = fields
                     .iter()
                     .map(|f| Ok(f.clone().execute::<RecursiveCanonical>(ctx)?.0.into_array()))
@@ -808,7 +804,10 @@ impl<T: NativePType> Executable for Buffer<T> {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let array = PrimitiveArray::execute(array, ctx)?;
         vortex_ensure!(
-            array.all_valid()?,
+            matches!(
+                array.validity()?,
+                Validity::NonNullable | Validity::AllValid
+            ),
             "Cannot execute to native buffer: array is not all-valid."
         );
         Ok(array.into_buffer())
@@ -820,7 +819,7 @@ impl<T: NativePType> Executable for Buffer<T> {
 /// This will panic if the array's dtype is not primitive.
 impl Executable for PrimitiveArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Primitive>() {
+        match array.try_downcast::<Primitive>() {
             Ok(primitive) => Ok(primitive),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_primitive()),
         }
@@ -832,7 +831,7 @@ impl Executable for PrimitiveArray {
 /// This will panic if the array's dtype is not bool.
 impl Executable for BoolArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Bool>() {
+        match array.try_downcast::<Bool>() {
             Ok(bool_array) => Ok(bool_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_bool()),
         }
@@ -858,7 +857,7 @@ impl Executable for BitBuffer {
 /// This will panic if the array's dtype is not null.
 impl Executable for NullArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Null>() {
+        match array.try_downcast::<Null>() {
             Ok(null_array) => Ok(null_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_null()),
         }
@@ -870,7 +869,7 @@ impl Executable for NullArray {
 /// This will panic if the array's dtype is not utf8 or binary.
 impl Executable for VarBinViewArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<VarBinView>() {
+        match array.try_downcast::<VarBinView>() {
             Ok(varbinview) => Ok(varbinview),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_varbinview()),
         }
@@ -882,7 +881,7 @@ impl Executable for VarBinViewArray {
 /// This will panic if the array's dtype is not an extension type.
 impl Executable for ExtensionArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Extension>() {
+        match array.try_downcast::<Extension>() {
             Ok(ext_array) => Ok(ext_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_extension()),
         }
@@ -894,7 +893,7 @@ impl Executable for ExtensionArray {
 /// This will panic if the array's dtype is not decimal.
 impl Executable for DecimalArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Decimal>() {
+        match array.try_downcast::<Decimal>() {
             Ok(decimal) => Ok(decimal),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_decimal()),
         }
@@ -906,7 +905,7 @@ impl Executable for DecimalArray {
 /// This will panic if the array's dtype is not list.
 impl Executable for ListViewArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<ListView>() {
+        match array.try_downcast::<ListView>() {
             Ok(list) => Ok(list),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_listview()),
         }
@@ -918,7 +917,7 @@ impl Executable for ListViewArray {
 /// This will panic if the array's dtype is not fixed size list.
 impl Executable for FixedSizeListArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<FixedSizeList>() {
+        match array.try_downcast::<FixedSizeList>() {
             Ok(fsl) => Ok(fsl),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_fixed_size_list()),
         }
@@ -930,7 +929,7 @@ impl Executable for FixedSizeListArray {
 /// This will panic if the array's dtype is not struct.
 impl Executable for StructArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Struct>() {
+        match array.try_downcast::<Struct>() {
             Ok(struct_array) => Ok(struct_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_struct()),
         }
@@ -938,50 +937,54 @@ impl Executable for StructArray {
 }
 
 /// A view into a canonical array type.
-#[derive(Debug, Clone)]
+///
+/// Uses `ArrayView<V>` because these are obtained by
+/// downcasting through the `Matcher` trait which returns `ArrayView<V>`.
+#[derive(Debug, Clone, Copy)]
 pub enum CanonicalView<'a> {
-    Null(&'a NullArray),
-    Bool(&'a BoolArray),
-    Primitive(&'a PrimitiveArray),
-    Decimal(&'a DecimalArray),
-    VarBinView(&'a VarBinViewArray),
-    List(&'a ListViewArray),
-    FixedSizeList(&'a FixedSizeListArray),
-    Struct(&'a StructArray),
-    Extension(&'a ExtensionArray),
-    Variant(&'a VariantArray),
+    Null(ArrayView<'a, Null>),
+    Bool(ArrayView<'a, Bool>),
+    Primitive(ArrayView<'a, Primitive>),
+    Decimal(ArrayView<'a, Decimal>),
+    VarBinView(ArrayView<'a, VarBinView>),
+    List(ArrayView<'a, ListView>),
+    FixedSizeList(ArrayView<'a, FixedSizeList>),
+    Struct(ArrayView<'a, Struct>),
+    Extension(ArrayView<'a, Extension>),
+    Variant(ArrayView<'a, Variant>),
 }
 
 impl From<CanonicalView<'_>> for Canonical {
     fn from(value: CanonicalView<'_>) -> Self {
         match value {
-            CanonicalView::Null(a) => Canonical::Null(a.clone()),
-            CanonicalView::Bool(a) => Canonical::Bool(a.clone()),
-            CanonicalView::Primitive(a) => Canonical::Primitive(a.clone()),
-            CanonicalView::Decimal(a) => Canonical::Decimal(a.clone()),
-            CanonicalView::VarBinView(a) => Canonical::VarBinView(a.clone()),
-            CanonicalView::List(a) => Canonical::List(a.clone()),
-            CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.clone()),
-            CanonicalView::Struct(a) => Canonical::Struct(a.clone()),
-            CanonicalView::Extension(a) => Canonical::Extension(a.clone()),
-            CanonicalView::Variant(a) => Canonical::Variant(a.clone()),
+            CanonicalView::Null(a) => Canonical::Null(a.into_owned()),
+            CanonicalView::Bool(a) => Canonical::Bool(a.into_owned()),
+            CanonicalView::Primitive(a) => Canonical::Primitive(a.into_owned()),
+            CanonicalView::Decimal(a) => Canonical::Decimal(a.into_owned()),
+            CanonicalView::VarBinView(a) => Canonical::VarBinView(a.into_owned()),
+            CanonicalView::List(a) => Canonical::List(a.into_owned()),
+            CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.into_owned()),
+            CanonicalView::Struct(a) => Canonical::Struct(a.into_owned()),
+            CanonicalView::Extension(a) => Canonical::Extension(a.into_owned()),
+            CanonicalView::Variant(a) => Canonical::Variant(a.into_owned()),
         }
     }
 }
 
-impl AsRef<dyn DynArray> for CanonicalView<'_> {
-    fn as_ref(&self) -> &dyn DynArray {
+impl CanonicalView<'_> {
+    /// Convert to a type-erased [`ArrayRef`].
+    pub fn to_array_ref(&self) -> ArrayRef {
         match self {
-            CanonicalView::Null(a) => a.as_ref(),
-            CanonicalView::Bool(a) => a.as_ref(),
-            CanonicalView::Primitive(a) => a.as_ref(),
-            CanonicalView::Decimal(a) => a.as_ref(),
-            CanonicalView::VarBinView(a) => a.as_ref(),
-            CanonicalView::List(a) => a.as_ref(),
-            CanonicalView::FixedSizeList(a) => a.as_ref(),
-            CanonicalView::Struct(a) => a.as_ref(),
-            CanonicalView::Extension(a) => a.as_ref(),
-            CanonicalView::Variant(a) => a.as_ref(),
+            CanonicalView::Null(a) => a.array().clone(),
+            CanonicalView::Bool(a) => a.array().clone(),
+            CanonicalView::Primitive(a) => a.array().clone(),
+            CanonicalView::Decimal(a) => a.array().clone(),
+            CanonicalView::VarBinView(a) => a.array().clone(),
+            CanonicalView::List(a) => a.array().clone(),
+            CanonicalView::FixedSizeList(a) => a.array().clone(),
+            CanonicalView::Struct(a) => a.array().clone(),
+            CanonicalView::Extension(a) => a.array().clone(),
+            CanonicalView::Variant(a) => a.array().clone(),
         }
     }
 }
@@ -991,7 +994,7 @@ pub struct AnyCanonical;
 impl Matcher for AnyCanonical {
     type Match<'a> = CanonicalView<'a>;
 
-    fn matches(array: &dyn DynArray) -> bool {
+    fn matches(array: &ArrayRef) -> bool {
         array.is::<Null>()
             || array.is::<Bool>()
             || array.is::<Primitive>()
@@ -1005,7 +1008,7 @@ impl Matcher for AnyCanonical {
             || array.is::<Variant>()
     }
 
-    fn try_match<'a>(array: &'a dyn DynArray) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(array: &'a ArrayRef) -> Option<Self::Match<'a>> {
         if let Some(a) = array.as_opt::<Null>() {
             Some(CanonicalView::Null(a))
         } else if let Some(a) = array.as_opt::<Bool>() {

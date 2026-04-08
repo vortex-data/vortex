@@ -68,6 +68,8 @@ pub fn vortex_mask::Mask::into_bit_buffer(self) -> vortex_buffer::bit::buf::BitB
 
 pub fn vortex_mask::Mask::is_empty(&self) -> bool
 
+pub fn vortex_mask::Mask::last(&self) -> core::option::Option<usize>
+
 pub fn vortex_mask::Mask::len(&self) -> usize
 
 pub fn vortex_mask::Mask::limit(self, limit: usize) -> Self

@@ -11,3 +11,8 @@ pub mod paste {
 
 // Re-export of [`inventory`](https://docs.rs/inventory/latest/inventory/).
 pub use inventory;
+
+pub mod vortex_error {
+    //! Re-export of [`vortex_error`](https://docs.rs/vortex-error/latest/vortex_error/).
+    pub use vortex_error::VortexExpect;
+}

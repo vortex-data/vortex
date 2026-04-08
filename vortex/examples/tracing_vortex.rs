@@ -37,11 +37,12 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinArray;
+use vortex::array::stream::ArrayStreamExt;
 use vortex::array::validity::Validity;
+use vortex::compressor::BtrBlocksCompressorBuilder;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::file::WriteStrategyBuilder;
-use vortex_array::stream::ArrayStreamExt;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_session::VortexSession;
@@ -388,12 +389,12 @@ async fn write_batch_to_vortex(
     // Use compact encodings (Pco + Zstd) for the telemetry files.
     let write_opts = session.write_options().with_strategy(
         WriteStrategyBuilder::default()
-            .with_compact_encodings()
+            .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact())
             .build(),
     );
 
     write_opts
-        .write(&mut file, struct_array.to_array_stream())
+        .write(&mut file, struct_array.into_array().to_array_stream())
         .await?;
 
     println!(

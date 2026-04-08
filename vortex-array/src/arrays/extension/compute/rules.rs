@@ -5,10 +5,11 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
-use crate::arrays::FilterArray;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -33,8 +34,8 @@ impl ArrayParentReduceRule<Extension> for ExtensionFilterPushDownRule {
 
     fn reduce_parent(
         &self,
-        child: &ExtensionArray,
-        parent: &FilterArray,
+        child: ArrayView<'_, Extension>,
+        parent: ArrayView<'_, Filter>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         debug_assert_eq!(child_idx, 0);
@@ -54,7 +55,6 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use crate::DynArray;
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;
@@ -62,7 +62,9 @@ mod tests {
     use crate::arrays::ExtensionArray;
     use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::extension::ExtensionArrayExt;
     use crate::arrays::scalar_fn::ScalarFnArrayExt;
+    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -218,7 +220,7 @@ mod tests {
         let const_array = ConstantArray::new(const_scalar, 3).into_array();
 
         let scalar_fn_array = Binary
-            .try_new_array(3, Operator::Lt, [ext_array.clone(), const_array])
+            .try_new_array(3, Operator::Lt, [ext_array, const_array])
             .unwrap();
 
         let optimized = scalar_fn_array.optimize().unwrap();
@@ -243,7 +245,7 @@ mod tests {
 
         // Both children are extension arrays (not constants)
         let scalar_fn_array = Binary
-            .try_new_array(3, Operator::Lt, [ext_array1.clone(), ext_array2])
+            .try_new_array(3, Operator::Lt, [ext_array1, ext_array2])
             .unwrap();
 
         let optimized = scalar_fn_array.optimize().unwrap();
@@ -266,7 +268,7 @@ mod tests {
         let const_array = ConstantArray::new(Scalar::from(25i64), 3).into_array();
 
         let scalar_fn_array = Binary
-            .try_new_array(3, Operator::Lt, [ext_array.clone(), const_array])
+            .try_new_array(3, Operator::Lt, [ext_array, const_array])
             .unwrap();
 
         let optimized = scalar_fn_array.optimize().unwrap();

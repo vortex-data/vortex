@@ -84,9 +84,6 @@ runs:
       if: runner.os != 'Windows'
       uses: ./.github/actions/setup-protoc
 
-    - name: Install Ninja (for DuckDB build system)
-      uses: seanmiddleditch/gha-setup-ninja@v6
-
     - name: Install Sweep
       shell: bash
       if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}

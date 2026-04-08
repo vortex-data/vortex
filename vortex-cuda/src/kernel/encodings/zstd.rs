@@ -20,13 +20,14 @@ use vortex::array::arrays::varbinview::BinaryView;
 use vortex::array::arrays::varbinview::build_views::MAX_BUFFER_LEN;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::buffer::DeviceBuffer;
+use vortex::array::vtable::child_to_validity;
 use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
-use vortex::encodings::zstd::ZstdArrayParts;
+use vortex::encodings::zstd::ZstdDataParts;
 use vortex::encodings::zstd::ZstdMetadata;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -185,7 +186,7 @@ pub(crate) struct ZstdExecutor;
 
 impl ZstdExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZstdArray> {
-        array.as_opt::<Zstd>().cloned()
+        array.try_downcast::<Zstd>().ok()
     }
 }
 
@@ -199,30 +200,31 @@ impl CudaExecute for ZstdExecutor {
     ) -> VortexResult<Canonical> {
         let zstd = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ZstdArray"))?;
 
-        match zstd.as_ref().dtype() {
+        match zstd.dtype() {
             DType::Binary(_) | DType::Utf8(_) => decode_zstd(zstd, ctx).await,
             _other => {
                 debug!(
                     dtype = %_other,
                     "Only Binary/Utf8 ZSTD arrays supported on GPU, falling back to CPU"
                 );
-                zstd.decompress(ctx.execution_ctx())?.to_canonical()
+                Zstd::decompress(&zstd, ctx.execution_ctx())?.to_canonical()
             }
         }
     }
 }
 
 async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-    let ZstdArrayParts {
+    let dtype = array.dtype().clone();
+    let validity = child_to_validity(&array.as_ref().slots()[0], dtype.nullability());
+    let ZstdDataParts {
         frames,
         metadata,
-        dtype,
         validity,
         n_rows,
         dictionary,
         slice_start,
         slice_stop,
-    } = array.into_parts();
+    } = array.into_data().into_parts(validity);
 
     // nvCOMP doesn't support ZSTD dictionaries.
     if dictionary.is_some() {
@@ -350,7 +352,7 @@ mod tests {
     use vortex::array::IntoArray;
     use vortex::array::arrays::VarBinViewArray;
     use vortex::array::assert_arrays_eq;
-    use vortex::encodings::zstd::ZstdArray;
+    use vortex::encodings::zstd::Zstd;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
 
@@ -371,11 +373,9 @@ mod tests {
             "baz",
         ]);
 
-        let zstd_array = ZstdArray::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
 
-        let cpu_result = zstd_array
-            .decompress(cuda_ctx.execution_ctx())?
-            .to_canonical()?;
+        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?.to_canonical()?;
         let gpu_result = ZstdExecutor
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
@@ -408,11 +408,9 @@ mod tests {
 
         // Compress with ZSTD using values_per_frame=3 to create multiple frames.
         // 14 strings and 3 values per frame = ceil(14/3) = 5 frames.
-        let zstd_array = ZstdArray::from_var_bin_view(&strings, 3, 3)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 3)?;
 
-        let cpu_result = zstd_array
-            .decompress(cuda_ctx.execution_ctx())?
-            .to_canonical()?;
+        let cpu_result = Zstd::decompress(&zstd_array, cuda_ctx.execution_ctx())?.to_canonical()?;
         let gpu_result = ZstdExecutor
             .execute(zstd_array.into_array(), &mut cuda_ctx)
             .await?;
@@ -439,7 +437,7 @@ mod tests {
             "final test string",
         ]);
 
-        let zstd_array = ZstdArray::from_var_bin_view(&strings, 3, 0)?;
+        let zstd_array = Zstd::from_var_bin_view(&strings, 3, 0)?;
 
         // Slice the array to get a subset (indices 2..7)
         let sliced_zstd = zstd_array.slice(2..7)?;

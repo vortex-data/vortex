@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
-use vortex::array::vtable::ArrayId;
 use vortex::encodings::pco::Pco;
-use vortex::encodings::pco::PcoArray;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -70,14 +69,14 @@ impl FlatLayoutFixture for PcoFixture {
                 "narrow_i16",
             ]),
             vec![
-                PcoArray::from_primitive(&irregular_i64, 8, 0)?.into_array(),
-                PcoArray::from_primitive(&smooth_f64, 8, 0)?.into_array(),
-                PcoArray::from_primitive(&pattern_u32, 8, 0)?.into_array(),
-                PcoArray::from_primitive(&nullable_f32, 8, 0)?.into_array(),
-                PcoArray::from_primitive(&negative_i32, 8, 0)?.into_array(),
-                PcoArray::from_primitive(&constant_u16, 8, 0)?.into_array(),
-                PcoArray::from_primitive(&spike_outliers, 8, 0)?.into_array(),
-                PcoArray::from_primitive(&narrow_i16, 8, 0)?.into_array(),
+                Pco::from_primitive(&irregular_i64, 8, 0)?.into_array(),
+                Pco::from_primitive(&smooth_f64, 8, 0)?.into_array(),
+                Pco::from_primitive(&pattern_u32, 8, 0)?.into_array(),
+                Pco::from_primitive(&nullable_f32, 8, 0)?.into_array(),
+                Pco::from_primitive(&negative_i32, 8, 0)?.into_array(),
+                Pco::from_primitive(&constant_u16, 8, 0)?.into_array(),
+                Pco::from_primitive(&spike_outliers, 8, 0)?.into_array(),
+                Pco::from_primitive(&narrow_i16, 8, 0)?.into_array(),
             ],
             N,
             Validity::NonNullable,

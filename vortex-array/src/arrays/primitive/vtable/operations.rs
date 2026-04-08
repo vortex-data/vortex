@@ -4,15 +4,15 @@
 use vortex_error::VortexResult;
 
 use crate::ExecutionCtx;
+use crate::array::ArrayView;
+use crate::array::OperationsVTable;
 use crate::arrays::Primitive;
-use crate::arrays::primitive::vtable::PrimitiveArray;
 use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
-use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<Primitive> for Primitive {
     fn scalar_at(
-        array: &PrimitiveArray,
+        array: ArrayView<'_, Primitive>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {

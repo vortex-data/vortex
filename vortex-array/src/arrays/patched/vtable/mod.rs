@@ -1,40 +1,43 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use prost::Message;
+
+use crate::ArrayEq;
+use crate::ArrayHash;
 mod kernels;
 mod operations;
 mod slice;
 
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::sync::Arc;
 
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::ArrayEq;
-use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DeserializeMetadata;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::Precision;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
+use crate::array::Array;
+use crate::array::ArrayId;
+use crate::array::ArrayParts;
+use crate::array::ArrayView;
+use crate::array::VTable;
+use crate::array::ValidityChild;
+use crate::array::ValidityVTableFromChild;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::patched::PatchedArray;
-use crate::arrays::patched::array::NUM_SLOTS;
+use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedData;
 use crate::arrays::patched::array::SLOT_NAMES;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
-use crate::arrays::primitive::PrimitiveArrayParts;
+use crate::arrays::primitive::PrimitiveDataParts;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
@@ -43,23 +46,16 @@ use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
-use crate::stats::StatsSetRef;
-use crate::vtable;
-use crate::vtable::Array;
-use crate::vtable::ArrayId;
-use crate::vtable::VTable;
-use crate::vtable::ValidityChild;
-use crate::vtable::ValidityVTableFromChild;
 
-vtable!(Patched);
+/// A [`Patched`]-encoded Vortex array.
+pub type PatchedArray = Array<Patched>;
 
 #[derive(Clone, Debug)]
 pub struct Patched;
 
 impl ValidityChild<Patched> for Patched {
-    fn validity_child(array: &PatchedArray) -> &ArrayRef {
-        array.base_array()
+    fn validity_child(array: ArrayView<'_, Patched>) -> ArrayRef {
+        array.base_array().clone()
     }
 }
 
@@ -80,71 +76,51 @@ pub struct PatchedMetadata {
     pub(crate) offset: u32,
 }
 
+impl ArrayHash for PatchedData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.offset.hash(state);
+        self.n_lanes.hash(state);
+    }
+}
+
+impl ArrayEq for PatchedData {
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.offset == other.offset && self.n_lanes == other.n_lanes
+    }
+}
+
 impl VTable for Patched {
-    type Array = PatchedArray;
-    type Metadata = ProstMetadata<PatchedMetadata>;
+    type ArrayData = PatchedData;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
-
-    fn vtable(_array: &Self::Array) -> &Self {
-        &Patched
-    }
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.patched")
     }
 
-    fn len(array: &Self::Array) -> usize {
-        array.len
-    }
-
-    fn dtype(array: &Self::Array) -> &DType {
-        array.base_array().dtype()
-    }
-
-    fn stats(array: &Self::Array) -> StatsSetRef<'_> {
-        array.stats_set.to_ref(array.as_ref())
-    }
-
-    fn array_hash<H: Hasher>(array: &Self::Array, state: &mut H, precision: Precision) {
-        array.len.hash(state);
-        array.offset.hash(state);
-        array.n_lanes.hash(state);
-        array.base_array().array_hash(state, precision);
-        array.lane_offsets().array_hash(state, precision);
-        array.patch_indices().array_hash(state, precision);
-        array.patch_values().array_hash(state, precision);
-    }
-
-    fn array_eq(array: &Self::Array, other: &Self::Array, precision: Precision) -> bool {
-        array.len == other.len
-            && array.offset == other.offset
-            && array.n_lanes == other.n_lanes
-            && array.base_array().array_eq(other.base_array(), precision)
-            && array
-                .lane_offsets()
-                .array_eq(other.lane_offsets(), precision)
-            && array
-                .patch_indices()
-                .array_eq(other.patch_indices(), precision)
-            && array
-                .patch_values()
-                .array_eq(other.patch_values(), precision)
-    }
-
-    fn nbuffers(_array: &Self::Array) -> usize {
+    fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
         0
     }
 
-    fn buffer(_array: &Self::Array, idx: usize) -> BufferHandle {
+    fn validate(
+        &self,
+        data: &PatchedData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        data.validate(dtype, len, slots)
+    }
+
+    fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         vortex_panic!("invalid buffer index for PatchedArray: {idx}");
     }
 
-    fn buffer_name(_array: &Self::Array, idx: usize) -> Option<String> {
+    fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         vortex_panic!("invalid buffer index for PatchedArray: {idx}");
     }
 
-    fn child(array: &Self::Array, idx: usize) -> ArrayRef {
+    fn child(array: ArrayView<'_, Self>, idx: usize) -> ArrayRef {
         match idx {
             0 => array.base_array().clone(),
             1 => array.lane_offsets().clone(),
@@ -154,41 +130,63 @@ impl VTable for Patched {
         }
     }
 
-    fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(PatchedMetadata {
-            n_patches: u32::try_from(array.patch_indices().len())?,
-            n_lanes: u32::try_from(array.n_lanes)?,
-            offset: u32::try_from(array.offset)?,
-        }))
-    }
-
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(
+            PatchedMetadata {
+                n_patches: u32::try_from(array.patch_indices().len())?,
+                n_lanes: u32::try_from(array.n_lanes())?,
+                offset: u32::try_from(array.offset())?,
+            }
+            .encode_to_vec(),
+        ))
     }
 
     fn deserialize(
-        bytes: &[u8],
-        _dtype: &DType,
-        _len: usize,
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
         _buffers: &[BufferHandle],
+        children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
-        let inner = <ProstMetadata<PatchedMetadata> as DeserializeMetadata>::deserialize(bytes)?;
-        Ok(ProstMetadata(inner))
+    ) -> VortexResult<ArrayParts<Self>> {
+        let metadata = PatchedMetadata::decode(metadata)?;
+        let n_patches = metadata.n_patches as usize;
+        let n_lanes = metadata.n_lanes as usize;
+        let offset = metadata.offset as usize;
+
+        // n_chunks should correspond to the chunk in the `inner`.
+        // After slicing when offset > 0, there may be additional chunks.
+        let n_chunks = (len + offset).div_ceil(1024);
+
+        let inner = children.get(0, dtype, len)?;
+        let lane_offsets = children.get(1, PType::U32.into(), n_chunks * n_lanes + 1)?;
+        let indices = children.get(2, PType::U16.into(), n_patches)?;
+        let values = children.get(3, dtype, n_patches)?;
+
+        let data = PatchedData { n_lanes, offset };
+        Ok(
+            ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(vec![
+                Some(inner),
+                Some(lane_offsets),
+                Some(indices),
+                Some(values),
+            ]),
+        )
     }
 
     fn append_to_builder(
-        array: &Self::Array,
+        array: ArrayView<'_, Self>,
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let dtype = array.dtype();
+        let dtype = array.array().dtype();
 
         if !dtype.is_primitive() {
             // Default pathway: canonicalize and propagate.
             let canonical = array
+                .array()
                 .clone()
-                .into_array()
                 .execute::<Canonical>(ctx)?
                 .into_array();
             builder.extend_from_array(&canonical);
@@ -201,7 +199,7 @@ impl VTable for Patched {
 
         array.base_array().append_to_builder(builder, ctx)?;
 
-        let offset = array.offset;
+        let offset = array.offset();
         let lane_offsets = array
             .lane_offsets()
             .clone()
@@ -230,7 +228,7 @@ impl VTable for Patched {
                 &mut output[trailer..],
                 offset,
                 len,
-                array.n_lanes,
+                array.n_lanes(),
                 lane_offsets.as_slice::<u32>(),
                 indices.as_slice::<u16>(),
                 values.as_slice::<V>(),
@@ -240,66 +238,22 @@ impl VTable for Patched {
         Ok(())
     }
 
-    fn build(
-        dtype: &DType,
-        len: usize,
-        metadata: &Self::Metadata,
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<PatchedArray> {
-        let n_patches = metadata.n_patches as usize;
-        let n_lanes = metadata.n_lanes as usize;
-        let offset = metadata.offset as usize;
-
-        // n_chunks should correspond to the chunk in the `inner`.
-        // After slicing when offset > 0, there may be additional chunks.
-        let n_chunks = (len + offset).div_ceil(1024);
-
-        let inner = children.get(0, dtype, len)?;
-        let lane_offsets = children.get(1, PType::U32.into(), n_chunks * n_lanes + 1)?;
-        let indices = children.get(2, PType::U16.into(), n_patches)?;
-        let values = children.get(3, dtype, n_patches)?;
-
-        Ok(PatchedArray {
-            slots: vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
-            n_lanes,
-            offset,
-            len,
-            stats_set: ArrayStats::default(),
-        })
-    }
-
-    fn slots(array: &Self::Array) -> &[Option<ArrayRef>] {
-        &array.slots
-    }
-
-    fn slot_name(_array: &Self::Array, idx: usize) -> String {
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn with_slots(array: &mut Self::Array, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "PatchedArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
-    }
-
-    fn execute(array: Arc<Array<Self>>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let inner = array
             .base_array()
             .clone()
             .execute::<Canonical>(ctx)?
             .into_primitive();
 
-        let PrimitiveArrayParts {
+        let PrimitiveDataParts {
             buffer,
             ptype,
             validity,
-        } = inner.into_parts();
+        } = inner.into_data_parts();
 
         let lane_offsets = array
             .lane_offsets()
@@ -317,8 +271,8 @@ impl VTable for Patched {
             .execute::<PrimitiveArray>(ctx)?;
 
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
-            let offset = array.offset;
-            let len = array.len;
+            let offset = array.offset();
+            let len = array.len();
 
             let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
 
@@ -326,7 +280,7 @@ impl VTable for Patched {
                 &mut output,
                 offset,
                 len,
-                array.n_lanes,
+                array.n_lanes(),
                 lane_offsets.as_slice::<u32>(),
                 indices.as_slice::<u16>(),
                 values.as_slice::<V>(),
@@ -341,7 +295,7 @@ impl VTable for Patched {
     }
 
     fn execute_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
@@ -350,7 +304,7 @@ impl VTable for Patched {
     }
 
     fn reduce_parent(
-        array: &Array<Self>,
+        array: ArrayView<'_, Self>,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -399,18 +353,18 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::Canonical;
-    use crate::DynArray;
     use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::arrays::Patched;
     use crate::arrays::PatchedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::patched::array::PatchedArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::builder_with_capacity;
     use crate::patches::Patches;
-    use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::serde::SerializedArray;
     use crate::validity::Validity;
 
     #[test]
@@ -428,7 +382,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 
@@ -461,8 +415,9 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
+            .into_array()
             .slice(3..1024)
             .unwrap();
 
@@ -493,7 +448,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 
@@ -526,8 +481,9 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
+            .into_array()
             .slice(3..1024)
             .unwrap();
 
@@ -562,7 +518,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        let array = PatchedArray::from_array_and_patches(values, &patches, &mut ctx)
+        let array = Patched::from_array_and_patches(values, &patches, &mut ctx)
             .unwrap()
             .into_array();
 
@@ -606,7 +562,7 @@ mod tests {
         let session = VortexSession::empty();
         let mut ctx = ExecutionCtx::new(session);
 
-        PatchedArray::from_array_and_patches(array, &patches, &mut ctx)
+        Patched::from_array_and_patches(array, &patches, &mut ctx)
     }
 
     #[rstest]
@@ -618,17 +574,14 @@ mod tests {
     )]
     #[case::sliced({
         let arr = make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30]).unwrap();
-        arr.slice(2..1024).unwrap()
+        arr.into_array().slice(2..1024).unwrap()
     })]
     fn test_serde_roundtrip(#[case] array: crate::ArrayRef) {
         let dtype = array.dtype().clone();
         let len = array.len();
 
         let ctx = ArrayContext::empty();
-        let serialized = array
-            .clone()
-            .serialize(&ctx, &SerializeOptions::default())
-            .unwrap();
+        let serialized = array.serialize(&ctx, &SerializeOptions::default()).unwrap();
 
         // Concat into a single buffer.
         let mut concat = ByteBufferMut::empty();
@@ -637,7 +590,7 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let parts = SerializedArray::try_from(concat).unwrap();
         let decoded = parts
             .decode(
                 &dtype,
@@ -665,23 +618,21 @@ mod tests {
         let values = array.patch_values().clone();
 
         // Create new PatchedArray with same children using with_slots
-        let array_ref = array.clone().into_array();
-        let vtable = array_ref.vtable().clone_boxed();
-        let new_array = vtable.with_slots(
-            array_ref,
-            vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)],
-        )?;
+        let array_ref = array.into_array();
+        let new_array = array_ref.clone().with_slots(vec![
+            Some(inner),
+            Some(lane_offsets),
+            Some(indices),
+            Some(values),
+        ])?;
 
         assert!(new_array.is::<Patched>());
-        assert_eq!(array.len(), new_array.len());
-        assert_eq!(array.dtype(), new_array.dtype());
+        assert_eq!(array_ref.len(), new_array.len());
+        assert_eq!(array_ref.dtype(), new_array.dtype());
 
         // Execute both and compare results
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
-        let original_executed = array
-            .into_array()
-            .execute::<Canonical>(&mut ctx)?
-            .into_primitive();
+        let original_executed = array_ref.execute::<Canonical>(&mut ctx)?.into_primitive();
         let new_executed = new_array.execute::<Canonical>(&mut ctx)?.into_primitive();
 
         assert_arrays_eq!(original_executed, new_executed);
@@ -700,16 +651,12 @@ mod tests {
         let values = array.patch_values().clone();
 
         let array_ref = array.into_array();
-        let vtable = array_ref.vtable().clone_boxed();
-        let new_array = vtable.with_slots(
-            array_ref,
-            vec![
-                Some(new_inner),
-                Some(lane_offsets),
-                Some(indices),
-                Some(values),
-            ],
-        )?;
+        let new_array = array_ref.with_slots(vec![
+            Some(new_inner),
+            Some(lane_offsets),
+            Some(indices),
+            Some(values),
+        ])?;
 
         // Execute and verify the inner values changed (except at patch positions)
         let mut ctx = ExecutionCtx::new(VortexSession::empty());

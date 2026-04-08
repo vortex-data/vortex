@@ -25,6 +25,10 @@
 //!    variant are executed first (sequentially, same stream), their device buffers
 //!    become `LOAD` ops in a fused plan via `FusedPlan::materialize_with_subtrees`.
 //!    Each subtree re-enters [`try_gpu_dispatch`] and may itself fuse.
+//!    When a subtree's ptype differs from the output ptype (e.g. `u8` dict
+//!    codes in a `u32` Dict), widening from the subtree's native width to `T`
+//!    happens in-kernel via `load_element<T>()` in the LOAD source op — no
+//!    separate widen pass is needed.
 //!
 //! 3. Fallback — root is not fusable. Delegate to its registered
 //!    `CudaExecute` kernel; its children re-enter [`try_gpu_dispatch`].
@@ -44,8 +48,6 @@
 use tracing::trace;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::DynArray;
-use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
@@ -72,30 +74,29 @@ pub async fn try_gpu_dispatch(
 
     match DispatchPlan::new(array)? {
         DispatchPlan::Fused(plan) => {
-            let output_ptype = PType::try_from(array.dtype())?;
             let materialized = plan.materialize(ctx)?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, "fully-fused dispatch");
-            materialized.execute(output_ptype, array.len(), ctx)
+            materialized.execute(array.len(), ctx)
         }
         DispatchPlan::PartiallyFused {
             plan,
             pending_subtrees,
         } => {
-            let output_ptype = PType::try_from(array.dtype())?;
             let mut subtree_buffers = Vec::with_capacity(pending_subtrees.len());
 
             // TODO(0ax1): execute subtrees concurrently using separate CUDA streams.
             for subtree in &pending_subtrees {
                 let canonical = subtree.clone().execute_cuda(ctx).await?;
-                subtree_buffers.push(canonical.into_primitive().into_parts().buffer);
+                let buffer = canonical.into_primitive().into_data_parts().buffer;
+                subtree_buffers.push(buffer);
             }
 
             let num_subtrees = subtree_buffers.len();
             let materialized = plan.materialize_with_subtrees(subtree_buffers, ctx)?;
             let num_stages = materialized.dispatch_plan.num_stages();
             trace!(encoding = %array.encoding_id(), num_stages, num_subtrees, "partially-fused dispatch");
-            materialized.execute(output_ptype, array.len(), ctx)
+            materialized.execute(array.len(), ctx)
         }
         DispatchPlan::Unfused => {
             // Unfused kernel dispatch fallback.
@@ -112,14 +113,13 @@ pub async fn try_gpu_dispatch(
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::DynArray;
     use vortex::array::IntoArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::assert_arrays_eq;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
-    use vortex::encodings::fastlanes::BitPackedArray;
-    use vortex::encodings::fastlanes::FoRArray;
+    use vortex::encodings::fastlanes::BitPacked;
+    use vortex::encodings::fastlanes::FoR;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::mask::Mask;
@@ -135,12 +135,12 @@ mod tests {
         let mut ctx =
             CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
         let values: Vec<u32> = (0..2048).map(|i| (i % 128) as u32).collect();
-        let bp = BitPackedArray::encode(
+        let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(values), NonNullable).into_array(),
             7,
         )
         .vortex_expect("bp");
-        let arr = FoRArray::try_new(bp.into_array(), 1000u32.into()).vortex_expect("for");
+        let arr = FoR::try_new(bp.into_array(), 1000u32.into()).vortex_expect("for");
 
         let cpu = arr.to_canonical()?.into_array();
         let gpu = arr
@@ -158,19 +158,19 @@ mod tests {
     /// Exercises the unsigned type reinterpretation in CudaDispatchPlan::execute.
     #[crate::test]
     async fn test_fused_f32() -> VortexResult<()> {
-        use vortex::encodings::alp::ALPArray;
+        use vortex::encodings::alp::ALP;
         use vortex::encodings::alp::Exponents;
 
         let mut ctx =
             CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
         let encoded: Vec<i32> = (0i32..2048).map(|i| i % 500).collect();
-        let bp = BitPackedArray::encode(
+        let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(encoded), NonNullable).into_array(),
             9,
         )
         .vortex_expect("bp");
-        let alp = ALPArray::try_new(
-            FoRArray::try_new(bp.into_array(), 0i32.into())
+        let alp = ALP::try_new(
+            FoR::try_new(bp.into_array(), 0i32.into())
                 .vortex_expect("for")
                 .into_array(),
             Exponents { e: 0, f: 2 },
@@ -195,7 +195,7 @@ mod tests {
         use vortex::array::patches::Patches;
         use vortex::array::validity::Validity::NonNullable as NN;
         use vortex::buffer::buffer;
-        use vortex::encodings::alp::ALPArray;
+        use vortex::encodings::alp::ALP;
         use vortex::encodings::alp::Exponents;
 
         let mut ctx =
@@ -213,7 +213,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let arr = ALPArray::try_new(encoded, Exponents { e: 0, f: 2 }, Some(patches))?;
+        let arr = ALP::try_new(encoded, Exponents { e: 0, f: 2 }, Some(patches))?;
 
         let cpu = arr.to_canonical()?.into_array();
         let gpu = arr
@@ -237,10 +237,9 @@ mod tests {
         use vortex::array::session::ArraySessionExt;
         use vortex::encodings::fastlanes;
         use vortex::encodings::zstd::ZstdBuffers;
-        use vortex::encodings::zstd::ZstdBuffersArray;
 
-        let mut session = VortexSession::empty();
-        fastlanes::initialize(&mut session);
+        let session = VortexSession::empty();
+        fastlanes::initialize(&session);
         session.arrays().register(ZstdBuffers);
         let mut ctx = CudaSession::create_execution_ctx(&session).vortex_expect("ctx");
 
@@ -253,14 +252,12 @@ mod tests {
             NonNullable,
         )
         .into_array();
-        let vals = FoRArray::try_new(
-            BitPackedArray::encode(&vals, 6)
-                .vortex_expect("bp")
-                .into_array(),
+        let vals = FoR::try_new(
+            BitPacked::encode(&vals, 6).vortex_expect("bp").into_array(),
             0u32.into(),
         )
         .vortex_expect("for");
-        let vals = ZstdBuffersArray::compress(&vals.into_array(), 3).vortex_expect("zstd");
+        let vals = ZstdBuffers::compress(&vals.into_array(), 3).vortex_expect("zstd");
 
         // codes = FoR(BitPacked)
         let codes = PrimitiveArray::new(
@@ -268,8 +265,8 @@ mod tests {
             NonNullable,
         )
         .into_array();
-        let codes = FoRArray::try_new(
-            BitPackedArray::encode(&codes, 6)
+        let codes = FoR::try_new(
+            BitPacked::encode(&codes, 6)
                 .vortex_expect("bp")
                 .into_array(),
             0u32.into(),
@@ -302,12 +299,12 @@ mod tests {
 
         let len = 2048u32;
         let data: Vec<u32> = (0..len).map(|i| i % 128).collect();
-        let bp = BitPackedArray::encode(
+        let bp = BitPacked::encode(
             &PrimitiveArray::new(Buffer::from(data.clone()), NonNullable).into_array(),
             7,
         )
         .vortex_expect("bp");
-        let for_arr = FoRArray::try_new(bp.into_array(), 100u32.into()).vortex_expect("for");
+        let for_arr = FoR::try_new(bp.into_array(), 100u32.into()).vortex_expect("for");
 
         // Keep every other element.
         let mask = Mask::from_iter((0..len as usize).map(|i| i % 2 == 0));

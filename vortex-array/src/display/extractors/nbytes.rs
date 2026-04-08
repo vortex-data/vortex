@@ -6,7 +6,7 @@ use std::fmt;
 use humansize::DECIMAL;
 use humansize::format_size;
 
-use crate::DynArray;
+use crate::ArrayRef;
 use crate::display::extractor::TreeContext;
 use crate::display::extractor::TreeExtractor;
 
@@ -16,7 +16,7 @@ pub struct NbytesExtractor;
 impl TreeExtractor for NbytesExtractor {
     fn write_header(
         &self,
-        array: &dyn DynArray,
+        array: &ArrayRef,
         ctx: &TreeContext,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {

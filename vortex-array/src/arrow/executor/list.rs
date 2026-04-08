@@ -15,14 +15,16 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::arrays::Chunked;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
-use crate::arrays::listview::ListViewArrayParts;
+use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::list::ListArrayExt;
+use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
@@ -30,7 +32,6 @@ use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
-use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex VarBinArray into an Arrow [`GenericListArray`](arrow_array:array::GenericListArray).
 pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
@@ -40,7 +41,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
 ) -> VortexResult<ArrowArrayRef> {
     // If the Vortex array is already in List format, we can directly convert it.
     if let Some(array) = array.as_opt::<List>() {
-        return list_to_list::<O>(array, elements_field, ctx);
+        return list_to_list::<O>(&array.into_owned(), elements_field, ctx);
     }
 
     // Converting each chunk individually, then using the fast concat logic from arrow
@@ -55,7 +56,7 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     }
 
     // If the Vortex array is a ListViewArray, rebuild to ZCTL if needed and convert.
-    let array = match array.try_into::<ListView>() {
+    let array = match array.try_downcast::<ListView>() {
         Ok(array) => {
             let zctl = if array.is_zero_copy_to_list() {
                 array
@@ -104,7 +105,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         "Cannot convert to non-nullable Arrow array with null elements"
     );
 
-    let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(array.validity()?, array.len(), ctx)?;
 
     // TODO(ngates): use new_unchecked when it is added to arrow-rs.
     Ok(Arc::new(GenericListArray::<O>::new(
@@ -135,13 +136,13 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         )));
     }
 
-    let ListViewArrayParts {
+    let ListViewDataParts {
         elements,
         offsets,
         sizes,
         validity,
         ..
-    } = array.into_parts();
+    } = array.into_data_parts();
 
     // For ZCTL, we know that we only care about the final size.
     assert!(!sizes.is_empty());

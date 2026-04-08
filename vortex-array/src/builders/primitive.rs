@@ -185,11 +185,8 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
         );
 
         self.values.extend_from_slice(array.as_slice::<T>());
-        self.nulls.append_validity_mask(
-            array
-                .validity_mask()
-                .vortex_expect("validity_mask in extend_from_array_unchecked"),
-        );
+        self.nulls
+            .append_validity_mask(array.validity_mask().vortex_expect("validity_mask"));
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -358,6 +355,8 @@ impl<T> UninitRange<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_error::VortexExpect;
+
     use super::*;
     use crate::assert_arrays_eq;
 
@@ -619,9 +618,27 @@ mod tests {
         // values[2] might be any value since it's null.
 
         // Check validity - first two should be valid, third should be null.
-        assert!(array.validity().is_valid(0).unwrap());
-        assert!(array.validity().is_valid(1).unwrap());
-        assert!(!array.validity().is_valid(2).unwrap());
+        assert!(
+            array
+                .validity()
+                .vortex_expect("primitive validity should be derivable")
+                .is_valid(0)
+                .unwrap()
+        );
+        assert!(
+            array
+                .validity()
+                .vortex_expect("primitive validity should be derivable")
+                .is_valid(1)
+                .unwrap()
+        );
+        assert!(
+            !array
+                .validity()
+                .vortex_expect("primitive validity should be derivable")
+                .is_valid(2)
+                .unwrap()
+        );
 
         // Test wrong dtype error.
         let mut builder = PrimitiveBuilder::<i32>::with_capacity(Nullability::NonNullable, 10);

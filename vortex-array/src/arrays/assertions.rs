@@ -7,7 +7,6 @@ use itertools::Itertools;
 use vortex_error::VortexExpect;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
@@ -48,9 +47,14 @@ fn find_mismatched_indices(left: &ArrayRef, right: &ArrayRef) -> Vec<usize> {
 /// ```
 #[macro_export]
 macro_rules! assert_nth_scalar {
-    ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n).unwrap(), $expected.try_into().unwrap());
-    };
+    ($arr:expr, $n:expr, $expected:expr) => {{
+        use $crate::IntoArray as _;
+        let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
+        assert_eq!(
+            arr_ref.scalar_at($n).unwrap(),
+            $expected.try_into().unwrap()
+        );
+    }};
 }
 
 /// Asserts that the scalar at position `$n` in array `$arr` is null.
@@ -63,30 +67,33 @@ macro_rules! assert_nth_scalar {
 /// ```
 #[macro_export]
 macro_rules! assert_nth_scalar_is_null {
-    ($arr:expr, $n:expr) => {
+    ($arr:expr, $n:expr) => {{
+        let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
         assert!(
-            $arr.scalar_at($n).unwrap().is_null(),
+            arr_ref.scalar_at($n).unwrap().is_null(),
             "expected scalar at index {} to be null, but was {:?}",
             $n,
-            $arr.scalar_at($n).unwrap()
+            arr_ref.scalar_at($n).unwrap()
         );
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($left:expr, $right:expr) => {{
-        let left = $left.clone();
-        let right = $right.clone();
-        assert_eq!(
-            left.dtype(),
-            right.dtype(),
-            "assertion left == right failed: arrays differ in type: {} != {}.\n  left: {}\n right: {}",
-            left.dtype(),
-            right.dtype(),
-            left.display_values(),
-            right.display_values()
-        );
+
+
+        let left: $crate::ArrayRef = $crate::IntoArray::into_array($left.clone());
+        let right: $crate::ArrayRef = $crate::IntoArray::into_array($right.clone());
+        if left.dtype() != right.dtype() {
+            panic!(
+                "assertion left == right failed: arrays differ in type: {} != {}.\n  left: {}\n right: {}",
+                left.dtype(),
+                right.dtype(),
+                left.display_values(),
+                right.display_values()
+            )
+        }
 
         assert_eq!(
             left.len(),
@@ -99,9 +106,9 @@ macro_rules! assert_arrays_eq {
         );
 
         #[allow(deprecated)]
-        let left = left.to_array();
+        let left = left.clone();
         #[allow(deprecated)]
-        let right = right.to_array();
+        let right = right.clone();
         $crate::arrays::assert_arrays_eq_impl(&left, &right);
     }};
 }

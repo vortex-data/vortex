@@ -28,7 +28,7 @@ use super::GenerateStatsOptions;
 pub struct DistinctInfo<T> {
     /// The unique values and their occurrences.
     distinct_values: HashMap<NativeValue<T>, u32, FxBuildHasher>,
-    /// The count of unique values.
+    /// The count of unique values. This _must_ be non-zero.
     distinct_count: u32,
     /// The most frequent value.
     most_frequent_value: T,
@@ -240,8 +240,6 @@ impl_from_typed!(i64, ErasedStats::I64);
 /// Array of integers and relevant stats for compression.
 #[derive(Clone, Debug)]
 pub struct IntegerStats {
-    /// The underlying source array.
-    src: PrimitiveArray,
     /// Cache for `validity.false_count()`.
     null_count: u32,
     /// Cache for `validity.true_count()`.
@@ -286,11 +284,6 @@ impl IntegerStats {
             .vortex_expect("IntegerStats::generate_opts should not fail")
     }
 
-    /// Returns the underlying source array.
-    pub fn source(&self) -> &PrimitiveArray {
-        &self.src
-    }
-
     /// Returns the number of null values.
     pub fn null_count(&self) -> u32 {
         self.null_count
@@ -325,7 +318,6 @@ where
     // Special case: empty array.
     if array.is_empty() {
         return Ok(IntegerStats {
-            src: array.clone(),
             null_count: 0,
             value_count: 0,
             average_run_length: 0,
@@ -336,9 +328,10 @@ where
             }
             .into(),
         });
-    } else if array.all_invalid()? {
+    }
+
+    if array.all_invalid()? {
         return Ok(IntegerStats {
-            src: array.clone(),
             null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
@@ -430,12 +423,13 @@ where
 
     let runs = loop_state.runs;
 
-    let min = array
+    let array_ref = array.as_ref();
+    let min = array_ref
         .statistics()
         .compute_as::<T>(Stat::Min)
         .vortex_expect("min should be computed");
 
-    let max = array
+    let max = array_ref
         .statistics()
         .compute_as::<T>(Stat::Max)
         .vortex_expect("max should be computed");
@@ -462,7 +456,6 @@ where
     let value_count = u32::try_from(value_count)?;
 
     Ok(IntegerStats {
-        src: array.clone(),
         null_count,
         value_count,
         average_run_length: value_count / runs,

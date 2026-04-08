@@ -74,7 +74,7 @@ from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     Utf8Scalar,
     scalar,
 )
-from ._lib.serde import ArrayContext, ArrayParts  # pyright: ignore[reportMissingModuleSource]
+from ._lib.serde import ArrayContext, SerializedArray  # pyright: ignore[reportMissingModuleSource]
 from .arrays import (
     Array,
     PyArray,
@@ -177,7 +177,7 @@ __all__ = [
     "ExtensionScalar",
     # Serde
     "ArrayContext",
-    "ArrayParts",
+    "SerializedArray",
     # Pickle
     "_unpickle_array",
     # File

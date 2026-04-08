@@ -2,15 +2,16 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Filter;
-use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnVTable;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -26,9 +27,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
-use crate::DateTimePartsArray;
+use crate::array::DateTimePartsArrayExt;
 use crate::timestamp;
-
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DTPFilterPushDownRule),
     ParentRuleSet::lift(&DTPComparisonPushDownRule),
@@ -48,8 +48,8 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
 
     fn reduce_parent(
         &self,
-        child: &DateTimePartsArray,
-        parent: &FilterArray,
+        child: ArrayView<'_, DateTimeParts>,
+        parent: ArrayView<'_, Filter>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         debug_assert_eq!(child_idx, 0);
@@ -58,7 +58,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPFilterPushDownRule {
             return Ok(None);
         }
 
-        DateTimePartsArray::try_new(
+        DateTimeParts::try_new(
             child.dtype().clone(),
             child.days().clone().filter(parent.filter_mask().clone())?,
             ConstantArray::new(
@@ -94,8 +94,8 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
 
     fn reduce_parent(
         &self,
-        child: &DateTimePartsArray,
-        parent: &ScalarFnArray,
+        child: ArrayView<'_, DateTimeParts>,
+        parent: ArrayView<'_, ScalarFnVTable>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle comparison operations (Binary comparisons or Between)
@@ -181,7 +181,7 @@ fn is_constant_zero(array: &ArrayRef) -> bool {
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
-    use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
     use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::extension::datetime::TimestampOptions;
     use vortex_array::optimizer::ArrayOptimizer;
@@ -193,6 +193,8 @@ mod tests {
     use vortex_buffer::Buffer;
 
     use super::*;
+    use crate::DateTimeParts;
+    use crate::DateTimePartsArray;
 
     const SECONDS_PER_DAY: i64 = 86400;
 
@@ -215,7 +217,8 @@ mod tests {
             time_unit,
             None,
         );
-        DateTimePartsArray::try_from(temporal).unwrap()
+        DateTimeParts::try_from_temporal(temporal)
+            .vortex_expect("TemporalArray must produce valid DateTimeParts")
     }
 
     /// Create a constant timestamp scalar at midnight for the given day.
@@ -347,7 +350,7 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let dtp = DateTimePartsArray::try_from(temporal).unwrap();
+        let dtp = DateTimeParts::try_from_temporal(temporal).unwrap();
         let len = dtp.len();
 
         // Compare against midnight constant

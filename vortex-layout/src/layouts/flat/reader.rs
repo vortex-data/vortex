@@ -9,13 +9,12 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::SerializedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -73,10 +72,10 @@ impl FlatReader {
             let segment = segment_fut.await?;
             let parts = if let Some(array_tree) = array_tree {
                 // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
-                ArrayParts::from_flatbuffer_and_segment(array_tree, segment)?
+                SerializedArray::from_flatbuffer_and_segment(array_tree, segment)?
             } else {
                 // Parse the flatbuffer from the segment itself.
-                ArrayParts::try_from(segment)?
+                SerializedArray::try_from(segment)?
             };
             parts
                 .decode(&dtype, row_count, &ctx, &session)
@@ -348,7 +347,7 @@ mod test {
                 .unwrap();
 
             let expected = PrimitiveArray::new(buffer![3i32, 4], Validity::AllValid).into_array();
-            assert_arrays_eq!(result.as_ref(), expected.as_ref());
+            assert_arrays_eq!(result, expected);
         })
     }
 }

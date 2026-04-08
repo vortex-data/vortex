@@ -7,7 +7,6 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_error::VortexExpect;
@@ -29,7 +28,7 @@ const SAMPLE_SEED: u64 = 1234567890;
 /// Samples approximately 1% of the input array for compression ratio estimation.
 pub(crate) fn sample(input: &ArrayRef, sample_size: u32, sample_count: u32) -> ArrayRef {
     if input.len() <= (sample_size as usize) * (sample_count as usize) {
-        return input.to_array();
+        return input.clone();
     }
 
     let slices = stratified_slices(

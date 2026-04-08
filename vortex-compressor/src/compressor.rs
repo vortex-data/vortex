@@ -10,7 +10,6 @@ use parking_lot::MutexGuard;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
-use vortex_array::DynArray;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
@@ -22,16 +21,25 @@ use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::list::ListArrayExt;
+use vortex_array::arrays::listview::ListViewArrayExt;
 use vortex_array::arrays::listview::list_from_list_view;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 
 use crate::builtins::IntDictScheme;
 use crate::ctx::CompressorContext;
+use crate::estimate::CompressionEstimate;
+use crate::estimate::estimate_compression_ratio_with_sampling;
+use crate::estimate::is_better_ratio;
 use crate::scheme::ChildSelection;
 use crate::scheme::DescendantExclusion;
 use crate::scheme::Scheme;
@@ -109,6 +117,25 @@ impl CascadingCompressor {
         self.ctx.lock()
     }
 
+    /// Compresses an array using cascading adaptive compression.
+    ///
+    /// First canonicalizes and compacts the array, then applies optimal compression schemes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if canonicalization or compression fails.
+    pub fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
+        let canonical = array
+            .clone()
+            .execute::<CanonicalValidity>(&mut self.execution_ctx())?
+            .0;
+
+        // Compact it, removing any wasted space before we attempt to compress it.
+        let compact = canonical.compact()?;
+
+        self.compress_canonical(compact, CompressorContext::new())
+    }
+
     /// Compresses a child array produced by a cascading scheme.
     ///
     /// If the cascade budget is exhausted, the canonical array is returned as-is. Otherwise,
@@ -139,25 +166,6 @@ impl CascadingCompressor {
             .clone()
             .descend_with_scheme(parent_id, child_index);
         self.compress_canonical(compact, child_ctx)
-    }
-
-    /// Compresses an array using cascading adaptive compression.
-    ///
-    /// First canonicalizes and compacts the array, then applies optimal compression schemes.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if canonicalization or compression fails.
-    pub fn compress(&self, array: &ArrayRef) -> VortexResult<ArrayRef> {
-        let canonical = array
-            .clone()
-            .execute::<CanonicalValidity>(&mut self.execution_ctx())?
-            .0;
-
-        // Compact it, removing any wasted space before we attempt to compress it.
-        let compact = canonical.compact()?;
-
-        self.compress_canonical(compact, CompressorContext::new())
     }
 
     /// Compresses a canonical array by dispatching to type-specific logic.
@@ -191,7 +199,7 @@ impl CascadingCompressor {
                     struct_array.names().clone(),
                     fields,
                     struct_array.len(),
-                    struct_array.validity(),
+                    struct_array.validity()?,
                 )?
                 .into_array())
             }
@@ -209,7 +217,7 @@ impl CascadingCompressor {
                 Ok(FixedSizeListArray::try_new(
                     compressed_elems,
                     fsl_array.list_size(),
-                    fsl_array.validity(),
+                    fsl_array.validity()?,
                     fsl_array.len(),
                 )?
                 .into_array())
@@ -286,7 +294,6 @@ impl CascadingCompressor {
         if array.is_empty() {
             return Ok(array);
         }
-
         if array.all_invalid()? {
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
@@ -294,19 +301,26 @@ impl CascadingCompressor {
         }
 
         let before_nbytes = array.nbytes();
+
         let merged_opts = eligible_schemes
             .iter()
             .fold(GenerateStatsOptions::default(), |acc, s| {
                 acc.merge(s.stats_options())
             });
-
-        let ctx = ctx.with_stats_options(merged_opts);
+        let ctx = ctx.with_merged_stats_options(merged_opts);
 
         let mut data = ArrayAndStats::new(array, merged_opts);
 
-        if let Some(winner) = self.choose_scheme(&eligible_schemes, &mut data, ctx.clone())? {
+        if let Some(winner) = self.choose_best_scheme(&eligible_schemes, &mut data, ctx.clone())? {
+            // TODO(connor): Add a tracing warning here if compression with the chosen scheme
+            // failed, since there was likely more we could have done while choosing schemes.
+
+            // Sampling and estimation chose a scheme, so let's compress the whole array with it.
             let compressed = winner.compress(self, &mut data, ctx)?;
+
+            // Only choose the compressed array if it is smaller than the canonical one.
             if compressed.nbytes() < before_nbytes {
+                // TODO(connor): Add a tracing warning here too.
                 return Ok(compressed);
             }
         }
@@ -320,7 +334,7 @@ impl CascadingCompressor {
     /// (earlier in the list wins).
     ///
     /// [`expected_compression_ratio`]: Scheme::expected_compression_ratio
-    fn choose_scheme(
+    fn choose_best_scheme(
         &self,
         schemes: &[&'static dyn Scheme],
         data: &mut ArrayAndStats,
@@ -328,25 +342,53 @@ impl CascadingCompressor {
     ) -> VortexResult<Option<&'static dyn Scheme>> {
         let mut best: Option<(&'static dyn Scheme, f64)> = None;
 
+        // TODO(connor): Might want to use an `im` data structure inside of `ctx` if the clones here
+        // are expensive.
         for &scheme in schemes {
-            // Constant detection on a sample is a false positive: the sample being constant
-            // does not mean the full array is constant.
-            if ctx.is_sample() && scheme.detects_constant() {
-                continue;
-            }
+            let estimate = scheme.expected_compression_ratio(data, ctx.clone());
 
-            let ratio = scheme.expected_compression_ratio(self, data, ctx.clone())?;
+            match estimate {
+                CompressionEstimate::Skip => {}
+                CompressionEstimate::AlwaysUse => return Ok(Some(scheme)),
+                CompressionEstimate::Ratio(ratio) => {
+                    if is_better_ratio(ratio, &best) {
+                        best = Some((scheme, ratio));
+                    }
+                }
+                CompressionEstimate::Sample => {
+                    let sample_ratio = estimate_compression_ratio_with_sampling(
+                        scheme,
+                        self,
+                        data.array(),
+                        ctx.clone(),
+                    )?;
 
-            tracing::debug!(scheme = %scheme.id(), ratio, "evaluated compression ratio");
+                    if is_better_ratio(sample_ratio, &best) {
+                        best = Some((scheme, sample_ratio));
+                    }
+                }
+                // TODO(connor): Is there a way to deduplicate some of this code?
+                CompressionEstimate::Estimate(estimate_callback) => {
+                    let estimate = estimate_callback(self, data, ctx.clone())?;
 
-            if is_better_ratio(ratio, &best) {
-                best = Some((scheme, ratio));
-
-                // Schemes that return f64::MAX (like Constant) cannot be beat, so stop early.
-                if ratio == f64::MAX {
-                    break;
+                    match estimate {
+                        CompressionEstimate::Skip => {}
+                        CompressionEstimate::AlwaysUse => return Ok(Some(scheme)),
+                        CompressionEstimate::Ratio(ratio) => {
+                            if is_better_ratio(ratio, &best) {
+                                best = Some((scheme, ratio));
+                            }
+                        }
+                        e @ (CompressionEstimate::Sample | CompressionEstimate::Estimate(_)) => {
+                            vortex_panic!(
+                                "an estimation function returned an invalid variant {e:?}"
+                            )
+                        }
+                    }
                 }
             }
+
+            // tracing::debug!(scheme = %scheme.id(), estimate, "evaluated compression ratio");
         }
 
         Ok(best.map(|(s, _)| s))
@@ -420,7 +462,7 @@ impl CascadingCompressor {
         )?;
 
         Ok(
-            ListArray::try_new(compressed_elems, compressed_offsets, list_array.validity())?
+            ListArray::try_new(compressed_elems, compressed_offsets, list_array.validity()?)?
                 .into_array(),
         )
     }
@@ -452,20 +494,20 @@ impl CascadingCompressor {
             compressed_elems,
             compressed_offsets,
             compressed_sizes,
-            list_view.validity(),
+            list_view.validity()?,
         )?
         .into_array())
     }
 }
 
-/// Returns `true` if `ratio` is a valid compression ratio (> 1.0, finite, not subnormal) that
-/// beats the current best.
-fn is_better_ratio(ratio: f64, best: &Option<(&'static dyn Scheme, f64)>) -> bool {
-    ratio.is_finite() && !ratio.is_subnormal() && ratio > 1.0 && best.is_none_or(|(_, r)| ratio > r)
-}
-
 #[cfg(test)]
 mod tests {
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+
     use super::*;
     use crate::builtins::FloatDictScheme;
     use crate::builtins::IntDictScheme;
@@ -524,5 +566,51 @@ mod tests {
 
         // No history means no exclusions.
         assert!(!c.is_excluded(&IntDictScheme, &ctx));
+    }
+
+    #[test]
+    fn all_null_array_compresses_to_constant() -> VortexResult<()> {
+        let array = PrimitiveArray::new(
+            buffer![0i32, 0, 0, 0, 0],
+            Validity::Array(BoolArray::from_iter([false, false, false, false, false]).into_array()),
+        )
+        .into_array();
+
+        // The compressor should produce a `ConstantArray` for an all-null array regardless of
+        // which schemes are registered.
+        let compressor = CascadingCompressor::new(vec![&IntDictScheme]);
+        let compressed = compressor.compress(&array)?;
+        assert!(compressed.is::<Constant>());
+        Ok(())
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/7227>.
+    ///
+    /// `estimate_compression_ratio_with_sampling` must use the *scheme's* stats options
+    /// (which request distinct-value counting) rather than the context's stats options
+    /// (which may not). With the old code this panicked inside `dictionary_encode` because
+    /// distinct values were never computed for the sample.
+    #[test]
+    fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
+        // Low-cardinality float array so FloatDictScheme considers it compressible.
+        let array = PrimitiveArray::new(
+            buffer![1.0f32, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0],
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        let compressor = CascadingCompressor::new(vec![&FloatDictScheme]);
+
+        // A context with default stats_options (count_distinct_values = false) and
+        // marked as a sample so the function skips the sampling step and compresses
+        // the array directly.
+        let ctx = CompressorContext::new().with_sampling();
+
+        // Before the fix this panicked with:
+        //   "this must be present since `DictScheme` declared that we need distinct values"
+        let ratio =
+            estimate_compression_ratio_with_sampling(&FloatDictScheme, &compressor, &array, ctx)?;
+        assert!(ratio.is_finite());
+        Ok(())
     }
 }

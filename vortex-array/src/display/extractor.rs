@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use crate::DynArray;
+use crate::ArrayRef;
 
 /// Context threaded through tree traversal for percentage calculations etc.
 pub struct TreeContext {
@@ -72,7 +72,7 @@ pub trait TreeExtractor: Send + Sync {
     /// Write header annotations (space-prefixed) to the formatter.
     fn write_header(
         &self,
-        array: &dyn DynArray,
+        array: &ArrayRef,
         ctx: &TreeContext,
         f: &mut fmt::Formatter<'_>,
     ) -> fmt::Result {
@@ -87,7 +87,7 @@ pub trait TreeExtractor: Send + Sync {
     /// [`fmt::Formatter`] for formatting flags.
     fn write_details(
         &self,
-        array: &dyn DynArray,
+        array: &ArrayRef,
         ctx: &TreeContext,
         f: &mut IndentedFormatter<'_, '_>,
     ) -> fmt::Result {

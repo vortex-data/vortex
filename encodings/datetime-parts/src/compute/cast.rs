@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -10,16 +10,15 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
-use crate::DateTimePartsArray;
-
+use crate::array::DateTimePartsArrayExt;
 impl CastReduce for DateTimeParts {
-    fn cast(array: &DateTimePartsArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         };
 
         Ok(Some(
-            DateTimePartsArray::try_new(
+            DateTimeParts::try_new(
                 dtype.clone(),
                 array
                     .days()
@@ -36,7 +35,6 @@ impl CastReduce for DateTimeParts {
 mod tests {
     use rstest::rstest;
     use vortex_array::ArrayRef;
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
@@ -47,10 +45,11 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
+    use crate::DateTimeParts;
     use crate::DateTimePartsArray;
 
     fn date_time_array(validity: Validity) -> ArrayRef {
-        DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
             PrimitiveArray::new(
                 buffer![
                     86_400i64,            // element with only day component
@@ -105,7 +104,7 @@ mod tests {
     }
 
     #[rstest]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
         buffer![
             0i64,
             86_400_000,  // 1 day in ms
@@ -116,7 +115,7 @@ mod tests {
         TimeUnit::Milliseconds,
         Some("UTC".into())
     )).unwrap())]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
             Some(0i64),
             None,
@@ -127,7 +126,7 @@ mod tests {
         TimeUnit::Milliseconds,
         Some("UTC".into())
     )).unwrap())]
-    #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+    #[case(DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
         buffer![86_400_000_000_000i64].into_array(), // 1 day in ns
         TimeUnit::Nanoseconds,
         Some("UTC".into())

@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 
@@ -19,8 +20,8 @@ impl BoolArray {
         let values = patches.values().clone().execute::<BoolArray>(ctx)?;
 
         let patched_validity =
-            self.validity()
-                .patch(len, offset, patches.indices(), &values.validity(), ctx)?;
+            self.validity()?
+                .patch(len, offset, patches.indices(), &values.validity()?, ctx)?;
 
         let bit_buffer = self.into_bit_buffer();
         let mut own_values = bit_buffer
@@ -45,13 +46,14 @@ impl BoolArray {
 mod tests {
     use vortex_buffer::BitBuffer;
 
+    use crate::IntoArray;
     use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
 
     #[test]
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BitBuffer::new_set(12));
-        let sliced = arr.slice(4..12).unwrap();
+        let sliced = arr.into_array().slice(4..12).unwrap();
         let expected = BoolArray::from_iter([true; 8]);
         assert_arrays_eq!(sliced, expected);
     }
@@ -59,7 +61,7 @@ mod tests {
     #[test]
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BitBuffer::new_set(15));
-        let sliced = arr.slice(4..15).unwrap();
+        let sliced = arr.into_array().slice(4..15).unwrap();
         let expected = BoolArray::from_iter([true; 11]);
         assert_arrays_eq!(sliced, expected);
     }

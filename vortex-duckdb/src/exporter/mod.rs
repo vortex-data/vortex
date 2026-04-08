@@ -31,6 +31,7 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
+use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
@@ -56,7 +57,7 @@ impl ArrayExporter {
         cache: &ConversionCache,
         mut ctx: ExecutionCtx,
     ) -> VortexResult<Self> {
-        let validity = array.validity().execute_mask(array.len(), &mut ctx)?;
+        let validity = array.validity()?.execute_mask(array.len(), &mut ctx)?;
         assert!(validity.all_true());
 
         let fields = array
@@ -139,25 +140,27 @@ fn new_array_exporter_with_flatten(
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let array = match array.try_into::<Constant>() {
+    let array = match array.try_downcast::<Constant>() {
         Ok(array) => return constant::new_exporter(array),
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<Sequence>() {
-        return sequence::new_exporter(array);
-    }
+    let array = match array.try_downcast::<Sequence>() {
+        Ok(array) => return sequence::new_exporter(&array),
+        Err(array) => array,
+    };
 
-    let array = match array.try_into::<RunEnd>() {
+    let array = match array.try_downcast::<RunEnd>() {
         Ok(array) => return run_end::new_exporter(array, cache, ctx),
         Err(array) => array,
     };
 
-    if let Some(array) = array.as_opt::<Dict>() {
-        return dict::new_exporter_with_flatten(array, cache, ctx, flatten);
-    }
+    let array = match array.try_downcast::<Dict>() {
+        Ok(array) => return dict::new_exporter_with_flatten(&array, cache, ctx, flatten),
+        Err(array) => array,
+    };
 
-    let array = match array.try_into::<List>() {
+    let array = match array.try_downcast::<List>() {
         Ok(array) => return list::new_exporter(array, cache, ctx),
         Err(array) => array,
     };

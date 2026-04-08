@@ -12,20 +12,22 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
+use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
+use crate::array::ArrayId;
 use crate::arrays::Chunked;
 use crate::arrays::Dict;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
-use crate::vtable::ArrayId;
 
 /// Registry of aggregate function vtables.
 pub type AggregateFnRegistry = Registry<AggregateFnPluginRef>;
@@ -50,8 +52,10 @@ impl Default for AggregateFnSession {
         };
 
         // Register the built-in aggregate functions
+        this.register(First);
         this.register(IsConstant);
         this.register(IsSorted);
+        this.register(Last);
         this.register(MinMax);
         this.register(NanCount);
         this.register(Sum);

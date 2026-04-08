@@ -13,8 +13,10 @@ use cudarc::driver::DevicePtrMut;
 use cudarc::driver::sys::CUevent_flags;
 use futures::executor::block_on;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::vtable::child_to_validity;
+use vortex::encodings::zstd::Zstd;
 use vortex::encodings::zstd::ZstdArray;
-use vortex::encodings::zstd::ZstdArrayParts;
+use vortex::encodings::zstd::ZstdDataParts;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -58,7 +60,7 @@ fn make_zstd_array(num_strings: usize) -> VortexResult<(ZstdArray, usize)> {
     let zstd_compression_level = -10; // Less compression but faster.
     let zstd_array =
         // Disable dictionary as nvCOMP doesn't support ZSTD dictionaries.
-        ZstdArray::from_var_bin_view_without_dict(&var_bin_view, zstd_compression_level, 2048)?;
+        Zstd::from_var_bin_view_without_dict(&var_bin_view, zstd_compression_level, 2048)?;
 
     Ok((zstd_array, uncompressed_size))
 }
@@ -137,9 +139,15 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
                     let mut total_time = Duration::ZERO;
 
                     for _ in 0..iters {
-                        let ZstdArrayParts {
+                        let ZstdDataParts {
                             frames, metadata, ..
-                        } = zstd_array.clone().into_parts();
+                        } = {
+                            let validity = child_to_validity(
+                                &zstd_array.as_ref().slots()[0],
+                                zstd_array.dtype().nullability(),
+                            );
+                            zstd_array.clone().into_data().into_parts(validity)
+                        };
                         let exec = block_on(zstd_kernel_prepare(frames, &metadata, &mut cuda_ctx))
                             .vortex_expect("kernel setup failed");
                         let kernel_time = block_on(execute_zstd_kernel(exec, &mut cuda_ctx))

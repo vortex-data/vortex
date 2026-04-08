@@ -5,7 +5,8 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::struct_::StructArrayParts;
+use vortex::array::arrays::bool::BoolArrayExt;
+use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::error::VortexResult;
 
@@ -27,12 +28,12 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let len = array.len();
-    let StructArrayParts {
+    let StructDataParts {
         validity,
         struct_fields,
         fields,
         ..
-    } = array.into_parts();
+    } = array.into_data_parts();
     let validity = validity.to_array(len).execute::<BoolArray>(ctx)?;
 
     if validity.to_bit_buffer().true_count() == 0 {
@@ -81,6 +82,7 @@ mod tests {
     use std::ffi::CString;
 
     use vortex::array::IntoArray;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::ConstantArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -89,7 +91,6 @@ mod tests {
     use vortex::buffer::BitBuffer;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
-    use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;

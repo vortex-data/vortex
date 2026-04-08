@@ -1,27 +1,142 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Dictionary compressor that reuses the unique values in the [`IntegerStats`].
+//! Integer-specific dictionary encoding implementation.
 //!
 //! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted
 //! for external compatibility.
 
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::DictArrayExt;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
+use crate::CascadingCompressor;
+use crate::builtins::IntDictScheme;
+use crate::builtins::is_integer_primitive;
+use crate::ctx::CompressorContext;
+use crate::estimate::CompressionEstimate;
+use crate::scheme::Scheme;
+use crate::scheme::SchemeExt;
+use crate::stats::ArrayAndStats;
+use crate::stats::GenerateStatsOptions;
 use crate::stats::IntegerErasedStats;
 use crate::stats::IntegerStats;
 
+impl Scheme for IntDictScheme {
+    fn scheme_name(&self) -> &'static str {
+        "vortex.int.dict"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        is_integer_primitive(canonical)
+    }
+
+    fn stats_options(&self) -> GenerateStatsOptions {
+        GenerateStatsOptions {
+            count_distinct_values: true,
+        }
+    }
+
+    /// Children: values=0, codes=1.
+    fn num_children(&self) -> usize {
+        2
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        data: &mut ArrayAndStats,
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        let bit_width = data.array_as_primitive().ptype().bit_width();
+        let stats = data.integer_stats();
+
+        if stats.value_count() == 0 {
+            return CompressionEstimate::Skip;
+        }
+
+        let distinct_values_count = stats.distinct_count().vortex_expect(
+            "this must be present since `DictScheme` declared that we need distinct values",
+        );
+
+        // If > 50% of the values are distinct, skip dictionary scheme.
+        if distinct_values_count > stats.value_count() / 2 {
+            return CompressionEstimate::Skip;
+        }
+
+        // Ignore nulls encoding for the estimate. We only focus on values.
+
+        let values_size = bit_width * distinct_values_count as usize;
+
+        // TODO(connor): Should we just hardcode this instead of let the compressor choose?
+        // Assume codes are compressed RLE + BitPacking.
+        let codes_bw = u32::BITS - distinct_values_count.leading_zeros();
+
+        let n_runs = (stats.value_count() / stats.average_run_length()) as usize;
+
+        // Assume that codes will either be BitPack or RLE-BitPack.
+        let codes_size_bp = codes_bw as usize * stats.value_count() as usize;
+        let codes_size_rle_bp = usize::checked_mul(codes_bw as usize + 32, n_runs);
+
+        let codes_size = usize::min(codes_size_bp, codes_size_rle_bp.unwrap_or(usize::MAX));
+
+        let before = stats.value_count() as usize * bit_width;
+
+        CompressionEstimate::Ratio(before as f64 / (values_size + codes_size) as f64)
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &mut ArrayAndStats,
+        ctx: CompressorContext,
+    ) -> VortexResult<ArrayRef> {
+        // TODO(connor): Fight the borrow checker (needs interior mutability)!
+        let stats = data.integer_stats().clone();
+        let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
+
+        // Values = child 0.
+        let compressed_values = compressor.compress_child(dict.values(), &ctx, self.id(), 0)?;
+
+        // Codes = child 1.
+        let narrowed_codes = dict
+            .codes()
+            .clone()
+            .execute::<PrimitiveArray>(&mut compressor.execution_ctx())?
+            .narrow()?
+            .into_array();
+        let compressed_codes = compressor.compress_child(&narrowed_codes, &ctx, self.id(), 1)?;
+
+        // SAFETY: compressing codes does not change their values.
+        unsafe {
+            Ok(
+                DictArray::new_unchecked(compressed_codes, compressed_values)
+                    .set_all_values_referenced(dict.has_all_values_referenced())
+                    .into_array(),
+            )
+        }
+    }
+}
+
 /// Encodes a typed integer array into a [`DictArray`] using the pre-computed distinct values.
 macro_rules! typed_encode {
-    ($stats:ident, $typed:ident, $validity:ident, $typ:ty) => {{
+    ($source_array:ident, $stats:ident, $typed:ident, $typ:ty) => {{
         let distinct = $typed.distinct().vortex_expect(
             "this must be present since `DictScheme` declared that we need distinct values",
         );
+
+        let values_validity = match $source_array.validity()? {
+            Validity::NonNullable => Validity::NonNullable,
+            _ => Validity::AllValid,
+        };
+        let codes_validity = $source_array.validity()?;
 
         let values: Buffer<$typ> = distinct.distinct_values().keys().map(|x| x.0).collect();
 
@@ -29,51 +144,48 @@ macro_rules! typed_encode {
         let codes = if max_code <= u8::MAX as usize {
             let buf = <DictEncoder as Encode<$typ, u8>>::encode(
                 &values,
-                $stats.source().as_slice::<$typ>(),
+                $source_array.as_slice::<$typ>(),
             );
-            PrimitiveArray::new(buf, $validity.clone()).into_array()
+            PrimitiveArray::new(buf, codes_validity).into_array()
         } else if max_code <= u16::MAX as usize {
             let buf = <DictEncoder as Encode<$typ, u16>>::encode(
                 &values,
-                $stats.source().as_slice::<$typ>(),
+                $source_array.as_slice::<$typ>(),
             );
-            PrimitiveArray::new(buf, $validity.clone()).into_array()
+            PrimitiveArray::new(buf, codes_validity).into_array()
         } else {
             let buf = <DictEncoder as Encode<$typ, u32>>::encode(
                 &values,
-                $stats.source().as_slice::<$typ>(),
+                $source_array.as_slice::<$typ>(),
             );
-            PrimitiveArray::new(buf, $validity.clone()).into_array()
-        };
-
-        let values_validity = match $validity {
-            Validity::NonNullable => Validity::NonNullable,
-            _ => Validity::AllValid,
+            PrimitiveArray::new(buf, codes_validity).into_array()
         };
 
         let values = PrimitiveArray::new(values, values_validity).into_array();
         // SAFETY: invariants enforced in DictEncoder.
-        unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) }
+        Ok(unsafe { DictArray::new_unchecked(codes, values).set_all_values_referenced(true) })
     }};
 }
 
 /// Compresses an integer array into a dictionary array according to attached stats.
+///
+/// # Errors
+///
+/// Returns an error if unable to compute validity.
 #[expect(
     clippy::cognitive_complexity,
     reason = "complexity from match on all integer types"
 )]
-pub fn dictionary_encode(stats: &IntegerStats) -> DictArray {
-    let src_validity = stats.source().validity();
-
+pub fn dictionary_encode(array: PrimitiveArray, stats: &IntegerStats) -> VortexResult<DictArray> {
     match stats.erased() {
-        IntegerErasedStats::U8(typed) => typed_encode!(stats, typed, src_validity, u8),
-        IntegerErasedStats::U16(typed) => typed_encode!(stats, typed, src_validity, u16),
-        IntegerErasedStats::U32(typed) => typed_encode!(stats, typed, src_validity, u32),
-        IntegerErasedStats::U64(typed) => typed_encode!(stats, typed, src_validity, u64),
-        IntegerErasedStats::I8(typed) => typed_encode!(stats, typed, src_validity, i8),
-        IntegerErasedStats::I16(typed) => typed_encode!(stats, typed, src_validity, i16),
-        IntegerErasedStats::I32(typed) => typed_encode!(stats, typed, src_validity, i32),
-        IntegerErasedStats::I64(typed) => typed_encode!(stats, typed, src_validity, i64),
+        IntegerErasedStats::U8(typed) => typed_encode!(array, stats, typed, u8),
+        IntegerErasedStats::U16(typed) => typed_encode!(array, stats, typed, u16),
+        IntegerErasedStats::U32(typed) => typed_encode!(array, stats, typed, u32),
+        IntegerErasedStats::U64(typed) => typed_encode!(array, stats, typed, u64),
+        IntegerErasedStats::I8(typed) => typed_encode!(array, stats, typed, i8),
+        IntegerErasedStats::I16(typed) => typed_encode!(array, stats, typed, i16),
+        IntegerErasedStats::I32(typed) => typed_encode!(array, stats, typed, i32),
+        IntegerErasedStats::I64(typed) => typed_encode!(array, stats, typed, i64),
     }
 }
 
@@ -127,10 +239,11 @@ impl_encode!(i64);
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::DynArray;
     use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::dict::DictArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -151,7 +264,7 @@ mod tests {
                 count_distinct_values: true,
             },
         );
-        let dict_array = dictionary_encode(&stats);
+        let dict_array = dictionary_encode(array, &stats).unwrap();
         assert_eq!(dict_array.values().len(), 2);
         assert_eq!(dict_array.codes().len(), 5);
 
@@ -160,6 +273,7 @@ mod tests {
             Validity::Array(BoolArray::from_iter([true, true, true, false, true]).into_array()),
         )
         .into_array();
-        assert_arrays_eq!(dict_array.as_ref(), expected.as_ref());
+        let undict = dict_array.as_array().to_primitive().into_array();
+        assert_arrays_eq!(undict, expected);
     }
 }

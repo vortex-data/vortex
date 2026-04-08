@@ -914,9 +914,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.39.0"
+version = "0.39.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fa7e52a4c5c547c741610a2c6f123f3881e409b714cd27e6798ef020c514f0a"
+checksum = "83a25cf98105baa966497416dbd42565ce3a8cf8dbfd59803ec9ad46f3126399"
 dependencies = [
  "cc",
  "cmake",
@@ -1475,9 +1475,9 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cmake"
-version = "0.1.57"
+version = "0.1.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75443c44cd6b379beb8c5b45d85d0773baf31cce901fe7bb252f4eff3008ef7d"
+checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
 dependencies = [
  "cc",
 ]
@@ -4860,11 +4860,11 @@ dependencies = [
 
 [[package]]
 name = "insta"
-version = "1.46.3"
+version = "1.47.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e82db8c87c7f1ccecb34ce0c24399b8a73081427f3c7c50a5d597925356115e4"
+checksum = "7b4a6248eb93a4401ed2f37dfe8ea592d3cf05b7cf4f8efa867b6895af7e094e"
 dependencies = [
- "console 0.15.11",
+ "console 0.16.3",
  "once_cell",
  "similar",
  "tempfile",
@@ -8105,9 +8105,9 @@ dependencies = [
 
 [[package]]
 name = "rust_decimal"
-version = "1.40.0"
+version = "1.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61f703d19852dbf87cbc513643fa81428361eb6940f1ac14fd58155d295a3eb0"
+checksum = "2ce901f9a19d251159075a4c37af514c3b8ef99c22e02dd8c19161cf397ee94a"
 dependencies = [
  "arrayvec",
  "borsh",
@@ -8117,6 +8117,7 @@ dependencies = [
  "rkyv",
  "serde",
  "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -9324,12 +9325,12 @@ dependencies = [
 
 [[package]]
 name = "terminal_size"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60b8cb979cb11c32ce1603f8137b22262a9d131aaa5c37b5678025f22b8becd0"
+checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix 1.1.4",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10067,7 +10068,9 @@ dependencies = [
  "fastlanes",
  "mimalloc",
  "parquet 58.0.0",
+ "paste",
  "rand 0.10.0",
+ "rand_distr 0.6.0",
  "serde_json",
  "tokio",
  "tracing",
@@ -10097,6 +10100,7 @@ dependencies = [
  "vortex-sequence",
  "vortex-session",
  "vortex-sparse",
+ "vortex-tensor",
  "vortex-utils",
  "vortex-zigzag",
  "vortex-zstd",
@@ -10257,6 +10261,7 @@ dependencies = [
  "vortex-runend",
  "vortex-sequence",
  "vortex-sparse",
+ "vortex-tensor",
  "vortex-utils",
  "vortex-zigzag",
  "vortex-zstd",
@@ -10289,6 +10294,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-mask",
  "vortex-session",
 ]
 
@@ -10321,6 +10327,7 @@ dependencies = [
 name = "vortex-compressor"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
  "parking_lot",
@@ -10511,7 +10518,6 @@ dependencies = [
 name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
- "arrayref",
  "codspeed-divan-compat",
  "fastlanes",
  "itertools 0.14.0",
@@ -10546,6 +10552,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "vortex",
+ "vortex-array",
 ]
 
 [[package]]
@@ -10588,6 +10595,7 @@ dependencies = [
  "vortex-sequence",
  "vortex-session",
  "vortex-sparse",
+ "vortex-tensor",
  "vortex-utils",
  "vortex-zigzag",
  "vortex-zstd",
@@ -10956,11 +10964,20 @@ dependencies = [
 name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
+ "half",
  "itertools 0.14.0",
  "num-traits",
  "prost 0.14.3",
+ "rand 0.10.0",
+ "rand_distr 0.6.0",
  "rstest",
- "vortex",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-compressor",
+ "vortex-error",
+ "vortex-fastlanes",
+ "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]

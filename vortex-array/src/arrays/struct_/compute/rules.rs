@@ -7,14 +7,16 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::scalar_fn::ExactScalarFn;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
+use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::arrays::slice::SliceReduceAdaptor;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -46,7 +48,7 @@ impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
 
     fn reduce_parent(
         &self,
-        array: &StructArray,
+        array: ArrayView<'_, Struct>,
         parent: ScalarFnArrayView<Cast>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
@@ -77,11 +79,11 @@ impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
         }
 
         let validity = if parent.options.is_nullable() {
-            array.validity().into_nullable()
+            array.validity()?.into_nullable()
         } else {
             array
-                .validity()
-                .into_non_nullable(array.len)
+                .validity()?
+                .into_non_nullable(array.len())
                 .ok_or_else(|| vortex_err!("Failed to cast nullable struct to non-nullable"))?
         };
 
@@ -101,16 +103,22 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
 
     fn reduce_parent(
         &self,
-        child: &StructArray,
+        child: ArrayView<'_, Struct>,
         parent: ScalarFnArrayView<'_, GetItem>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let field_name = parent.options;
-        let Some(field) = child.unmasked_field_by_name_opt(field_name) else {
-            return Ok(None);
-        };
+        let field = child
+            .unmasked_field_by_name_opt(field_name)
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Field '{}' missing from struct array {}",
+                    field_name,
+                    child.struct_fields().names()
+                )
+            })?;
 
-        match child.validity() {
+        match child.validity()? {
             Validity::NonNullable | Validity::AllValid => {
                 // If the struct is non-nullable or all valid, the field's validity is unchanged
                 Ok(Some(field.clone()))
@@ -127,7 +135,7 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
             }
             Validity::Array(mask) => {
                 // If the validity is an array, we need to combine it with the field's validity
-                Mask.try_new_array(field.len(), EmptyOptions, [field.clone(), mask.clone()])
+                Mask.try_new_array(field.len(), EmptyOptions, [field.clone(), mask])
                     .map(Some)
             }
         }
@@ -141,6 +149,7 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::arrays::struct_::compute::rules::ConstantArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;

@@ -7,7 +7,6 @@ use divan::Bencher;
 use rand::distr::Distribution;
 use rand::distr::StandardUniform;
 use vortex_array::Canonical;
-use vortex_array::DynArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::dict_test::gen_dict_primitive_chunks;
 use vortex_array::builders::builder_with_capacity;

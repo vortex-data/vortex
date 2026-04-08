@@ -24,11 +24,11 @@ export default function Header({
             ☰
           </button>
           <a href="/" className="logo-link">
-            <img
-              src="/vortex_black_nobg.svg"
-              alt="Vortex"
-              className="site-logo"
-            />
+            <picture>
+                <source srcset="/vortex_black_nobg.svg" media="(prefers-color-scheme: light)"/>
+                <source srcset="/vortex_white_nobg.svg" media="(prefers-color-scheme: dark)"/>
+                <img src="/vortex_black_nobg.svg" alt="Vortex" className="site-logo"/>
+            </picture>
           </a>
         </div>
 

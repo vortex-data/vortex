@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::DynArray;
+use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
-use crate::ALPRDArray;
+use crate::ALPRDArrayExt;
 
 impl OperationsVTable<ALPRD> for ALPRD {
     fn scalar_at(
-        array: &ALPRDArray,
+        array: ArrayView<'_, ALPRD>,
         index: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
@@ -40,7 +41,7 @@ impl OperationsVTable<ALPRD> for ALPRD {
         };
 
         // combine left and right values
-        Ok(if array.is_f32() {
+        Ok(if array.dtype().as_ptype() == PType::F32 {
             let right: u32 = array
                 .right_parts()
                 .scalar_at(index)?
@@ -69,6 +70,7 @@ mod test {
     use vortex_array::assert_arrays_eq;
     use vortex_array::scalar::Scalar;
 
+    use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 

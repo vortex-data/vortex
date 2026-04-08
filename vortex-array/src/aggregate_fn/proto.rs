@@ -60,22 +60,102 @@ impl AggregateFnRef {
 #[cfg(test)]
 mod tests {
     use prost::Message;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_panic;
     use vortex_proto::expr as pb;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
+    use crate::Columnar;
+    use crate::ExecutionCtx;
+    use crate::aggregate_fn::AggregateFnId;
     use crate::aggregate_fn::AggregateFnRef;
+    use crate::aggregate_fn::AggregateFnVTable;
     use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::EmptyOptions;
-    use crate::aggregate_fn::fns::sum::Sum;
     use crate::aggregate_fn::session::AggregateFnSession;
     use crate::aggregate_fn::session::AggregateFnSessionExt;
+    use crate::dtype::DType;
+    use crate::scalar::Scalar;
+
+    /// A minimal serializable aggregate function used solely to exercise the serde round-trip.
+    #[derive(Clone, Debug)]
+    struct TestAgg;
+
+    impl AggregateFnVTable for TestAgg {
+        type Options = EmptyOptions;
+        type Partial = ();
+
+        fn id(&self) -> AggregateFnId {
+            AggregateFnId::new_ref("vortex.test.proto")
+        }
+
+        fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+            Ok(Some(vec![]))
+        }
+
+        fn deserialize(
+            &self,
+            _metadata: &[u8],
+            _session: &VortexSession,
+        ) -> VortexResult<Self::Options> {
+            Ok(EmptyOptions)
+        }
+
+        fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+            Some(input_dtype.clone())
+        }
+
+        fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+            self.return_dtype(options, input_dtype)
+        }
+
+        fn empty_partial(
+            &self,
+            _options: &Self::Options,
+            _input_dtype: &DType,
+        ) -> VortexResult<Self::Partial> {
+            Ok(())
+        }
+
+        fn combine_partials(
+            &self,
+            _partial: &mut Self::Partial,
+            _other: Scalar,
+        ) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn to_scalar(&self, _partial: &Self::Partial) -> VortexResult<Scalar> {
+            vortex_panic!("TestAgg is for serde tests only");
+        }
+
+        fn reset(&self, _partial: &mut Self::Partial) {}
+
+        fn is_saturated(&self, _partial: &Self::Partial) -> bool {
+            true
+        }
+
+        fn accumulate(
+            &self,
+            _state: &mut Self::Partial,
+            _batch: &Columnar,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<()> {
+            Ok(())
+        }
+
+        fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
+            Ok(partials)
+        }
+    }
 
     #[test]
     fn aggregate_fn_serde() {
         let session = VortexSession::empty().with::<AggregateFnSession>();
-        session.aggregate_fns().register(Sum);
+        session.aggregate_fns().register(TestAgg);
 
-        let agg_fn = Sum.bind(EmptyOptions);
+        let agg_fn = TestAgg.bind(EmptyOptions);
 
         let serialized = agg_fn.serialize_proto().unwrap();
         let buf = serialized.encode_to_vec();

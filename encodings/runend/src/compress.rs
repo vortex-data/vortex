@@ -3,12 +3,16 @@
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::bool::BoolArrayExt;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -30,8 +34,11 @@ use vortex_mask::Mask;
 use crate::iter::trimmed_ends_iter;
 
 /// Run-end encode a `PrimitiveArray`, returning a tuple of `(ends, values)`.
-pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
-    let validity = match array.validity() {
+pub fn runend_encode(array: ArrayView<Primitive>) -> (PrimitiveArray, ArrayRef) {
+    let validity = match array
+        .validity()
+        .vortex_expect("run-end validity should be derivable")
+    {
         Validity::NonNullable => None,
         Validity::AllValid => None,
         Validity::AllInvalid => {
@@ -69,10 +76,7 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
         }
     };
 
-    let ends = ends
-        .narrow()
-        .vortex_expect("Ends must succeed downcasting")
-        .to_primitive();
+    let ends = ends.narrow().vortex_expect("Ends must succeed downcasting");
 
     ends.statistics()
         .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
@@ -286,7 +290,7 @@ pub fn runend_decode_varbinview(
         )
     });
 
-    let parts = values.into_parts();
+    let parts = values.into_data_parts();
     let view_handle = BufferHandle::new_host(decoded_views.into_byte_buffer());
 
     // SAFETY: we are expanding views from a valid VarBinViewArray with the same
@@ -312,7 +316,7 @@ mod test {
     #[test]
     fn encode() {
         let arr = PrimitiveArray::from_iter([1i32, 1, 2, 2, 2, 3, 3, 3, 3, 3]);
-        let (ends, values) = runend_encode(&arr);
+        let (ends, values) = runend_encode(arr.as_view());
         let values = values.to_primitive();
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 5, 10]);
@@ -329,7 +333,7 @@ mod test {
                 true, true, false, false, true, true, true, true, false, false,
             ])),
         );
-        let (ends, values) = runend_encode(&arr);
+        let (ends, values) = runend_encode(arr.as_view());
         let values = values.to_primitive();
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 4, 5, 8, 10]);
@@ -345,7 +349,7 @@ mod test {
             buffer![0, 0, 0, 0, 0],
             Validity::from(BitBuffer::new_unset(5)),
         );
-        let (ends, values) = runend_encode(&arr);
+        let (ends, values) = runend_encode(arr.as_view());
         let values = values.to_primitive();
 
         let expected_ends = PrimitiveArray::from_iter(vec![5u64]);

@@ -26,7 +26,6 @@ use self::varbin::check_varbinview_constant;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
-use crate::DynArray;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
@@ -261,15 +260,7 @@ impl AggregateFnVTable for IsConstant {
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
-    }
-
-    fn deserialize(
-        &self,
-        _metadata: &[u8],
-        _session: &vortex_session::VortexSession,
-    ) -> VortexResult<Self::Options> {
-        Ok(EmptyOptions)
+        unimplemented!("IsConstant is not yet serializable");
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {

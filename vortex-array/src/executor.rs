@@ -20,7 +20,6 @@
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
-use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 
@@ -33,7 +32,6 @@ use vortex_session::VortexSession;
 use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::DynArray;
 use crate::IntoArray;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
@@ -62,17 +60,18 @@ pub trait Executable: Sized {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
 }
 
-impl dyn DynArray + '_ {
+#[allow(clippy::same_name_method)]
+impl ArrayRef {
     /// Execute this array to produce an instance of `E`.
     ///
     /// See the [`Executable`] implementation for details on how this execution is performed.
-    pub fn execute<E: Executable>(self: Arc<Self>, ctx: &mut ExecutionCtx) -> VortexResult<E> {
+    pub fn execute<E: Executable>(self, ctx: &mut ExecutionCtx) -> VortexResult<E> {
         E::execute(self, ctx)
     }
 
     /// Execute this array, labeling the execution step with a name for tracing.
     pub fn execute_as<E: Executable>(
-        self: Arc<Self>,
+        self,
         _name: &'static str,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<E> {
@@ -93,10 +92,7 @@ impl dyn DynArray + '_ {
     ///
     /// For safety, we will error when the number of execution iterations reaches a configurable
     /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
-    pub fn execute_until<M: Matcher>(
-        self: Arc<Self>,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrayRef> {
+    pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         static MAX_ITERATIONS: LazyLock<usize> =
             LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
                 Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
@@ -117,7 +113,7 @@ impl dyn DynArray + '_ {
             let is_done = stack
                 .last()
                 .map_or(M::matches as DonePredicate, |frame| frame.2);
-            if is_done(current.as_ref()) {
+            if is_done(&current) {
                 match stack.pop() {
                     None => {
                         ctx.log(format_args!("-> {}", current));
@@ -133,7 +129,7 @@ impl dyn DynArray + '_ {
 
             // If we've reached canonical form, we can't execute any further regardless
             // of whether the matcher matched.
-            if AnyCanonical::matches(current.as_ref()) {
+            if AnyCanonical::matches(&current) {
                 match stack.pop() {
                     None => {
                         ctx.log(format_args!("-> canonical (unmatched) {}", current));
@@ -281,7 +277,7 @@ impl Executable for ArrayRef {
         }
 
         // 1. reduce (metadata-only rewrites)
-        if let Some(reduced) = array.vtable().reduce(&array)? {
+        if let Some(reduced) = array.reduce()? {
             ctx.log(format_args!("reduce: rewrote {} -> {}", array, reduced));
             reduced.statistics().inherit_from(array.statistics());
             return Ok(reduced);
@@ -292,7 +288,7 @@ impl Executable for ArrayRef {
             let Some(child) = slot else {
                 continue;
             };
-            if let Some(reduced_parent) = child.vtable().reduce_parent(child, &array, slot_idx)? {
+            if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
                 ctx.log(format_args!(
                     "reduce_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -310,10 +306,7 @@ impl Executable for ArrayRef {
             let Some(child) = slot else {
                 continue;
             };
-            if let Some(executed_parent) = child
-                .vtable()
-                .execute_parent(child, &array, slot_idx, ctx)?
-            {
+            if let Some(executed_parent) = child.execute_parent(&array, slot_idx, ctx)? {
                 ctx.log(format_args!(
                     "execute_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -334,7 +327,7 @@ impl Executable for ArrayRef {
         let (array, step) = result.into_parts();
         match step {
             ExecutionStep::Done => {
-                ctx.log(format_args!("-> {}", array.as_ref()));
+                ctx.log(format_args!("-> {}", array));
                 Ok(array)
             }
             ExecutionStep::ExecuteSlot(i, _) => {
@@ -352,8 +345,7 @@ impl Executable for ArrayRef {
 ///
 /// Extracts the vtable before consuming the array to avoid borrow conflicts.
 fn execute_step(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-    let vtable = array.vtable().clone_boxed();
-    vtable.execute(array, ctx)
+    array.execute_encoding(ctx)
 }
 
 /// Try execute_parent on each occupied slot of the array.
@@ -362,7 +354,7 @@ fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
         let Some(child) = slot else {
             continue;
         };
-        if let Some(result) = child.vtable().execute_parent(child, array, slot_idx, ctx)? {
+        if let Some(result) = child.execute_parent(array, slot_idx, ctx)? {
             result.statistics().inherit_from(array.statistics());
             return Ok(Some(result));
         }
@@ -371,7 +363,7 @@ fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
 }
 
 /// A predicate that determines when an array has reached a desired form during execution.
-pub type DonePredicate = fn(&dyn DynArray) -> bool;
+pub type DonePredicate = fn(&ArrayRef) -> bool;
 
 /// Metadata-only step indicator returned alongside an array in [`ExecutionResult`].
 ///

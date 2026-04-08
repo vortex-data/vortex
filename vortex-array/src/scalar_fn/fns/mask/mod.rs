@@ -17,6 +17,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;

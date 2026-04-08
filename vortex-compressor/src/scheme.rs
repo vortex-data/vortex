@@ -14,9 +14,7 @@ use vortex_error::VortexResult;
 
 use crate::CascadingCompressor;
 use crate::ctx::CompressorContext;
-use crate::sample::SAMPLE_SIZE;
-use crate::sample::sample;
-use crate::sample::sample_count_approx_one_percent;
+use crate::estimate::CompressionEstimate;
 use crate::stats::ArrayAndStats;
 use crate::stats::GenerateStatsOptions;
 
@@ -88,32 +86,33 @@ pub struct AncestorExclusion {
     pub children: ChildSelection,
 }
 
+// TODO(connor): Remove all default implemented methods.
 /// A single compression encoding that the [`CascadingCompressor`] can select from.
 ///
-/// The compressor evaluates every registered scheme whose [`matches`] returns `true` for a
-/// given array, picks the one with the highest [`expected_compression_ratio`], and calls
-/// [`compress`] on the winner.
+/// The compressor evaluates every registered scheme whose [`matches`] returns `true` for a given
+/// array, picks the one with the highest [`expected_compression_ratio`], and calls [`compress`] on
+/// the winner.
 ///
-/// One of the key features of this compressor is that schemes may "cascade": a scheme's
-/// [`compress`] can call back into the compressor via [`CascadingCompressor::compress_child`] to
-/// compress child or transformed arrays, building up multiple encoding layers (e.g.
-/// frame-of-reference and then bit-packing).
+/// One of the key features of the compressor in this crate is that schemes may "cascade". A
+/// scheme's [`compress`] can call back into the compressor via
+/// [`CascadingCompressor::compress_child`] to compress child or transformed arrays, building up
+/// multiple encoding layers (e.g. frame-of-reference and then bit-packing).
 ///
-/// # Identity
+/// # Scheme IDs
 ///
 /// Every scheme has a globally unique name returned by [`scheme_name`]. The [`SchemeExt::id`]
 /// method (auto-implemented, cannot be overridden) wraps that name in an opaque [`SchemeId`] used
-/// for equality, hashing, and exclusion rules.
+/// for equality, hashing, and exclusion rules (see below).
 ///
 /// # Cascading and children
 ///
-/// Schemes that produce child arrays for further compression declare [`num_children`] > 0. Each
-/// child is identified by index. Cascading schemes should use
+/// Schemes that produce child arrays for further compression must declare [`num_children`] > 0.
+/// Each child should be identified by a stable index. Cascading schemes should use
 /// [`CascadingCompressor::compress_child`] to compress each child array, which handles cascade
 /// level / budget tracking and context management automatically.
 ///
-/// No scheme may appear twice in a cascade chain (enforced by the compressor). This keeps the
-/// search space a tree.
+/// No scheme may appear twice in a cascade (descendant) chain (enforced by the compressor). This
+/// keeps the search space a tree.
 ///
 /// # Exclusion rules
 ///
@@ -125,13 +124,15 @@ pub struct AncestorExclusion {
 /// - [`ancestor_exclusions`] (pull): "exclude me if ancestor X's child Y is above me." Used when
 ///   the declaring scheme knows about the ancestor.
 ///
+/// We do this because different schemes will live in different crates, and we cannot know the
+/// dependency direction ahead of time.
+///
 /// # Implementing a scheme
 ///
-/// At a minimum, implementors must provide [`scheme_name`], [`matches`], and [`compress`].
-///
-/// The default [`expected_compression_ratio`] estimates the ratio by compressing a small sample.
-/// Implementors should only override this method when a cheaper heuristic is available (e.g.
-/// returning `f64::MAX` for constant detection or `0.0` for early rejection based on stats).
+/// [`expected_compression_ratio`] should return [`CompressionEstimate::Sample`] when a cheap
+/// heuristic is not available, asking the compressor to estimate via sampling. Implementors should
+/// return a more specific variant when possible (e.g. [`CompressionEstimate::AlwaysUse`] for
+/// constant detection or [`CompressionEstimate::Skip`] for early rejection based on stats).
 ///
 /// Schemes that need statistics that may be expensive to compute should override [`stats_options`]
 /// to declare what they require. The compressor merges all eligible schemes' options before
@@ -151,11 +152,6 @@ pub trait Scheme: Debug + Send + Sync {
 
     /// Whether this scheme can compress the given canonical array.
     fn matches(&self, canonical: &Canonical) -> bool;
-
-    /// True if this scheme detects constant arrays.
-    fn detects_constant(&self) -> bool {
-        false
-    }
 
     /// Returns the stats generation options this scheme requires. The compressor merges all
     /// eligible schemes' options before generating stats so that a single stats pass satisfies
@@ -186,21 +182,30 @@ pub trait Scheme: Debug + Send + Sync {
         Vec::new()
     }
 
-    // TODO(connor): It would be nice if we returned a more useful type that said "choose me no
-    // matter what" instead of `f64::MAX`.
-    /// Estimate the compression ratio for this scheme on the given array.
+    /// Cheaply estimate the compression ratio for this scheme on the given array.
     ///
-    /// # Errors
+    /// This method should be fast and infallible. Any expensive or fallible work should be deferred
+    /// to the compressor by returning [`CompressionEstimate::Sample`] or
+    /// [`CompressionEstimate::Estimate`].
     ///
-    /// Returns an error if compression of the sample fails.
+    /// The compressor will ask all schemes what their expected compression ratio is given the array
+    /// and statistics. The scheme with the highest estimated ratio will then be applied to the
+    /// entire array.
+    ///
+    /// Note that the compressor will also use this method when compressing samples, so some
+    /// statistics that might hold for the samples may not hold for the entire array (e.g.,
+    /// `Constant`). Implementations should check `ctx.is_sample` to make sure that they are
+    /// returning the correct information.
+    ///
+    /// The compressor guarantees that empty and all-null arrays are handled before this method is
+    /// called. Implementations may assume the array has at least one valid element. However, a
+    /// constant scheme should still be registered with the compressor to detect single-value arrays
+    /// that are not all-null.
     fn expected_compression_ratio(
         &self,
-        compressor: &CascadingCompressor,
-        data: &mut ArrayAndStats,
-        ctx: CompressorContext,
-    ) -> VortexResult<f64> {
-        estimate_compression_ratio_with_sampling(self, compressor, data.array(), ctx)
-    }
+        _data: &mut ArrayAndStats,
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate;
 
     /// Compress the array using this scheme.
     ///
@@ -243,90 +248,3 @@ pub trait SchemeExt: Scheme {
 }
 
 impl<T: Scheme + ?Sized> SchemeExt for T {}
-
-/// Estimates compression ratio by compressing a ~1% sample of the data.
-///
-/// Creates a new [`ArrayAndStats`] for the sample so that stats are generated from the sample, not
-/// the full array.
-///
-/// # Errors
-///
-/// Returns an error if sample compression fails.
-pub fn estimate_compression_ratio_with_sampling<S: Scheme + ?Sized>(
-    scheme: &S,
-    compressor: &CascadingCompressor,
-    array: &ArrayRef,
-    ctx: CompressorContext,
-) -> VortexResult<f64> {
-    let sample_array = if ctx.is_sample() {
-        array.clone()
-    } else {
-        let source_len = array.len();
-        let sample_count = sample_count_approx_one_percent(source_len);
-
-        tracing::trace!(
-            "Sampling {} values out of {}",
-            SAMPLE_SIZE as u64 * sample_count as u64,
-            source_len
-        );
-
-        sample(array, SAMPLE_SIZE, sample_count)
-    };
-
-    let mut sample_data = ArrayAndStats::new(sample_array, scheme.stats_options());
-    let sample_ctx = ctx.as_sample();
-
-    let after = scheme
-        .compress(compressor, &mut sample_data, sample_ctx)?
-        .nbytes();
-    let before = sample_data.array().nbytes();
-    let ratio = before as f64 / after as f64;
-
-    tracing::debug!("estimate_compression_ratio_with_sampling(compressor={scheme:#?}) = {ratio}",);
-
-    Ok(ratio)
-}
-
-#[cfg(test)]
-mod tests {
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::validity::Validity;
-    use vortex_buffer::buffer;
-    use vortex_error::VortexResult;
-
-    use super::estimate_compression_ratio_with_sampling;
-    use crate::CascadingCompressor;
-    use crate::builtins::FloatDictScheme;
-    use crate::ctx::CompressorContext;
-
-    /// Regression test for <https://github.com/spiraldb/vortex/issues/7227>.
-    ///
-    /// `estimate_compression_ratio_with_sampling` must use the *scheme's* stats options
-    /// (which request distinct-value counting) rather than the context's stats options
-    /// (which may not). With the old code this panicked inside `dictionary_encode` because
-    /// distinct values were never computed for the sample.
-    #[test]
-    fn sampling_uses_scheme_stats_options() -> VortexResult<()> {
-        // Low-cardinality float array so FloatDictScheme considers it compressible.
-        let array = PrimitiveArray::new(
-            buffer![1.0f32, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0],
-            Validity::NonNullable,
-        )
-        .into_array();
-
-        let compressor = CascadingCompressor::new(vec![&FloatDictScheme]);
-
-        // A context with default stats_options (count_distinct_values = false) and
-        // marked as a sample so the function skips the sampling step and compresses
-        // the array directly.
-        let ctx = CompressorContext::default().as_sample();
-
-        // Before the fix this panicked with:
-        //   "this must be present since `DictScheme` declared that we need distinct values"
-        let ratio =
-            estimate_compression_ratio_with_sampling(&FloatDictScheme, &compressor, &array, ctx)?;
-        assert!(ratio.is_finite());
-        Ok(())
-    }
-}

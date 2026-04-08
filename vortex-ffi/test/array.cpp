@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #include <catch2/catch_test_macros.hpp>
+#include <vortex.h>
 #include "common.h"
 
 TEST_CASE("Null array creation", "[array]") {
@@ -40,4 +41,28 @@ TEST_CASE("Primitive array creation", "[array]") {
     }
 
     vx_array_free(array);
+}
+
+TEST_CASE("Struct array creation", "[array]") {
+    vx_error *error = nullptr;
+
+    vx_validity validity = {};
+    validity.type = VX_VALIDITY_NON_NULLABLE;
+
+    const vx_array *field_array = vx_array_new_null(5);
+    CHECK(field_array != nullptr);
+    vx_struct_column_builder *builder = vx_struct_column_builder_new(&validity, 2);
+    CHECK(builder != nullptr);
+
+    vx_struct_column_builder_add_field(builder, "age", field_array, &error);
+    vx_array_free(field_array);
+
+    SECTION("Struct array builder free") {
+        vx_struct_column_builder_free(builder);
+    }
+
+    SECTION("Struct array builder finalize") {
+        const vx_array *struct_array = vx_struct_column_builder_finalize(builder, &error);
+        vx_array_free(struct_array);
+    }
 }

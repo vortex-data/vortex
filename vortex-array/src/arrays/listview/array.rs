@@ -11,17 +11,20 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::DynArray;
 use crate::ToCanonical;
+use crate::array::Array;
+use crate::array::ArrayParts;
+use crate::array::TypedArrayRef;
+use crate::array::child_to_validity;
+use crate::array::validity_to_child;
+use crate::arrays::ListView;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable::validity_to_child;
 
 /// The `elements` data array, where each list scalar is a _slice_ of the `elements` array, and
 /// each inner list element is a _scalar_ of the `elements` array.
@@ -68,6 +71,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "sizes"
 /// ```
 /// # fn main() -> vortex_error::VortexResult<()> {
 /// # use vortex_array::arrays::{ListViewArray, PrimitiveArray};
+/// # use vortex_array::arrays::listview::ListViewArrayExt;
 /// # use vortex_array::validity::Validity;
 /// # use vortex_array::IntoArray;
 /// # use vortex_buffer::buffer;
@@ -104,15 +108,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "sizes"
 ///
 /// [`ListArray`]: crate::arrays::ListArray
 #[derive(Clone, Debug)]
-pub struct ListViewArray {
-    /// The [`DType`] of the list array.
-    ///
-    /// This type **must** be the variant [`DType::List`].
-    pub(super) dtype: DType,
-
-    /// Slots holding [elements, offsets, sizes].
-    pub(super) slots: Vec<Option<ArrayRef>>,
-
+pub struct ListViewData {
     // TODO(connor)[ListView]: Add the n+1 memory allocation optimization.
     /// A flag denoting if the array is zero-copyable* to a [`ListArray`](crate::arrays::ListArray).
     ///
@@ -122,18 +118,9 @@ pub struct ListViewArray {
     /// `offsets[i] + sizes[i]` are in order), conversions can bypass the very expensive rebuild
     /// process which must rebuild the array from scratch.
     is_zero_copy_to_list: bool,
-
-    /// The validity / null map of the array.
-    ///
-    /// Note that this null map refers to which list scalars are null, **not** which sub-elements of
-    /// list scalars are null. The `elements` array will track individual value nullability.
-    pub(super) validity: Validity,
-
-    /// The stats for this array.
-    pub(super) stats_set: ArrayStats,
 }
 
-pub struct ListViewArrayParts {
+pub struct ListViewDataParts {
     pub elements_dtype: Arc<DType>,
 
     /// See `ListViewArray::elements`
@@ -149,16 +136,32 @@ pub struct ListViewArrayParts {
     pub validity: Validity,
 }
 
-impl ListViewArray {
-    /// Creates a new [`ListViewArray`].
+impl ListViewData {
+    pub(crate) fn make_slots(
+        elements: &ArrayRef,
+        offsets: &ArrayRef,
+        sizes: &ArrayRef,
+        validity: &Validity,
+        len: usize,
+    ) -> Vec<Option<ArrayRef>> {
+        vec![
+            Some(elements.clone()),
+            Some(offsets.clone()),
+            Some(sizes.clone()),
+            validity_to_child(validity, len),
+        ]
+    }
+
+    /// Creates a new `ListViewArray`.
     ///
     /// # Panics
     ///
     /// Panics if the provided components do not satisfy the invariants documented
-    /// in [`ListViewArray::new_unchecked`].
-    pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
-        Self::try_new(elements, offsets, sizes, validity)
-            .vortex_expect("`ListViewArray` construction failed")
+    /// in `ListViewArray::new_unchecked`.
+    pub fn new() -> Self {
+        Self {
+            is_zero_copy_to_list: false,
+        }
     }
 
     /// Constructs a new `ListViewArray`.
@@ -166,28 +169,12 @@ impl ListViewArray {
     /// # Errors
     ///
     /// Returns an error if the provided components do not satisfy the invariants documented
-    /// in [`ListViewArray::new_unchecked`].
-    pub fn try_new(
-        elements: ArrayRef,
-        offsets: ArrayRef,
-        sizes: ArrayRef,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        Self::validate(&elements, &offsets, &sizes, &validity)?;
-
-        let len = offsets.len();
-        let validity_slot = validity_to_child(&validity, len);
-
-        Ok(Self {
-            dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
-            slots: vec![Some(elements), Some(offsets), Some(sizes), validity_slot],
-            validity,
-            is_zero_copy_to_list: false,
-            stats_set: Default::default(),
-        })
+    /// in `ListViewArray::new_unchecked`.
+    pub fn try_new() -> VortexResult<Self> {
+        Ok(Self::new())
     }
 
-    /// Creates a new [`ListViewArray`] without validation.
+    /// Creates a new `ListViewArray` without validation.
     ///
     /// This unsafe function does not check the validity of the data. Prefer calling [`new()`] or
     /// [`try_new()`] over this function, as they will check the validity of the data.
@@ -206,30 +193,11 @@ impl ListViewArray {
     /// - For each `i`, `offsets[i] + sizes[i]` must not overflow and must be `<= elements.len()`
     ///   (even if the corresponding view is defined as null by the validity array).
     /// - If validity is an array, its length must equal `offsets.len()`.
-    pub unsafe fn new_unchecked(
-        elements: ArrayRef,
-        offsets: ArrayRef,
-        sizes: ArrayRef,
-        validity: Validity,
-    ) -> Self {
-        if cfg!(debug_assertions) {
-            Self::validate(&elements, &offsets, &sizes, &validity)
-                .vortex_expect("Failed to crate `ListViewArray`");
-        }
-
-        let len = offsets.len();
-        let validity_slot = validity_to_child(&validity, len);
-
-        Self {
-            dtype: DType::List(Arc::new(elements.dtype().clone()), validity.nullability()),
-            slots: vec![Some(elements), Some(offsets), Some(sizes), validity_slot],
-            validity,
-            is_zero_copy_to_list: false,
-            stats_set: Default::default(),
-        }
+    pub unsafe fn new_unchecked() -> Self {
+        Self::new()
     }
 
-    /// Validates the components that would be used to create a [`ListViewArray`].
+    /// Validates the components that would be used to create a `ListViewArray`.
     pub fn validate(
         elements: &ArrayRef,
         offsets: &ArrayRef,
@@ -292,7 +260,7 @@ impl ListViewArray {
         Ok(())
     }
 
-    /// Sets whether this [`ListViewArray`] is zero-copyable to a [`ListArray`].
+    /// Sets whether this `ListViewArray` is zero-copyable to a [`ListArray`].
     ///
     /// This is an optimization flag that enables more efficient conversion to [`ListArray`] without
     /// needing to copy or reorganize the data.
@@ -301,7 +269,7 @@ impl ListViewArray {
     ///
     /// # Safety
     ///
-    /// When setting `is_zctl` to `true`, the caller must ensure that the [`ListViewArray`] is
+    /// When setting `is_zctl` to `true`, the caller must ensure that the `ListViewArray` is
     /// actually zero-copyable to a [`ListArray`]. This means:
     ///
     /// - Offsets must be sorted (but not strictly sorted, zero-length lists are allowed).
@@ -311,79 +279,67 @@ impl ListViewArray {
     ///
     /// Note that leading and trailing unreferenced elements **ARE** allowed.
     pub unsafe fn with_zero_copy_to_list(mut self, is_zctl: bool) -> Self {
-        if cfg!(debug_assertions) && is_zctl {
-            validate_zctl(
-                self.elements(),
-                self.offsets().to_primitive(),
-                self.sizes().to_primitive(),
-            )
-            .vortex_expect("Failed to validate zero-copy to list flag");
-        }
         self.is_zero_copy_to_list = is_zctl;
         self
     }
 
-    /// Verifies that the `ListViewArray` is zero-copyable to a [`ListArray`].
-    ///
-    /// This will run an expensive validation of the `ListViewArray`'s components. It will check the
-    /// following things:
-    ///
-    /// - Offsets must be sorted (but not strictly sorted, zero-length lists are allowed).
-    /// - No gaps in elements between first and last referenced elements.
-    /// - No overlapping list views (each element referenced at most once).
-    ///
-    /// Note that leading and trailing unreferenced elements **ARE** allowed.
-    ///
-    /// This method should really only be called if the caller knows that the `ListViewArray` will
-    /// be converted into a [`ListArray`] in the future, and the caller wants to set the
-    /// optimization flag to `true` with the unsafe [`with_zero_copy_to_list`] method.
-    ///
-    /// [`ListArray`]: crate::arrays::ListArray
-    /// [`with_zero_copy_to_list`]: Self::with_zero_copy_to_list
-    pub fn verify_is_zero_copy_to_list(&self) -> bool {
-        validate_zctl(
-            self.elements(),
-            self.offsets().to_primitive(),
-            self.sizes().to_primitive(),
-        )
-        .is_ok()
+    /// Returns true if the `ListViewArray` is zero-copyable to a
+    /// [`ListArray`](crate::arrays::ListArray).
+    pub fn is_zero_copy_to_list(&self) -> bool {
+        self.is_zero_copy_to_list
     }
+}
 
-    pub fn into_parts(mut self) -> ListViewArrayParts {
-        let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
-        ListViewArrayParts {
-            elements_dtype: dtype,
-            elements: self.slots[ELEMENTS_SLOT]
-                .take()
-                .vortex_expect("ListViewArray elements slot"),
-            offsets: self.slots[OFFSETS_SLOT]
-                .take()
-                .vortex_expect("ListViewArray offsets slot"),
-            sizes: self.slots[SIZES_SLOT]
-                .take()
-                .vortex_expect("ListViewArray sizes slot"),
-            validity: self.validity,
+impl Default for ListViewData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub trait ListViewArrayExt: TypedArrayRef<ListView> {
+    fn nullability(&self) -> crate::dtype::Nullability {
+        match self.as_ref().dtype() {
+            DType::List(_, nullability) => *nullability,
+            _ => unreachable!("ListViewArrayExt requires a list dtype"),
         }
     }
 
-    /// Returns the offset at the given index.
-    ///
-    /// Note that it is possible the corresponding list view is null (which is only defined by the
-    /// validity map). Regardless, we are still guaranteed that this offset is valid by the
-    /// invariants of [`ListViewArray`].
-    pub fn offset_at(&self, index: usize) -> usize {
-        assert!(
-            index < self.len(),
-            "Index {index} out of bounds 0..{}",
-            self.len()
-        );
+    fn elements(&self) -> &ArrayRef {
+        self.as_ref().slots()[ELEMENTS_SLOT]
+            .as_ref()
+            .vortex_expect("ListViewArray elements slot")
+    }
 
-        // Fast path for `PrimitiveArray`.
+    fn offsets(&self) -> &ArrayRef {
+        self.as_ref().slots()[OFFSETS_SLOT]
+            .as_ref()
+            .vortex_expect("ListViewArray offsets slot")
+    }
+
+    fn sizes(&self) -> &ArrayRef {
+        self.as_ref().slots()[SIZES_SLOT]
+            .as_ref()
+            .vortex_expect("ListViewArray sizes slot")
+    }
+
+    fn listview_validity(&self) -> Validity {
+        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
+    }
+
+    fn listview_validity_mask(&self) -> vortex_mask::Mask {
+        self.listview_validity().to_mask(self.as_ref().len())
+    }
+
+    fn offset_at(&self, index: usize) -> usize {
+        assert!(
+            index < self.as_ref().len(),
+            "Index {index} out of bounds 0..{}",
+            self.as_ref().len()
+        );
         self.offsets()
             .as_opt::<Primitive>()
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
-                // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.offsets()
                     .scalar_at(index)
                     .vortex_expect("offsets must support scalar_at")
@@ -393,25 +349,17 @@ impl ListViewArray {
             })
     }
 
-    /// Returns the size at the given index.
-    ///
-    /// Note that it is possible the corresponding list view is null (which is only defined by the
-    /// validity map). Regardless, we are still guaranteed that this size is valid by the invariants
-    /// of [`ListViewArray`].
-    pub fn size_at(&self, index: usize) -> usize {
+    fn size_at(&self, index: usize) -> usize {
         assert!(
-            index < self.len(),
+            index < self.as_ref().len(),
             "Index {} out of bounds 0..{}",
             index,
-            self.len()
+            self.as_ref().len()
         );
-
-        // Fast path for `PrimitiveArray`.
         self.sizes()
             .as_opt::<Primitive>()
             .map(|p| match_each_integer_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
             .unwrap_or_else(|| {
-                // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.sizes()
                     .scalar_at(index)
                     .vortex_expect("sizes must support scalar_at")
@@ -421,42 +369,123 @@ impl ListViewArray {
             })
     }
 
-    /// Returns the elements at the given index from the list array.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the slice operation fails.
-    pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
+    fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let offset = self.offset_at(index);
         let size = self.size_at(index);
         self.elements().slice(offset..offset + size)
     }
 
-    /// Returns the offsets array.
-    pub fn offsets(&self) -> &ArrayRef {
-        self.slots[OFFSETS_SLOT]
-            .as_ref()
-            .vortex_expect("ListViewArray offsets slot")
+    fn verify_is_zero_copy_to_list(&self) -> bool {
+        validate_zctl(
+            self.elements(),
+            self.offsets().to_primitive(),
+            self.sizes().to_primitive(),
+        )
+        .is_ok()
+    }
+}
+impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}
+
+impl Array<ListView> {
+    /// Creates a new `ListViewArray`.
+    pub fn new(elements: ArrayRef, offsets: ArrayRef, sizes: ArrayRef, validity: Validity) -> Self {
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len();
+        let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
+        ListViewData::validate(&elements, &offsets, &sizes, &validity)
+            .vortex_expect("`ListViewArray` construction failed");
+        let data = ListViewData::new();
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
+            )
+        }
     }
 
-    /// Returns the sizes array.
-    pub fn sizes(&self) -> &ArrayRef {
-        self.slots[SIZES_SLOT]
-            .as_ref()
-            .vortex_expect("ListViewArray sizes slot")
+    /// Constructs a new `ListViewArray`.
+    pub fn try_new(
+        elements: ArrayRef,
+        offsets: ArrayRef,
+        sizes: ArrayRef,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len();
+        let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
+        ListViewData::validate(&elements, &offsets, &sizes, &validity)?;
+        let data = ListViewData::try_new()?;
+        Ok(unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
+            )
+        })
     }
 
-    /// Returns the elements array.
-    pub fn elements(&self) -> &ArrayRef {
-        self.slots[ELEMENTS_SLOT]
-            .as_ref()
-            .vortex_expect("ListViewArray elements slot")
+    /// Creates a new `ListViewArray` without validation.
+    ///
+    /// # Safety
+    ///
+    /// See [`ListViewData::new_unchecked`].
+    pub unsafe fn new_unchecked(
+        elements: ArrayRef,
+        offsets: ArrayRef,
+        sizes: ArrayRef,
+        validity: Validity,
+    ) -> Self {
+        let dtype = DType::List(Arc::new(elements.dtype().clone()), validity.nullability());
+        let len = offsets.len();
+        let slots = ListViewData::make_slots(&elements, &offsets, &sizes, &validity, len);
+        let data = unsafe { ListViewData::new_unchecked() };
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
+            )
+        }
     }
 
-    /// Returns true if the `ListViewArray` is zero-copyable to a
-    /// [`ListArray`](crate::arrays::ListArray).
-    pub fn is_zero_copy_to_list(&self) -> bool {
-        self.is_zero_copy_to_list
+    /// Mark whether this list view can be zero-copy converted to a list.
+    ///
+    /// # Safety
+    ///
+    /// See [`ListViewData::with_zero_copy_to_list`].
+    pub unsafe fn with_zero_copy_to_list(self, is_zctl: bool) -> Self {
+        if cfg!(debug_assertions) && is_zctl {
+            validate_zctl(
+                self.elements(),
+                self.offsets().to_primitive(),
+                self.sizes().to_primitive(),
+            )
+            .vortex_expect("Failed to validate zero-copy to list flag");
+        }
+        let dtype = self.dtype().clone();
+        let len = self.len();
+        let slots = self.slots().to_vec();
+        let data = unsafe { self.into_data().with_zero_copy_to_list(is_zctl) };
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
+            )
+        }
+    }
+
+    pub fn into_data_parts(self) -> ListViewDataParts {
+        let elements = self.slots()[ELEMENTS_SLOT]
+            .clone()
+            .vortex_expect("ListViewArray elements slot");
+        let offsets = self.slots()[OFFSETS_SLOT]
+            .clone()
+            .vortex_expect("ListViewArray offsets slot");
+        let sizes = self.slots()[SIZES_SLOT]
+            .clone()
+            .vortex_expect("ListViewArray sizes slot");
+        let validity = self.listview_validity();
+        ListViewDataParts {
+            elements_dtype: Arc::new(elements.dtype().clone()),
+            elements,
+            offsets,
+            sizes,
+            validity,
+        }
     }
 }
 
@@ -511,7 +540,7 @@ where
     Ok(())
 }
 
-/// Helper function to validate if the [`ListViewArray`] components are actually zero-copyable to
+/// Helper function to validate if the `ListViewArray` components are actually zero-copyable to
 /// [`ListArray`](crate::arrays::ListArray).
 fn validate_zctl(
     elements: &ArrayRef,

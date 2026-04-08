@@ -1,66 +1,41 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex::array::ArrayRef;
-use vortex::array::ExecutionCtx;
-use vortex::array::IntoArray;
-use vortex::array::arrays::Constant;
-use vortex::array::arrays::ConstantArray;
-use vortex::array::arrays::Extension;
-use vortex::array::arrays::FixedSizeListArray;
-use vortex::array::arrays::PrimitiveArray;
-use vortex::dtype::DType;
-use vortex::dtype::NativePType;
-use vortex::dtype::PType;
-use vortex::dtype::extension::ExtDTypeRef;
-use vortex::error::VortexResult;
-use vortex::error::vortex_bail;
-use vortex::error::vortex_ensure;
-use vortex::error::vortex_err;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 
-/// Extracts the list size from a tensor-like extension dtype.
-///
-/// The storage dtype must be a `FixedSizeList`.
-pub fn extension_list_size(ext: &ExtDTypeRef) -> VortexResult<u32> {
-    let DType::FixedSizeList(_, list_size, _) = ext.storage_dtype() else {
-        vortex_bail!(
-            "expected FixedSizeList storage dtype, got {}",
-            ext.storage_dtype()
-        );
-    };
+use crate::matcher::AnyTensor;
+use crate::matcher::TensorMatch;
 
-    Ok(*list_size)
-}
+/// Validates that `input_dtype` is a float-valued tensor-like extension dtype.
+pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMatch<'_>> {
+    let ext = input_dtype
+        .as_extension_opt()
+        .ok_or_else(|| vortex_err!("expected an extension type, got {input_dtype}"))?;
 
-/// Extracts the float element [`PType`] from a tensor-like extension dtype.
-///
-/// The storage dtype must be a `FixedSizeList` of non-nullable primitives.
-pub fn extension_element_ptype(ext: &ExtDTypeRef) -> VortexResult<PType> {
-    let element_dtype = ext
-        .storage_dtype()
-        .as_fixed_size_list_element_opt()
-        .ok_or_else(|| {
-            vortex_err!(
-                "expected FixedSizeList storage dtype, got {}",
-                ext.storage_dtype()
-            )
-        })?;
+    let tensor_match = ext
+        .metadata_opt::<AnyTensor>()
+        .ok_or_else(|| vortex_err!("expected an `AnyTensor`, got {input_dtype}"))?;
 
+    let ptype = tensor_match.element_ptype();
     vortex_ensure!(
-        !element_dtype.is_nullable(),
-        "element dtype must be non-nullable"
+        ptype.is_float(),
+        "expected a float element dtype, got {ptype}",
     );
 
-    Ok(element_dtype.as_ptype())
-}
-
-/// Extracts the storage array from an extension array without canonicalizing.
-pub fn extension_storage(array: &ArrayRef) -> VortexResult<ArrayRef> {
-    let ext = array
-        .as_opt::<Extension>()
-        .ok_or_else(|| vortex_err!("scalar_fn input must be an extension array"))?;
-
-    Ok(ext.storage_array().clone())
+    Ok(tensor_match)
 }
 
 /// The flat primitive elements of a tensor storage array, with typed row access.
@@ -123,25 +98,21 @@ pub fn extract_flat_elements(
 
 #[cfg(test)]
 pub mod test_helpers {
-    use vortex::array::ArrayRef;
-    use vortex::array::ExecutionCtx;
-    use vortex::array::IntoArray;
-    use vortex::array::arrays::ConstantArray;
-    use vortex::array::arrays::ExtensionArray;
-    use vortex::array::arrays::FixedSizeListArray;
-    use vortex::array::validity::Validity;
-    use vortex::buffer::Buffer;
-    use vortex::dtype::DType;
-    use vortex::dtype::Nullability;
-    use vortex::dtype::extension::ExtDType;
-    use vortex::error::VortexResult;
-    use vortex::error::vortex_err;
-    use vortex::extension::EmptyMetadata;
-    use vortex::scalar::Scalar;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::arrays::ExtensionArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::dtype::PType;
+    use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::extension::EmptyMetadata;
+    use vortex_array::scalar::Scalar;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
 
-    use super::extension_list_size;
-    use super::extension_storage;
-    use super::extract_flat_elements;
     use crate::fixed_shape::FixedShapeTensor;
     use crate::fixed_shape::FixedShapeTensorMetadata;
     use crate::vector::Vector;
@@ -183,7 +154,7 @@ pub mod test_helpers {
         elements: &[f64],
         len: usize,
     ) -> VortexResult<ArrayRef> {
-        let element_dtype = DType::Primitive(vortex::dtype::PType::F64, Nullability::NonNullable);
+        let element_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
 
         let children: Vec<Scalar> = elements
             .iter()
@@ -204,7 +175,7 @@ pub mod test_helpers {
     /// Builds a [`Vector`] extension array whose storage is a [`ConstantArray`], representing a
     /// single query vector broadcast to `len` rows.
     pub fn constant_vector_array(elements: &[f64], len: usize) -> VortexResult<ArrayRef> {
-        let element_dtype = DType::Primitive(vortex::dtype::PType::F64, Nullability::NonNullable);
+        let element_dtype = DType::Primitive(PType::F64, Nullability::NonNullable);
 
         let children: Vec<Scalar> = elements
             .iter()
@@ -219,26 +190,6 @@ pub mod test_helpers {
             ExtDType::<Vector>::try_new(EmptyMetadata, storage.dtype().clone())?.erased();
 
         Ok(ExtensionArray::new(ext_dtype, storage).into_array())
-    }
-
-    #[expect(dead_code, reason = "TODO(connor): Use this!")]
-    /// Extracts the f64 rows from a [`Vector`] extension array.
-    ///
-    /// Returns a `Vec<Vec<f64>>` where each inner vec is one vector's elements.
-    pub fn extract_vector_rows(
-        array: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Vec<Vec<f64>>> {
-        let ext = array
-            .dtype()
-            .as_extension_opt()
-            .ok_or_else(|| vortex_err!("expected Vector extension dtype, got {}", array.dtype()))?;
-        let list_size = extension_list_size(ext)? as usize;
-        let storage = extension_storage(array)?;
-        let flat = extract_flat_elements(&storage, list_size, ctx)?;
-        Ok((0..array.len())
-            .map(|i| flat.row::<f64>(i).to_vec())
-            .collect())
     }
 
     /// Asserts that each element in `actual` is within `1e-10` of the corresponding `expected`

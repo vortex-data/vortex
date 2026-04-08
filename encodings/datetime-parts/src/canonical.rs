@@ -19,6 +19,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimePartsArray;
+use crate::array::DateTimePartsArrayExt;
 
 /// Decode an [Array] into a [TemporalArray].
 ///
@@ -119,7 +120,7 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
-    use crate::DateTimePartsArray;
+    use crate::DateTimeParts;
     use crate::canonical::decode_to_temporal;
 
     #[rstest]
@@ -139,16 +140,20 @@ mod test {
             ],
             validity.clone(),
         );
-        let date_times = DateTimePartsArray::try_from(TemporalArray::new_timestamp(
+        let date_times = DateTimeParts::try_from_temporal(TemporalArray::new_timestamp(
             milliseconds.clone().into_array(),
             TimeUnit::Milliseconds,
             Some("UTC".into()),
-        ))
-        .unwrap();
+        ))?;
 
         let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
-        assert!(date_times.validity()?.mask_eq(&validity, &mut ctx)?);
+        assert!(
+            date_times
+                .as_array()
+                .validity()?
+                .mask_eq(&validity, &mut ctx)?
+        );
 
         let primitive_values = decode_to_temporal(&date_times, &mut ctx)?
             .temporal_values()
@@ -156,7 +161,12 @@ mod test {
             .execute::<PrimitiveArray>(&mut ctx)?;
 
         assert_arrays_eq!(primitive_values, milliseconds);
-        assert!(primitive_values.validity().mask_eq(&validity, &mut ctx)?);
+        assert!(
+            primitive_values
+                .validity()
+                .unwrap()
+                .mask_eq(&validity, &mut ctx)?
+        );
         Ok(())
     }
 }

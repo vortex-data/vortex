@@ -4,20 +4,19 @@
 //! Bool compression statistics.
 
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 
 /// Array of booleans and relevant stats for compression.
 #[derive(Clone, Debug)]
 pub struct BoolStats {
-    /// The underlying source array.
-    src: BoolArray,
     /// Number of null values.
     null_count: u32,
-    /// Number of `true` values among valid (non-null) elements.
-    true_count: u32,
     /// Number of non-null values.
     value_count: u32,
+    /// Number of `true` values among valid (non-null) elements.
+    true_count: u32,
 }
 
 impl BoolStats {
@@ -29,7 +28,6 @@ impl BoolStats {
     pub fn generate(input: &BoolArray) -> VortexResult<Self> {
         if input.is_empty() {
             return Ok(Self {
-                src: input.clone(),
                 null_count: 0,
                 value_count: 0,
                 true_count: 0,
@@ -38,7 +36,6 @@ impl BoolStats {
 
         if input.all_invalid()? {
             return Ok(Self {
-                src: input.clone(),
                 null_count: u32::try_from(input.len())?,
                 value_count: 0,
                 true_count: 0,
@@ -62,16 +59,10 @@ impl BoolStats {
         };
 
         Ok(Self {
-            src: input.clone(),
             null_count: u32::try_from(null_count)?,
             value_count: u32::try_from(value_count)?,
             true_count: u32::try_from(true_count)?,
         })
-    }
-
-    /// Returns the underlying source array.
-    pub fn source(&self) -> &BoolArray {
-        &self.src
     }
 
     /// Returns the number of null values.

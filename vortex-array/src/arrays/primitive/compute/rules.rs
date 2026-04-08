@@ -5,8 +5,8 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::array::ArrayView;
 use crate::arrays::Masked;
-use crate::arrays::MaskedArray;
 use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::slice::SliceReduceAdaptor;
@@ -32,13 +32,13 @@ impl ArrayParentReduceRule<Primitive> for PrimitiveMaskedValidityRule {
 
     fn reduce_parent(
         &self,
-        array: &PrimitiveArray,
-        parent: &MaskedArray,
+        array: ArrayView<'_, Primitive>,
+        parent: ArrayView<'_, Masked>,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(joe): make this lazy
         // Merge the parent's validity mask into the child's validity
-        let new_validity = array.validity().and(parent.validity())?;
+        let new_validity = array.validity()?.and(parent.validity()?)?;
 
         // SAFETY: masking validity does not change PrimitiveArray invariants
         let masked_array = unsafe {

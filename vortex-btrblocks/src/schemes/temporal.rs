@@ -10,10 +10,12 @@ use vortex_array::ToCanonical;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::TemporalArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::extension::Matcher;
 use vortex_array::extension::datetime::AnyTemporal;
 use vortex_array::extension::datetime::TemporalMetadata;
-use vortex_datetime_parts::DateTimePartsArray;
+use vortex_compressor::estimate::CompressionEstimate;
+use vortex_datetime_parts::DateTimeParts;
 use vortex_datetime_parts::TemporalParts;
 use vortex_datetime_parts::split_temporal;
 use vortex_error::VortexResult;
@@ -27,7 +29,7 @@ use crate::SchemeExt;
 /// Compression scheme for temporal timestamp arrays via datetime-part decomposition.
 ///
 /// Splits timestamps into days, seconds, and subseconds components, compresses each
-/// independently, and wraps the result in a [`DateTimePartsArray`].
+/// independently, and wraps the result in a `DateTimePartsArray`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct TemporalScheme;
 
@@ -49,10 +51,6 @@ impl Scheme for TemporalScheme {
         )
     }
 
-    fn detects_constant(&self) -> bool {
-        true
-    }
-
     /// Children: days=0, seconds=1, subseconds=2.
     fn num_children(&self) -> usize {
         3
@@ -60,13 +58,11 @@ impl Scheme for TemporalScheme {
 
     fn expected_compression_ratio(
         &self,
-        _compressor: &CascadingCompressor,
         _data: &mut ArrayAndStats,
         _ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+    ) -> CompressionEstimate {
         // Temporal compression (splitting into parts) is almost always beneficial.
-        // Return a moderate ratio to ensure this scheme is selected.
-        Ok(f64::MAX)
+        CompressionEstimate::AlwaysUse
     }
 
     fn compress(
@@ -86,10 +82,7 @@ impl Scheme for TemporalScheme {
         )?;
 
         if is_constant {
-            return Ok(
-                ConstantArray::new(temporal_array.as_ref().scalar_at(0)?, ext_array.len())
-                    .into_array(),
-            );
+            return Ok(ConstantArray::new(ext_array.scalar_at(0)?, ext_array.len()).into_array());
         }
 
         let dtype = temporal_array.dtype().clone();
@@ -118,6 +111,6 @@ impl Scheme for TemporalScheme {
             2,
         )?;
 
-        Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())
+        Ok(DateTimeParts::try_new(dtype, days, seconds, subseconds)?.into_array())
     }
 }
