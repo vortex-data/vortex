@@ -127,7 +127,7 @@ impl VortexReadAt for FileReadAt {
         async move {
             handle
                 .spawn_blocking(move || {
-                    let mut buffer = allocator.allocate_host(length, alignment)?;
+                    let mut buffer = allocator.allocate(length, alignment)?;
                     read_exact_at(&file, buffer.as_mut_slice(), offset)?;
                     Ok(BufferHandle::new_host(buffer.freeze()))
                 })

@@ -13,8 +13,8 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_session::Ref;
 use vortex_session::RefMut;
 use vortex_session::SessionExt;
@@ -115,7 +115,7 @@ impl Debug for WritableHostBuffer {
 /// Allocator for exact-size writable host buffers.
 pub trait BufferAllocator: Debug + Send + Sync + 'static {
     /// Allocate a writable host buffer with the requested byte length and alignment.
-    fn allocate_host(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer>;
+    fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer>;
 }
 
 /// Shared allocator reference used throughout session-scoped memory APIs.
@@ -124,7 +124,7 @@ pub type BufferAllocatorRef = Arc<dyn BufferAllocator>;
 /// Extension methods for [`BufferAllocator`]s.
 pub trait BufferAllocatorExt: BufferAllocator {
     /// Allocate host memory for `len` elements of `T` using `Alignment::of::<T>()`.
-    fn allocate_host_typed<T>(&self, len: usize) -> VortexResult<WritableHostBuffer> {
+    fn allocate_typed<T>(&self, len: usize) -> VortexResult<WritableHostBuffer> {
         let bytes = len.checked_mul(size_of::<T>()).ok_or_else(|| {
             vortex_err!(
                 "Typed host allocation overflow for type {} and len {}",
@@ -132,7 +132,7 @@ pub trait BufferAllocatorExt: BufferAllocator {
                 len
             )
         })?;
-        self.allocate_host(bytes, Alignment::of::<T>())
+        self.allocate(bytes, Alignment::of::<T>())
     }
 }
 
@@ -192,12 +192,10 @@ impl<S: SessionExt> MemorySessionExt for S {}
 pub struct DefaultBufferAllocator;
 
 impl BufferAllocator for DefaultBufferAllocator {
-    fn allocate_host(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer> {
+    fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer> {
         let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
         // SAFETY: We fully initialize this slice before freezing it.
-        unsafe {
-            buffer.set_len(len);
-        }
+        unsafe { buffer.set_len(len) };
         Ok(WritableHostBuffer::new(Box::new(
             DefaultWritableHostBuffer { buffer, alignment },
         )))
@@ -255,20 +253,16 @@ mod tests {
     }
 
     impl BufferAllocator for CountingAllocator {
-        fn allocate_host(
-            &self,
-            len: usize,
-            alignment: Alignment,
-        ) -> VortexResult<WritableHostBuffer> {
+        fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer> {
             self.allocations.fetch_add(1, Ordering::Relaxed);
-            DefaultBufferAllocator.allocate_host(len, alignment)
+            DefaultBufferAllocator.allocate(len, alignment)
         }
     }
 
     #[test]
     fn writable_host_buffer_freeze_round_trip() {
         let allocator = DefaultBufferAllocator;
-        let mut writable = allocator.allocate_host(16, Alignment::new(8)).unwrap();
+        let mut writable = allocator.allocate(16, Alignment::new(8)).unwrap();
         for (idx, byte) in writable.as_mut_slice().iter_mut().enumerate() {
             *byte = idx as u8;
         }
@@ -287,19 +281,14 @@ mod tests {
         });
         let mut session = MemorySession::default();
         session.set_allocator(allocator);
-        drop(
-            session
-                .allocator()
-                .allocate_host(4, Alignment::none())
-                .unwrap(),
-        );
+        drop(session.allocator().allocate(4, Alignment::none()).unwrap());
         assert_eq!(allocations.load(Ordering::Relaxed), 1);
     }
 
     #[test]
     fn typed_allocation_uses_type_alignment() {
         let allocator = DefaultBufferAllocator;
-        let writable = allocator.allocate_host_typed::<u64>(4).unwrap();
+        let writable = allocator.allocate_typed::<u64>(4).unwrap();
         assert_eq!(writable.len(), 4 * size_of::<u64>());
         assert_eq!(writable.alignment(), Alignment::of::<u64>());
     }
@@ -307,7 +296,7 @@ mod tests {
     #[test]
     fn typed_mut_slice_round_trip() {
         let allocator = DefaultBufferAllocator;
-        let mut writable = allocator.allocate_host_typed::<u64>(4).unwrap();
+        let mut writable = allocator.allocate_typed::<u64>(4).unwrap();
         writable
             .as_mut_slice_typed::<u64>()
             .unwrap()
@@ -326,7 +315,7 @@ mod tests {
     #[test]
     fn typed_mut_slice_rejects_length_mismatch() {
         let allocator = DefaultBufferAllocator;
-        let mut writable = allocator.allocate_host(7, Alignment::none()).unwrap();
+        let mut writable = allocator.allocate(7, Alignment::none()).unwrap();
         let err = writable.as_mut_slice_typed::<u32>().unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("not a multiple of"));

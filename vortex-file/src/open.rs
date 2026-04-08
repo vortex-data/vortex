@@ -412,13 +412,9 @@ mod tests {
     }
 
     impl BufferAllocator for CountingAllocator {
-        fn allocate_host(
-            &self,
-            len: usize,
-            alignment: Alignment,
-        ) -> VortexResult<WritableHostBuffer> {
+        fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<WritableHostBuffer> {
             self.allocations.fetch_add(1, Ordering::Relaxed);
-            DefaultBufferAllocator.allocate_host(len, alignment)
+            DefaultBufferAllocator.allocate(len, alignment)
         }
     }
 

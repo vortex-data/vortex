@@ -133,8 +133,8 @@ fn swizzle_list_chunks(
     // We (somewhat arbitrarily) choose `u64` for our offsets and sizes here. These can always be
     // narrowed later by the compressor.
     let allocator = ctx.allocator();
-    let mut offsets = allocator.allocate_host_typed::<u64>(len)?;
-    let mut sizes = allocator.allocate_host_typed::<u64>(len)?;
+    let mut offsets = allocator.allocate_typed::<u64>(len)?;
+    let mut sizes = allocator.allocate_typed::<u64>(len)?;
     let offsets_out: &mut [u64] = offsets.as_mut_slice_typed::<u64>()?;
     let sizes_slice_out: &mut [u64] = sizes.as_mut_slice_typed::<u64>()?;
     let mut next_list = 0usize;
@@ -242,13 +242,13 @@ mod tests {
     }
 
     impl BufferAllocator for CountingAllocator {
-        fn allocate_host(
+        fn allocate(
             &self,
             len: usize,
             alignment: vortex_buffer::Alignment,
         ) -> VortexResult<WritableHostBuffer> {
             self.allocations.fetch_add(1, Ordering::Relaxed);
-            DefaultBufferAllocator.allocate_host(len, alignment)
+            DefaultBufferAllocator.allocate(len, alignment)
         }
     }
 

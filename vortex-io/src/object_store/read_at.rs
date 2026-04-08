@@ -118,7 +118,7 @@ impl VortexReadAt for ObjectStoreReadAt {
         let range = offset..(offset + length as u64);
 
         async move {
-            let mut buffer = allocator.allocate_host(length, alignment)?;
+            let mut buffer = allocator.allocate(length, alignment)?;
 
             let response = store
                 .get_opts(
