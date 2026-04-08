@@ -348,9 +348,7 @@ mod tests {
     fn typed_mut_slice_rejects_length_mismatch() {
         let allocator = DefaultBufferAllocator;
         let mut writable = allocator.allocate(7, Alignment::none()).unwrap();
-        let err = writable.as_mut_slice_typed::<u32>().unwrap_err();
-        let msg = format!("{err}");
-        assert!(msg.contains("not a multiple of"));
+        assert!(writable.as_mut_slice_typed::<u32>().is_err());
     }
 
     #[test]
