@@ -5066,7 +5066,7 @@ pub fn vortex_array::arrays::Variant::reduce(array: vortex_array::ArrayView<'_, 
 
 pub fn vortex_array::arrays::Variant::reduce_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub fn vortex_array::arrays::Variant::serialize(array: vortex_array::ArrayView<'_, Self>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::arrays::Variant::serialize(_array: vortex_array::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Variant::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -6760,7 +6760,7 @@ pub fn vortex_array::arrays::Variant::reduce(array: vortex_array::ArrayView<'_, 
 
 pub fn vortex_array::arrays::Variant::reduce_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub fn vortex_array::arrays::Variant::serialize(array: vortex_array::ArrayView<'_, Self>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::arrays::Variant::serialize(_array: vortex_array::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Variant::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -19662,7 +19662,7 @@ pub fn vortex_array::arrays::Variant::reduce(array: vortex_array::ArrayView<'_, 
 
 pub fn vortex_array::arrays::Variant::reduce_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub fn vortex_array::arrays::Variant::serialize(array: vortex_array::ArrayView<'_, Self>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::arrays::Variant::serialize(_array: vortex_array::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Variant::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -20634,7 +20634,7 @@ pub fn vortex_array::arrays::Variant::reduce(array: vortex_array::ArrayView<'_, 
 
 pub fn vortex_array::arrays::Variant::reduce_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub fn vortex_array::arrays::Variant::serialize(array: vortex_array::ArrayView<'_, Self>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::arrays::Variant::serialize(_array: vortex_array::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Variant::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -23312,7 +23312,7 @@ pub fn vortex_array::arrays::Variant::reduce(array: vortex_array::ArrayView<'_, 
 
 pub fn vortex_array::arrays::Variant::reduce_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub fn vortex_array::arrays::Variant::serialize(array: vortex_array::ArrayView<'_, Self>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::arrays::Variant::serialize(_array: vortex_array::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Variant::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -24532,7 +24532,7 @@ pub fn vortex_array::arrays::Variant::reduce(array: vortex_array::ArrayView<'_, 
 
 pub fn vortex_array::arrays::Variant::reduce_parent(array: vortex_array::ArrayView<'_, Self>, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub fn vortex_array::arrays::Variant::serialize(array: vortex_array::ArrayView<'_, Self>, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::arrays::Variant::serialize(_array: vortex_array::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_array::arrays::Variant::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
