@@ -129,7 +129,7 @@ mod tests {
         let location = Path::from("test.bin");
 
         for test_store in [memory_store, local_store] {
-            let mut writer = ObjectStoreWrite::new(test_store.clone(), &location).await?;
+            let mut writer = ObjectStoreWrite::new(Arc::clone(&test_store), &location).await?;
 
             #[expect(clippy::cast_possible_truncation)]
             let data = (0..3)

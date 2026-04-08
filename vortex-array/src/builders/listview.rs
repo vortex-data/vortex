@@ -456,13 +456,14 @@ mod tests {
     #[test]
     fn test_basic_append_and_nulls() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0, 0);
+        let mut builder =
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
 
         // Append a regular list.
         builder
             .append_value(
                 Scalar::list(
-                    dtype.clone(),
+                    Arc::clone(&dtype),
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
                     NonNullable,
                 )
@@ -472,7 +473,7 @@ mod tests {
 
         // Append an empty list.
         builder
-            .append_value(Scalar::list_empty(dtype.clone(), NonNullable).as_list())
+            .append_value(Scalar::list_empty(Arc::clone(&dtype), NonNullable).as_list())
             .unwrap();
 
         // Append a null list.
@@ -518,11 +519,16 @@ mod tests {
         // Test u32 offsets with u8 sizes.
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
-            ListViewBuilder::<u32, u8>::with_capacity(dtype.clone(), NonNullable, 0, 0);
+            ListViewBuilder::<u32, u8>::with_capacity(Arc::clone(&dtype), NonNullable, 0, 0);
 
         builder
             .append_value(
-                Scalar::list(dtype.clone(), vec![1i32.into(), 2i32.into()], NonNullable).as_list(),
+                Scalar::list(
+                    Arc::clone(&dtype),
+                    vec![1i32.into(), 2i32.into()],
+                    NonNullable,
+                )
+                .as_list(),
             )
             .unwrap();
 
@@ -555,12 +561,12 @@ mod tests {
         // Test u64 offsets with u16 sizes.
         let dtype2: Arc<DType> = Arc::new(I32.into());
         let mut builder2 =
-            ListViewBuilder::<u64, u16>::with_capacity(dtype2.clone(), NonNullable, 0, 0);
+            ListViewBuilder::<u64, u16>::with_capacity(Arc::clone(&dtype2), NonNullable, 0, 0);
 
         for i in 0..5 {
             builder2
                 .append_value(
-                    Scalar::list(dtype2.clone(), vec![(i * 10).into()], NonNullable).as_list(),
+                    Scalar::list(Arc::clone(&dtype2), vec![(i * 10).into()], NonNullable).as_list(),
                 )
                 .unwrap();
         }
@@ -580,7 +586,8 @@ mod tests {
     #[test]
     fn test_builder_trait_methods() {
         let dtype: Arc<DType> = Arc::new(I32.into());
-        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0, 0);
+        let mut builder =
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
 
         // Test append_zeros (creates empty lists).
         builder.append_zeros(2);
@@ -638,7 +645,8 @@ mod tests {
         )
         .unwrap();
 
-        let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), Nullable, 0, 0);
+        let mut builder =
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), Nullable, 0, 0);
 
         // Add initial data.
         builder
@@ -692,7 +700,7 @@ mod tests {
     fn test_error_append_null_to_non_nullable() {
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
-            ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), NonNullable, 0, 0);
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), NonNullable, 0, 0);
 
         // Create a null list with nullable type (since Scalar::null requires nullable type).
         let null_scalar = Scalar::null(DType::List(dtype, Nullable));
@@ -715,7 +723,7 @@ mod tests {
 
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
-            ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), NonNullable, 20, 10);
+            ListViewBuilder::<u32, u32>::with_capacity(Arc::clone(&dtype), NonNullable, 20, 10);
 
         // Append a primitive array as a single list entry.
         let arr1 = buffer![1i32, 2, 3].into_array();
@@ -724,8 +732,12 @@ mod tests {
         // Interleave with a list scalar.
         builder
             .append_value(
-                Scalar::list(dtype.clone(), vec![10i32.into(), 11i32.into()], NonNullable)
-                    .as_list(),
+                Scalar::list(
+                    Arc::clone(&dtype),
+                    vec![10i32.into(), 11i32.into()],
+                    NonNullable,
+                )
+                .as_list(),
             )
             .unwrap();
 
@@ -739,7 +751,7 @@ mod tests {
 
         // Interleave with another list scalar.
         builder
-            .append_value(Scalar::list_empty(dtype.clone(), NonNullable).as_list())
+            .append_value(Scalar::list_empty(Arc::clone(&dtype), NonNullable).as_list())
             .unwrap();
 
         let listview = builder.finish_into_listview();

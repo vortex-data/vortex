@@ -176,10 +176,10 @@ impl LayoutStrategy for DictStrategy {
             pin_mut!(runs);
 
             while let Some((codes_stream, values_fut)) = runs.next().await {
-                let codes = self.codes.clone();
+                let codes = Arc::clone(&self.codes);
                 let codes_eof = eof.split_off();
                 let ctx2 = ctx.clone();
-                let segment_sink2 = segment_sink.clone();
+                let segment_sink2 = Arc::clone(&segment_sink);
                 let codes_fut = handle.spawn_nested(move |h| async move {
                     codes.write_stream(
                         ctx2,
@@ -190,10 +190,10 @@ impl LayoutStrategy for DictStrategy {
                     ).await
                 });
 
-                let values = self.values.clone();
+                let values = Arc::clone(&self.values);
                 let values_eof = eof.split_off();
                 let ctx2 = ctx.clone();
-                let segment_sink2 = segment_sink.clone();
+                let segment_sink2 = Arc::clone(&segment_sink);
                 let dtype2 = dtype2.clone();
                 let values_layout = handle.spawn_nested(move |h| async move {
                     values.write_stream(

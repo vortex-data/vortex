@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -86,7 +88,7 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             let new_validity = mask_validity(&array.validity()?, mask);
             VarBinViewArray::new_handle(
                 array.views_handle().clone(),
-                array.data_buffers().clone(),
+                Arc::clone(array.data_buffers()),
                 array.dtype().with_nullability(new_validity.nullability()),
                 new_validity,
             )

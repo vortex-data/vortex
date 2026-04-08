@@ -73,12 +73,12 @@ impl ZonedReader {
             layout.dtype.clone(),
             ZoneMap::dtype_for_stats_table(layout.dtype(), layout.present_stats()),
         ];
-        let names = vec![name.clone(), format!("{}.zones", name).into()];
+        let names = vec![Arc::clone(&name), format!("{}.zones", name).into()];
         let lazy_children = LazyReaderChildren::new(
-            layout.children.clone(),
+            Arc::clone(&layout.children),
             dtypes,
             names,
-            segment_source.clone(),
+            Arc::clone(&segment_source),
             session.clone(),
         );
 
@@ -122,7 +122,7 @@ impl ZonedReader {
         self.zone_map
             .get_or_init(move || {
                 let nzones = self.layout.nzones();
-                let present_stats = self.layout.present_stats.clone();
+                let present_stats = Arc::clone(&self.layout.present_stats);
 
                 let zones_eval = self
                     .lazy_children
@@ -271,7 +271,7 @@ impl LayoutReader for ZonedReader {
             })
             .try_collect()?;
 
-        let name = self.name.clone();
+        let name = Arc::clone(&self.name);
         let expr = expr.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
@@ -444,7 +444,13 @@ mod test {
         .to_array_stream()
         .sequenced(ptr);
         let layout = block_on(|handle| {
-            strategy.write_stream(ctx, segments.clone(), array_stream, eof, handle)
+            strategy.write_stream(
+                ctx,
+                Arc::<TestSegments>::clone(&segments),
+                array_stream,
+                eof,
+                handle,
+            )
         })
         .unwrap();
         (segments, layout)

@@ -203,7 +203,7 @@ async fn main() -> anyhow::Result<()> {
                                 .iter()
                                 .any(|(idx, f, _)| *idx == query_idx && *f == *format)
                             {
-                                plans_mut.push((query_idx, *format, plan.clone()));
+                                plans_mut.push((query_idx, *format, Arc::clone(&plan)));
                             }
                         }
 
@@ -252,7 +252,7 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
                 let pattern = benchmark.pattern(table.name, format);
                 let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?;
 
-                let mut listing_options = ListingOptions::new(file_format.clone())
+                let mut listing_options = ListingOptions::new(Arc::clone(&file_format))
                     .with_session_config_options(session.state().config());
                 if benchmark.dataset_name() == "polarsignals" && format == Format::Parquet {
                     // Work around a DataFusion bug (fixed in 53.0.0) where the
@@ -304,8 +304,10 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .runtime_env()
             .object_store(table_url.object_store())?;
 
-        let fs: vortex::io::filesystem::FileSystemRef =
-            Arc::new(ObjectStoreFileSystem::new(store.clone(), SESSION.handle()));
+        let fs: vortex::io::filesystem::FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
+            Arc::clone(&store),
+            SESSION.handle(),
+        ));
         let base_prefix = benchmark_base.path().trim_start_matches('/').to_string();
         let fs = fs.with_prefix(base_prefix);
 
@@ -416,7 +418,7 @@ pub async fn execute_query(
         .create_physical_plan()
         .with_labelset(get_labelset_from_global())
         .await?;
-    let result = collect(plan.clone(), task_ctx)
+    let result = collect(Arc::clone(&plan), task_ctx)
         .with_labelset(get_labelset_from_global())
         .await?;
 

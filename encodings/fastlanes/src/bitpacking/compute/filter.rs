@@ -82,7 +82,7 @@ impl FilterKernel for BitPacked {
 
         let patches = array
             .patches()
-            .map(|patches| patches.filter(&Mask::Values(values.clone()), ctx))
+            .map(|patches| patches.filter(&Mask::Values(Arc::clone(values)), ctx))
             .transpose()?
             .flatten();
 
@@ -112,7 +112,9 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     selection: &Arc<MaskValues>,
 ) -> VortexResult<(Buffer<U>, Validity)> {
     let values = filter_with_indices(array.data(), selection.indices());
-    let validity = array.validity()?.filter(&Mask::Values(selection.clone()))?;
+    let validity = array
+        .validity()?
+        .filter(&Mask::Values(Arc::clone(selection)))?;
 
     Ok((values.freeze(), validity))
 }

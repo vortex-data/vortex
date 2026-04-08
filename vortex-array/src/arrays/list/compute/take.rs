@@ -237,7 +237,7 @@ mod test {
         assert_eq!(
             result.scalar_at(0).unwrap(),
             Scalar::list(
-                element_dtype.clone(),
+                Arc::clone(&element_dtype),
                 vec![0i32.into(), 5.into()],
                 Nullability::Nullable
             )
@@ -249,7 +249,7 @@ mod test {
         assert_eq!(
             result.scalar_at(2).unwrap(),
             Scalar::list(
-                element_dtype.clone(),
+                Arc::clone(&element_dtype),
                 vec![3i32.into()],
                 Nullability::Nullable
             )
@@ -317,7 +317,7 @@ mod test {
         assert_eq!(
             result.scalar_at(0).unwrap(),
             Scalar::list(
-                element_dtype.clone(),
+                Arc::clone(&element_dtype),
                 vec![3i32.into()],
                 Nullability::NonNullable
             )
@@ -327,7 +327,7 @@ mod test {
         assert_eq!(
             result.scalar_at(1).unwrap(),
             Scalar::list(
-                element_dtype.clone(),
+                Arc::clone(&element_dtype),
                 vec![0i32.into(), 5.into()],
                 Nullability::NonNullable
             )

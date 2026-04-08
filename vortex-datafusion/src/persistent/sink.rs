@@ -113,7 +113,7 @@ impl FileSink for VortexSink {
         // 1. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
         while let Some((path, rx)) = file_stream_rx.recv().await {
             let session = self.session.clone();
-            let object_store = object_store.clone();
+            let object_store = Arc::clone(&object_store);
             let writer_schema = get_writer_schema(&self.config);
             let dtype = DType::from_arrow(writer_schema);
 
@@ -267,7 +267,7 @@ mod tests {
         let logical_plan = LogicalPlanBuilder::insert_into(
             LogicalPlan::Values(values.clone()),
             "my_tbl",
-            Arc::new(DefaultTableSource::new(tbl_provider.clone())),
+            Arc::new(DefaultTableSource::new(Arc::clone(&tbl_provider))),
             datafusion::logical_expr::dml::InsertOp::Append,
         )?
         .build()?;

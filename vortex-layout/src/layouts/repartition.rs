@@ -384,8 +384,15 @@ mod tests {
         );
 
         let stream = fsl.into_array().to_array_stream().sequenced(ptr);
-        let layout =
-            block_on(|handle| strategy.write_stream(ctx, segments.clone(), stream, eof, handle))?;
+        let layout = block_on(|handle| {
+            strategy.write_stream(
+                ctx,
+                Arc::<TestSegments>::clone(&segments),
+                stream,
+                eof,
+                handle,
+            )
+        })?;
 
         // The layout should be a ChunkedLayout with multiple children.
         // With 1000 rows and effective block_len = 132:
@@ -439,8 +446,15 @@ mod tests {
         );
 
         let stream = elements.into_array().to_array_stream().sequenced(ptr);
-        let layout =
-            block_on(|handle| strategy.write_stream(ctx, segments.clone(), stream, eof, handle))?;
+        let layout = block_on(|handle| {
+            strategy.write_stream(
+                ctx,
+                Arc::<TestSegments>::clone(&segments),
+                stream,
+                eof,
+                handle,
+            )
+        })?;
 
         assert_eq!(layout.row_count(), num_elements as u64);
         assert_eq!(layout.nchildren(), 2);

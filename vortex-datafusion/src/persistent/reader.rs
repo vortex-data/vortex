@@ -46,7 +46,7 @@ impl VortexReaderFactory for DefaultVortexReaderFactory {
         session: &VortexSession,
     ) -> DFResult<Arc<dyn VortexReadAt>> {
         Ok(Arc::new(ObjectStoreReadAt::new(
-            self.object_store.clone(),
+            Arc::clone(&self.object_store),
             file.path().as_ref().into(),
             session.handle(),
         )) as _)

@@ -247,7 +247,7 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
@@ -296,7 +296,7 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
@@ -363,7 +363,7 @@ mod tests {
                 let layout = FlatLayoutStrategy::default()
                     .write_stream(
                         ctx,
-                        segments.clone(),
+                        Arc::<TestSegments>::clone(&segments),
                         array.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,
@@ -430,7 +430,7 @@ mod tests {
                     .with_allow_encodings(allowed)
                     .write_stream(
                         ctx,
-                        segments.clone(),
+                        Arc::<TestSegments>::clone(&segments),
                         filter.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,
@@ -471,7 +471,7 @@ mod tests {
                     .with_allow_encodings(allowed)
                     .write_stream(
                         ctx,
-                        segments.clone(),
+                        Arc::<TestSegments>::clone(&segments),
                         dict.into_array().to_array_stream().sequenced(ptr),
                         eof,
                         handle,

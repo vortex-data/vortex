@@ -96,8 +96,8 @@ impl LayoutChildType {
     pub fn name(&self) -> Arc<str> {
         match self {
             LayoutChildType::Chunk((idx, _offset)) => format!("[{idx}]").into(),
-            LayoutChildType::Auxiliary(name) => name.clone(),
-            LayoutChildType::Transparent(name) => name.clone(),
+            LayoutChildType::Auxiliary(name) => Arc::clone(name),
+            LayoutChildType::Transparent(name) => Arc::clone(name),
             LayoutChildType::Field(name) => name.clone().into(),
         }
     }
@@ -463,7 +463,7 @@ mod tests {
         ];
 
         for field_name in special_fields {
-            let field = LayoutChildType::Field(field_name.clone().into());
+            let field = LayoutChildType::Field(Arc::clone(&field_name).into());
             assert_eq!(field.name(), field_name);
             assert_eq!(field.row_offset(), Some(0));
         }
@@ -511,7 +511,8 @@ mod tests {
         );
 
         // Create dict layout (column "name")
-        let dict_layout = DictLayout::new(dict_values.clone(), dict_codes.clone()).into_layout();
+        let dict_layout =
+            DictLayout::new(Arc::clone(&dict_values), Arc::clone(&dict_codes)).into_layout();
 
         // Test dict layout display (no direct segments)
         assert_eq!(format!("{}", dict_layout), "vortex.dict(utf8, rows=10)");
@@ -537,7 +538,10 @@ mod tests {
         let chunked_layout = ChunkedLayout::new(
             10,
             DType::Primitive(PType::I64, NonNullable),
-            crate::OwnedLayoutChildren::layout_children(vec![chunk1.clone(), chunk2.clone()]),
+            crate::OwnedLayoutChildren::layout_children(vec![
+                Arc::clone(&chunk1),
+                Arc::clone(&chunk2),
+            ]),
         )
         .into_layout();
 

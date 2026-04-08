@@ -109,7 +109,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
 
     // TODO(ngates): use new_unchecked when it is added to arrow-rs.
     Ok(Arc::new(GenericListArray::<O>::new(
-        elements_field.clone(),
+        Arc::clone(elements_field),
         offsets,
         elements,
         null_buffer,
@@ -129,7 +129,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
             .clone()
             .execute_arrow(Some(elements_field.data_type()), ctx)?;
         return Ok(Arc::new(GenericListArray::<O>::new(
-            elements_field.clone(),
+            Arc::clone(elements_field),
             OffsetBuffer::new_empty(),
             elements,
             None,
@@ -185,7 +185,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     let null_buffer = to_arrow_null_buffer(validity, sizes.len(), ctx)?;
 
     Ok(Arc::new(GenericListArray::<O>::new(
-        elements_field.clone(),
+        Arc::clone(elements_field),
         offsets.freeze().into_arrow_offset_buffer(),
         elements,
         null_buffer,

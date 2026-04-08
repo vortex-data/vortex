@@ -162,11 +162,11 @@ impl VortexDataSourceBuilder {
         Ok(VortexDataSource {
             data_source: self.data_source,
             session: self.session,
-            initial_schema: arrow_schema.clone(),
+            initial_schema: Arc::clone(&arrow_schema),
             initial_projection: projection.clone(),
             initial_statistics: statistics.clone(),
             projected_projection: projection.clone(),
-            projected_schema: arrow_schema.clone(),
+            projected_schema: Arc::clone(&arrow_schema),
             projected_statistics: statistics.clone(),
             leftover_projection: None,
             leftover_schema: arrow_schema,
@@ -285,8 +285,8 @@ impl DataSource for VortexDataSource {
             ..Default::default()
         };
 
-        let data_source = self.data_source.clone();
-        let projected_schema = self.projected_schema.clone();
+        let data_source = Arc::clone(&self.data_source);
+        let projected_schema = Arc::clone(&self.projected_schema);
         let session = self.session.clone();
         let num_partitions = self.num_partitions;
 
@@ -318,7 +318,7 @@ impl DataSource for VortexDataSource {
                 .try_flatten_unordered(Some(num_partitions.get() * 2))
                 .map(move |result| {
                     let session = session.clone();
-                    let schema = projected_schema.clone();
+                    let schema = Arc::clone(&projected_schema);
                     handle.spawn_cpu(move || {
                         let mut ctx = session.create_execution_ctx();
                         result.and_then(|chunk| chunk.execute_record_batch(&schema, &mut ctx))
@@ -343,7 +343,7 @@ impl DataSource for VortexDataSource {
         .try_flatten();
 
         Ok(Box::pin(RecordBatchStreamAdapter::new(
-            self.leftover_schema.clone(),
+            Arc::clone(&self.leftover_schema),
             stream,
         )))
     }
@@ -386,7 +386,7 @@ impl DataSource for VortexDataSource {
     }
 
     fn eq_properties(&self) -> EquivalenceProperties {
-        EquivalenceProperties::new(self.leftover_schema.clone())
+        EquivalenceProperties::new(Arc::clone(&self.leftover_schema))
     }
 
     fn partition_statistics(&self, _partition: Option<usize>) -> DFResult<Statistics> {
@@ -467,11 +467,11 @@ impl DataSource for VortexDataSource {
 
         let mut this = self.clone();
         this.projected_projection = scan_projection;
-        this.projected_schema = scan_output_schema.clone();
+        this.projected_schema = Arc::clone(&scan_output_schema);
         this.projected_statistics =
             vec![ColumnStatistics::new_unknown(); scan_output_schema.fields().len()];
         this.leftover_projection = Some(leftover_projection);
-        this.leftover_schema = final_schema.clone();
+        this.leftover_schema = Arc::clone(&final_schema);
         this.leftover_statistics =
             vec![ColumnStatistics::new_unknown(); final_schema.fields().len()];
 
@@ -517,7 +517,7 @@ impl DataSource for VortexDataSource {
             .iter()
             .zip(pushdown_results.iter())
             .filter_map(|(expr, pushed)| match pushed {
-                PushedDown::Yes => Some(expr.clone()),
+                PushedDown::Yes => Some(Arc::clone(expr)),
                 PushedDown::No => None,
             })
             .collect();

@@ -61,7 +61,7 @@ impl LayoutCursor {
     pub fn new(footer: Footer, segment_source: Arc<dyn SegmentSource>) -> Self {
         Self {
             path: Vec::new(),
-            layout: footer.layout().clone(),
+            layout: Arc::clone(footer.layout()),
             segment_map: Arc::clone(footer.segment_map()),
             footer,
             segment_source,
@@ -76,7 +76,7 @@ impl LayoutCursor {
         segment_source: Arc<dyn SegmentSource>,
         path: Vec<usize>,
     ) -> Self {
-        let mut layout = footer.layout().clone();
+        let mut layout = Arc::clone(footer.layout());
 
         // Traverse the layout tree at each element of the path.
         for component in path.iter().copied() {
@@ -99,7 +99,7 @@ impl LayoutCursor {
         let mut path = self.path.clone();
         path.push(n);
 
-        Self::new_with_path(self.footer.clone(), self.segment_source.clone(), path)
+        Self::new_with_path(self.footer.clone(), Arc::clone(&self.segment_source), path)
     }
 
     /// Create a new cursor pointing at the parent of the current layout.
@@ -109,7 +109,7 @@ impl LayoutCursor {
         let mut path = self.path.clone();
         path.pop();
 
-        Self::new_with_path(self.footer.clone(), self.segment_source.clone(), path)
+        Self::new_with_path(self.footer.clone(), Arc::clone(&self.segment_source), path)
     }
 
     /// Get a human-readable description of the flat layout metadata.
@@ -355,7 +355,7 @@ impl AppState {
         use vortex::array::serde::SerializedArray;
         use vortex::expr::root;
 
-        let layout = &self.cursor.layout().clone();
+        let layout = &Arc::clone(self.cursor.layout());
         let row_count = layout.row_count();
 
         // Load the array.

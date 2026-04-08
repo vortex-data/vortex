@@ -261,8 +261,8 @@ impl VortexReadAt for DuckDbFsReader {
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let handle = self.handle.clone();
-        let size_cell = self.size.clone();
+        let handle = Arc::clone(&self.handle);
+        let size_cell = Arc::clone(&self.size);
 
         async move {
             if let Some(size) = size_cell.get() {
@@ -296,7 +296,7 @@ impl VortexReadAt for DuckDbFsReader {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let handle = self.handle.clone();
+        let handle = Arc::clone(&self.handle);
 
         async move {
             let runtime = RUNTIME.handle();

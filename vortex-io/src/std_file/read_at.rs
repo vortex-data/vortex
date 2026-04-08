@@ -91,7 +91,7 @@ impl VortexReadAt for FileReadAt {
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let file = self.file.clone();
+        let file = Arc::clone(&self.file);
         async move {
             let metadata = file.metadata()?;
             Ok(metadata.len())
@@ -105,7 +105,7 @@ impl VortexReadAt for FileReadAt {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let file = self.file.clone();
+        let file = Arc::clone(&self.file);
         let handle = self.handle.clone();
         async move {
             handle

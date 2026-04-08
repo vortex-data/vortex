@@ -330,7 +330,7 @@ impl DeviceBuffer for CudaDeviceBuffer {
         let effective_ptr = self.device_ptr + self.offset as u64;
         if effective_ptr.is_multiple_of(*alignment as u64) {
             Ok(Arc::new(CudaDeviceBuffer {
-                allocation: self.allocation.clone(),
+                allocation: Arc::clone(&self.allocation),
                 offset: self.offset,
                 len: self.len,
                 device_ptr: self.device_ptr,

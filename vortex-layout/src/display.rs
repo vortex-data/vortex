@@ -32,7 +32,7 @@ pub(super) async fn display_tree_with_segment_sizes(
 
     // Fetch segments in parallel and parse buffer info
     let fetch_futures = segments_to_fetch.iter().map(|&segment_id| {
-        let segment_source = segment_source.clone();
+        let segment_source = Arc::clone(&segment_source);
         async move {
             let buffer = segment_source.request(segment_id).await?;
             let parts = SerializedArray::try_from(buffer)?;
@@ -202,7 +202,7 @@ impl DisplayLayoutTree {
 
 impl std::fmt::Display for DisplayLayoutTree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.make_tree(self.layout.clone()) {
+        match self.make_tree(Arc::clone(&self.layout)) {
             Ok(tree) => write!(f, "{}", tree),
             Err(e) => write!(f, "Error building layout tree: {}", e),
         }
@@ -264,7 +264,7 @@ mod tests {
             let layout1 = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx.clone(),
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array1.into_array().to_array_stream().sequenced(ptr1),
                     eof1,
                     handle.clone(),
@@ -287,7 +287,7 @@ mod tests {
             let layout2 = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx.clone(),
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     builder
                         .finish()
                         .into_array()
@@ -351,7 +351,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
             let layout1 = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx.clone(),
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array1.into_array().to_array_stream().sequenced(ptr1),
                     eof1,
                     handle.clone(),
@@ -365,7 +365,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
             let layout2 = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx.clone(),
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array2.into_array().to_array_stream().sequenced(ptr2),
                     eof2,
                     handle.clone(),
@@ -410,7 +410,7 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx.clone(),
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
@@ -452,7 +452,7 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
                     handle,
