@@ -10157,7 +10157,6 @@ dependencies = [
  "inventory",
  "itertools 0.14.0",
  "jiff",
- "libc",
  "multiversion",
  "num-traits",
  "num_enum",
