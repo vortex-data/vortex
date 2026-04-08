@@ -18,7 +18,6 @@ pub use write::*;
 pub mod compat;
 pub mod filesystem;
 mod io_buf;
-pub mod kanal_ext;
 mod limit;
 #[cfg(feature = "object_store")]
 pub mod object_store;

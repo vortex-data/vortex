@@ -11,8 +11,8 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaStream;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::result::stream;
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
-use kanal::Sender;
 use tracing::warn;
 use vortex::array::buffer::BufferHandle;
 use vortex::error::VortexResult;
@@ -132,9 +132,9 @@ impl VortexCudaStream {
 pub(crate) async fn await_stream_callback(stream: &CudaStream) -> VortexResult<()> {
     let rx = register_stream_callback(stream)?;
 
-    rx.recv()
-        .await
-        .map_err(|e| vortex_err!("CUDA stream callback channel closed unexpectedly: {}", e))
+    rx.await.map_err(|oneshot::Canceled| {
+        vortex_err!("CUDA stream callback channel closed unexpectedly: channel canceled")
+    })
 }
 
 /// Registers a host function callback on the stream.
@@ -147,8 +147,8 @@ pub(crate) async fn await_stream_callback(stream: &CudaStream) -> VortexResult<(
 /// # Errors
 ///
 /// Returns an error if registering the host callback function fails.
-fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncReceiver<()>> {
-    let (tx, rx) = kanal::bounded::<()>(1);
+fn register_stream_callback(stream: &CudaStream) -> VortexResult<oneshot::Receiver<()>> {
+    let (tx, rx) = oneshot::channel::<()>();
 
     let tx_ptr = Box::into_raw(Box::new(tx));
 
@@ -161,7 +161,7 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
     unsafe extern "C" fn callback(user_data: *mut std::ffi::c_void) {
         // SAFETY: The memory of `tx` is manually managed has not been freed
         // before. We have unique ownership and can therefore free it.
-        let tx = unsafe { Box::from_raw(user_data as *mut Sender<()>) };
+        let tx = unsafe { Box::from_raw(user_data as *mut oneshot::Sender<()>) };
 
         // Blocking send as we're in a callback invoked by the CUDA driver.
         // NOTE: send can fail if the CudaEvent is dropped by the caller, in which case the receiver
@@ -189,5 +189,5 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
         })?;
     }
 
-    Ok(rx.to_async())
+    Ok(rx)
 }

@@ -114,16 +114,6 @@ pub fn vortex_io::compat::Compat<F>::open_read<'life0, 'life1, 'async_trait>(&'l
 
 pub type vortex_io::filesystem::FileSystemRef = alloc::sync::Arc<dyn vortex_io::filesystem::FileSystem>
 
-pub mod vortex_io::kanal_ext
-
-pub trait vortex_io::kanal_ext::KanalExt<T>
-
-pub fn vortex_io::kanal_ext::KanalExt::into_stream(self) -> impl futures_core::stream::Stream<Item = T>
-
-impl<T> vortex_io::kanal_ext::KanalExt<T> for kanal::AsyncReceiver<T>
-
-pub fn kanal::AsyncReceiver<T>::into_stream(self) -> impl futures_core::stream::Stream<Item = T>
-
 pub mod vortex_io::object_store
 
 pub struct vortex_io::object_store::ObjectStoreFileSystem

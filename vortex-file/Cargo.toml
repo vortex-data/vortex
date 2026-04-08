@@ -23,10 +23,8 @@ flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
 getrandom_v03 = { workspace = true }                              # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 itertools = { workspace = true }
-kanal = { workspace = true }
 moka = { workspace = true, features = ["sync"] }
 object_store = { workspace = true, optional = true }
-oneshot.workspace = true
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }

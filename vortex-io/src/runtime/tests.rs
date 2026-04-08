@@ -316,7 +316,7 @@ async fn test_task_detach() {
     let handle = TokioRuntime::current();
     let counter = Arc::new(AtomicUsize::new(0));
     let c = Arc::clone(&counter);
-    let (tx, rx) = oneshot::channel::<()>();
+    let (tx, rx) = futures::channel::oneshot::channel::<()>();
 
     let task = handle.spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;

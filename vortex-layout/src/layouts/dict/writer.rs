@@ -10,9 +10,12 @@ use async_stream::stream;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::FutureExt;
+use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::channel::mpsc;
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::pin_mut;
 use futures::stream::BoxStream;
@@ -32,7 +35,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
 use crate::IntoLayout;
@@ -377,9 +379,9 @@ type SequencedChunk = VortexResult<(SequenceId, ArrayRef)>;
 
 struct DictionaryTransformer {
     input: DictionaryStream,
-    active_codes_tx: Option<kanal::AsyncSender<SequencedChunk>>,
+    active_codes_tx: Option<mpsc::Sender<SequencedChunk>>,
     active_values_tx: Option<oneshot::Sender<SequencedChunk>>,
-    pending_send: Option<BoxFuture<'static, Result<(), kanal::SendError>>>,
+    pending_send: Option<BoxFuture<'static, Result<(), mpsc::SendError>>>,
 }
 
 impl DictionaryTransformer {
@@ -427,7 +429,7 @@ impl Stream for DictionaryTransformer {
                 }))) => {
                     if self.active_codes_tx.is_none() {
                         // Start a new group
-                        let (codes_tx, codes_rx) = kanal::bounded_async::<SequencedChunk>(1);
+                        let (codes_tx, codes_rx) = mpsc::channel::<SequencedChunk>(1);
                         let (values_tx, values_rx) = oneshot::channel();
 
                         self.active_codes_tx = Some(codes_tx.clone());
@@ -437,22 +439,21 @@ impl Stream for DictionaryTransformer {
                         let codes_dtype = DType::Primitive(codes_ptype, Nullability::NonNullable);
 
                         // Send first codes.
-                        self.pending_send =
-                            Some(Box::pin(
-                                async move { codes_tx.send(Ok((seq_id, codes))).await },
-                            ));
+                        let mut codes_tx_clone = codes_tx;
+                        self.pending_send = Some(Box::pin(async move {
+                            codes_tx_clone.send(Ok((seq_id, codes))).await
+                        }));
 
                         // Create output streams.
-                        let codes_stream = SequentialStreamAdapter::new(
-                            codes_dtype,
-                            codes_rx.into_stream().boxed(),
-                        )
-                        .sendable();
+                        let codes_stream =
+                            SequentialStreamAdapter::new(codes_dtype, codes_rx.boxed()).sendable();
 
                         let values_future = async move {
                             values_rx
                                 .await
-                                .map_err(|e| vortex_err!("values sender dropped: {}", e))
+                                .map_err(|oneshot::Canceled| {
+                                    vortex_err!("values sender dropped: channel canceled")
+                                })
                                 .flatten()
                         }
                         .boxed();
@@ -462,7 +463,7 @@ impl Stream for DictionaryTransformer {
 
                     // Continue streaming codes to existing group
                     if let Some(tx) = &self.active_codes_tx {
-                        let tx = tx.clone();
+                        let mut tx = tx.clone();
                         self.pending_send =
                             Some(Box::pin(async move { tx.send(Ok((seq_id, codes))).await }));
                     }

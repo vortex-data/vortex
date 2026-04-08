@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use async_channel::Receiver;
 use futures::Stream;
 use futures::StreamExt;
 use futures::stream::BoxStream;
@@ -66,7 +67,7 @@ impl CurrentThreadRuntime {
         // We create an MPMC result channel and spawn a task to drive the stream and send results.
         // This allows multiple worker threads to drive the execution while all waiting for results
         // on the channel.
-        let (result_tx, result_rx) = kanal::bounded_async(1);
+        let (result_tx, result_rx) = async_channel::bounded(1);
         self.executor
             .spawn(async move {
                 futures::pin_mut!(stream);
@@ -131,7 +132,7 @@ impl<T> Iterator for CurrentThreadIterator<'_, T> {
 /// An iterator that drives a stream from multiple threads.
 pub struct ThreadSafeIterator<T> {
     executor: Arc<smol::Executor<'static>>,
-    results: kanal::AsyncReceiver<T>,
+    results: Receiver<T>,
 }
 
 // Manual clone implementation since `T` does not need to be `Clone`.

@@ -25,9 +25,7 @@ futures = { workspace = true, features = ["std", "executor"] }
 getrandom_v03 = { workspace = true } # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 glob = { workspace = true }
 handle = "1.0.2"
-kanal = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
-oneshot = { workspace = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = [
@@ -47,6 +45,7 @@ custom-labels = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
+async-channel = { workspace = true }
 smol = { workspace = true }
 
 # target_os = "unknown" matches wasm32-unknown-unknown (browser), excluding WASI targets

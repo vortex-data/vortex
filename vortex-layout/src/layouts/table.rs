@@ -8,8 +8,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::SinkExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::channel::mpsc;
 use futures::future::try_join_all;
 use futures::pin_mut;
 use itertools::Itertools;
@@ -26,7 +28,6 @@ use vortex_array::dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -257,23 +258,25 @@ impl LayoutStrategy for TableStrategy {
         }
 
         let (column_streams_tx, column_streams_rx): (Vec<_>, Vec<_>) =
-            (0..stream_count).map(|_| kanal::bounded_async(1)).unzip();
+            (0..stream_count).map(|_| mpsc::channel(1)).unzip();
 
         // Spawn a task to fan out column chunks to their respective transposed streams
         handle
             .spawn(async move {
+                let mut column_streams_tx = column_streams_tx;
                 pin_mut!(columns_vec_stream);
                 while let Some(result) = columns_vec_stream.next().await {
                     match result {
                         Ok(columns) => {
-                            for (tx, column) in column_streams_tx.iter().zip_eq(columns.into_iter())
+                            for (tx, column) in
+                                column_streams_tx.iter_mut().zip_eq(columns.into_iter())
                             {
                                 let _ = tx.send(Ok(column)).await;
                             }
                         }
                         Err(e) => {
                             let e: Arc<VortexError> = Arc::new(e);
-                            for tx in column_streams_tx.iter() {
+                            for tx in column_streams_tx.iter_mut() {
                                 let _ = tx.send(Err(VortexError::from(Arc::clone(&e)))).await;
                             }
                             break;
@@ -307,8 +310,7 @@ impl LayoutStrategy for TableStrategy {
             .enumerate()
             .map(move |(index, ((dtype, recv), name))| {
                 let column_stream =
-                    SequentialStreamAdapter::new(dtype.clone(), recv.into_stream().boxed())
-                        .sendable();
+                    SequentialStreamAdapter::new(dtype.clone(), recv.boxed()).sendable();
                 let child_eof = eof.split_off();
                 let field = Field::Name(name.clone());
                 handle.spawn_nested(|h| {

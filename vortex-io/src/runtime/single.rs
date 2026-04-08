@@ -4,9 +4,11 @@
 use std::rc::Rc;
 use std::rc::Weak as RcWeak;
 use std::sync::Arc;
+use std::sync::mpsc;
 
 use futures::Stream;
 use futures::StreamExt;
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::stream::LocalBoxStream;
 use parking_lot::Mutex;
@@ -38,16 +40,16 @@ impl Default for SingleThreadRuntime {
 }
 
 struct Sender {
-    scheduling: kanal::Sender<SpawnAsync<'static>>,
-    cpu: kanal::Sender<SpawnSync<'static>>,
-    blocking: kanal::Sender<SpawnSync<'static>>,
+    scheduling: mpsc::Sender<SpawnAsync<'static>>,
+    cpu: mpsc::Sender<SpawnSync<'static>>,
+    blocking: mpsc::Sender<SpawnSync<'static>>,
 }
 
 impl Sender {
     fn new(local: &Rc<LocalExecutor<'static>>) -> Self {
-        let (scheduling_send, scheduling_recv) = kanal::unbounded::<SpawnAsync>();
-        let (cpu_send, cpu_recv) = kanal::unbounded::<SpawnSync>();
-        let (blocking_send, blocking_recv) = kanal::unbounded::<SpawnSync>();
+        let (scheduling_send, scheduling_recv) = mpsc::channel::<SpawnAsync>();
+        let (cpu_send, cpu_recv) = mpsc::channel::<SpawnSync>();
+        let (blocking_send, blocking_recv) = mpsc::channel::<SpawnSync>();
 
         // We pass weak references to the local execution into the async tasks such that the task's
         // reference doesn't keep the execution alive after the runtime is dropped.
@@ -57,7 +59,7 @@ impl Sender {
         let weak_local2 = RcWeak::clone(&weak_local);
         local
             .spawn(async move {
-                while let Ok(spawn) = scheduling_recv.as_async().recv().await {
+                while let Ok(spawn) = scheduling_recv.recv() {
                     if let Some(local) = weak_local2.upgrade() {
                         // Ignore send errors since it means the caller immediately detached.
                         drop(
@@ -74,7 +76,7 @@ impl Sender {
         let weak_local2 = RcWeak::clone(&weak_local);
         local
             .spawn(async move {
-                while let Ok(spawn) = cpu_recv.as_async().recv().await {
+                while let Ok(spawn) = cpu_recv.recv() {
                     if let Some(local) = weak_local2.upgrade() {
                         let work = spawn.sync;
                         // Ignore send errors since it means the caller immediately detached.
@@ -90,7 +92,7 @@ impl Sender {
         let weak_local2 = RcWeak::clone(&weak_local);
         local
             .spawn(async move {
-                while let Ok(spawn) = blocking_recv.as_async().recv().await {
+                while let Ok(spawn) = blocking_recv.recv() {
                     if let Some(local) = weak_local2.upgrade() {
                         let work = spawn.sync;
                         // Ignore send errors since it means the caller immediately detached.
@@ -121,10 +123,10 @@ impl Executor for Sender {
             future,
             task_callback: send,
         }) {
-            vortex_panic!("Executor missing: {}", e);
+            vortex_panic!("Executor missing: {:?}", e);
         }
         Box::new(LazyAbortHandle {
-            task: Mutex::new(recv),
+            task: Mutex::new(Some(recv)),
         })
     }
 
@@ -134,10 +136,10 @@ impl Executor for Sender {
             sync: cpu,
             task_callback: send,
         }) {
-            vortex_panic!("Executor missing: {}", e);
+            vortex_panic!("Executor missing: {:?}", e);
         }
         Box::new(LazyAbortHandle {
-            task: Mutex::new(recv),
+            task: Mutex::new(Some(recv)),
         })
     }
 
@@ -147,10 +149,10 @@ impl Executor for Sender {
             sync: work,
             task_callback: send,
         }) {
-            vortex_panic!("Executor missing: {}", e);
+            vortex_panic!("Executor missing: {:?}", e);
         }
         Box::new(LazyAbortHandle {
-            task: Mutex::new(recv),
+            task: Mutex::new(Some(recv)),
         })
     }
 }
@@ -230,13 +232,15 @@ struct SpawnSync<'rt> {
 }
 
 struct LazyAbortHandle {
-    task: Mutex<oneshot::Receiver<AbortHandleRef>>,
+    task: Mutex<Option<oneshot::Receiver<AbortHandleRef>>>,
 }
 
 impl AbortHandle for LazyAbortHandle {
     fn abort(self: Box<Self>) {
         // Aborting a smol::Task is done by dropping it.
-        if let Ok(task) = self.task.lock().try_recv() {
+        if let Some(mut recv) = self.task.lock().take()
+            && let Ok(Some(task)) = recv.try_recv()
+        {
             task.abort()
         }
     }

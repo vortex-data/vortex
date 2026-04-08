@@ -7,8 +7,10 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 use futures::FutureExt;
+use futures::SinkExt;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::channel::mpsc;
 use futures::future::Fuse;
 use futures::future::LocalBoxFuture;
 use futures::future::ready;
@@ -35,7 +37,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_io::IoBuf;
 use vortex_io::VortexWrite;
-use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutStrategy;
@@ -172,7 +173,7 @@ impl VortexWriteOptions {
         let mut position = MAGIC_BYTES.len() as u64;
 
         // Create a channel to send buffers from the segment sink to the output stream.
-        let (send, recv) = kanal::bounded_async(1);
+        let (send, recv) = mpsc::channel(1);
 
         let segments = Arc::new(BufferedSegmentSink::new(send, position));
 
@@ -194,9 +195,8 @@ impl VortexWriteOptions {
         });
 
         // Flush buffers as they arrive
-        let recv_stream = recv.into_stream();
-        pin_mut!(recv_stream);
-        while let Some(buffer) = recv_stream.next().await {
+        pin_mut!(recv);
+        while let Some(buffer) = recv.next().await {
             if buffer.is_empty() {
                 continue;
             }
@@ -249,10 +249,9 @@ impl VortexWriteOptions {
     /// Create a push-based [`Writer`] that can be used to incrementally write arrays to the file.
     pub fn writer<'w, W: VortexWrite + Unpin + 'w>(self, write: W, dtype: DType) -> Writer<'w> {
         // Create a channel for sending arrays to the layout task.
-        let (arrays_send, arrays_recv) = kanal::bounded_async(1);
+        let (arrays_send, arrays_recv) = mpsc::channel(1);
 
-        let arrays =
-            ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, arrays_recv.into_stream()));
+        let arrays = ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, arrays_recv));
 
         let write = CountingVortexWrite::new(write);
         let bytes_written = write.counter();
@@ -271,7 +270,7 @@ impl VortexWriteOptions {
 /// An async API for writing Vortex files.
 pub struct Writer<'w> {
     // The input channel for sending arrays to the writer.
-    arrays: Option<kanal::AsyncSender<VortexResult<ArrayRef>>>,
+    arrays: Option<mpsc::Sender<VortexResult<ArrayRef>>>,
     // The writer task that ultimately produces the footer.
     future: Fuse<LocalBoxFuture<'w, VortexResult<WriteSummary>>>,
     // The bytes written so far.
@@ -283,7 +282,7 @@ pub struct Writer<'w> {
 impl Writer<'_> {
     /// Push a new chunk into the writer.
     pub async fn push(&mut self, chunk: ArrayRef) -> VortexResult<()> {
-        let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
+        let mut arrays = self.arrays.clone().vortex_expect("missing arrays sender");
         let send_fut = async move { arrays.send(Ok(chunk)).await }.fuse();
         pin_mut!(send_fut);
 
@@ -315,12 +314,12 @@ impl Writer<'_> {
     /// A task is spawned to consume the stream and push it into the writer, with the current
     /// thread being used to write buffers to the output.
     pub async fn push_stream(&mut self, mut stream: SendableArrayStream) -> VortexResult<()> {
-        let arrays = self.arrays.clone().vortex_expect("missing arrays sender");
+        let mut arrays = self.arrays.clone().vortex_expect("missing arrays sender");
         let stream_fut = async move {
             while let Some(chunk) = stream.next().await {
                 arrays.send(chunk).await?;
             }
-            Ok::<_, kanal::SendError>(())
+            Ok::<_, mpsc::SendError>(())
         }
         .fuse();
         pin_mut!(stream_fut);

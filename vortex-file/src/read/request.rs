@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::channel::oneshot;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
@@ -100,15 +101,15 @@ impl Debug for ReadRequest {
             .field("offset", &self.offset)
             .field("length", &self.length)
             .field("alignment", &self.alignment)
-            .field("is_closed", &self.callback.is_closed())
+            .field("is_canceled", &self.callback.is_canceled())
             .finish()
     }
 }
 
 impl ReadRequest {
     pub(crate) fn resolve(self, result: VortexResult<BufferHandle>) {
-        if let Err(e) = self.callback.send(result) {
-            tracing::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
+        if let Err(_unsent) = self.callback.send(result) {
+            tracing::debug!("ReadRequest {} dropped before resolving", self.id);
         }
     }
 }

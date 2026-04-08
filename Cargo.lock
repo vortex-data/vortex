@@ -5119,16 +5119,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kanal"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e3953adf0cd667798b396c2fa13552d6d9b3269d7dd1154c4c416442d1ff574"
-dependencies = [
- "futures-core",
- "lock_api",
-]
-
-[[package]]
 name = "kasuari"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6508,12 +6498,6 @@ name = "oneshot"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "269bca4c2591a28585d6bf10d9ed0332b7d76900a1b02bec41bdc3a2cdcda107"
-
-[[package]]
-name = "oneshot"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfe21416a02c693fb9f980befcb230ecc70b0b3d1cc4abf88b9675c4c1457f0c"
 
 [[package]]
 name = "oorandom"
@@ -9146,7 +9130,7 @@ dependencies = [
  "measure_time",
  "memmap2",
  "once_cell",
- "oneshot 0.1.13",
+ "oneshot",
  "rayon",
  "regex",
  "rust-stemmers",
@@ -10366,7 +10350,6 @@ dependencies = [
  "fastlanes",
  "futures",
  "itertools 0.14.0",
- "kanal",
  "object_store 0.13.1",
  "parking_lot",
  "prost 0.14.3",
@@ -10482,7 +10465,6 @@ dependencies = [
  "futures",
  "itertools 0.14.0",
  "jiff",
- "kanal",
  "num-traits",
  "object_store 0.13.1",
  "parking_lot",
@@ -10565,10 +10547,8 @@ dependencies = [
  "futures",
  "getrandom 0.4.2",
  "itertools 0.14.0",
- "kanal",
  "moka",
  "object_store 0.13.1",
- "oneshot 0.2.1",
  "parking_lot",
  "pin-project-lite",
  "tokio",
@@ -10657,6 +10637,7 @@ name = "vortex-io"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel",
  "async-fs",
  "async-stream",
  "async-trait",
@@ -10667,9 +10648,7 @@ dependencies = [
  "glob",
  "handle",
  "itertools 0.14.0",
- "kanal",
  "object_store 0.13.1",
- "oneshot 0.2.1",
  "parking_lot",
  "pin-project-lite",
  "rstest",
@@ -10735,10 +10714,8 @@ dependencies = [
  "flatbuffers",
  "futures",
  "itertools 0.14.0",
- "kanal",
  "moka",
  "once_cell",
- "oneshot 0.2.1",
  "parking_lot",
  "paste",
  "pin-project-lite",

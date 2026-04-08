@@ -6,6 +6,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
+use futures::SinkExt;
+use futures::channel::mpsc;
 use parking_lot::Mutex;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -18,13 +20,13 @@ use vortex_layout::sequence::SequenceId;
 use crate::footer::SegmentSpec;
 
 pub struct BufferedSegmentSink {
-    buffers: kanal::AsyncSender<ByteBuffer>,
+    buffers: mpsc::Sender<ByteBuffer>,
     byte_offset: AtomicU64,
     segment_specs: Mutex<Vec<SegmentSpec>>,
 }
 
 impl BufferedSegmentSink {
-    pub fn new(send: kanal::AsyncSender<ByteBuffer>, byte_offset: u64) -> Self {
+    pub fn new(send: mpsc::Sender<ByteBuffer>, byte_offset: u64) -> Self {
         Self {
             buffers: send,
             byte_offset: AtomicU64::new(byte_offset),
@@ -89,11 +91,13 @@ impl SegmentSink for BufferedSegmentSink {
             }
         };
 
+        // Clone the sender since send takes &mut self
+        let mut sender = self.buffers.clone();
         if let Some(padding) = padding_buffer {
-            let _ = self.buffers.send(padding).await;
+            let _ = sender.send(padding).await;
         }
         for buffer in buffers {
-            let _ = self.buffers.send(buffer).await;
+            let _ = sender.send(buffer).await;
         }
 
         Ok(segment_id)

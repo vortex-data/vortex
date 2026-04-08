@@ -11,6 +11,7 @@ use std::task::Poll;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
+use futures::channel::oneshot;
 use futures::future;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
@@ -167,7 +168,7 @@ impl SegmentSource for FileSegmentSource {
 
         let fut = ReadFuture {
             id,
-            recv: recv.into_future(),
+            recv,
             polled: false,
             finished: false,
             events: self.events.clone(),
@@ -184,7 +185,7 @@ impl SegmentSource for FileSegmentSource {
 /// If dropped, the read request will be canceled where possible.
 struct ReadFuture {
     id: usize,
-    recv: oneshot::AsyncReceiver<VortexResult<BufferHandle>>,
+    recv: oneshot::Receiver<VortexResult<BufferHandle>>,
     polled: bool,
     finished: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
@@ -200,11 +201,11 @@ impl Future for ReadFuture {
                 // note: we are skipping polled and dropped events for this if the future
                 //       is ready on the first poll, that means this request was completed
                 //       before it was polled, as part of a coalesced request.
-                Poll::Ready(
-                    result.unwrap_or_else(|e| {
-                        Err(vortex_err!("ReadRequest dropped by runtime: {e}"))
-                    }),
-                )
+                Poll::Ready(result.unwrap_or_else(|oneshot::Canceled| {
+                    Err(vortex_err!(
+                        "ReadRequest dropped by runtime: channel canceled"
+                    ))
+                }))
             }
             Poll::Pending if !self.polled => {
                 self.polled = true;

@@ -9,6 +9,7 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::FutureExt;
+use futures::channel::oneshot;
 use tracing::Instrument;
 use vortex_error::vortex_panic;
 
@@ -76,7 +77,7 @@ impl Handle {
             .boxed(),
         );
         Task {
-            recv: recv.into_future(),
+            recv,
             abort_handle: Some(abort_handle),
         }
     }
@@ -110,13 +111,13 @@ impl Handle {
         let abort_handle = self.runtime().spawn_cpu(Box::new(move || {
             let _guard = span.enter();
             // Optimistically avoid the work if the result won't be used.
-            if !send.is_closed() {
+            if !send.is_canceled() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
                 drop(send.send(f()));
             }
         }));
         Task {
-            recv: recv.into_future(),
+            recv,
             abort_handle: Some(abort_handle),
         }
     }
@@ -132,13 +133,13 @@ impl Handle {
         let abort_handle = self.runtime().spawn_blocking_io(Box::new(move || {
             let _guard = span.enter();
             // Optimistically avoid the work if the result won't be used.
-            if !send.is_closed() {
+            if !send.is_canceled() {
                 // Task::detach allows the receiver to be dropped, so we ignore send errors.
                 drop(send.send(f()));
             }
         }));
         Task {
-            recv: recv.into_future(),
+            recv,
             abort_handle: Some(abort_handle),
         }
     }
@@ -150,7 +151,7 @@ impl Handle {
 /// continue running in the background, call [`Task::detach`].
 #[must_use = "When a Task is dropped without being awaited, it is cancelled"]
 pub struct Task<T> {
-    recv: oneshot::AsyncReceiver<T>,
+    recv: oneshot::Receiver<T>,
     abort_handle: Option<AbortHandleRef>,
 }
 
@@ -169,7 +170,7 @@ impl<T> Future for Task<T> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match ready!(self.recv.poll_unpin(cx)) {
             Ok(result) => Poll::Ready(result),
-            Err(_recv_err) => {
+            Err(oneshot::Canceled) => {
                 // If the other end of the channel was dropped, it means the runtime dropped
                 // the future without ever completing it. If the caller aborted this task by
                 // dropping it, then they wouldn't be able to poll it anymore.

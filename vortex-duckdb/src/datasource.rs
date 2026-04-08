@@ -14,7 +14,9 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use custom_labels::CURRENT_LABELSET;
+use futures::SinkExt;
 use futures::StreamExt;
+use futures::channel::mpsc;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use tracing::debug;
@@ -37,7 +39,6 @@ use vortex::expr::col;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::expr::stats::Precision;
-use vortex::io::kanal_ext::KanalExt;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::metrics::tracing::get_global_labels;
@@ -242,7 +243,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
         // We create an async bounded channel so that all thread-local workers can pull the next
         // available array chunk regardless of which partition it came from.
-        let (tx, rx) = kanal::bounded_async(num_workers * 2);
+        let (tx, rx) = mpsc::channel(num_workers * 2);
 
         // We drive one partition per worker thread. Each partition is driven as a spawned task
         // that pushes array chunks into the shared channel as they are produced. This spawning
@@ -254,7 +255,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 // We create a new conversion cache scoped to the partition, since there's no point
                 // caching anything across partitions.
                 let cache = Arc::new(ConversionCache::default());
-                let tx = tx.clone();
+                let mut tx = tx.clone();
 
                 RUNTIME.handle().spawn(async move {
                     let mut stream = match partition.and_then(|p| p.execute()) {
@@ -282,7 +283,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         // Spawn a task to drive the partition stream and push array chunks into the channel.
         RUNTIME.handle().spawn(stream.collect::<()>()).detach();
 
-        let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| rx.into_stream());
+        let iterator = RUNTIME.block_on_stream_thread_safe(|_handle| rx);
 
         Ok(DataSourceGlobal {
             iterator,
