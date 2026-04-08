@@ -2200,6 +2200,10 @@ impl vortex_array::arrays::dict::TakeExecute for vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::take(array: vortex_array::ArrayView<'_, vortex_array::arrays::List>, indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl vortex_array::arrays::dict::TakeExecute for vortex_array::arrays::ListView
+
+pub fn vortex_array::arrays::ListView::take(array: vortex_array::ArrayView<'_, vortex_array::arrays::ListView>, indices: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl vortex_array::arrays::dict::TakeExecute for vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::take(array: vortex_array::ArrayView<'_, vortex_array::arrays::Primitive>, indices: &vortex_array::ArrayRef, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -2959,6 +2963,10 @@ pub fn vortex_array::arrays::ListView::validate(&self, _data: &vortex_array::arr
 impl vortex_array::ValidityVTable<vortex_array::arrays::ListView> for vortex_array::arrays::ListView
 
 pub fn vortex_array::arrays::ListView::validity(array: vortex_array::ArrayView<'_, vortex_array::arrays::ListView>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::arrays::dict::TakeExecute for vortex_array::arrays::ListView
+
+pub fn vortex_array::arrays::ListView::take(array: vortex_array::ArrayView<'_, vortex_array::arrays::ListView>, indices: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::dict::TakeReduce for vortex_array::arrays::ListView
 
@@ -5975,6 +5983,10 @@ pub fn vortex_array::arrays::ListView::validate(&self, _data: &vortex_array::arr
 impl vortex_array::ValidityVTable<vortex_array::arrays::ListView> for vortex_array::arrays::ListView
 
 pub fn vortex_array::arrays::ListView::validity(array: vortex_array::ArrayView<'_, vortex_array::arrays::ListView>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::arrays::dict::TakeExecute for vortex_array::arrays::ListView
+
+pub fn vortex_array::arrays::ListView::take(array: vortex_array::ArrayView<'_, vortex_array::arrays::ListView>, indices: &vortex_array::ArrayRef, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::dict::TakeReduce for vortex_array::arrays::ListView
 

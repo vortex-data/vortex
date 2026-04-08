@@ -12,18 +12,6 @@ use crate::arrays::filter::execute::values_to_mask;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
 
-// TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
-/// The threshold for triggering a rebuild of the [`ListViewArray`].
-///
-/// By default, we will not touch the underlying `elements` array of the [`ListViewArray`] since it
-/// can be potentially expensive to reorganize the array based on what views we have into it.
-///
-/// However, we also do not want to carry around a large amount of garbage data. Below this
-/// threshold of the density of the selection mask, we will rebuild the [`ListViewArray`], removing
-/// any garbage data.
-#[allow(unused)]
-const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
-
 /// [`ListViewArray`] filter implementation.
 ///
 /// This implementation is deliberately simple and read-optimized. We just filter the `offsets` and
