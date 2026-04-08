@@ -12,6 +12,7 @@ use futures::StreamExt;
 use futures::stream::BoxStream;
 use object_store::ObjectStore;
 use object_store::path::Path;
+use vortex_array::memory::HostAllocatorRef;
 use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
@@ -27,6 +28,7 @@ use crate::runtime::Handle;
 pub struct ObjectStoreFileSystem {
     store: Arc<dyn ObjectStore>,
     handle: Handle,
+    allocator: HostAllocatorRef,
 }
 
 impl Debug for ObjectStoreFileSystem {
@@ -39,16 +41,21 @@ impl Debug for ObjectStoreFileSystem {
 
 impl ObjectStoreFileSystem {
     /// Create a new filesystem backed by the given object store and runtime handle.
-    pub fn new(store: Arc<dyn ObjectStore>, handle: Handle) -> Self {
-        Self { store, handle }
+    pub fn new(store: Arc<dyn ObjectStore>, handle: Handle, allocator: HostAllocatorRef) -> Self {
+        Self {
+            store,
+            handle,
+            allocator,
+        }
     }
 
     /// Create a new filesystem backed by a local file system object store and the given runtime
     /// handle.
-    pub fn local(handle: Handle) -> Self {
+    pub fn local(handle: Handle, allocator: HostAllocatorRef) -> Self {
         Self::new(
             Arc::new(object_store::local::LocalFileSystem::new()),
             handle,
+            allocator,
         )
     }
 }
@@ -79,6 +86,7 @@ impl FileSystem for ObjectStoreFileSystem {
             Arc::clone(&self.store),
             path.into(),
             self.handle.clone(),
+            self.allocator.clone(),
         )))
     }
 }

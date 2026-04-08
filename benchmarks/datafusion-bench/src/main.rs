@@ -26,6 +26,7 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
+use vortex::array::memory::MemorySessionExt;
 use vortex::scan::DataSourceRef;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -314,6 +315,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
         let fs: vortex::io::filesystem::FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
             Arc::clone(&store),
             SESSION.handle(),
+            SESSION.allocator(),
         ));
         let base_prefix = benchmark_base.path().trim_start_matches('/').to_string();
         let fs = fs.with_prefix(base_prefix);

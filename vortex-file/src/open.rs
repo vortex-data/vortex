@@ -164,7 +164,7 @@ impl VortexOpenOptions {
         use vortex_io::std_file::FileReadAt;
         let handle = self.session.handle();
         let allocator = self.session.allocator();
-        let source = Arc::new(FileReadAt::open_with_allocator(path, handle, allocator)?);
+        let source = Arc::new(FileReadAt::open(path, handle, allocator)?);
         self.open(source).await
     }
 
@@ -337,7 +337,7 @@ impl VortexOpenOptions {
 
         let handle = self.session.handle();
         let allocator = self.session.allocator();
-        let source = Arc::new(ObjectStoreReadAt::new_with_allocator(
+        let source = Arc::new(ObjectStoreReadAt::new(
             Arc::clone(object_store),
             path.into(),
             handle,

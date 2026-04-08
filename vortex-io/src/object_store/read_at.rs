@@ -15,7 +15,6 @@ use object_store::ObjectStoreExt;
 use object_store::path::Path as ObjectPath;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::HostAllocatorRef;
-use vortex_array::memory::PooledHostAllocator;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -42,18 +41,8 @@ pub struct ObjectStoreReadAt {
 }
 
 impl ObjectStoreReadAt {
-    /// Create a new object store source.
-    pub fn new(store: Arc<dyn ObjectStore>, path: ObjectPath, handle: Handle) -> Self {
-        Self::new_with_allocator(
-            store,
-            path,
-            handle,
-            Arc::new(PooledHostAllocator::default()),
-        )
-    }
-
     /// Create a new object store source with a custom writable buffer allocator.
-    pub fn new_with_allocator(
+    pub fn new(
         store: Arc<dyn ObjectStore>,
         path: ObjectPath,
         handle: Handle,

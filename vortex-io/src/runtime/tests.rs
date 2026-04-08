@@ -12,6 +12,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use tempfile::NamedTempFile;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::memory::DefaultHostAllocator;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -99,8 +100,14 @@ fn test_file_read_with_real_file_single_thread() {
             temp_file.flush().unwrap();
 
             // Open and read the file
-            let file_read: Arc<dyn VortexReadAt> =
-                Arc::new(FileReadAt::open(temp_file.path(), handle.clone()).unwrap());
+            let file_read: Arc<dyn VortexReadAt> = Arc::new(
+                FileReadAt::open(
+                    temp_file.path(),
+                    handle.clone(),
+                    Arc::new(DefaultHostAllocator),
+                )
+                .unwrap(),
+            );
 
             // Read a slice
             let result = file_read
@@ -136,8 +143,14 @@ async fn test_file_read_with_real_file_tokio() {
     temp_file.flush().unwrap();
 
     let handle = TokioRuntime::current();
-    let file_read: Arc<dyn VortexReadAt> =
-        Arc::new(FileReadAt::open(temp_file.path(), handle.clone()).unwrap());
+    let file_read: Arc<dyn VortexReadAt> = Arc::new(
+        FileReadAt::open(
+            temp_file.path(),
+            handle.clone(),
+            Arc::new(DefaultHostAllocator),
+        )
+        .unwrap(),
+    );
 
     // Read a slice
     let result = file_read

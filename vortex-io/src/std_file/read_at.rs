@@ -18,7 +18,6 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::memory::HostAllocatorRef;
-use vortex_array::memory::PooledHostAllocator;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
 
@@ -71,12 +70,7 @@ pub struct FileReadAt {
 
 impl FileReadAt {
     /// Open a file for reading.
-    pub fn open(path: impl AsRef<Path>, handle: Handle) -> VortexResult<Self> {
-        Self::open_with_allocator(path, handle, Arc::new(PooledHostAllocator::default()))
-    }
-
-    /// Open a file for reading using a custom writable buffer allocator.
-    pub fn open_with_allocator(
+    pub fn open(
         path: impl AsRef<Path>,
         handle: Handle,
         allocator: HostAllocatorRef,

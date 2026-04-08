@@ -19,6 +19,7 @@ use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use url::Url;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::memory::MemorySessionExt;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBufferMut;
 use vortex::error::VortexError;
@@ -35,6 +36,7 @@ use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime;
 
 use crate::RUNTIME;
+use crate::SESSION;
 use crate::cpp;
 use crate::duckdb::ClientContextRef;
 use crate::duckdb::FsFileHandle;
@@ -97,6 +99,7 @@ fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
     Ok(Arc::new(Compat::new(ObjectStoreFileSystem::new(
         object_store,
         RUNTIME.handle(),
+        SESSION.allocator(),
     ))))
 }
 

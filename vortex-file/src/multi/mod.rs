@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use session::MultiFileSessionExt;
 use tracing::debug;
+use vortex_array::memory::MemorySessionExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -153,7 +154,11 @@ fn create_local_filesystem(session: &VortexSession) -> VortexResult<FileSystemRe
     use vortex_io::session::RuntimeSessionExt;
 
     let store = Arc::new(object_store::local::LocalFileSystem::default());
-    let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(store, session.handle()));
+    let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
+        store,
+        session.handle(),
+        session.allocator(),
+    ));
     Ok(fs)
 }
 
