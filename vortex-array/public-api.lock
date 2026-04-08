@@ -23596,6 +23596,8 @@ impl vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::serialize(&self, &vortex_array::ArrayContext, &vortex_session::VortexSession, &vortex_array::serde::SerializeOptions) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_buffer::ByteBuffer>>
 
+pub fn vortex_array::ArrayRef::serialize_array_tree(&self, &vortex_array::ArrayContext, &vortex_session::VortexSession, &vortex_array::serde::SerializeOptions) -> vortex_error::VortexResult<vortex_buffer::ByteBuffer>
+
 impl vortex_array::ArrayRef
 
 pub fn vortex_array::ArrayRef::to_array_iterator(&self) -> impl vortex_array::iter::ArrayIterator + 'static

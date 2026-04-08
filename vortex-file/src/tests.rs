@@ -1911,22 +1911,36 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
     check_zoned_ordering(root.as_ref(), segment_specs);
 
     // Additionally: all zone map segments across all columns should appear after
-    // all data segments across all columns.
+    // all data segments across all columns. Array tree segments (if present) appear
+    // between data and zones.
     let mut all_data_offsets = Vec::new();
+    let mut all_array_tree_offsets = Vec::new();
     let mut all_zones_offsets = Vec::new();
 
     fn collect_all_zoned(
         layout: &dyn Layout,
         segment_specs: &[SegmentSpec],
         all_data: &mut Vec<u64>,
+        all_array_trees: &mut Vec<u64>,
         all_zones: &mut Vec<u64>,
     ) {
         if layout.encoding_id().as_ref() == "vortex.stats" {
-            // child 0 = data, child 1 = zones
-            all_data.extend(collect_segment_offsets(
-                layout.child(0).unwrap().as_ref(),
-                segment_specs,
-            ));
+            // child 0 = data (may contain array_tree layouts), child 1 = zones
+            let data_child = layout.child(0).unwrap();
+            // If the data child is an array_tree layout, split its segments.
+            if data_child.encoding_id().as_ref() == "vortex.array_tree" {
+                // child 0 = actual data, child 1 = array_trees auxiliary
+                all_data.extend(collect_segment_offsets(
+                    data_child.child(0).unwrap().as_ref(),
+                    segment_specs,
+                ));
+                all_array_trees.extend(collect_segment_offsets(
+                    data_child.child(1).unwrap().as_ref(),
+                    segment_specs,
+                ));
+            } else {
+                all_data.extend(collect_segment_offsets(data_child.as_ref(), segment_specs));
+            }
             all_zones.extend(collect_segment_offsets(
                 layout.child(1).unwrap().as_ref(),
                 segment_specs,
@@ -1934,7 +1948,13 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
             return;
         }
         for child in layout.children().unwrap() {
-            collect_all_zoned(child.as_ref(), segment_specs, all_data, all_zones);
+            collect_all_zoned(
+                child.as_ref(),
+                segment_specs,
+                all_data,
+                all_array_trees,
+                all_zones,
+            );
         }
     }
 
@@ -1942,13 +1962,24 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         root.as_ref(),
         segment_specs,
         &mut all_data_offsets,
+        &mut all_array_tree_offsets,
         &mut all_zones_offsets,
     );
 
+    // The root writer splits the sequence universe into two: data chunks use IDs from `ptr`
+    // and all metadata (array trees, zones) derive from `eof`. Since ptr < eof, all data
+    // segments are globally before all metadata segments.
+    //
+    // Within the eof universe, per-column ordering guarantees array_trees < zones within
+    // each column, but cross-column interleaving means we cannot assert
+    // all_array_trees < all_zones globally.
+    let mut all_metadata_offsets = all_array_tree_offsets;
+    all_metadata_offsets.extend(&all_zones_offsets);
+
     assert_offsets_ordered(
         &all_data_offsets,
-        &all_zones_offsets,
-        "global: all data segments should come before all zone map segments",
+        &all_metadata_offsets,
+        "global: all data segments should come before all metadata segments (array trees + zone maps)",
     );
 
     Ok(())

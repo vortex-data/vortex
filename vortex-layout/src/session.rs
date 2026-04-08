@@ -9,6 +9,8 @@ use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
 use crate::LayoutEncodingRef;
+use crate::layouts::array_tree::ArrayTreeFlatLayoutEncoding;
+use crate::layouts::array_tree::ArrayTreeLayoutEncoding;
 use crate::layouts::chunked::ChunkedLayoutEncoding;
 use crate::layouts::dict::DictLayoutEncoding;
 use crate::layouts::flat::FlatLayoutEncoding;
@@ -52,6 +54,14 @@ impl Default for LayoutSession {
         layouts.register(StructLayoutEncoding.id(), StructLayoutEncoding.as_ref());
         layouts.register(ZonedLayoutEncoding.id(), ZonedLayoutEncoding.as_ref());
         layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
+        layouts.register(
+            ArrayTreeLayoutEncoding.id(),
+            ArrayTreeLayoutEncoding.as_ref(),
+        );
+        layouts.register(
+            ArrayTreeFlatLayoutEncoding.id(),
+            ArrayTreeFlatLayoutEncoding.as_ref(),
+        );
 
         Self { registry: layouts }
     }

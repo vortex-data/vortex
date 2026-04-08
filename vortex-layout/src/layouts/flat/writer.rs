@@ -30,7 +30,6 @@ use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::flat::FlatLayout;
-use crate::layouts::flat::flat_layout_inline_array_node;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -169,19 +168,16 @@ impl LayoutStrategy for FlatLayoutStrategy {
         )?;
         // there is at least the flatbuffer and the length
         assert!(buffers.len() >= 2);
-        let array_node =
-            flat_layout_inline_array_node().then(|| buffers[buffers.len() - 2].clone());
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {
             vortex_bail!("flat layout received stream with more than a single chunk");
         };
-        Ok(FlatLayout::new_with_metadata(
+        Ok(FlatLayout::new(
             row_count,
             stream.dtype().clone(),
             segment_id,
             ReadContext::new(ctx.to_ids()),
-            array_node,
         )
         .into_layout())
     }

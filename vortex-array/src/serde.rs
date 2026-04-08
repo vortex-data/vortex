@@ -48,6 +48,68 @@ pub struct SerializeOptions {
     pub include_padding: bool,
 }
 
+/// Collect flatbuffer buffer descriptors from array buffers, computing padding for each.
+///
+/// This is the shared logic between [`ArrayRef::serialize`] and [`ArrayRef::serialize_array_tree`]
+/// to ensure buffer descriptor tables are always consistent.
+fn collect_buffer_descriptors(
+    array_buffers: &[ByteBuffer],
+    options: &SerializeOptions,
+) -> VortexResult<Vec<fba::Buffer>> {
+    let mut fb_buffers = Vec::with_capacity(array_buffers.len());
+    let mut pos = options.offset;
+
+    for buffer in array_buffers {
+        let padding = if options.include_padding {
+            let padding = pos.next_multiple_of(*buffer.alignment()) - pos;
+            pos += padding;
+            padding
+        } else {
+            0
+        };
+
+        fb_buffers.push(fba::Buffer::new(
+            u16::try_from(padding).vortex_expect("padding fits into u16"),
+            buffer.alignment().exponent(),
+            Compression::None,
+            u32::try_from(buffer.len())
+                .map_err(|_| vortex_err!("All buffers must fit into u32 for serialization"))?,
+        ));
+
+        pos += buffer.len();
+    }
+
+    Ok(fb_buffers)
+}
+
+/// Build a complete `fba::Array` flatbuffer from an encoding tree and buffer descriptors.
+fn build_array_flatbuffer(
+    ctx: &ArrayContext,
+    session: &VortexSession,
+    array: &ArrayRef,
+    fb_buffers: Vec<fba::Buffer>,
+    skip_stats: bool,
+) -> VortexResult<ByteBuffer> {
+    let mut fbb = FlatBufferBuilder::new();
+
+    let mut root = ArrayNodeFlatBuffer::try_new(ctx, session, array)?;
+    root.skip_stats = skip_stats;
+    let fb_root = root.try_write_flatbuffer(&mut fbb)?;
+
+    let fb_buffers = fbb.create_vector(&fb_buffers);
+    let fb_array = fba::Array::create(
+        &mut fbb,
+        &fba::ArrayArgs {
+            root: Some(fb_root),
+            buffers: Some(fb_buffers),
+        },
+    );
+    fbb.finish_minimal(fb_array);
+    let (fb_vec, fb_start) = fbb.collapse();
+    let fb_end = fb_vec.len();
+    Ok(ByteBuffer::from(fb_vec).slice(fb_start..fb_end))
+}
+
 impl ArrayRef {
     /// Serialize the array into a sequence of byte buffers that should be written contiguously.
     /// This function returns a vec to avoid copying data buffers.
@@ -71,9 +133,10 @@ impl ArrayRef {
             .flat_map(|f| f.buffers())
             .collect::<Vec<_>>();
 
+        let fb_buffers = collect_buffer_descriptors(&array_buffers, options)?;
+
         // Allocate result buffers, including a possible padding buffer for each.
         let mut buffers = vec![];
-        let mut fb_buffers = Vec::with_capacity(buffers.capacity());
 
         // If we're including padding, we need to find the maximum required buffer alignment.
         let max_alignment = array_buffers
@@ -95,47 +158,19 @@ impl ArrayRef {
 
         // Push all the array buffers with padding as necessary.
         for buffer in array_buffers {
-            let padding = if options.include_padding {
+            if options.include_padding {
                 let padding = pos.next_multiple_of(*buffer.alignment()) - pos;
                 if padding > 0 {
                     pos += padding;
                     buffers.push(zeros.slice(0..padding));
                 }
-                padding
-            } else {
-                0
-            };
-
-            fb_buffers.push(fba::Buffer::new(
-                u16::try_from(padding).vortex_expect("padding fits into u16"),
-                buffer.alignment().exponent(),
-                Compression::None,
-                u32::try_from(buffer.len())
-                    .map_err(|_| vortex_err!("All buffers must fit into u32 for serialization"))?,
-            ));
+            }
 
             pos += buffer.len();
             buffers.push(buffer.aligned(Alignment::none()));
         }
 
-        // Set up the flatbuffer builder
-        let mut fbb = FlatBufferBuilder::new();
-
-        let root = ArrayNodeFlatBuffer::try_new(ctx, session, self)?;
-        let fb_root = root.try_write_flatbuffer(&mut fbb)?;
-
-        let fb_buffers = fbb.create_vector(&fb_buffers);
-        let fb_array = fba::Array::create(
-            &mut fbb,
-            &fba::ArrayArgs {
-                root: Some(fb_root),
-                buffers: Some(fb_buffers),
-            },
-        );
-        fbb.finish_minimal(fb_array);
-        let (fb_vec, fb_start) = fbb.collapse();
-        let fb_end = fb_vec.len();
-        let fb_buffer = ByteBuffer::from(fb_vec).slice(fb_start..fb_end);
+        let fb_buffer = build_array_flatbuffer(ctx, session, self, fb_buffers, false)?;
         let fb_length = fb_buffer.len();
 
         if options.include_padding {
@@ -156,6 +191,30 @@ impl ArrayRef {
 
         Ok(buffers)
     }
+
+    /// Produce a compact [`fba::Array`] flatbuffer containing the encoding tree and buffer
+    /// descriptors, but with per-node statistics stripped (`stats = null` on all [`fba::ArrayNode`]s).
+    ///
+    /// This is used by the array tree layout to store encoding metadata separately from data
+    /// segments, enabling decode planning and sub-segment random access without fetching
+    /// the full data segment.
+    ///
+    /// The returned flatbuffer has the same `buffers` table as a full [`serialize`](Self::serialize)
+    /// call with the same options, so buffer offsets can be used for sub-segment reads.
+    pub fn serialize_array_tree(
+        &self,
+        ctx: &ArrayContext,
+        session: &VortexSession,
+        options: &SerializeOptions,
+    ) -> VortexResult<ByteBuffer> {
+        let array_buffers = self
+            .depth_first_traversal()
+            .flat_map(|f| f.buffers())
+            .collect::<Vec<_>>();
+
+        let fb_buffers = collect_buffer_descriptors(&array_buffers, options)?;
+        build_array_flatbuffer(ctx, session, self, fb_buffers, true)
+    }
 }
 
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
@@ -164,6 +223,7 @@ pub struct ArrayNodeFlatBuffer<'a> {
     session: &'a VortexSession,
     array: &'a ArrayRef,
     buffer_idx: u16,
+    skip_stats: bool,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
@@ -184,6 +244,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
             session,
             array,
             buffer_idx: 0,
+            skip_stats: false,
         })
     }
 
@@ -226,6 +287,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                     session: self.session,
                     array: child,
                     buffer_idx: child_buffer_idx,
+                    skip_stats: self.skip_stats,
                 }
                 .try_write_flatbuffer(fbb)?;
 
@@ -240,7 +302,11 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         let children = Some(fbb.create_vector(&children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-        let stats = Some(self.array.statistics().write_flatbuffer(fbb)?);
+        let stats = if self.skip_stats {
+            None
+        } else {
+            Some(self.array.statistics().write_flatbuffer(fbb)?)
+        };
 
         Ok(fba::ArrayNode::create(
             fbb,

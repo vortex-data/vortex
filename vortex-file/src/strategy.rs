@@ -40,6 +40,7 @@ use vortex_fastlanes::FoR;
 use vortex_fastlanes::RLE;
 use vortex_fsst::FSST;
 use vortex_layout::LayoutStrategy;
+use vortex_layout::layouts::array_tree::writer;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
@@ -212,16 +213,32 @@ impl WriteStrategyBuilder {
     /// Builds the canonical [`LayoutStrategy`] implementation, with the configured overrides
     /// applied.
     pub fn build(self) -> Arc<dyn LayoutStrategy> {
-        let flat: Arc<dyn LayoutStrategy> = if let Some(flat) = self.flat_strategy {
-            flat
-        } else if let Some(allow_encodings) = self.allow_encodings {
-            Arc::new(FlatLayoutStrategy::default().with_allow_encodings(allow_encodings))
+        let flat: Arc<dyn LayoutStrategy> = if let Some(flat) = &self.flat_strategy {
+            Arc::clone(flat)
+        } else if let Some(allow_encodings) = &self.allow_encodings {
+            Arc::new(FlatLayoutStrategy::default().with_allow_encodings(allow_encodings.clone()))
         } else {
             Arc::new(FlatLayoutStrategy::default())
         };
 
+        // Build the data pipeline leaf. When the user provides a custom flat strategy, use it
+        // directly — they own the leaf format and array tree wrapping does not apply.
+        // Otherwise, create a TX/RX pair for array tree collection.
+        let (data_leaf, array_tree_collector): (Arc<dyn LayoutStrategy>, _) =
+            if self.flat_strategy.is_some() {
+                (Arc::clone(&flat), None)
+            } else {
+                let data_flat = if let Some(allow_encodings) = &self.allow_encodings {
+                    FlatLayoutStrategy::default().with_allow_encodings(allow_encodings.clone())
+                } else {
+                    FlatLayoutStrategy::default()
+                };
+                let (collector, leaf) = writer::writer(data_flat, Arc::clone(&flat));
+                (Arc::new(leaf), Some(collector))
+            };
+
         // 7. for each chunk create a flat layout
-        let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
+        let chunked = ChunkedLayoutStrategy::new(data_leaf);
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
@@ -272,9 +289,16 @@ impl WriteStrategyBuilder {
             Default::default(),
         );
 
+        // 2.5 collect compact array trees from each chunk (skipped for custom flat strategies)
+        let data_pipeline: Arc<dyn LayoutStrategy> = if let Some(collector) = array_tree_collector {
+            Arc::new(collector.wrap(dict))
+        } else {
+            Arc::new(dict)
+        };
+
         // 2. calculate stats for each row group
         let stats = ZonedStrategy::new(
-            dict,
+            data_pipeline,
             compress_then_flat.clone(),
             ZonedLayoutOptions {
                 block_size: self.row_block_size,
