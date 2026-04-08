@@ -27,7 +27,7 @@ use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantConfig;
-use crate::encodings::turboquant::turboquant_encode;
+use crate::encodings::turboquant::turboquant_encode_unchecked;
 use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
@@ -112,7 +112,9 @@ impl Scheme for TurboQuantScheme {
             .as_opt::<Extension>()
             .vortex_expect("normalized child should be an Extension array");
         let config = TurboQuantConfig::default();
-        let tq = turboquant_encode(normalized_ext, &config, &mut ctx)?;
+        // SAFETY: We just normalized the input via `normalize_as_l2_denorm`, so all rows are
+        // guaranteed to be unit-norm (or zero for originally-null rows).
+        let tq = unsafe { turboquant_encode_unchecked(normalized_ext, &config, &mut ctx)? };
 
         // Reassemble L2Denorm(TurboQuant, norms).
         Ok(L2Denorm::try_new_array(&ApproxOptions::Exact, tq, norms, num_rows)?.into_array())

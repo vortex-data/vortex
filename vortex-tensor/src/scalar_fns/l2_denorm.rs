@@ -27,6 +27,7 @@ use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -200,9 +201,24 @@ impl ScalarFnVTable for L2Denorm {
 /// Builds an unexecuted [`L2Denorm`] expression by normalizing `input` and reattaching the exact
 /// norms as the norms child.
 ///
-/// The returned array is a lazy `L2Denorm(normalized, norms)` scalar function array. The
-/// normalized child is a materialized extension array with unit-norm rows.
-pub(crate) fn normalize_as_l2_denorm(
+/// The returned array is a lazy `L2Denorm(normalized, norms)` scalar function array.
+///
+/// # Normalized child
+///
+/// The normalized child is always **non-nullable** with [`Validity::NonNullable`]. Every non-null
+/// row with a positive L2 norm is divided by its norm to produce a unit-norm vector.
+///
+/// Rows that are null in the original input are **zeroed out** in the normalized output. This is
+/// necessary because null rows may have undefined (garbage) physical storage values, and we do not
+/// want to let those propagate into downstream encodings (like TurboQuant).
+///
+/// # Nullability
+///
+/// Nullability is tracked entirely by the norms child. Null input rows produce null norms via
+/// [`L2Norm`]'s validity propagation. When the [`L2Denorm`] wrapper is executed, its validity is
+/// `and(normalized_validity, norms_validity)`, which correctly identifies originally-null rows
+/// since the normalized child is all-valid and the norms child carries the original nulls.
+pub fn normalize_as_l2_denorm(
     options: &ApproxOptions,
     input: ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -214,34 +230,40 @@ pub(crate) fn normalize_as_l2_denorm(
     let norms_sfn = L2Norm::try_new_array(options, input.clone(), row_count)?;
     let norms_array: ArrayRef = norms_sfn.into_array().execute(ctx)?;
     let norms: PrimitiveArray = norms_array.clone().execute(ctx)?;
+    let norms_validity = norms.validity()?;
 
     let input: ExtensionArray = input.execute(ctx)?;
-    // The normalized child is always non-nullable. Null rows become zero vectors (since their
-    // norm is zero), and nullability is tracked by the norms child in the L2Denorm wrapper.
     let normalized_dtype = input.dtype().as_nonnullable();
     let flat = extract_flat_elements(input.storage_array(), tensor_flat_size, ctx)?;
 
     let normalized = match_each_float_ptype!(flat.ptype(), |T| {
         let norm_values = norms.as_slice::<T>();
-        let elements: Buffer<T> = (0..row_count)
-            .flat_map(|i| {
-                let norm = norm_values[i];
-                flat.row::<T>(i).iter().map(move |&x| {
-                    if norm == T::zero() {
-                        T::zero()
-                    } else {
-                        x / norm
-                    }
-                })
-            })
-            .collect();
+
+        let total_elements = row_count * tensor_flat_size;
+        let mut elements = BufferMut::<T>::with_capacity(total_elements);
+        for i in 0..row_count {
+            let is_valid = norms_validity.is_valid(i)?;
+            let norm = norm_values[i];
+
+            // SAFETY: We allocated `row_count * tensor_flat_size` capacity and push exactly
+            // `tensor_flat_size` elements per row.
+
+            // Null rows must be explicitly zeroed out.
+            if !is_valid || norm == T::zero() {
+                unsafe { elements.push_n_unchecked(T::zero(), tensor_flat_size) };
+            } else {
+                for &x in flat.row::<T>(i) {
+                    unsafe { elements.push_unchecked(x / norm) };
+                }
+            }
+        }
 
         build_tensor_array(
             normalized_dtype,
             tensor_flat_size,
             row_count,
             Validity::NonNullable,
-            elements,
+            elements.freeze(),
         )
     })?;
 

@@ -11,6 +11,7 @@ use rstest::rstest;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -24,6 +25,7 @@ use vortex_array::extension::EmptyMetadata;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -32,6 +34,7 @@ use crate::encodings::turboquant::TurboQuantArrayExt;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
 use crate::encodings::turboquant::turboquant_encode;
+use crate::encodings::turboquant::turboquant_encode_unchecked;
 use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
@@ -100,7 +103,7 @@ fn make_vector_ext(fsl: &FixedSizeListArray) -> ExtensionArray {
 /// Full encode pipeline: normalize, then TQ-encode, then wrap in L2Denorm.
 ///
 /// This mirrors what `TurboQuantScheme::compress()` does: normalize via `normalize_as_l2_denorm`,
-/// then quantize the normalized child via `turboquant_encode`, then reassemble.
+/// then quantize the normalized child via `turboquant_encode_unchecked`, then reassemble.
 fn normalize_and_encode(
     ext: &ExtensionArray,
     config: &TurboQuantConfig,
@@ -112,9 +115,10 @@ fn normalize_and_encode(
     let num_rows = l2_denorm.len();
 
     let normalized_ext = normalized
-        .as_opt::<vortex_array::arrays::Extension>()
-        .expect("normalized child should be an Extension array");
-    let tq = turboquant_encode(normalized_ext, config, ctx)?;
+        .as_opt::<Extension>()
+        .vortex_expect("normalized child should be an Extension array");
+    // SAFETY: We just normalized the input via `normalize_as_l2_denorm`.
+    let tq = unsafe { turboquant_encode_unchecked(normalized_ext, config, ctx)? };
 
     Ok(L2Denorm::try_new_array(&ApproxOptions::Exact, tq, norms, num_rows)?.into_array())
 }

@@ -26,6 +26,7 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
@@ -89,7 +90,8 @@ impl TurboQuant {
     /// Nullability is handled externally by the [`L2Denorm`](crate::scalar_fns::l2_denorm::L2Denorm)
     /// ScalarFnArray wrapper.
     ///
-    /// Internally calls [`TurboQuantData::validate`] and [`TurboQuantData::try_new`].
+    /// Internally calls [`TurboQuantData::validate`] and [`TurboQuantData::try_new`], then
+    /// delegates to [`new_array_unchecked`](Self::new_array_unchecked).
     pub fn try_new_array(
         dtype: DType,
         codes: ArrayRef,
@@ -98,25 +100,66 @@ impl TurboQuant {
     ) -> VortexResult<TurboQuantArray> {
         TurboQuantData::validate(&dtype, &codes, &centroids, &rotation_signs)?;
 
+        Ok(unsafe { Self::new_array_unchecked(dtype, codes, centroids, rotation_signs) })
+    }
+
+    /// Creates a new [`TurboQuantArray`] without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure all invariants required by [`TurboQuantData::validate`] hold:
+    ///
+    /// - `dtype` is a non-nullable [`Vector`](crate::vector::Vector) extension type with
+    ///   dimension >= [`MIN_DIMENSION`](Self::MIN_DIMENSION).
+    /// - `codes` is a non-nullable `FixedSizeList<u8>` with `list_size == padded_dim`.
+    /// - `centroids` is a non-nullable `Primitive<f32>` with a power-of-2 length in
+    ///   `[2, MAX_CENTROIDS]` (or empty for degenerate arrays).
+    /// - `rotation_signs` is a non-nullable `FixedSizeList<u8>` with `list_size == padded_dim`.
+    ///
+    /// Violating these invariants may produce incorrect results during decompression or panics
+    /// during array access.
+    pub unsafe fn new_array_unchecked(
+        dtype: DType,
+        codes: ArrayRef,
+        centroids: ArrayRef,
+        rotation_signs: ArrayRef,
+    ) -> TurboQuantArray {
+        #[cfg(debug_assertions)]
+        TurboQuantData::validate(&dtype, &codes, &centroids, &rotation_signs)
+            .vortex_expect("[DEBUG ASSERTION]: TurboQuantData arrays are invalid");
+
         let len = codes.len();
-        let vector_metadata = TurboQuant::validate_dtype(&dtype)?;
+
+        let dimension = dtype
+            .as_extension_opt()
+            .and_then(|ext| ext.metadata_opt::<AnyVector>())
+            .map(|m| m.dimensions())
+            .unwrap_or(0);
 
         let bit_width = if centroids.is_empty() {
             0
         } else {
-            u8::try_from(centroids.len().trailing_zeros())
-                .map_err(|_| vortex_err!("centroids bit_width does not fit in u8"))?
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "bit_width is guaranteed <= 8"
+            )]
+            (centroids.len().trailing_zeros() as u8)
         };
 
-        // Derive num_rounds from the FSL rotation_signs length (0 for degenerate arrays).
-        let num_rounds = u8::try_from(rotation_signs.len())
-            .map_err(|_| vortex_err!("rotation_signs num_rounds does not fit in u8"))?;
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "num_rounds fits in u8 by the caller's invariants"
+        )]
+        let num_rounds = rotation_signs.len() as u8;
 
-        let data = TurboQuantData::try_new(vector_metadata.dimensions(), bit_width, num_rounds)?;
+        // SAFETY: The caller guarantees that dimension, bit_width, and num_rounds satisfy the
+        // invariants documented on `TurboQuantData::new_unchecked`.
+        let data = unsafe { TurboQuantData::new_unchecked(dimension, bit_width, num_rounds) };
         let parts = ArrayParts::new(TurboQuant, dtype, len, data)
             .with_slots(TurboQuantData::make_slots(codes, centroids, rotation_signs));
 
-        Array::try_from_parts(parts)
+        // SAFETY: The caller guarantees the parts are logically consistent.
+        unsafe { Array::from_parts_unchecked(parts) }
     }
 }
 

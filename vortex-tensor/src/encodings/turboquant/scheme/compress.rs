@@ -8,6 +8,7 @@
 //! externally by [`normalize_as_l2_denorm`](crate::scalar_fns::l2_denorm::normalize_as_l2_denorm),
 //! which the [`TurboQuantScheme`](super::TurboQuantScheme) calls before invoking this function.
 
+use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -19,6 +20,7 @@ use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::match_each_float_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -33,6 +35,13 @@ use crate::encodings::turboquant::array::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::array::centroids::get_centroids;
 use crate::encodings::turboquant::array::rotation::RotationMatrix;
 use crate::encodings::turboquant::vtable::TurboQuantArray;
+use crate::scalar_fns::ApproxOptions;
+use crate::scalar_fns::l2_norm::L2Norm;
+use crate::vector::AnyVector;
+
+/// Tolerance for the unit-norm check in [`turboquant_encode`]. Each row's L2 norm must be within
+/// this distance of 1.0 (or be exactly 0.0 for zero vectors).
+const UNIT_NORM_TOLERANCE: f64 = 1e-10;
 
 /// Configuration for TurboQuant encoding.
 #[derive(Clone, Debug)]
@@ -99,8 +108,9 @@ struct QuantizationResult {
 
 /// Core quantization: rotate and quantize already-normalized rows.
 ///
-/// The input `fsl` must contain unit-norm vectors (already L2-normalized). The rotation and
-/// centroid lookup happen in f32.
+/// The input `fsl` must contain non-nullable, unit-norm vectors (already L2-normalized). Null
+/// vectors are not supported and must be zeroed out before reaching this function. The rotation
+/// and centroid lookup happen in f32.
 fn turboquant_quantize_core(
     fsl: &FixedSizeListArray,
     seed: u64,
@@ -186,7 +196,12 @@ fn build_turboquant(
 /// [`TurboQuantArray`].
 ///
 /// The input must be a non-nullable Vector extension array whose rows are already unit-norm.
-/// Normalization is handled externally (e.g. by [`normalize_as_l2_denorm`]).
+/// **Null vectors are not supported.** The caller must normalize and strip nullability before
+/// calling this function, for example via [`normalize_as_l2_denorm`].
+///
+/// This function validates that every row has L2 norm within `UNIT_NORM_TOLERANCE` of 1.0 (or is
+/// exactly 0.0). Use [`turboquant_encode_unchecked`] to skip this check when the caller has just
+/// performed normalization.
 ///
 /// The returned array is a plain [`TurboQuantArray`] that decompresses to unit-norm vectors.
 /// The caller is responsible for wrapping it in an [`L2Denorm`] ScalarFnArray if the original
@@ -200,13 +215,61 @@ pub fn turboquant_encode(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let ext_dtype = ext.dtype().clone();
-    let storage = ext.storage_array();
-    let fsl = storage.clone().execute::<FixedSizeListArray>(ctx)?;
 
     vortex_ensure!(
         !ext_dtype.is_nullable(),
         "TurboQuant input must be non-nullable (normalize first via L2Denorm), got {ext_dtype}",
     );
+
+    // Validate that all rows are unit-norm (or zero).
+    let num_rows = ext.as_ref().len();
+    if num_rows > 0 {
+        let norms_sfn =
+            L2Norm::try_new_array(&ApproxOptions::Exact, ext.as_ref().clone(), num_rows)?;
+        let norms: PrimitiveArray = norms_sfn.into_array().execute(ctx)?;
+
+        let element_ptype = ext_dtype
+            .as_extension()
+            .metadata::<AnyVector>()
+            .element_ptype();
+
+        match_each_float_ptype!(element_ptype, |T| {
+            for (i, &norm) in norms.as_slice::<T>().iter().enumerate() {
+                let norm_f64: f64 = ToPrimitive::to_f64(&norm).unwrap_or(f64::NAN);
+                vortex_ensure!(
+                    norm_f64 == 0.0 || (norm_f64 - 1.0).abs() < UNIT_NORM_TOLERANCE,
+                    "TurboQuant requires unit-norm input, but row {i} has L2 norm {norm_f64:.6} \
+                     (expected 1.0 or 0.0)",
+                );
+            }
+        });
+    }
+
+    // SAFETY: We just validated that the input is non-nullable and all rows are unit-norm.
+    unsafe { turboquant_encode_unchecked(ext, config, ctx) }
+}
+
+/// Encode a non-nullable, L2-normalized [`Vector`](crate::vector::Vector) extension array into a
+/// [`TurboQuantArray`], without validating the unit-norm precondition.
+///
+/// # Safety
+///
+/// The caller must ensure:
+///
+/// - The input dtype is non-nullable.
+/// - Every row is L2-normalized (unit norm) or is a zero vector.
+///
+/// Passing non-unit-norm vectors will not cause memory unsafety, but will produce silently
+/// incorrect quantization results.
+pub unsafe fn turboquant_encode_unchecked(
+    ext: ArrayView<Extension>,
+    config: &TurboQuantConfig,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let ext_dtype = ext.dtype().clone();
+    let storage = ext.storage_array();
+    let fsl = storage.clone().execute::<FixedSizeListArray>(ctx)?;
+
     vortex_ensure!(
         config.bit_width >= 1 && config.bit_width <= TurboQuant::MAX_BIT_WIDTH,
         "bit_width must be 1-{}, got {}",
