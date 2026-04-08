@@ -1028,11 +1028,13 @@ mod tests {
         let dict = DictArray::try_new(codes_prim.into_array(), values_prim.into_array())?;
         let array = dict.into_array();
 
-        // Mixed-width Dict (u8 codes, u32 values) should produce a PartiallyFused plan.
+        // Mixed-width Dict (u8 codes, u32 values): both are Primitive, so
+        // walk_mixed_width_child grabs the codes buffer directly as a LOAD
+        // source. No pending subtrees → Fused.
         let plan = DispatchPlan::new(&array)?;
         assert!(
-            matches!(plan, DispatchPlan::PartiallyFused { .. }),
-            "expected PartiallyFused for mixed-width Dict"
+            matches!(plan, DispatchPlan::Fused(..)),
+            "expected Fused for mixed-width Dict with primitive codes"
         );
 
         // Execute through the hybrid dispatch path (handles widening).
@@ -1058,11 +1060,13 @@ mod tests {
         let dict = DictArray::try_new(codes_prim.into_array(), values_prim.into_array())?;
         let array = dict.into_array();
 
-        // Mixed-width Dict (u16 codes, u32 values) should produce a PartiallyFused plan.
+        // Mixed-width Dict (u16 codes, u32 values): both are Primitive, so
+        // walk_mixed_width_child grabs the codes buffer directly as a LOAD
+        // source. No pending subtrees → Fused.
         let plan = DispatchPlan::new(&array)?;
         assert!(
-            matches!(plan, DispatchPlan::PartiallyFused { .. }),
-            "expected PartiallyFused for mixed-width Dict"
+            matches!(plan, DispatchPlan::Fused(..)),
+            "expected Fused for mixed-width Dict with primitive codes"
         );
 
         // Execute through the hybrid dispatch path (handles widening).
