@@ -364,6 +364,7 @@ impl Scheme for BitPackingScheme {
                     &p,
                     &mut LEGACY_SESSION.create_execution_ctx(),
                 )?
+                .with_stats_set(packed_stats)
                 .into_array(),
             }
         } else {
