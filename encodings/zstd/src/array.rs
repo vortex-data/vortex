@@ -177,7 +177,7 @@ impl VTable for Zstd {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(array.metadata.clone().encode_to_vec()))
     }

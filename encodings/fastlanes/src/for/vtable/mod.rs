@@ -98,7 +98,7 @@ impl VTable for FoR {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         // Note that we **only** serialize the optional scalar value (not including the dtype).
         Ok(Some(ScalarValue::to_proto_bytes(

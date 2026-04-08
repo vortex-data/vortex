@@ -116,8 +116,8 @@ impl VTable for Constant {
     }
 
     fn serialize(
-        array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
         // metadata at all.

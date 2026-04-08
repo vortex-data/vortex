@@ -138,7 +138,7 @@ impl VTable for FSST {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         let codes_offsets = array.as_ref().slots()[CODES_OFFSETS_SLOT]
             .as_ref()

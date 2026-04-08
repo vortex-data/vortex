@@ -111,7 +111,7 @@ impl VTable for ALP {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         let exponents = array.exponents();
         Ok(Some(

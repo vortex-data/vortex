@@ -114,7 +114,7 @@ impl VTable for ParquetVariant {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         let typed_value_dtype = array
             .typed_value_array()

@@ -121,8 +121,8 @@ impl VTable for Filter {
     }
 
     fn serialize(
-        array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         // TODO(joe): make this configurable
         vortex_bail!("Filter array is not serializable")

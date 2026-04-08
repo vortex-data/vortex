@@ -207,7 +207,7 @@ impl VTable for TurboQuant {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             TurboQuantMetadata::new(array.bit_width, array.num_rounds).encode_to_vec(),

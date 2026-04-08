@@ -103,8 +103,8 @@ impl VTable for Masked {
     }
 
     fn serialize(
-        array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }

@@ -167,7 +167,7 @@ impl VTable for BitPacked {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             BitPackedMetadata {

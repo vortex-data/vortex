@@ -119,7 +119,7 @@ impl VTable for RunEnd {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             RunEndMetadata {

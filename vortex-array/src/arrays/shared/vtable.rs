@@ -92,8 +92,8 @@ impl VTable for Shared {
     }
 
     fn serialize(
-        array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         vortex_error::vortex_bail!("Shared array is not serializable")
     }

@@ -258,7 +258,7 @@ impl VTable for Sequence {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         let metadata = SequenceMetadata {
             base: Some((&array.base()).into()),

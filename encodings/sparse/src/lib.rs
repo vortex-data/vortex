@@ -125,7 +125,7 @@ impl VTable for Sparse {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         let patches = array.patches().to_metadata(array.len(), array.dtype())?;
         let metadata = SparseMetadata { patches };

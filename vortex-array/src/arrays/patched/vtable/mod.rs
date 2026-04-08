@@ -132,7 +132,7 @@ impl VTable for Patched {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             PatchedMetadata {

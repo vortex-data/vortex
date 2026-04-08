@@ -131,7 +131,7 @@ impl VTable for ALPRD {
 
     fn serialize(
         array: ArrayView<'_, Self>,
-        session: &VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>> {
         let dict = array
             .left_parts_dictionary()
