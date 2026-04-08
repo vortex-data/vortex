@@ -4,7 +4,6 @@
 //! Session-scoped memory allocation for host-side buffers.
 
 use std::fmt::Debug;
-use std::mem::align_of;
 use std::mem::size_of;
 use std::sync::Arc;
 
@@ -120,7 +119,7 @@ impl WritableHostBuffer {
         let type_align = Alignment::of::<T>();
 
         vortex_ensure!(
-            byte_len % type_size == 0,
+            byte_len.is_multiple_of(type_size),
             InvalidArgument: "Buffer length {byte_len} is not a multiple of {} for {}",
             type_size,
             std::any::type_name::<T>()
