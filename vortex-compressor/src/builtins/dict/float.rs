@@ -107,6 +107,13 @@ impl Scheme for FloatDictScheme {
     ) -> VortexResult<ArrayRef> {
         // TODO(connor): Fight the borrow checker (needs interior mutability)!
         let stats = data.float_stats().clone();
+
+        // If there are no non-null values (e.g., an all-null sample), there are no distinct
+        // values to dictionary-encode. Return the array unchanged.
+        if stats.value_count() == 0 {
+            return Ok(data.array().clone());
+        }
+
         let dict = dictionary_encode(data.array_as_primitive(), &stats)?;
 
         let has_all_values_referenced = dict.has_all_values_referenced();
