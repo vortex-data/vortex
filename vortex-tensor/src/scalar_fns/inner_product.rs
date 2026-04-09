@@ -316,6 +316,7 @@ mod tests {
 
     use crate::scalar_fns::ApproxOptions;
     use crate::scalar_fns::inner_product::InnerProduct;
+    use crate::scalar_fns::l2_denorm::L2Denorm;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
@@ -445,13 +446,11 @@ mod tests {
         let len = norms.len();
         let normalized = tensor_array(shape, normalized_elements)?;
         let norms = PrimitiveArray::from_iter(norms.iter().copied()).into_array();
-        Ok(crate::scalar_fns::l2_denorm::L2Denorm::try_new_array(
-            &ApproxOptions::Exact,
-            normalized,
-            norms,
-            len,
-        )?
-        .into_array())
+        let mut ctx = SESSION.create_execution_ctx();
+        Ok(
+            L2Denorm::try_new_array(&ApproxOptions::Exact, normalized, norms, len, &mut ctx)?
+                .into_array(),
+        )
     }
 
     #[test]
@@ -507,18 +506,15 @@ mod tests {
         // Row 0: valid, row 1: null (via nullable norms on lhs).
         let normalized_l = tensor_array(&[2], &[0.6, 0.8, 1.0, 0.0])?;
         let norms_l = PrimitiveArray::from_option_iter([Some(5.0f64), None]).into_array();
-        let lhs = crate::scalar_fns::l2_denorm::L2Denorm::try_new_array(
-            &ApproxOptions::Exact,
-            normalized_l,
-            norms_l,
-            2,
-        )?
-        .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let lhs =
+            L2Denorm::try_new_array(&ApproxOptions::Exact, normalized_l, norms_l, 2, &mut ctx)?
+                .into_array();
         let rhs = l2_denorm_array(&[2], &[0.6, 0.8, 1.0, 0.0], &[5.0, 1.0])?;
 
         let scalar_fn = ScalarFn::new(InnerProduct, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;
-        let mut ctx = SESSION.create_execution_ctx();
         let prim: PrimitiveArray = result.into_array().execute(&mut ctx)?;
 
         // Row 0: 5.0 * 5.0 * dot([0.6, 0.8], [0.6, 0.8]) = 25.0, row 1: null.

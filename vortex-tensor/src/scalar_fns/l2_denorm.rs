@@ -69,7 +69,8 @@ impl L2Denorm {
     /// This is the correct constructor for [`L2Denorm`] arrays. In addition to the structural
     /// checks performed by [`ScalarFnArray::try_new`], it validates that every valid row of the
     /// `normalized` child has L2 norm `1.0` (or `0.0` for zero rows), within the tolerance implied
-    /// by the child element precision.
+    /// by the child element precision. It also validates that stored norms are non-negative, and
+    /// that any row with stored norm `0.0` has an all-zero normalized row.
     ///
     /// # Errors
     ///
@@ -82,10 +83,15 @@ impl L2Denorm {
         len: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ScalarFnArray> {
-        validate_l2_normalized_rows(normalized.clone(), ctx)?;
+        let result = ScalarFnArray::try_new(
+            L2Denorm::new(options).erased(),
+            vec![normalized.clone(), norms.clone()],
+            len,
+        )?;
 
-        // SAFETY: We just validated that it is normalized.
-        unsafe { Self::new_array_unchecked(options, normalized, norms, len) }
+        validate_l2_denorm_children(normalized, norms, ctx)?;
+
+        Ok(result)
     }
 
     /// Constructs an [`L2Denorm`] array without validating that the `normalized` child is actually
@@ -112,49 +118,6 @@ impl L2Denorm {
             len,
         )
     }
-}
-
-/// Returns the acceptable unit-norm drift for the given element precision.
-fn unit_norm_tolerance(element_ptype: PType) -> f64 {
-    match element_ptype {
-        PType::F16 => 2e-3,
-        PType::F32 => 2e-6,
-        PType::F64 => 1e-10,
-        _ => unreachable!("L2Denorm requires float elements, got {element_ptype:?}"),
-    }
-}
-
-/// Validates that every valid row of `input` is already L2-normalized.
-pub fn validate_l2_normalized_rows(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
-    let row_count = input.len();
-    if row_count == 0 {
-        return Ok(());
-    }
-
-    let tensor_match = validate_tensor_float_input(input.dtype())?;
-    let element_ptype = tensor_match.element_ptype();
-    let tolerance = unit_norm_tolerance(element_ptype);
-
-    let norms_sfn = L2Norm::try_new_array(&ApproxOptions::Exact, input, row_count)?;
-    let norms: PrimitiveArray = norms_sfn.into_array().execute(ctx)?;
-    let norms_validity = norms.validity()?;
-
-    match_each_float_ptype!(element_ptype, |T| {
-        for (i, &norm) in norms.as_slice::<T>().iter().enumerate() {
-            if !norms_validity.is_valid(i)? {
-                continue;
-            }
-
-            let norm_f64 = ToPrimitive::to_f64(&norm).unwrap_or(f64::NAN);
-            vortex_ensure!(
-                norm_f64 == 0.0 || (norm_f64 - 1.0).abs() <= tolerance,
-                "L2Denorm normalized child must have L2 norm 1.0 or 0.0, but row {i} has \
-                 {norm_f64:.6}",
-            );
-        }
-    });
-
-    Ok(())
 }
 
 impl ScalarFnVTable for L2Denorm {
@@ -373,6 +336,104 @@ fn build_tensor_array<T: NativePType>(
     Ok(ExtensionArray::new(dtype.as_extension().clone(), storage.into_array()).into_array())
 }
 
+/// Returns the acceptable unit-norm drift for the given element precision.
+fn unit_norm_tolerance(element_ptype: PType) -> f64 {
+    match element_ptype {
+        PType::F16 => 2e-3,
+        PType::F32 => 2e-6,
+        PType::F64 => 1e-10,
+        _ => unreachable!("L2Denorm requires float elements, got {element_ptype:?}"),
+    }
+}
+
+/// Validates that every valid row of `input` is already L2-normalized (either length 1 or 0).
+pub fn validate_l2_normalized_rows(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+    validate_l2_normalized_rows_impl(input, None, ctx)
+}
+
+/// Validates that the `normalized` and `norms` children jointly satisfy the [`L2Denorm`]
+/// invariants, which are:
+///
+/// - All vectors in the normalized array have length 1 or 0.
+/// - If the vector has a norm of 0, then the vector must be all 0s.
+fn validate_l2_denorm_children(
+    normalized: ArrayRef,
+    norms: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    validate_l2_normalized_rows_impl(normalized, Some(norms), ctx)
+}
+
+fn validate_l2_normalized_rows_impl(
+    normalized: ArrayRef,
+    norms: Option<ArrayRef>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    let row_count = normalized.len();
+    if row_count == 0 {
+        return Ok(());
+    }
+
+    let tensor_match = validate_tensor_float_input(normalized.dtype())?;
+    let element_ptype = tensor_match.element_ptype();
+    let tolerance = unit_norm_tolerance(element_ptype);
+    let tensor_flat_size = tensor_match.list_size();
+
+    let normalized: ExtensionArray = normalized.execute(ctx)?;
+    let normalized_validity = normalized.as_ref().validity()?;
+    let flat = extract_flat_elements(normalized.storage_array(), tensor_flat_size, ctx)?;
+    let norms = norms
+        .map(|norms| norms.execute::<PrimitiveArray>(ctx))
+        .transpose()?;
+
+    let combined_validity = match &norms {
+        Some(norms) => normalized_validity.and(norms.validity()?)?,
+        None => normalized_validity,
+    };
+
+    match_each_float_ptype!(element_ptype, |T| {
+        let stored_norms = norms.as_ref().map(|norms| norms.as_slice::<T>());
+
+        for i in 0..row_count {
+            if !combined_validity.is_valid(i)? {
+                continue;
+            }
+
+            let (row_norm_sq, is_zero_row) =
+                flat.row::<T>(i)
+                    .iter()
+                    .fold((0.0f64, true), |(sum_sq, is_zero), x| {
+                        let value = ToPrimitive::to_f64(x).unwrap_or(f64::NAN);
+                        (sum_sq + value * value, is_zero && value.abs() <= tolerance)
+                    });
+            let row_norm = row_norm_sq.sqrt();
+
+            vortex_ensure!(
+                row_norm == 0.0 || (row_norm - 1.0).abs() <= tolerance,
+                "L2Denorm normalized child must have L2 norm 1.0 or 0.0, but row {i} has \
+                 {row_norm:.6}",
+            );
+
+            if let Some(stored_norms) = stored_norms {
+                let stored_norm_f64 = ToPrimitive::to_f64(&stored_norms[i]).unwrap_or(f64::NAN);
+                vortex_ensure!(
+                    stored_norm_f64 >= 0.0,
+                    "L2Denorm norms must be non-negative, but row {i} has {stored_norm_f64:.6}",
+                );
+
+                if stored_norm_f64 == 0.0 {
+                    vortex_ensure!(
+                        is_zero_row,
+                        "L2Denorm normalized child must be all zeros when norms row {i} is 0.0",
+                    );
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
@@ -583,6 +644,28 @@ mod tests {
     fn l2_denorm_try_new_array_rejects_unnormalized_child() -> VortexResult<()> {
         let normalized = vector_array(2, &[3.0, 4.0, 1.0, 0.0])?;
         let norms = PrimitiveArray::from_iter([5.0f64, 1.0]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, normalized, norms, 2, &mut ctx);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn l2_denorm_try_new_array_rejects_nonzero_row_with_zero_norm() -> VortexResult<()> {
+        let normalized = vector_array(2, &[1.0, 0.0, 0.0, 0.0])?;
+        let norms = PrimitiveArray::from_iter([0.0f64, 0.0]).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let result = L2Denorm::try_new_array(&ApproxOptions::Exact, normalized, norms, 2, &mut ctx);
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn l2_denorm_try_new_array_rejects_negative_norms() -> VortexResult<()> {
+        let normalized = vector_array(2, &[1.0, 0.0, 0.0, 1.0])?;
+        let norms = PrimitiveArray::from_iter([1.0f64, -1.0]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
 
         let result = L2Denorm::try_new_array(&ApproxOptions::Exact, normalized, norms, 2, &mut ctx);
