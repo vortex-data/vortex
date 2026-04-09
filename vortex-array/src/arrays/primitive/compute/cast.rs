@@ -149,7 +149,6 @@ mod test {
     use crate::dtype::PType;
     use crate::validity::Validity;
 
-    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn cast_u32_u8() {
         let arr = buffer![0u32, 10, 200].into_array();

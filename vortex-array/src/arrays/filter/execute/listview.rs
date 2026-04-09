@@ -21,7 +21,7 @@ use crate::arrays::listview::ListViewRebuildMode;
 /// However, we also do not want to carry around a large amount of garbage data. Below this
 /// threshold of the density of the selection mask, we will rebuild the [`ListViewArray`], removing
 /// any garbage data.
-#[allow(unused)]
+#[expect(unused)]
 const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 
 /// [`ListViewArray`] filter implementation.

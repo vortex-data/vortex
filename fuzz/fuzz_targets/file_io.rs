@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![no_main]
-#![allow(clippy::result_large_err)]
 
 use itertools::Itertools;
 use libfuzzer_sys::Corpus;

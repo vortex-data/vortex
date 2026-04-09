@@ -529,7 +529,7 @@ impl Array<Decimal> {
         }
     }
 
-    #[allow(
+    #[expect(
         clippy::cognitive_complexity,
         reason = "patching depends on both patch and value physical types"
     )]

@@ -12,7 +12,6 @@ use crate::bit_transpose::TRANSPOSE_8X8;
 /// This version uses 64-bit gather + parallel bit operations instead of
 /// extracting bits one by one. Typically 5-10x faster than the basic scalar version.
 #[inline(never)]
-#[allow(dead_code)]
 pub fn transpose_bits_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
     // Helper to perform 8x8 bit transpose on a u64 (each byte becomes a row)
     fn transpose_8x8(mut x: u64) -> u64 {
@@ -85,7 +84,6 @@ pub fn transpose_bits_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
 
 /// Fast scalar untranspose using the 8x8 bit matrix transpose algorithm.
 #[inline(never)]
-#[allow(dead_code)]
 pub fn untranspose_bits_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
     fn transpose_8x8(mut x: u64) -> u64 {
         let t = (x ^ (x >> 7)) & TRANSPOSE_2X2;

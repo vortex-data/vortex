@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::cast_possible_truncation)]
-#![allow(unexpected_cfgs)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
 use std::sync::LazyLock;
 
@@ -85,7 +84,7 @@ fn setup_primitive_arrays() -> (PrimitiveArray, PrimitiveArray, PrimitiveArray) 
     (uint_array, int_array, float_array)
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn gen_varbin_words(len: usize, uniqueness: f64) -> Vec<String> {
     let mut rng = StdRng::seed_from_u64(0);
     let uniq_cnt = (len as f64 * uniqueness) as usize;

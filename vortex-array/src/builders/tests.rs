@@ -548,7 +548,7 @@ fn test_append_scalar_comprehensive(#[case] dtype: DType) {
 }
 
 /// Helper function to create test scalars for a given dtype.
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
     let mut scalars = Vec::with_capacity(count);
 

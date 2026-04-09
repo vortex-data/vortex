@@ -391,7 +391,7 @@ impl Default for CompletedBuffers {
 }
 
 // Self::push enforces len < u32::max
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 impl CompletedBuffers {
     fn len(&self) -> u32 {
         match self {
@@ -477,7 +477,7 @@ pub struct DeduplicatedBuffers {
 
 impl DeduplicatedBuffers {
     // Self::push enforces len < u32::max
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     fn len(&self) -> u32 {
         self.buffers.len() as u32
     }

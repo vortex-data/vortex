@@ -152,7 +152,7 @@ where
 
 #[cfg(test)]
 mod test {
-    #[allow(unused_imports)]
+    #[expect(unused_imports)]
     use itertools::Itertools;
     use vortex_buffer::buffer;
 

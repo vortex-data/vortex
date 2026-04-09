@@ -212,7 +212,7 @@ pub struct VortexDataSource {
     /// The initial Vortex projection expression (e.g. column selection from the builder).
     initial_projection: Expression,
     /// Column statistics for the initial projection columns.
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     initial_statistics: Vec<ColumnStatistics>,
 
     // --- Phase 2: Projected (pushed into the Vortex scan) ---

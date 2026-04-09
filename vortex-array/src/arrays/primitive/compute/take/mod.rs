@@ -60,7 +60,6 @@ trait TakeImpl: Send + Sync {
     ) -> VortexResult<ArrayRef>;
 }
 
-#[allow(unused)]
 struct TakeKernelScalar;
 
 impl TakeImpl for TakeKernelScalar {
@@ -113,7 +112,6 @@ impl TakeExecute for Primitive {
 }
 
 // Compiler may see this as unused based on enabled features
-#[allow(unused)]
 #[inline(always)]
 fn take_primitive_scalar<T: NativePType, I: IntegerPType>(
     buffer: &[T],

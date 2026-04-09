@@ -220,7 +220,6 @@ mod tests {
     #[test]
     fn compare_large_constant() {
         let reference = Scalar::from(-9219218377546224477i64);
-        #[allow(clippy::cast_possible_truncation)]
         let lhs = for_arr(
             PrimitiveArray::new(
                 buffer![0i64, 9654309310445864926u64 as i64],

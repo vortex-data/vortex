@@ -31,7 +31,6 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
             array.dtype().as_ptype(),
             |In| {
                 match_each_integer_ptype!(target.as_ptype(), |Out| {
-                    // Since the cast itself would truncate.
                     #[allow(clippy::cast_possible_truncation)]
                     PrimitiveArray::new(
                         array
@@ -72,7 +71,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
             )),
             (PType::F64, PType::F32) =>
             {
-                #[allow(clippy::cast_possible_truncation)]
+                #[expect(clippy::cast_possible_truncation)]
                 Ok(Some(
                     PrimitiveArray::new(
                         array

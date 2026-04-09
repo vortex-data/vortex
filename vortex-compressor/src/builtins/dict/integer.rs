@@ -205,7 +205,7 @@ macro_rules! impl_encode {
     ($typ:ty, $($ityp:ty),+) => {
         $(
         impl Encode<$typ, $ityp> for DictEncoder {
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             fn encode(distinct: &[$typ], values: &[$typ]) -> Buffer<$ityp> {
                 let mut codes =
                     vortex_utils::aliases::hash_map::HashMap::<$typ, $ityp>::with_capacity(

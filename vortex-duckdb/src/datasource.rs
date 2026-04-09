@@ -484,7 +484,7 @@ fn extract_projection_expr(
     };
 
     // duckdb index is u64 (size_t) but in Rust u64 and usize are different things.
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     let names = projection_ids
         .iter()
         .filter(|p| **p != EMPTY_COLUMN_IDX)
@@ -493,7 +493,7 @@ fn extract_projection_expr(
                 idx = &column_ids[*idx as usize];
             }
 
-            #[allow(clippy::cast_possible_truncation)]
+            #[expect(clippy::cast_possible_truncation)]
             column_names
                 .get(*idx as usize)
                 .vortex_expect("prune idx in column names")

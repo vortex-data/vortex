@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::use_debug)]
+#![expect(clippy::use_debug)]
 
 mod array;
 pub mod compress;
@@ -45,7 +45,7 @@ mod native_runtime {
 
     pub static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
     pub static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        #[allow(unused_mut)]
+        #[expect(unused_mut)]
         let mut session = VortexSession::default().with_handle(RUNTIME.handle());
         #[cfg(all(feature = "cuda", target_os = "linux"))]
         // Even if the CUDA feature is enabled we need to check at

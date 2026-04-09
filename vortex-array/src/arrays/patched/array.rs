@@ -247,7 +247,6 @@ impl Patched {
 }
 
 /// Transpose a set of patches from the default sorted layout into the data parallel layout.
-#[allow(clippy::cognitive_complexity)]
 fn transpose_patches(patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<TransposedPatches> {
     let array_len = patches.array_len();
     let offset = patches.offset();
@@ -285,7 +284,7 @@ fn transpose_patches(patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<
     })
 }
 
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn transpose<I: IntegerPType, V: NativePType>(
     indices_in: &[I],
     values_in: &[V],

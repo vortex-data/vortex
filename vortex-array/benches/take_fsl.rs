@@ -7,8 +7,8 @@
 //! - Number of indices to take
 //! - Fixed size list length (elements per list)
 
-#![allow(clippy::cast_possible_truncation)]
-#![allow(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
+#![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
 use rand::RngExt;

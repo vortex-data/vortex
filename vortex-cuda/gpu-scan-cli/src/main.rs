@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(unused_imports)]
+#![expect(unused_imports)]
 
 use std::fs::File;
 use std::path::PathBuf;

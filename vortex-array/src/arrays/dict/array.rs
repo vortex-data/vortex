@@ -138,10 +138,6 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         Ok(())
     }
 
-    #[allow(
-        clippy::cognitive_complexity,
-        reason = "branching depends on validity representation and code type"
-    )]
     fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
         let codes_validity = self.codes().validity_mask()?;
         let codes_primitive = self.codes().to_primitive();
@@ -252,7 +248,7 @@ impl Array<Dict> {
 
 #[cfg(test)]
 mod test {
-    #[allow(unused_imports)]
+    #[expect(unused_imports)]
     use itertools::Itertools;
     use rand::RngExt;
     use rand::SeedableRng;

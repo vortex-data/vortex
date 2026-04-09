@@ -62,7 +62,7 @@ pub trait Executable: Sized {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
 }
 
-#[allow(clippy::same_name_method)]
+#[expect(clippy::same_name_method)]
 impl ArrayRef {
     /// Execute this array to produce an instance of `E`.
     ///

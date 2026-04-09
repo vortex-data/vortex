@@ -213,14 +213,12 @@ mod tests {
             vec![1234; 1025]
         );
 
-        #[allow(clippy::excessive_precision)]
         let r_eq = alp_scalar_compare(encoded.as_view(), 1.234444_f32, CompareOperator::Eq)
             .unwrap()
             .unwrap();
         let expected = BoolArray::from_iter([false; 1025]);
         assert_arrays_eq!(r_eq, expected);
 
-        #[allow(clippy::excessive_precision)]
         let r_neq = alp_scalar_compare(encoded.as_view(), 1.234444f32, CompareOperator::NotEq)
             .unwrap()
             .unwrap();

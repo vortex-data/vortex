@@ -91,7 +91,7 @@ impl<'a> Arbitrary<'a> for FuzzFsstLike {
 /// - `Ok(true)` — keep in corpus
 /// - `Ok(false)` — reject (e.g. too few strings)
 /// - `Err(_)` — mismatch found (bug)
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err)]
 pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
     let FuzzFsstLike {
         strings,

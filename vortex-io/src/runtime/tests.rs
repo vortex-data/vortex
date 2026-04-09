@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![cfg(feature = "tokio")]
-#![allow(clippy::cast_possible_truncation)]
+#![expect(clippy::cast_possible_truncation)]
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;

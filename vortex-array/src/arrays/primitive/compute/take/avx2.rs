@@ -52,7 +52,7 @@ use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::validity::Validity;
 
-#[allow(unused)]
+#[expect(unused)]
 pub(super) struct TakeKernelAVX2;
 
 impl TakeImpl for TakeKernelAVX2 {
@@ -82,7 +82,7 @@ impl TakeImpl for TakeKernelAVX2 {
 /// The caller must ensure that if the validity has a length, it is the same length as the indices,
 /// and that the `avx2` feature is enabled.
 #[target_feature(enable = "avx2")]
-#[allow(unused)]
+#[expect(unused)]
 unsafe fn take_primitive_avx2<V, I>(
     values: &[V],
     indices: &[I],
@@ -211,7 +211,7 @@ macro_rules! impl_gather {
                 const WIDTH: usize = $WIDTH;
                 const STRIDE: usize = $STRIDE;
 
-                #[allow(unused_unsafe, clippy::cast_possible_truncation)]
+                #[expect(unused_unsafe, clippy::cast_possible_truncation)]
                 #[inline(always)]
                 unsafe fn gather(indices: *const $idx, max_idx: $idx, src: *const $value, dst: *mut $value) {
                     const {
@@ -530,7 +530,7 @@ mod avx2_tests {
                 $(
                     // Test "happy path" take, valid indices on valid array.
                     #[test]
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[expect(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_simple_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = (1..=127).map(|x| x as $VAL).collect();
                         let indices: Vec<$IDX> = (0..127).collect();
@@ -542,7 +542,7 @@ mod avx2_tests {
                     // Test take on empty array.
                     #[test]
                     #[should_panic]
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[expect(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_empty_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = vec![];
                         let indices: Vec<$IDX> = (0..127).collect();
@@ -553,7 +553,7 @@ mod avx2_tests {
                     // Test all invalid take indices mapping to zeros.
                     #[test]
                     #[should_panic]
-                    #[allow(clippy::cast_possible_truncation)]
+                    #[expect(clippy::cast_possible_truncation)]
                     fn [<test_avx2_take_invalid_ $IDX _ $VAL>]() {
                         let values: Vec<$VAL> = (1..=127).map(|x| x as $VAL).collect();
                         // All out of bounds indices.
