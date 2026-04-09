@@ -464,11 +464,18 @@ impl_gather!(u64,
 #[inline(always)]
 fn exec_take<Value, Idx, Gather>(values: &[Value], indices: &[Idx]) -> Buffer<Value>
 where
-    Value: Copy,
+    Value: NativePType,
     Idx: UnsignedPType,
     Gather: GatherFn<Idx, Value>,
 {
     let indices_len = indices.len();
+    // The AVX2 path uses a strict `max_index > index` mask. When `values.len()` is exactly one
+    // past the largest representable index (for example `u8` with 256 values), converting the
+    // length overflows and would otherwise clamp to the type max, incorrectly masking the final
+    // valid index as out-of-bounds. Fall back to the scalar path in that case.
+    if values.len() > Idx::max_value_as_u64() as usize {
+        return take_primitive_scalar(values, indices);
+    }
     let max_index = Idx::from(values.len()).unwrap_or_else(|| Idx::max_value());
     let mut buffer =
         BufferMut::<Value>::with_capacity_aligned(indices_len, Alignment::of::<__m256i>());
@@ -579,4 +586,13 @@ mod avx2_tests {
         index_type => u64,
         value_types => u32, i32, u64, i64, f32, f64
     );
+
+    #[test]
+    fn test_avx2_take_u8_last_valid_index_for_256_values() {
+        let values: Vec<i64> = (0..256).collect();
+        let indices: Vec<u8> = vec![255; 20];
+
+        let result = unsafe { take_avx2(&values, &indices) };
+        assert_eq!(&vec![255i64; indices.len()], result.as_slice());
+    }
 }
