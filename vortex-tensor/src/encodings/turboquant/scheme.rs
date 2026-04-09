@@ -39,8 +39,6 @@ use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 
-pub(super) mod compress;
-
 /// TurboQuant compression scheme for [`Vector`] extension types.
 ///
 /// Applies lossy vector quantization to [`Vector`] extension arrays using the TurboQuant

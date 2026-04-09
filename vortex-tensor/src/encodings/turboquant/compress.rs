@@ -6,7 +6,9 @@
 //! The input to [`turboquant_encode`] must be a non-nullable [`Vector`](crate::vector::Vector)
 //! extension array whose rows are already L2-normalized (unit norm). Normalization is handled
 //! externally by [`normalize_as_l2_denorm`](crate::scalar_fns::l2_denorm::normalize_as_l2_denorm),
-//! which the [`TurboQuantScheme`](super::TurboQuantScheme) calls before invoking this function.
+//! which the [`TurboQuantScheme`] calls before invoking this function.
+//!
+//! [`TurboQuantScheme`]: crate::encodings::turboquant::TurboQuantScheme
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -32,8 +34,8 @@ use crate::encodings::turboquant::MIN_DIMENSION;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
 use crate::encodings::turboquant::centroids::get_centroids;
-use crate::encodings::turboquant::rotation::RotationMatrix;
 use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
+use crate::scalar_fns::sorf_transform::RotationMatrix;
 use crate::scalar_fns::sorf_transform::SorfOptions;
 use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::vector::AnyVector;

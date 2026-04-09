@@ -231,7 +231,7 @@ fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
     use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
     use crate::encodings::turboquant::centroids::find_nearest_centroid;
     use crate::encodings::turboquant::centroids::get_centroids;
-    use crate::encodings::turboquant::rotation::RotationMatrix;
+    use crate::scalar_fns::sorf_transform::RotationMatrix;
     use crate::scalar_fns::sorf_transform::SorfOptions;
     use crate::scalar_fns::sorf_transform::SorfTransform;
 

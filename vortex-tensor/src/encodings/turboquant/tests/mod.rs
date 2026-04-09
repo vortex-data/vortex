@@ -17,11 +17,13 @@ use rand_distr::Normal;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Dict;
 use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnVTable;
+use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
@@ -129,9 +131,6 @@ fn unwrap_codes_centroids_norms(
     encoded: &ArrayRef,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray, PrimitiveArray)> {
-    use vortex_array::arrays::Dict;
-    use vortex_array::arrays::dict::DictArrayExt;
-
     let (sorf_child, norms_child) = unwrap_l2denorm(encoded);
     let fsl_child = unwrap_sorf(&sorf_child);
 

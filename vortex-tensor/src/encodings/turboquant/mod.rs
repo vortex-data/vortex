@@ -143,13 +143,13 @@
 //! ```
 
 pub(crate) mod centroids;
-pub(crate) mod rotation;
+pub(crate) mod compress;
 
 mod scheme;
+pub use compress::TurboQuantConfig;
+pub use compress::turboquant_encode;
+pub use compress::turboquant_encode_unchecked;
 pub use scheme::TurboQuantScheme;
-pub use scheme::compress::TurboQuantConfig;
-pub use scheme::compress::turboquant_encode;
-pub use scheme::compress::turboquant_encode_unchecked;
 
 /// Minimum vector dimension for TurboQuant encoding.
 ///
