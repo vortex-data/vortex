@@ -223,7 +223,7 @@ fn bench_zigzag_compress_i32(bencher: Bencher) {
 #[divan::bench(name = "zigzag_decompress_i32")]
 fn bench_zigzag_decompress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
-    let compressed = zigzag_encode(int_array).unwrap().into_array();
+    let compressed = zigzag_encode(int_array).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)

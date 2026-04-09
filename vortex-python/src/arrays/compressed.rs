@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use pyo3::prelude::*;
-use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::Dict;
 use vortex::encodings::alp::ALP;
@@ -12,7 +11,6 @@ use vortex::encodings::fsst::FSST;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::sparse::Sparse;
-use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::zigzag_encode;
 
 use crate::PyVortex;
@@ -81,17 +79,11 @@ impl EncodingSubclass for PySparseArray {
 #[pyclass(name = "ZigZagArray", module = "vortex", extends=PyNativeArray, frozen)]
 pub(crate) struct PyZigZagArray;
 
-impl EncodingSubclass for PyZigZagArray {
-    type VTable = ZigZag;
-}
-
 #[pymethods]
 impl PyZigZagArray {
     #[staticmethod]
     pub fn encode(array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-        Ok(PyVortex(
-            zigzag_encode(array.inner().clone().to_primitive())?.into_array(),
-        ))
+        Ok(PyVortex(zigzag_encode(array.inner().clone().to_primitive())?))
     }
 }
 

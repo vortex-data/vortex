@@ -71,6 +71,7 @@ use vortex::encodings::fastlanes::BitPacked;
 use vortex::encodings::fastlanes::FoR;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
+use vortex::array::ArrayId;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zstd::Zstd;
 #[cfg(feature = "unstable_encodings")]
@@ -103,7 +104,7 @@ pub fn initialize_cuda(session: &CudaSession) {
     session.register_kernel(FoR::ID, &FoRExecutor);
     session.register_kernel(RunEnd::ID, &RunEndExecutor);
     session.register_kernel(Sequence::ID, &SequenceExecutor);
-    session.register_kernel(ZigZag::ID, &ZigZagExecutor);
+    session.register_kernel(ArrayId::new_ref(ZigZag::ARRAY_ID), &ZigZagExecutor);
     session.register_kernel(Zstd::ID, &ZstdExecutor);
     #[cfg(feature = "unstable_encodings")]
     session.register_kernel(ZstdBuffers::ID, &ZstdBuffersExecutor);

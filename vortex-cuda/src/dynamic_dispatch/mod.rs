@@ -498,7 +498,7 @@ mod tests {
     use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::fastlanes::FoRArrayExt;
     use vortex::encodings::runend::RunEnd;
-    use vortex::encodings::zigzag::ZigZag;
+    use vortex::encodings::zigzag::zigzag_try_new;
     use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
@@ -894,10 +894,10 @@ mod tests {
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
         let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
-        let zz = ZigZag::try_new(bp.into_array())?;
+        let zz = zigzag_try_new(bp.into_array())?;
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-        let plan = dispatch_plan(&zz.into_array(), &cuda_ctx)?;
+        let plan = dispatch_plan(&zz, &cuda_ctx)?;
 
         let actual =
             run_dynamic_dispatch_plan(&cuda_ctx, len, &plan.dispatch_plan, plan.shared_mem_bytes)?;
@@ -1197,9 +1197,9 @@ mod tests {
 
         let prim = PrimitiveArray::new(Buffer::from(raw), NonNullable);
         let bp = BitPacked::encode(&prim.into_array(), bit_width)?;
-        let zz = ZigZag::try_new(bp.into_array())?;
+        let zz = zigzag_try_new(bp.into_array())?;
 
-        let sliced = zz.into_array().slice(slice_start..slice_end)?;
+        let sliced = zz.slice(slice_start..slice_end)?;
         let expected: Vec<u32> = all_decoded[slice_start..slice_end].to_vec();
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;

@@ -116,6 +116,7 @@ use vortex_fsst::FSST;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
+use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
 use vortex_zigzag::ZigZag;
 pub use writer::*;
 
@@ -163,7 +164,7 @@ pub fn register_default_encodings(session: &VortexSession) {
         arrays.register(FSST);
         arrays.register(Pco);
         arrays.register(Sparse);
-        arrays.register(ZigZag);
+        arrays.register(ScalarFnArrayPlugin::new(ZigZag));
         #[cfg(feature = "zstd")]
         arrays.register(vortex_zstd::Zstd);
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]

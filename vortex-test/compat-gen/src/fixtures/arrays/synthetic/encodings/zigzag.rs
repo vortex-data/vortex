@@ -10,6 +10,7 @@ use vortex::array::dtype::FieldNames;
 use vortex::array::validity::Validity;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::zigzag_encode;
+use vortex::scalar_fn::ScalarFnVTable;
 use vortex::error::VortexResult;
 
 use super::N;
@@ -27,7 +28,7 @@ impl FlatLayoutFixture for ZigZagFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![ZigZag::ID]
+        vec![ZigZag.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
@@ -80,17 +81,17 @@ impl FlatLayoutFixture for ZigZagFixture {
                 "head_tail_nulls",
             ]),
             vec![
-                zigzag_encode(alternating_i32)?.into_array(),
-                zigzag_encode(small_i64)?.into_array(),
-                zigzag_encode(deltas_i32)?.into_array(),
-                zigzag_encode(small_i16)?.into_array(),
-                zigzag_encode(small_i8)?.into_array(),
-                zigzag_encode(nullable_zigzag)?.into_array(),
-                zigzag_encode(extremes_i32)?.into_array(),
-                zigzag_encode(zero_heavy_outliers)?.into_array(),
-                zigzag_encode(repeated_negative)?.into_array(),
-                zigzag_encode(zero_crossing)?.into_array(),
-                zigzag_encode(head_tail_nulls)?.into_array(),
+                zigzag_encode(alternating_i32)?,
+                zigzag_encode(small_i64)?,
+                zigzag_encode(deltas_i32)?,
+                zigzag_encode(small_i16)?,
+                zigzag_encode(small_i8)?,
+                zigzag_encode(nullable_zigzag)?,
+                zigzag_encode(extremes_i32)?,
+                zigzag_encode(zero_heavy_outliers)?,
+                zigzag_encode(repeated_negative)?,
+                zigzag_encode(zero_crossing)?,
+                zigzag_encode(head_tail_nulls)?,
             ],
             N,
             Validity::NonNullable,

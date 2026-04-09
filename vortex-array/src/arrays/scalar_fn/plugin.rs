@@ -20,6 +20,13 @@ use crate::serde::ArrayChildren;
 /// An adapter for enabling a scalar function to be serialized as an array.
 pub struct ScalarFnArrayPlugin<V: ScalarFnVTable>(V);
 
+impl<V: ScalarFnVTable> ScalarFnArrayPlugin<V> {
+    /// Create a new plugin for the given scalar function vtable.
+    pub fn new(vtable: V) -> Self {
+        Self(vtable)
+    }
+}
+
 pub trait ScalarFnArrayVTable: ScalarFnVTable {
     /// Serialize metadata for storing the scalar function as an array.
     ///
@@ -31,10 +38,11 @@ pub trait ScalarFnArrayVTable: ScalarFnVTable {
         session: &VortexSession,
     ) -> VortexResult<Option<Vec<u8>>>;
 
-    /// Deserialize a scalar function array from the
+    /// Deserialize a scalar function array from its serialized components.
     fn deserialize(
         &self,
         dtype: &DType,
+        len: usize,
         metadata: &[u8],
         children: &dyn ArrayChildren,
         session: &VortexSession,
@@ -43,7 +51,7 @@ pub trait ScalarFnArrayVTable: ScalarFnVTable {
 
 /// The parts used to construct a ScalarFnArray.
 pub struct ScalarFnArrayParts<V: ScalarFnVTable> {
-    pub scalar_fn: ScalarFn<V>,
+    pub options: V::Options,
     pub children: Vec<ArrayRef>,
 }
 
@@ -72,7 +80,12 @@ impl<V: ScalarFnVTable + ScalarFnArrayVTable> ArrayPlugin for ScalarFnArrayPlugi
         session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let parts =
-            <V as ScalarFnArrayVTable>::deserialize(&self.0, dtype, metadata, children, session)?;
-        Ok(ScalarFnArray::try_new(parts.scalar_fn.erased(), parts.children, len)?.into_array())
+            <V as ScalarFnArrayVTable>::deserialize(&self.0, dtype, len, metadata, children, session)?;
+        Ok(ScalarFnArray::try_new(
+            ScalarFn::new(self.0.clone(), parts.options).erased(),
+            parts.children,
+            len,
+        )?
+        .into_array())
     }
 }

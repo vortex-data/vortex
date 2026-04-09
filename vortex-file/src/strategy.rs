@@ -60,6 +60,7 @@ use vortex_sparse::Sparse;
 use vortex_tensor::encodings::turboquant::TurboQuant;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_zigzag::ZigZag;
 #[cfg(feature = "zstd")]
 use vortex_zstd::Zstd;

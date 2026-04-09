@@ -8,6 +8,7 @@
 
 use itertools::zip_eq;
 use tracing::trace;
+use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::Primitive;
@@ -27,7 +28,6 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayExt;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::zigzag::ZigZag;
-use vortex::encodings::zigzag::ZigZagArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
@@ -96,7 +96,7 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
         };
     }
     id == FoR::ID
-        || id == ZigZag::ID
+        || id == ArrayId::new_ref(ZigZag::ARRAY_ID)
         || id == Primitive::ID
         || id == Slice::ID
         || id == Sequence::ID
@@ -417,7 +417,7 @@ impl FusedPlan {
             self.walk_bitpacked(array)
         } else if id == FoR::ID {
             self.walk_for(array, pending_subtrees)
-        } else if id == ZigZag::ID {
+        } else if id == ArrayId::new_ref(ZigZag::ARRAY_ID) {
             self.walk_zigzag(array, pending_subtrees)
         } else if id == ALP::ID {
             self.walk_alp(array, pending_subtrees)
@@ -523,8 +523,7 @@ impl FusedPlan {
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let zz = array.as_::<ZigZag>();
-        let encoded = zz.encoded().clone();
+        let encoded = array.nth_child(0).unwrap();
         let output_ptype = ptype_to_tag(PType::try_from(array.dtype()).map_err(|_| {
             vortex_err!("ZigZag must have primitive dtype, got {:?}", array.dtype())
         })?);
