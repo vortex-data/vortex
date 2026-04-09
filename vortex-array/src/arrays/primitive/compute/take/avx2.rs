@@ -201,7 +201,7 @@ macro_rules! impl_gather {
             impl_gather!(single; $idx, $value, load: $load, extend: $extend, splat: $splat, zero_vec: $zero_vec, mask_indices: $mask_indices, mask_cvt: |$mask_var| $mask_cvt, gather: $masked_gather, store: $store, WIDTH = $WIDTH, STRIDE = $STRIDE);
         )*
     };
-    (single; $idx:ty, $value:ty, load: $load:ident, extend: $extend:ident, splat: $splat:ident, zero_vec: $zero_vec:ident, mask_indices: $mask_indices:ident, mask_equal: $mask_equal:ident, mask_cvt: |$mask_var:ident| $mask_cvt:block, gather: $masked_gather:ident, store: $store:ident, WIDTH = $WIDTH:literal, STRIDE = $STRIDE:literal) => {
+    (single; $idx:ty, $value:ty, load: $load:ident, extend: $extend:ident, splat: $splat:ident, zero_vec: $zero_vec:ident, mask_indices: $mask_indices:ident, mask_cvt: |$mask_var:ident| $mask_cvt:block, gather: $masked_gather:ident, store: $store:ident, WIDTH = $WIDTH:literal, STRIDE = $STRIDE:literal) => {
             impl GatherFn<$idx, $value> for AVX2Gather {
                 const WIDTH: usize = $WIDTH;
                 const STRIDE: usize = $STRIDE;
@@ -222,7 +222,7 @@ macro_rules! impl_gather {
                     // Create a vec of the max idx.
                     let max_idx_vec = unsafe { $splat(max_idx as _) };
                     // Create a mask for valid indices (where the max_idx > provided index).
-                    let invalid_mask = unsafe { _mm256_or_si256($mask_indices(max_idx_vec, indices_vec), $mask_equal(max_idx_vec, indices_vec)) };
+                    let invalid_mask = unsafe { _mm256_andnot_si256($mask_indices(indices_vec, max_idx_vec), $splat(-1)) };
                     let invalid_mask = {
                         let $mask_var = invalid_mask;
                         $mask_cvt
@@ -249,7 +249,6 @@ impl_gather!(u8,
         splat: _mm256_set1_epi32,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi32,
-        mask_equal: _mm256_cmpeq_epi32,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
@@ -261,7 +260,6 @@ impl_gather!(u8,
         splat: _mm256_set1_epi32,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi32,
-        mask_equal: _mm256_cmpeq_epi32,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
@@ -275,7 +273,6 @@ impl_gather!(u8,
         splat: _mm256_set1_epi64x,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
-        mask_equal: _mm256_cmpeq_epi64,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
@@ -287,7 +284,6 @@ impl_gather!(u8,
         splat: _mm256_set1_epi64x,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
-        mask_equal: _mm256_cmpeq_epi64,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
@@ -304,7 +300,6 @@ impl_gather!(u16,
         splat: _mm256_set1_epi32,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi32,
-        mask_equal: _mm256_cmpeq_epi32,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
@@ -316,7 +311,6 @@ impl_gather!(u16,
         splat: _mm256_set1_epi32,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi32,
-        mask_equal: _mm256_cmpeq_epi32,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
@@ -330,7 +324,6 @@ impl_gather!(u16,
         splat: _mm256_set1_epi64x,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
-        mask_equal: _mm256_cmpeq_epi64,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
@@ -342,7 +335,6 @@ impl_gather!(u16,
         splat: _mm256_set1_epi64x,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
-        mask_equal: _mm256_cmpeq_epi64,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
@@ -359,7 +351,6 @@ impl_gather!(u32,
         splat: _mm256_set1_epi32,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi32,
-        mask_equal: _mm256_cmpeq_epi32,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
@@ -371,7 +362,6 @@ impl_gather!(u32,
         splat: _mm256_set1_epi32,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi32,
-        mask_equal: _mm256_cmpeq_epi32,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i32gather_epi32,
         store: _mm256_storeu_si256,
@@ -385,7 +375,6 @@ impl_gather!(u32,
         splat: _mm256_set1_epi64x,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
-        mask_equal: _mm256_cmpeq_epi64,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
@@ -397,7 +386,6 @@ impl_gather!(u32,
         splat: _mm256_set1_epi64x,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
-        mask_equal: _mm256_cmpeq_epi64,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
@@ -413,7 +401,6 @@ impl_gather!(u64,
         splat: _mm256_set1_epi64x,
         zero_vec: _mm_setzero_si128,
         mask_indices: _mm256_cmpgt_epi64,
-        mask_equal: _mm256_cmpeq_epi64,
         mask_cvt: |m| {
             unsafe {
                 let lo_bits = _mm256_extracti128_si256::<0>(m);    // lower half
@@ -433,7 +420,6 @@ impl_gather!(u64,
         splat: _mm256_set1_epi64x,
         zero_vec: _mm_setzero_si128,
         mask_indices: _mm256_cmpgt_epi64,
-        mask_equal: _mm256_cmpeq_epi64,
         mask_cvt: |m| {
             unsafe {
                 let lo_bits = _mm256_extracti128_si256::<0>(m);    // lower half
@@ -455,7 +441,6 @@ impl_gather!(u64,
         splat: _mm256_set1_epi64x,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
-        mask_equal: _mm256_cmpeq_epi64,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
@@ -467,7 +452,6 @@ impl_gather!(u64,
         splat: _mm256_set1_epi64x,
         zero_vec: _mm256_setzero_si256,
         mask_indices: _mm256_cmpgt_epi64,
-        mask_equal: _mm256_cmpeq_epi64,
         mask_cvt: |x| { x },
         gather: _mm256_mask_i64gather_epi64,
         store: _mm256_storeu_si256,
@@ -533,8 +517,6 @@ where
 #[cfg_attr(miri, ignore)]
 #[cfg(target_arch = "x86_64")]
 mod avx2_tests {
-    use rstest::rstest;
-
     use super::*;
 
     macro_rules! test_cases {
