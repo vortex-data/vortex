@@ -280,6 +280,8 @@ pub fn vortex_buffer::BitBuffer::new_with_offset(vortex_buffer::ByteBuffer, usiz
 
 pub fn vortex_buffer::BitBuffer::offset(&self) -> usize
 
+pub fn vortex_buffer::BitBuffer::select(&self, usize) -> core::option::Option<usize>
+
 pub fn vortex_buffer::BitBuffer::set_indices(&self) -> arrow_buffer::util::bit_iterator::BitIndexIterator<'_>
 
 pub fn vortex_buffer::BitBuffer::set_slices(&self) -> arrow_buffer::util::bit_iterator::BitSliceIterator<'_>

@@ -457,7 +457,23 @@ impl Mask {
                 if let Some(slices) = values.slices.get() {
                     return slices.last().map(|(_, end)| end - 1);
                 }
-                values.buffer.set_slices().last().map(|(_, end)| end - 1)
+
+                if values.true_count == 0 {
+                    return None;
+                }
+
+                Some(
+                    values
+                        .buffer
+                        .select(values.true_count - 1)
+                        .unwrap_or_else(|| {
+                            vortex_panic!(
+                                "Rank {} out of bounds for mask with true count {}",
+                                values.true_count - 1,
+                                values.true_count
+                            )
+                        }),
+                )
             }
         }
     }
@@ -473,8 +489,19 @@ impl Mask {
         match &self {
             Self::AllTrue(_) => n,
             Self::AllFalse(_) => unreachable!("no true values in all-false mask"),
-            // TODO(joe): optimize this function
-            Self::Values(values) => values.indices()[n],
+            Self::Values(values) => {
+                if let Some(indices) = values.indices.get() {
+                    return indices[n];
+                }
+
+                values.buffer.select(n).unwrap_or_else(|| {
+                    vortex_panic!(
+                        "Rank {} out of bounds for mask with true count {}",
+                        values.true_count - 1,
+                        values.true_count
+                    )
+                })
+            }
         }
     }
 
