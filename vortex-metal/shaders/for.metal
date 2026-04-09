@@ -42,7 +42,19 @@ kernel void for_u16(
     constant uint64_t& array_len [[buffer(2)]],
     uint gid [[thread_position_in_grid]])
 {
-    for_kernel_impl(values, reference, array_len, gid);
+    // Each thread processes 4 elements using SIMD
+    uint base_idx = gid * 4;
+
+    if (base_idx + 4 <= array_len) {
+        device ushort4* vec_ptr = reinterpret_cast<device ushort4*>(values + base_idx);
+        ushort4 ref_vec = ushort4(reference);
+        *vec_ptr = *vec_ptr + ref_vec;
+    } else if (base_idx < array_len) {
+        // Handle tail elements
+        for (uint i = base_idx; i < array_len; i++) {
+            values[i] = values[i] + reference;
+        }
+    }
 }
 
 kernel void for_u32(
@@ -51,7 +63,19 @@ kernel void for_u32(
     constant uint64_t& array_len [[buffer(2)]],
     uint gid [[thread_position_in_grid]])
 {
-    for_kernel_impl(values, reference, array_len, gid);
+    // Each thread processes 4 elements using SIMD
+    uint base_idx = gid * 4;
+
+    if (base_idx + 4 <= array_len) {
+        device uint4* vec_ptr = reinterpret_cast<device uint4*>(values + base_idx);
+        uint4 ref_vec = uint4(reference);
+        *vec_ptr = *vec_ptr + ref_vec;
+    } else if (base_idx < array_len) {
+        // Handle tail elements
+        for (uint i = base_idx; i < array_len; i++) {
+            values[i] = values[i] + reference;
+        }
+    }
 }
 
 kernel void for_u64(
@@ -78,7 +102,19 @@ kernel void for_i16(
     constant uint64_t& array_len [[buffer(2)]],
     uint gid [[thread_position_in_grid]])
 {
-    for_kernel_impl(values, reference, array_len, gid);
+    // Each thread processes 4 elements using SIMD
+    uint base_idx = gid * 4;
+
+    if (base_idx + 4 <= array_len) {
+        device short4* vec_ptr = reinterpret_cast<device short4*>(values + base_idx);
+        short4 ref_vec = short4(reference);
+        *vec_ptr = *vec_ptr + ref_vec;
+    } else if (base_idx < array_len) {
+        // Handle tail elements
+        for (uint i = base_idx; i < array_len; i++) {
+            values[i] = values[i] + reference;
+        }
+    }
 }
 
 kernel void for_i32(
@@ -87,7 +123,19 @@ kernel void for_i32(
     constant uint64_t& array_len [[buffer(2)]],
     uint gid [[thread_position_in_grid]])
 {
-    for_kernel_impl(values, reference, array_len, gid);
+    // Each thread processes 4 elements using SIMD
+    uint base_idx = gid * 4;
+
+    if (base_idx + 4 <= array_len) {
+        device int4* vec_ptr = reinterpret_cast<device int4*>(values + base_idx);
+        int4 ref_vec = int4(reference);
+        *vec_ptr = *vec_ptr + ref_vec;
+    } else if (base_idx < array_len) {
+        // Handle tail elements
+        for (uint i = base_idx; i < array_len; i++) {
+            values[i] = values[i] + reference;
+        }
+    }
 }
 
 kernel void for_i64(

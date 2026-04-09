@@ -22,6 +22,19 @@ use crate::MetalBufferExt;
 use crate::MetalExecute;
 use crate::MetalExecutionCtx;
 
+/// Returns the grid size (number of threads) for a FoR kernel dispatch.
+///
+/// Vectorized kernels (16-bit and 32-bit types) process 4 elements per thread using SIMD,
+/// so they need `ceil(array_len / 4)` threads. Other types use 1 thread per element.
+fn grid_size_for_ptype<P: NativePType>(array_len: usize) -> usize {
+    match size_of::<P>() {
+        // 16-bit and 32-bit types use vectorized (4-wide) kernels
+        2 | 4 => array_len.div_ceil(4),
+        // 8-bit and 64-bit types process one element per thread
+        _ => array_len,
+    }
+}
+
 /// Metal decoder for frame-of-reference.
 #[derive(Debug)]
 pub(crate) struct FoRExecutor;
@@ -76,16 +89,19 @@ where
     let array_len_u64 = array_len as u64;
     let len_bytes = array_len_u64.to_le_bytes();
 
+    // Calculate grid size: vectorized kernels (16-bit and 32-bit types) process 4 elements per thread
+    let grid_size = grid_size_for_ptype::<P>(array_len);
+
     // Dispatch the kernel
     ctx.dispatch_kernel(
         &pipeline,
         &[(metal_buffer.metal_buffer(), metal_buffer.offset())],
         &[(reference_bytes, 1), (&len_bytes, 2)],
-        array_len,
+        grid_size,
     )?;
 
     // Commit and wait for completion
-    ctx.commit_and_wait()?;
+    //ctx.commit_and_wait()?;
 
     // Build result - in-place reuses the same buffer
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
