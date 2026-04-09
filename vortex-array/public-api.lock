@@ -13576,8 +13576,6 @@ pub struct vortex_array::patches::Patches
 
 impl vortex_array::patches::Patches
 
-pub unsafe fn vortex_array::patches::Patches::apply_to_buffer<P: vortex_array::dtype::NativePType>(&self, buffer: &mut [P], validity: &mut vortex_mask::mask_mut::MaskMut, ctx: &mut vortex_array::ExecutionCtx)
-
 pub fn vortex_array::patches::Patches::array_len(&self) -> usize
 
 pub fn vortex_array::patches::Patches::cast_values(self, values_dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self>
