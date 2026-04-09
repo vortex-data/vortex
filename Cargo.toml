@@ -242,7 +242,7 @@ thiserror = "2.0.3"
 tokio = { version = "1.48" }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.17"
-vortex-array-macros = { path = "./vortex-array-macros" }
+vortex-array-macros = { version = "0.1.0", path = "./vortex-array-macros" }
 # Pull these into non-public crates to support DF 58
 tpchgen = { version = "2.0.2", git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "438e9c2dbc25b2fff82c0efc08b3f13b5707874f" }
 tpchgen-arrow = { version = "2.0.2", git = "https://github.com/clflushopt/tpchgen-rs.git", rev = "438e9c2dbc25b2fff82c0efc08b3f13b5707874f" }
