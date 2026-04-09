@@ -3,14 +3,18 @@
 
 use std::sync::Arc;
 
+use vortex_error::VortexExpect;
 use vortex_mask::MaskValues;
 
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::filter::execute::bitbuffer;
 use crate::arrays::filter::execute::filter_validity;
 
 pub fn filter_bool(array: &BoolArray, mask: &Arc<MaskValues>) -> BoolArray {
-    let validity = array.validity();
+    let validity = array
+        .validity()
+        .vortex_expect("bool validity should be derivable");
     let filtered_validity = filter_validity(validity, mask);
 
     let bit_buffer = array.to_bit_buffer();

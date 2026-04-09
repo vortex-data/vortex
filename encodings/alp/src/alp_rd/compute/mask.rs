@@ -4,13 +4,14 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::fns::mask::Mask as MaskExpr;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_error::VortexResult;
 
 use crate::ALPRD;
+use crate::ALPRDArrayExt;
 
 impl MaskReduce for ALPRD {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

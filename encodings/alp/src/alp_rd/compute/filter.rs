@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ALPRD;
+use crate::ALPRDArrayExt;
 
 impl FilterKernel for ALPRD {
     fn filter(
@@ -48,6 +49,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::ALPRDArrayExt;
     use crate::ALPRDFloat;
     use crate::RDEncoder;
 

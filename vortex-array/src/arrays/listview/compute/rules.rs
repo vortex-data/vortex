@@ -10,6 +10,7 @@ use crate::arrays::Filter;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::dict::TakeReduceAdaptor;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -46,7 +47,7 @@ impl ArrayParentReduceRule<ListView> for ListViewFilterPushDown {
                     array.elements().clone(),
                     array.offsets().filter(parent.filter_mask().clone())?,
                     array.sizes().filter(parent.filter_mask().clone())?,
-                    array.validity().filter(parent.filter_mask())?,
+                    array.validity()?.filter(parent.filter_mask())?,
                 )
             }
             .into_array(),

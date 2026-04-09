@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use itertools::Itertools as _;
 use prost::Message;
@@ -54,7 +55,7 @@ impl ScalarFnVTable for Pack {
     type Options = PackOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.pack")
+        ScalarFnId::from("vortex.pack")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -90,7 +91,7 @@ impl ScalarFnVTable for Pack {
 
     fn child_name(&self, instance: &Self::Options, child_idx: usize) -> ChildName {
         match instance.names.get(child_idx) {
-            Some(name) => ChildName::from(name.inner().clone()),
+            Some(name) => ChildName::from(Arc::clone(name.inner())),
             None => unreachable!(
                 "Invalid child index {} for Pack expression with {} fields",
                 child_idx,
@@ -169,6 +170,7 @@ mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::assert_arrays_eq;
     use crate::dtype::Nullability;
     use crate::expr::col;
@@ -229,7 +231,7 @@ mod tests {
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
-        assert!(matches!(actual_array.validity(), Validity::NonNullable));
+        assert!(matches!(actual_array.validity(), Ok(Validity::NonNullable)));
 
         assert_arrays_eq!(
             primitive_field(&actual_array.clone().into_array(), &["one"]).unwrap(),
@@ -300,7 +302,7 @@ mod tests {
         let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
-        assert!(matches!(actual_array.validity(), Validity::AllValid));
+        assert!(matches!(actual_array.validity(), Ok(Validity::AllValid)));
     }
 
     #[test]

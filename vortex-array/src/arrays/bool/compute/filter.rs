@@ -14,6 +14,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::filter::FilterReduce;
 
 /// If the filter density is above 80%, we use slices to filter the array instead of indices.
@@ -21,7 +22,7 @@ const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
 impl FilterReduce for Bool {
     fn filter(array: ArrayView<'_, Bool>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        let validity = array.validity().filter(mask)?;
+        let validity = array.validity()?.filter(mask)?;
 
         let mask_values = mask
             .values()

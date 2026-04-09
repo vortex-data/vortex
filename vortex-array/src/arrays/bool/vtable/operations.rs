@@ -7,6 +7,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Bool;
+use crate::arrays::bool::BoolArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Bool> for Bool {
@@ -29,6 +30,7 @@ mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
+    use crate::arrays::bool::BoolArrayExt;
     use crate::assert_arrays_eq;
 
     #[test]

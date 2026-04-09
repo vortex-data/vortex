@@ -78,7 +78,7 @@ impl VortexCudaStream {
             .map_err(|e| vortex_err!("Failed to schedule H2D copy: {}", e))?;
 
         let cuda_buf = CudaDeviceBuffer::new(cuda_slice);
-        let stream = self.0.clone();
+        let stream = Arc::clone(&self.0);
 
         Ok(Box::pin(async move {
             await_stream_callback(&stream).await?;

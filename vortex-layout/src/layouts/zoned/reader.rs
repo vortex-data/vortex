@@ -73,12 +73,12 @@ impl ZonedReader {
             layout.dtype.clone(),
             ZoneMap::dtype_for_stats_table(layout.dtype(), layout.present_stats()),
         ];
-        let names = vec![name.clone(), format!("{}.zones", name).into()];
+        let names = vec![Arc::clone(&name), format!("{}.zones", name).into()];
         let lazy_children = LazyReaderChildren::new(
-            layout.children.clone(),
+            Arc::clone(&layout.children),
             dtypes,
             names,
-            segment_source.clone(),
+            Arc::clone(&segment_source),
             session.clone(),
         );
 
@@ -122,7 +122,7 @@ impl ZonedReader {
         self.zone_map
             .get_or_init(move || {
                 let nzones = self.layout.nzones();
-                let present_stats = self.layout.present_stats.clone();
+                let present_stats = Arc::clone(&self.layout.present_stats);
 
                 let zones_eval = self
                     .lazy_children
@@ -271,7 +271,7 @@ impl LayoutReader for ZonedReader {
             })
             .try_collect()?;
 
-        let name = self.name.clone();
+        let name = Arc::clone(&self.name);
         let expr = expr.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
@@ -407,6 +407,7 @@ mod test {
     use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::Mask;
 
     use crate::LayoutRef;
@@ -443,8 +444,12 @@ mod test {
         .into_array()
         .to_array_stream()
         .sequenced(ptr);
-        let layout = block_on(|handle| {
-            strategy.write_stream(ctx, segments.clone(), array_stream, eof, handle)
+        let segments2 = Arc::<TestSegments>::clone(&segments);
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(ctx, segments2, array_stream, eof, &session)
+                .await
         })
         .unwrap();
         (segments, layout)

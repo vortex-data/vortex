@@ -9,6 +9,7 @@ use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;

@@ -10,6 +10,7 @@
 //! [`DType::FixedSizeList`]: vortex_array::dtype::DType::FixedSizeList
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::FixedSizeListArray;
+use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -38,7 +39,10 @@ pub(crate) fn new_exporter(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let list_size = array.list_size();
     let len = array.len();
-    let (elements, validity, dtype) = array.into_data().into_parts();
+    let parts = array.into_data_parts();
+    let elements = parts.elements;
+    let validity = parts.validity;
+    let dtype = parts.dtype;
     let mask = validity.to_array(len).execute::<Mask>(ctx)?;
     let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
 

@@ -608,7 +608,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                         _ => Scalar::default_value(element_dtype.as_ref()),
                     })
                     .collect();
-                Scalar::list(element_dtype.clone(), elements, *n)
+                Scalar::list(Arc::clone(element_dtype), elements, *n)
             }
             DType::FixedSizeList(element_dtype, size, n) => {
                 // Create fixed-size list scalars.
@@ -620,7 +620,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                         _ => Scalar::default_value(element_dtype.as_ref()),
                     })
                     .collect();
-                Scalar::fixed_size_list(element_dtype.clone(), elements, *n)
+                Scalar::fixed_size_list(Arc::clone(element_dtype), elements, *n)
             }
             DType::Extension(ext_dtype) => {
                 // Create extension scalars with storage values.

@@ -12,4 +12,5 @@ disallowed-types = [
 
 disallowed-methods = [
     { path = "itertools::Itertools::counts", reason = "It uses the default hasher which is slow for primitives. Just inline the loop for better performance.", allow-invalid = true },
+    { path = "std::result::Result::and", reason = "This method is a footgun, especially when working with `Result<Validity>`.", allow-invalid = true },
 ]

@@ -77,7 +77,7 @@ pub async fn nested_lists_parquet() -> Result<PathBuf> {
             ]));
 
             let file = std::fs::File::create(&temp_path)?;
-            let mut writer = ArrowWriter::try_new(file, schema.clone(), None)?;
+            let mut writer = ArrowWriter::try_new(file, Arc::clone(&schema), None)?;
             let mut rng = StdRng::seed_from_u64(42);
 
             for batch_start in (0..ROW_COUNT).step_by(BATCH_SIZE) {
@@ -97,8 +97,10 @@ pub async fn nested_lists_parquet() -> Result<PathBuf> {
                 }
                 let values = list_builder.finish();
 
-                let batch =
-                    RecordBatch::try_new(schema.clone(), vec![Arc::new(ids), Arc::new(values)])?;
+                let batch = RecordBatch::try_new(
+                    Arc::clone(&schema),
+                    vec![Arc::new(ids), Arc::new(values)],
+                )?;
                 writer.write(&batch)?;
             }
 

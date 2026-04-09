@@ -21,6 +21,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::List;
 use crate::arrays::ListArray;
 use crate::arrays::filter::FilterKernel;
+use crate::arrays::list::ListArrayExt;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
@@ -103,7 +104,7 @@ impl FilterKernel for List {
             Mask::Values(v) => v,
         };
 
-        let new_validity = match array.validity() {
+        let new_validity = match array.validity()? {
             Validity::NonNullable => Validity::NonNullable,
             Validity::AllValid => Validity::AllValid,
             Validity::AllInvalid => {

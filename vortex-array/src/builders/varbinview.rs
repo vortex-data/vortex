@@ -165,6 +165,12 @@ impl VarBinViewBuilder {
         self.completed.len()
     }
 
+    /// Returns true if a non-empty in-progress buffer is staged (and would
+    /// become a completed buffer on the next flush), false otherwise.
+    pub fn in_progress(&self) -> bool {
+        !self.in_progress.is_empty()
+    }
+
     /// Pushes buffers and pre-adjusted views into the builder.
     ///
     /// The provided `buffers` contain sections of data from a `VarBinViewArray`, and the

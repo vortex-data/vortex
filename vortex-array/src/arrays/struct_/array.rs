@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
 use std::iter::once;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::Array;
+use crate::array::ArrayParts;
+use crate::array::EmptyArrayData;
+use crate::array::TypedArrayRef;
 use crate::array::child_to_validity;
 use crate::array::validity_to_child;
 use crate::arrays::Struct;
@@ -20,7 +21,6 @@ use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::StructFields;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 // StructArray has a variable number of slots: [validity?, field_0, ..., field_N]
@@ -83,6 +83,7 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 ///
 /// ```
 /// use vortex_array::arrays::StructArray;
+/// use vortex_array::arrays::struct_::StructArrayExt;
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
@@ -123,6 +124,7 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 ///
 /// ```
 /// use vortex_array::arrays::{StructArray, PrimitiveArray};
+/// use vortex_array::arrays::struct_::StructArrayExt;
 /// use vortex_array::validity::Validity;
 /// use vortex_array::dtype::FieldNames;
 /// use vortex_array::IntoArray;
@@ -147,62 +149,62 @@ pub(super) const FIELDS_OFFSET: usize = 1;
 /// let id_field = struct_array.unmasked_field_by_name("id").unwrap();
 /// assert_eq!(id_field.len(), 3);
 /// ```
-#[derive(Clone, Debug)]
-pub struct StructData {
-    pub(super) len: usize,
-    pub(super) dtype: DType,
-    pub(super) slots: Vec<Option<ArrayRef>>,
-    pub(super) stats_set: ArrayStats,
-}
-
-pub struct StructArrayParts {
+pub struct StructDataParts {
     pub struct_fields: StructFields,
     pub fields: Arc<[ArrayRef]>,
     pub validity: Validity,
 }
 
-impl StructData {
-    /// Returns the length of this array.
-    pub fn len(&self) -> usize {
-        self.len
+pub(super) fn make_struct_slots(
+    fields: &[ArrayRef],
+    validity: &Validity,
+    length: usize,
+) -> Vec<Option<ArrayRef>> {
+    once(validity_to_child(validity, length))
+        .chain(fields.iter().cloned().map(Some))
+        .collect()
+}
+
+pub trait StructArrayExt: TypedArrayRef<Struct> {
+    fn nullability(&self) -> crate::dtype::Nullability {
+        match self.as_ref().dtype() {
+            DType::Struct(_, nullability) => *nullability,
+            _ => unreachable!("StructArrayExt requires a struct dtype"),
+        }
     }
 
-    /// Returns the [`DType`] of this array.
-    pub fn dtype(&self) -> &DType {
-        &self.dtype
+    fn names(&self) -> &FieldNames {
+        self.as_ref().dtype().as_struct_fields().names()
     }
 
-    /// Returns `true` if this array is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    fn struct_validity(&self) -> Validity {
+        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
     }
 
-    /// Reconstructs the validity from the slots.
-    pub fn validity(&self) -> Validity {
-        child_to_validity(&self.slots[VALIDITY_SLOT], self.dtype.nullability())
-    }
-
-    /// Return an iterator over the struct fields without the validity of the struct applied.
-    pub fn iter_unmasked_fields(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
-        self.slots[FIELDS_OFFSET..]
+    fn iter_unmasked_fields(&self) -> impl Iterator<Item = &ArrayRef> + '_ {
+        self.as_ref().slots()[FIELDS_OFFSET..]
             .iter()
             .map(|s| s.as_ref().vortex_expect("StructArray field slot"))
     }
 
-    /// Return the struct fields without the validity of the struct applied.
-    pub fn unmasked_fields(&self) -> Arc<[ArrayRef]> {
+    fn unmasked_fields(&self) -> Arc<[ArrayRef]> {
         self.iter_unmasked_fields().cloned().collect()
     }
 
-    /// Return the struct field at the given index without the validity of the struct applied.
-    pub fn unmasked_field(&self, idx: usize) -> &ArrayRef {
-        self.slots[FIELDS_OFFSET + idx]
+    fn unmasked_field(&self, idx: usize) -> &ArrayRef {
+        self.as_ref().slots()[FIELDS_OFFSET + idx]
             .as_ref()
             .vortex_expect("StructArray field slot")
     }
 
-    /// Return the struct field without the validity of the struct applied
-    pub fn unmasked_field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
+    fn unmasked_field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
+        let name = name.as_ref();
+        self.struct_fields()
+            .find(name)
+            .map(|idx| self.unmasked_field(idx))
+    }
+
+    fn unmasked_field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
         let name = name.as_ref();
         self.unmasked_field_by_name_opt(name).ok_or_else(|| {
             vortex_err!(
@@ -212,46 +214,14 @@ impl StructData {
         })
     }
 
-    /// Return the struct field without the validity of the struct applied
-    pub fn unmasked_field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
-        let name = name.as_ref();
-        self.struct_fields().find(name).map(|idx| {
-            self.slots[FIELDS_OFFSET + idx]
-                .as_ref()
-                .vortex_expect("StructArray field slot")
-        })
+    fn struct_fields(&self) -> &StructFields {
+        self.as_ref().dtype().as_struct_fields()
     }
+}
+impl<T: TypedArrayRef<Struct>> StructArrayExt for T {}
 
-    pub fn names(&self) -> &FieldNames {
-        self.struct_fields().names()
-    }
-
-    pub fn struct_fields(&self) -> &StructFields {
-        let Some(struct_dtype) = &self.dtype.as_struct_fields_opt() else {
-            unreachable!(
-                "struct arrays must have be a DType::Struct, this is likely an internal bug."
-            )
-        };
-        struct_dtype
-    }
-
-    /// Create a new `StructArray` with the given length, but without any fields.
-    pub fn new_fieldless_with_len(len: usize) -> Self {
-        Self::try_new(
-            FieldNames::default(),
-            Vec::new(),
-            len,
-            Validity::NonNullable,
-        )
-        .vortex_expect("StructArray::new_with_len should not fail")
-    }
-
+impl Array<Struct> {
     /// Creates a new `StructArray`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the provided components do not satisfy the invariants documented
-    /// in `StructArray::new_unchecked`.
     pub fn new(
         names: FieldNames,
         fields: impl Into<Arc<[ArrayRef]>>,
@@ -263,13 +233,6 @@ impl StructData {
     }
 
     /// Constructs a new `StructArray`.
-    ///
-    /// See `StructArray::new_unchecked` for more information.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the provided components do not satisfy the invariants documented in
-    /// `StructArray::new_unchecked`.
     pub fn try_new(
         names: FieldNames,
         fields: impl Into<Arc<[ArrayRef]>>,
@@ -277,40 +240,25 @@ impl StructData {
         validity: Validity,
     ) -> VortexResult<Self> {
         let fields = fields.into();
-        let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype()).cloned().collect();
+        let field_dtypes: Vec<_> = fields.iter().map(|d| d.dtype().clone()).collect();
         let dtype = StructFields::new(names, field_dtypes);
-
-        Self::validate(&fields, &dtype, length, &validity)?;
-
-        // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked(fields, dtype, length, validity) })
+        let slots = make_struct_slots(&fields, &validity, length);
+        Array::try_from_parts(
+            ArrayParts::new(
+                Struct,
+                DType::Struct(dtype, validity.nullability()),
+                length,
+                EmptyArrayData,
+            )
+            .with_slots(slots),
+        )
     }
 
-    /// Creates a new `StructArray` without validation from these components:
-    ///
-    /// * `fields` is a vector of arrays, one for each field in the struct.
-    /// * `dtype` contains the field names and types.
-    /// * `length` is the number of struct rows.
-    /// * `validity` holds the null values.
+    /// Creates a new `StructArray` without validation.
     ///
     /// # Safety
     ///
-    /// The caller must ensure all of the following invariants are satisfied:
-    ///
-    /// ## Field Requirements
-    ///
-    /// - `fields.len()` must exactly equal `dtype.names().len()`.
-    /// - Every field array in `fields` must have length exactly equal to `length`.
-    /// - For each index `i`, `fields[i].dtype()` must exactly match `dtype.fields()[i]`.
-    ///
-    /// ## Type Requirements
-    ///
-    /// - Field names in `dtype` may be duplicated (this is explicitly allowed).
-    /// - The nullability of `dtype` must match the nullability of `validity`.
-    ///
-    /// ## Validity Requirements
-    ///
-    /// - If `validity` is [`Validity::Array`], its length must exactly equal `length`.
+    /// Caller must ensure the field arrays match the supplied dtype, length, and validity.
     pub unsafe fn new_unchecked(
         fields: impl Into<Arc<[ArrayRef]>>,
         dtype: StructFields,
@@ -318,77 +266,16 @@ impl StructData {
         validity: Validity,
     ) -> Self {
         let fields = fields.into();
-
-        #[cfg(debug_assertions)]
-        Self::validate(&fields, &dtype, length, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `StructArray` parameters");
-
-        let validity_slot = validity_to_child(&validity, length);
-        let slots = once(validity_slot)
-            .chain(fields.iter().map(|f| Some(f.clone())))
-            .collect();
-
-        Self {
-            len: length,
-            dtype: DType::Struct(dtype, validity.nullability()),
-            slots,
-            stats_set: Default::default(),
+        let outer_dtype = DType::Struct(dtype, validity.nullability());
+        let slots = make_struct_slots(&fields, &validity, length);
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
+            )
         }
     }
 
-    /// Validates the components that would be used to create a `StructArray`.
-    ///
-    /// This function checks all the invariants required by `StructArray::new_unchecked`.
-    pub fn validate(
-        fields: &[ArrayRef],
-        dtype: &StructFields,
-        length: usize,
-        validity: &Validity,
-    ) -> VortexResult<()> {
-        // Check field count matches
-        if fields.len() != dtype.names().len() {
-            vortex_bail!(
-                InvalidArgument: "Got {} fields but dtype has {} names",
-                fields.len(),
-                dtype.names().len()
-            );
-        }
-
-        // Check each field's length and dtype
-        for (i, (field, struct_dt)) in fields.iter().zip(dtype.fields()).enumerate() {
-            if field.len() != length {
-                vortex_bail!(
-                    InvalidArgument: "Field {} has length {} but expected {}",
-                    i,
-                    field.len(),
-                    length
-                );
-            }
-
-            if field.dtype() != &struct_dt {
-                vortex_bail!(
-                    InvalidArgument: "Field {} has dtype {} but expected {}",
-                    i,
-                    field.dtype(),
-                    struct_dt
-                );
-            }
-        }
-
-        // Check validity length
-        if let Some(validity_len) = validity.maybe_len()
-            && validity_len != length
-        {
-            vortex_bail!(
-                InvalidArgument: "Validity has length {} but expected {}",
-                validity_len,
-                length
-            );
-        }
-
-        Ok(())
-    }
-
+    /// Constructs a new `StructArray` with an explicit dtype.
     pub fn try_new_with_dtype(
         fields: impl Into<Arc<[ArrayRef]>>,
         dtype: StructFields,
@@ -396,36 +283,19 @@ impl StructData {
         validity: Validity,
     ) -> VortexResult<Self> {
         let fields = fields.into();
-        Self::validate(&fields, &dtype, length, &validity)?;
-
-        // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked(fields, dtype, length, validity) })
+        let outer_dtype = DType::Struct(dtype, validity.nullability());
+        let slots = make_struct_slots(&fields, &validity, length);
+        Array::try_from_parts(
+            ArrayParts::new(Struct, outer_dtype, length, EmptyArrayData).with_slots(slots),
+        )
     }
 
-    pub fn into_parts(self) -> StructArrayParts {
-        let validity = self.validity();
-        let struct_fields = self.dtype.into_struct_fields();
-        let fields: Arc<[ArrayRef]> = self
-            .slots
-            .into_iter()
-            .skip(FIELDS_OFFSET)
-            .map(|s| s.vortex_expect("StructArray field slot"))
-            .collect();
-        StructArrayParts {
-            struct_fields,
-            fields,
-            validity,
-        }
-    }
-
-    pub fn into_fields(self) -> Vec<ArrayRef> {
-        self.into_parts().fields.to_vec()
-    }
-
+    /// Construct a `StructArray` from named fields.
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
         Self::try_from_iter(items.iter().map(|(a, b)| (a, b.clone())))
     }
 
+    /// Create a `StructArray` from an iterator of (name, array) pairs with validity.
     pub fn try_from_iter_with_validity<
         N: AsRef<str>,
         A: IntoArray,
@@ -446,10 +316,25 @@ impl StructData {
         Self::try_new(FieldNames::from_iter(names), fields, len, validity)
     }
 
+    /// Create a `StructArray` from an iterator of (name, array) pairs.
     pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
         iter: T,
     ) -> VortexResult<Self> {
-        Self::try_from_iter_with_validity(iter, Validity::NonNullable)
+        let (names, fields): (Vec<FieldName>, Vec<ArrayRef>) = iter
+            .into_iter()
+            .map(|(name, field)| (FieldName::from(name.as_ref()), field.into_array()))
+            .unzip();
+        let len = fields
+            .first()
+            .map(ArrayRef::len)
+            .ok_or_else(|| vortex_err!("StructArray cannot be constructed from an empty slice of arrays because the length is unspecified"))?;
+
+        Self::try_new(
+            FieldNames::from_iter(names),
+            fields,
+            len,
+            Validity::NonNullable,
+        )
     }
 
     // TODO(aduffy): Add equivalent function to support field masks for nested column access.
@@ -463,164 +348,107 @@ impl StructData {
         let mut children = Vec::with_capacity(projection.len());
         let mut names = Vec::with_capacity(projection.len());
 
-        for f_name in projection.iter() {
+        for f_name in projection {
             let idx = self
-                .names()
-                .iter()
-                .position(|name| name == f_name)
+                .struct_fields()
+                .find(f_name.as_ref())
                 .ok_or_else(|| vortex_err!("Unknown field {f_name}"))?;
 
             names.push(self.names()[idx].clone());
-            children.push(
-                self.slots[FIELDS_OFFSET + idx]
-                    .as_ref()
-                    .vortex_expect("StructArray field slot")
-                    .clone(),
-            );
+            children.push(self.unmasked_field(idx).clone());
         }
 
-        StructData::try_new(
+        Self::try_new(
             FieldNames::from(names.as_slice()),
             children,
             self.len(),
-            self.validity(),
+            self.validity()?,
         )
     }
 
-    /// Removes and returns a column from the struct array by name.
-    /// If the column does not exist, returns `None`.
-    pub fn remove_column(&mut self, name: impl Into<FieldName>) -> Option<ArrayRef> {
-        let name = name.into();
+    /// Create a fieldless `StructArray` with the given length.
+    pub fn new_fieldless_with_len(len: usize) -> Self {
+        let dtype = DType::Struct(
+            StructFields::new(FieldNames::default(), Vec::new()),
+            crate::dtype::Nullability::NonNullable,
+        );
+        let slots = make_struct_slots(&[], &Validity::NonNullable, len);
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Struct, dtype, len, EmptyArrayData).with_slots(slots),
+            )
+        }
+    }
 
-        let struct_dtype = self.struct_fields().clone();
-
-        let position = struct_dtype
-            .names()
+    // TODO(ngates): remove this... it doesn't help to consume self.
+    pub fn into_data_parts(self) -> StructDataParts {
+        let fields: Arc<[ArrayRef]> = self.slots()[FIELDS_OFFSET..]
             .iter()
-            .position(|field_name| field_name.as_ref() == name.as_ref())?;
+            .map(|s| s.as_ref().vortex_expect("StructArray field slot").clone())
+            .collect();
+        let validity = self.validity().vortex_expect("StructArray validity");
+        StructDataParts {
+            struct_fields: self.struct_fields().clone(),
+            fields,
+            validity,
+        }
+    }
+
+    pub fn remove_column(&self, name: impl Into<FieldName>) -> Option<(Self, ArrayRef)> {
+        let name = name.into();
+        let struct_dtype = self.struct_fields();
+        let len = self.len();
+
+        let position = struct_dtype.find(name.as_ref())?;
 
         let slot_position = FIELDS_OFFSET + position;
-        let field = self.slots[slot_position]
+        let field = self.slots()[slot_position]
             .as_ref()
             .vortex_expect("StructArray field slot")
             .clone();
         let new_slots: Vec<Option<ArrayRef>> = self
-            .slots
+            .slots()
             .iter()
             .enumerate()
             .filter(|(i, _)| *i != slot_position)
             .map(|(_, s)| s.clone())
             .collect();
 
-        if let Ok(new_dtype) = struct_dtype.without_field(position) {
-            self.slots = new_slots;
-            self.dtype = DType::Struct(new_dtype, self.dtype.nullability());
-            return Some(field);
-        }
-        None
+        let new_dtype = struct_dtype.without_field(position).ok()?;
+        let new_array = unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(
+                    Struct,
+                    DType::Struct(new_dtype, self.dtype().nullability()),
+                    len,
+                    EmptyArrayData,
+                )
+                .with_slots(new_slots),
+            )
+        };
+        Some((new_array, field))
     }
 }
 
 impl Array<Struct> {
-    /// Creates a new `StructArray`.
-    pub fn new(
-        names: FieldNames,
-        fields: impl Into<Arc<[ArrayRef]>>,
-        length: usize,
-        validity: Validity,
-    ) -> Self {
-        Array::try_from_data(StructData::new(names, fields, length, validity))
-            .vortex_expect("StructData is always valid")
-    }
-
-    /// Constructs a new `StructArray`.
-    pub fn try_new(
-        names: FieldNames,
-        fields: impl Into<Arc<[ArrayRef]>>,
-        length: usize,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        Array::try_from_data(StructData::try_new(names, fields, length, validity)?)
-    }
-
-    /// Creates a new `StructArray` without validation.
-    ///
-    /// # Safety
-    ///
-    /// See [`StructData::new_unchecked`].
-    pub unsafe fn new_unchecked(
-        fields: impl Into<Arc<[ArrayRef]>>,
-        dtype: StructFields,
-        length: usize,
-        validity: Validity,
-    ) -> Self {
-        Array::try_from_data(unsafe { StructData::new_unchecked(fields, dtype, length, validity) })
-            .vortex_expect("StructData is always valid")
-    }
-
-    /// Constructs a new `StructArray` with an explicit dtype.
-    pub fn try_new_with_dtype(
-        fields: impl Into<Arc<[ArrayRef]>>,
-        dtype: StructFields,
-        length: usize,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        Array::try_from_data(StructData::try_new_with_dtype(
-            fields, dtype, length, validity,
-        )?)
-    }
-
-    /// Construct a `StructArray` from named fields.
-    pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
-        Array::try_from_data(StructData::from_fields(items)?)
-    }
-
-    /// Decompose this struct array into its constituent parts.
-    pub fn into_parts(self) -> StructArrayParts {
-        self.into_data().into_parts()
-    }
-
-    /// Create a `StructArray` from an iterator of (name, array) pairs with validity.
-    pub fn try_from_iter_with_validity<
-        N: AsRef<str>,
-        A: IntoArray,
-        T: IntoIterator<Item = (N, A)>,
-    >(
-        iter: T,
-        validity: Validity,
-    ) -> VortexResult<Self> {
-        Array::try_from_data(StructData::try_from_iter_with_validity(iter, validity)?)
-    }
-
-    /// Create a `StructArray` from an iterator of (name, array) pairs.
-    pub fn try_from_iter<N: AsRef<str>, A: IntoArray, T: IntoIterator<Item = (N, A)>>(
-        iter: T,
-    ) -> VortexResult<Self> {
-        Array::try_from_data(StructData::try_from_iter(iter)?)
-    }
-
-    /// Create a fieldless `StructArray` with the given length.
-    pub fn new_fieldless_with_len(len: usize) -> Self {
-        Array::try_from_data(StructData::new_fieldless_with_len(len))
-            .vortex_expect("StructData is always valid")
-    }
-}
-
-impl StructData {
     pub fn with_column(&self, name: impl Into<FieldName>, array: ArrayRef) -> VortexResult<Self> {
         let name = name.into();
-        let struct_dtype = self.struct_fields().clone();
+        let struct_dtype = self.struct_fields();
 
         let names = struct_dtype.names().iter().cloned().chain(once(name));
         let types = struct_dtype.fields().chain(once(array.dtype().clone()));
         let new_fields = StructFields::new(names.collect(), types.collect());
 
-        let children: Arc<[ArrayRef]> = self.slots[FIELDS_OFFSET..]
+        let children: Arc<[ArrayRef]> = self.slots()[FIELDS_OFFSET..]
             .iter()
             .map(|s| s.as_ref().vortex_expect("StructArray field slot").clone())
             .chain(once(array))
             .collect();
 
-        Self::try_new_with_dtype(children, new_fields, self.len, self.validity())
+        Self::try_new_with_dtype(children, new_fields, self.len(), self.validity()?)
+    }
+
+    pub fn remove_column_owned(&self, name: impl Into<FieldName>) -> Option<(Self, ArrayRef)> {
+        self.remove_column(name)
     }
 }

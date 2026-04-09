@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ALP;
+use crate::ALPArrayExt;
 
 impl FilterKernel for ALP {
     fn filter(
@@ -30,7 +31,6 @@ impl FilterKernel for ALP {
                     array.encoded().filter(mask.clone())?,
                     array.exponents(),
                     patches,
-                    array.dtype().clone(),
                 )
                 .into_array(),
             ))

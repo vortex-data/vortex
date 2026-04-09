@@ -29,6 +29,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::VariantArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::dict::TakeReduce;
+use crate::arrays::variant::VariantArrayExt;
 
 /// Take from a canonical array using indices (codes), returning a new canonical array.
 ///

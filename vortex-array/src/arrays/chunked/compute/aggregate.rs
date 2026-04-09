@@ -8,6 +8,7 @@ use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Chunked;
+use crate::arrays::chunked::ChunkedArrayExt;
 use crate::scalar::Scalar;
 
 #[derive(Debug)]

@@ -10,10 +10,12 @@ use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::fns::is_sorted::is_sorted;
 use vortex_array::aggregate_fn::fns::is_sorted::is_strict_sorted;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::FoR;
+use crate::r#for::array::FoRArrayExt;
 
 #[derive(Debug)]
 pub(crate) struct FoRIsSortedKernel;
@@ -34,9 +36,12 @@ impl DynAggregateKernel for FoRIsSortedKernel {
         };
 
         let encoded = array.encoded().to_primitive();
-        let unsigned_array = encoded
-            .reinterpret_cast(encoded.ptype().to_unsigned())
-            .into_array();
+        let unsigned_array = PrimitiveArray::from_buffer_handle(
+            encoded.buffer_handle().clone(),
+            encoded.ptype().to_unsigned(),
+            encoded.validity()?,
+        )
+        .into_array();
 
         let result = if options.strict {
             is_strict_sorted(&unsigned_array, ctx)?
@@ -59,6 +64,7 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::FoRData;
+    use crate::r#for::array::FoRArrayExt;
 
     #[test]
     fn test_sorted() {

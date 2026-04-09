@@ -13,6 +13,7 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::RunEnd;
+use crate::array::RunEndArrayExt;
 
 impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(

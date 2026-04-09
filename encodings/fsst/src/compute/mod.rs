@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::FSSTData;
 mod cast;
 mod compare;
 mod filter;
@@ -20,6 +19,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::FSST;
+use crate::FSSTArrayExt;
 
 impl TakeExecute for FSST {
     fn take(
@@ -28,7 +28,7 @@ impl TakeExecute for FSST {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            FSSTData::try_new(
+            FSST::try_new(
                 array
                     .dtype()
                     .clone()
@@ -41,7 +41,7 @@ impl TakeExecute for FSST {
                     <VarBin as TakeExecute>::take(codes, indices, _ctx)?
                         .vortex_expect("VarBin take kernel always returns Some")
                 }
-                .try_into::<VarBin>()
+                .try_downcast::<VarBin>()
                 .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
                 array
                     .uncompressed_lengths()

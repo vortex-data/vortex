@@ -143,7 +143,7 @@ impl PinnedByteBufferPool {
     /// Unlike `get`, this will never call `cuMemAllocHost`.
     pub fn try_get(self: &Arc<Self>, len: usize) -> VortexResult<Option<PooledPinnedBuffer>> {
         match self.try_get_inner(len)? {
-            Some(inner) => Ok(Some(PooledPinnedBuffer::new(inner, self.clone()))),
+            Some(inner) => Ok(Some(PooledPinnedBuffer::new(inner, Arc::clone(self)))),
             None => Ok(None),
         }
     }
@@ -153,7 +153,7 @@ impl PinnedByteBufferPool {
     /// The buffer is returned to the pool when the [`PooledPinnedBuffer`] is dropped.
     pub(crate) fn get(self: &Arc<Self>, len: usize) -> VortexResult<PooledPinnedBuffer> {
         let inner = self.get_inner(len)?;
-        Ok(PooledPinnedBuffer::new(inner, self.clone()))
+        Ok(PooledPinnedBuffer::new(inner, Arc::clone(self)))
     }
 
     /// Defer returning a pinned buffer to the pool until the CUDA event completes.

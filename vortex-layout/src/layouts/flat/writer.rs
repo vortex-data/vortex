@@ -4,6 +4,7 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::ArrayContext;
+use vortex_array::ArrayId;
 use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
@@ -15,15 +16,15 @@ use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
 use vortex_array::scalar::upper_bound;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::session::ArrayRegistry;
 use vortex_array::stats::StatsSetRef;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::runtime::Handle;
+use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::IntoLayout;
 use crate::LayoutRef;
@@ -42,7 +43,7 @@ pub struct FlatLayoutStrategy {
     pub max_variable_length_statistics_size: usize,
     /// Optional set of allowed array encodings for normalization.
     /// If None, then all are allowed.
-    pub allowed_encodings: Option<ArrayRegistry>,
+    pub allowed_encodings: Option<HashSet<ArrayId>>,
 }
 
 impl Default for FlatLayoutStrategy {
@@ -69,7 +70,7 @@ impl FlatLayoutStrategy {
     }
 
     /// Set the allowed array encodings for normalization.
-    pub fn with_allow_encodings(mut self, allow_encodings: ArrayRegistry) -> Self {
+    pub fn with_allow_encodings(mut self, allow_encodings: HashSet<ArrayId>) -> Self {
         self.allowed_encodings = Some(allow_encodings);
         self
     }
@@ -99,7 +100,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
-        _handle: Handle,
+        session: &VortexSession,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let Some(chunk) = stream.next().await else {
@@ -160,6 +161,7 @@ impl LayoutStrategy for FlatLayoutStrategy {
 
         let buffers = chunk.serialize(
             &ctx,
+            session,
             &SerializeOptions {
                 offset: 0,
                 include_padding: self.include_padding,
@@ -202,9 +204,9 @@ mod tests {
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::Dict;
     use vortex_array::arrays::DictArray;
-    use vortex_array::arrays::Primitive;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
@@ -216,17 +218,17 @@ mod tests {
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
-    use vortex_array::session::ArrayRegistry;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::DynVTableRef;
     use vortex_array::vtable::VTable;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
     use vortex_mask::AllOr;
     use vortex_mask::Mask;
+    use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -241,6 +243,7 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -248,10 +251,10 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -278,6 +281,7 @@ mod tests {
     #[test]
     fn truncates_variable_size_stats() {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -297,10 +301,10 @@ mod tests {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.into_array().to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -337,6 +341,7 @@ mod tests {
     #[test]
     fn struct_array_round_trip() {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);
             validity_builder.append(false);
@@ -364,10 +369,10 @@ mod tests {
                 let layout = FlatLayoutStrategy::default()
                     .write_stream(
                         ctx,
-                        segments.clone(),
+                        Arc::<TestSegments>::clone(&segments),
                         array.into_array().to_array_stream().sequenced(ptr),
                         eof,
-                        handle,
+                        &session,
                     )
                     .await
                     .unwrap();
@@ -416,25 +421,23 @@ mod tests {
     #[test]
     fn flat_filter_array_reduces_to_primitive() -> VortexResult<()> {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let prim: PrimitiveArray = (0..10).collect();
             let filter = prim.filter(Mask::from_indices(10, vec![2, 3]))?;
 
             let ctx = ArrayContext::empty();
 
-            // FilterReduce reduces FilterArray(PrimitiveArray) → PrimitiveArray during
-            // optimization, so the write should succeed even with only Primitive allowed.
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
-            let allowed = ArrayRegistry::default();
-            allowed.register(Primitive.id(), Arc::new(Primitive) as DynVTableRef);
+            let allowed = HashSet::default();
             let layout = FlatLayoutStrategy::default()
                 .with_allow_encodings(allowed)
                 .write_stream(
                     ctx,
-                    segments.clone(),
-                    filter.to_array_stream().sequenced(ptr),
+                    Arc::<TestSegments>::clone(&segments),
+                    filter.into_array().to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await?;
 
@@ -458,6 +461,7 @@ mod tests {
     #[test]
     fn flat_valid_array_writes() -> VortexResult<()> {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let codes: PrimitiveArray = (0u32..10).collect();
             let values: PrimitiveArray = (0..10).collect();
             let dict = DictArray::new(codes.into_array(), values.into_array());
@@ -468,18 +472,17 @@ mod tests {
             let (layout, _segments) = {
                 let segments = Arc::new(TestSegments::default());
                 let (ptr, eof) = SequenceId::root().split();
-                // Only allow primitive encodings - filter arrays should fail.
-                let allowed = ArrayRegistry::default();
-                allowed.register(Primitive.id(), Arc::new(Primitive) as DynVTableRef);
-                allowed.register(Dict.id(), Arc::new(Dict) as DynVTableRef);
+                // Only allow the dict encoding; canonical primitive children remain permitted.
+                let mut allowed = HashSet::default();
+                allowed.insert(Dict.id());
                 let layout = FlatLayoutStrategy::default()
                     .with_allow_encodings(allowed)
                     .write_stream(
                         ctx,
-                        segments.clone(),
+                        Arc::<TestSegments>::clone(&segments),
                         dict.into_array().to_array_stream().sequenced(ptr),
                         eof,
-                        handle,
+                        &session,
                     )
                     .await;
 

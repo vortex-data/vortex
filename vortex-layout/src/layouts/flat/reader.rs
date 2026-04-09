@@ -14,7 +14,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::SerializedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -84,7 +84,7 @@ impl FlatReader {
             let segment_fut = self.segment_source.request(self.layout.segment_id());
             async move {
                 let segment = segment_fut.await?;
-                let parts = ArrayParts::try_from(segment)?;
+                let parts = SerializedArray::try_from(segment)?;
                 parts
                     .decode(&dtype, row_count, &ctx, &session)
                     .map_err(Arc::new)
@@ -137,7 +137,7 @@ impl LayoutReader for FlatReader {
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
-        let name = self.name.clone();
+        let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
         let session = self.session.clone();
@@ -197,7 +197,7 @@ impl LayoutReader for FlatReader {
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
-        let name = self.name.clone();
+        let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
 
@@ -249,6 +249,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -260,6 +261,7 @@ mod test {
     #[test]
     fn flat_identity() -> VortexResult<()> {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -268,10 +270,10 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await?;
 
@@ -298,6 +300,7 @@ mod test {
     #[test]
     fn flat_expr() {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
 
             let segments = Arc::new(TestSegments::default());
@@ -307,10 +310,10 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();
@@ -336,6 +339,7 @@ mod test {
     #[test]
     fn flat_unaligned_row_mask() {
         block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -344,10 +348,10 @@ mod test {
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
-                    segments.clone(),
+                    Arc::<TestSegments>::clone(&segments),
                     array.to_array_stream().sequenced(ptr),
                     eof,
-                    handle,
+                    &session,
                 )
                 .await
                 .unwrap();

@@ -22,6 +22,9 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::Filter;
 use crate::arrays::NullArray;
 use crate::arrays::VariantArray;
+use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::filter::FilterArrayExt;
+use crate::arrays::variant::VariantArrayExt;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
 
@@ -38,7 +41,7 @@ mod varbinview;
 
 /// Reconstruct a [`Mask`] from an [`Arc<MaskValues>`].
 fn values_to_mask(values: &Arc<MaskValues>) -> Mask {
-    Mask::Values(values.clone())
+    Mask::Values(Arc::clone(values))
 }
 
 /// A helper function that lazily filters a [`Validity`] with selection mask values.

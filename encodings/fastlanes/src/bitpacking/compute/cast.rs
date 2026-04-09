@@ -10,16 +10,16 @@ use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
-use crate::BitPackedData;
 use crate::bitpacking::BitPacked;
+use crate::bitpacking::array::BitPackedArrayExt;
 impl CastReduce for BitPacked {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if array.dtype().eq_ignore_nullability(dtype) {
             let new_validity = array
-                .validity()
+                .validity()?
                 .cast_nullability(dtype.nullability(), array.len())?;
             return Ok(Some(
-                BitPackedData::try_new(
+                BitPacked::try_new(
                     array.packed().clone(),
                     dtype.as_ptype(),
                     new_validity,

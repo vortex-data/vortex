@@ -9,9 +9,9 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::validity::Validity;
-use vortex_btrblocks::IntegerStats;
-use vortex_btrblocks::integer_dictionary_encode;
 use vortex_buffer::BufferMut;
+use vortex_compressor::builtins::integer_dictionary_encode;
+use vortex_compressor::stats::IntegerStats;
 
 fn make_array() -> PrimitiveArray {
     let values: BufferMut<i32> = (0..50).cycle().take(64_000).collect();
@@ -39,10 +39,11 @@ fn encode_generic(bencher: Bencher) {
 #[cfg(not(codspeed))]
 #[divan::bench]
 fn encode_specialized(bencher: Bencher) {
-    let stats = IntegerStats::generate(&make_array());
+    let array = make_array();
+    let stats = IntegerStats::generate(&array);
     bencher
         .with_inputs(|| &stats)
-        .bench_refs(|stats| integer_dictionary_encode(stats));
+        .bench_refs(|stats| integer_dictionary_encode(array.clone(), stats));
 }
 
 fn main() {

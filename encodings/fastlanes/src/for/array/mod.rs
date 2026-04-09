@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use vortex_array::ArrayRef;
-use vortex_array::dtype::DType;
+use vortex_array::TypedArrayRef;
 use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
-use vortex_array::stats::ArrayStats;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 pub mod for_compress;
 pub mod for_decompress;
@@ -24,73 +26,42 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
 /// storage requirements when values are clustered around a specific point.
 #[derive(Clone, Debug)]
 pub struct FoRData {
-    pub(super) slots: Vec<Option<ArrayRef>>,
     pub(super) reference: Scalar,
-    pub(super) stats_set: ArrayStats,
 }
 
-impl FoRData {
-    pub fn try_new(encoded: ArrayRef, reference: Scalar) -> VortexResult<Self> {
-        if reference.is_null() {
-            vortex_bail!("Reference value cannot be null");
-        }
-        let reference = reference.cast(
-            &reference
-                .dtype()
-                .with_nullability(encoded.dtype().nullability()),
-        )?;
-
-        Ok(Self {
-            slots: vec![Some(encoded)],
-            reference,
-            stats_set: Default::default(),
-        })
-    }
-
-    pub(crate) unsafe fn new_unchecked(encoded: ArrayRef, reference: Scalar) -> Self {
-        Self {
-            slots: vec![Some(encoded)],
-            reference,
-            stats_set: Default::default(),
-        }
-    }
-
-    /// Returns the length of the array.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.encoded().len()
-    }
-
-    /// Returns `true` if the array is empty.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.encoded().is_empty()
-    }
-
-    /// Returns the dtype of the array.
-    #[inline]
-    pub fn dtype(&self) -> &DType {
-        self.reference.dtype()
-    }
-
-    #[inline]
-    pub fn ptype(&self) -> PType {
-        self.dtype().as_ptype()
-    }
-
-    #[inline]
-    pub fn encoded(&self) -> &ArrayRef {
-        self.slots[ENCODED_SLOT]
+pub trait FoRArrayExt: TypedArrayRef<crate::FoR> {
+    fn encoded(&self) -> &ArrayRef {
+        self.as_ref().slots()[ENCODED_SLOT]
             .as_ref()
             .vortex_expect("FoRArray encoded slot")
     }
 
-    #[inline]
-    pub fn reference_scalar(&self) -> &Scalar {
+    fn reference_scalar(&self) -> &Scalar {
         &self.reference
     }
+}
 
-    pub(crate) fn stats_set(&self) -> &ArrayStats {
-        &self.stats_set
+impl<T: TypedArrayRef<crate::FoR>> FoRArrayExt for T {}
+
+impl Display for FoRData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "reference: {}", self.reference)
+    }
+}
+
+impl FoRData {
+    pub(crate) fn try_new(reference: Scalar) -> VortexResult<Self> {
+        vortex_ensure!(!reference.is_null(), "Reference value cannot be null");
+        vortex_ensure!(
+            reference.dtype().is_int(),
+            "FoR requires an integer reference dtype, got {}",
+            reference.dtype()
+        );
+        Ok(Self { reference })
+    }
+
+    #[inline]
+    pub fn ptype(&self) -> PType {
+        self.reference.dtype().as_ptype()
     }
 }

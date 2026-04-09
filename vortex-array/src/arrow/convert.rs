@@ -691,6 +691,10 @@ mod tests {
     use crate::arrays::Struct;
     use crate::arrays::VarBin;
     use crate::arrays::VarBinView;
+    use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+    use crate::arrays::list::ListArrayExt;
+    use crate::arrays::listview::ListViewArrayExt;
+    use crate::arrays::struct_::StructArrayExt;
     use crate::arrow::FromArrowArray as _;
     use crate::arrow::convert::TemporalArray;
     use crate::dtype::DType;
@@ -1504,7 +1508,8 @@ mod tests {
         // Create a FixedSizeListArray with list_size=3
         let field = Arc::new(Field::new("item", DataType::Int32, true));
         let arrow_array =
-            ArrowFixedSizeListArray::try_new(field.clone(), 3, Arc::new(values), None).unwrap();
+            ArrowFixedSizeListArray::try_new(Arc::clone(&field), 3, Arc::new(values), None)
+                .unwrap();
         let vortex_array = ArrayRef::from_arrow(&arrow_array, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
@@ -1570,7 +1575,7 @@ mod tests {
 
         let field = Arc::new(Field::new("item", DataType::Int32, true));
         let arrow_array = GenericListViewArray::try_new(
-            field.clone(),
+            Arc::clone(&field),
             offsets.clone(),
             sizes.clone(),
             Arc::new(values.clone()),
@@ -1596,7 +1601,7 @@ mod tests {
             arrow_buffer::NullBuffer::new(BooleanBuffer::from(vec![true, false, true, true]));
 
         let arrow_array_nullable = GenericListViewArray::try_new(
-            field.clone(),
+            Arc::clone(&field),
             offsets,
             sizes,
             Arc::new(values.clone()),

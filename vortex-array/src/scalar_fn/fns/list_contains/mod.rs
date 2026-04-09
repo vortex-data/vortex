@@ -25,7 +25,9 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::scalar_fn::ScalarFnArrayExt;
+use crate::arrays::bool::BoolArrayExt;
+use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -344,7 +346,7 @@ fn list_contains_scalar(
 
     Ok(BoolArray::new(
         list_matches,
-        list_array.validity().union_nullability(nullability),
+        list_array.validity()?.union_nullability(nullability),
     )
     .into_array())
 }
@@ -384,7 +386,7 @@ fn list_false_or_null(
     list_array: &ListViewArray,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    match list_array.validity() {
+    match list_array.validity()? {
         Validity::NonNullable => {
             // All false.
             Ok(ConstantArray::new(Scalar::bool(false, nullability), list_array.len()).into_array())
@@ -420,7 +422,7 @@ fn list_is_not_empty(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     // Short-circuit for all invalid.
-    if matches!(list_array.validity(), Validity::AllInvalid) {
+    if matches!(list_array.validity()?, Validity::AllInvalid) {
         return Ok(ConstantArray::new(
             Scalar::null(DType::Bool(Nullability::Nullable)),
             list_array.len(),
@@ -434,7 +436,11 @@ fn list_is_not_empty(
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::new(buffer, list_array.validity().union_nullability(nullability)).into_array())
+    Ok(BoolArray::new(
+        buffer,
+        list_array.validity()?.union_nullability(nullability),
+    )
+    .into_array())
 }
 
 #[cfg(test)]

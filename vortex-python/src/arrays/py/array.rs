@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use pyo3::Bound;
@@ -8,7 +10,12 @@ use pyo3::FromPyObject;
 use pyo3::Py;
 use pyo3::PyAny;
 use pyo3::prelude::*;
+use vortex::array::Array;
+use vortex::array::ArrayParts;
+use vortex::array::ArrayRef;
+use vortex::array::IntoArray;
 use vortex::array::stats::ArrayStats;
+use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 
 use crate::arrays::py::PyPythonArray;
@@ -26,6 +33,12 @@ pub struct PythonArray {
     pub(super) len: usize,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,
+}
+
+impl Display for PythonArray {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "len: {}, dtype: {}", self.len, self.dtype)
+    }
 }
 
 impl<'py> FromPyObject<'_, 'py> for PythonArray {
@@ -53,5 +66,20 @@ impl<'py> IntoPyObject<'py> for PythonArray {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         Ok(self.object.bind(py).to_owned())
+    }
+}
+
+impl IntoArray for PythonArray {
+    fn into_array(self) -> ArrayRef {
+        let vtable = self.vtable.clone();
+        let dtype = self.dtype.clone();
+        let len = self.len;
+        let stats = StatsSet::from(self.stats.clone());
+        match Array::try_from_parts(ArrayParts::new(vtable, dtype, len, self)) {
+            Ok(array) => array.with_stats_set(stats).into_array(),
+            Err(err) => unreachable!(
+                "PythonArray metadata extracted from PyPythonArray must be valid: {err}"
+            ),
+        }
     }
 }

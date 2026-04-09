@@ -296,6 +296,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
     use vortex::array::arrays::VarBinViewArray;
+    use vortex::array::arrays::bool::BoolArrayExt;
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;

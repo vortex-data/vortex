@@ -13,14 +13,13 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ByteBool;
-use crate::ByteBoolData;
 
 impl SliceReduce for ByteBool {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ByteBoolData::new(
+            ByteBool::new(
                 array.buffer().slice(range.clone()),
-                array.validity().slice(range)?,
+                array.validity()?.slice(range)?,
             )
             .into_array(),
         ))
@@ -38,9 +37,9 @@ impl FilterReduce for ByteBool {
         };
         let ranges: Vec<Range<usize>> = ranges.iter().map(|&(s, e)| s..e).collect();
         Ok(Some(
-            ByteBoolData::new(
+            ByteBool::new(
                 array.buffer().filter_typed::<u8>(&ranges)?,
-                array.validity().filter(mask)?,
+                array.validity()?.filter(mask)?,
             )
             .into_array(),
         ))

@@ -9,9 +9,12 @@ use std::hash::Hasher;
 
 use arcref::ArcRef;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
@@ -20,12 +23,17 @@ use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
+use crate::executor::ExecutionResult;
+use crate::executor::ExecutionStep;
 use crate::scalar::Scalar;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
 mod erased;
 pub use erased::*;
+
+mod plugin;
+pub use plugin::*;
 
 mod typed;
 pub use typed::*;
@@ -36,6 +44,9 @@ pub use vtable::*;
 mod view;
 pub use view::*;
 
+use crate::hash::ArrayEq;
+use crate::hash::ArrayHash;
+
 /// The public API trait for all Vortex arrays.
 ///
 /// This trait is sealed and cannot be implemented outside of `vortex-array`.
@@ -45,14 +56,17 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
+    /// Converts an owned array allocation into an owned [`Any`] allocation for downcasting.
+    fn into_any_arc(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn Any + Send + Sync>;
+
     /// Returns the length of the array.
     fn len(&self) -> usize;
 
     /// Returns the logical Vortex [`DType`] of the array.
     fn dtype(&self) -> &DType;
 
-    /// Returns the vtable of the array.
-    fn vtable(&self) -> &dyn DynVTable;
+    /// Returns the slots of the array.
+    fn slots(&self) -> &[Option<ArrayRef>];
 
     /// Returns the encoding ID of the array.
     fn encoding_id(&self) -> ArrayId;
@@ -112,24 +126,53 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the number of buffers of the array.
     fn nbuffers(&self, this: &ArrayRef) -> usize;
 
-    /// Returns the slots of the array.
-    fn slots(&self, this: &ArrayRef) -> Vec<Option<ArrayRef>>;
-
     /// Returns the name of the slot at the given index.
     fn slot_name(&self, this: &ArrayRef, idx: usize) -> String;
 
     /// Returns the serialized metadata of the array, or `None` if the array does not
     /// support serialization.
-    fn metadata(&self, this: &ArrayRef) -> VortexResult<Option<Vec<u8>>>;
+    fn metadata(&self, this: &ArrayRef, session: &VortexSession) -> VortexResult<Option<Vec<u8>>>;
 
     /// Formats a human-readable metadata description.
-    fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
 
     /// Hashes the array contents including len, dtype, and encoding id.
     fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision);
 
     /// Compares two arrays of the same concrete type for equality.
-    fn dyn_array_eq(&self, other: &dyn Any, precision: crate::Precision) -> bool;
+    fn dyn_array_eq(&self, other: &ArrayRef, precision: crate::Precision) -> bool;
+
+    /// Returns a new array with the given slots.
+    fn with_slots(&self, this: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
+
+    /// Returns a new array with its buffers replaced.
+    ///
+    /// This is used during lazy buffer materialization to swap device buffers
+    /// for host buffers while preserving metadata, slots, and statistics.
+    fn with_buffers(&self, this: &ArrayRef, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef>;
+
+    /// Attempt to reduce the array to a simpler representation.
+    fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
+
+    /// Attempt to reduce the parent of this array.
+    fn reduce_parent(
+        &self,
+        this: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>>;
+
+    /// Execute the array by taking a single encoding-specific execution step.
+    fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
+
+    /// Attempt to execute the parent of this array.
+    fn execute_parent(
+        &self,
+        this: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -158,6 +201,10 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         self
     }
 
+    fn into_any_arc(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn Any + Send + Sync> {
+        self
+    }
+
     fn len(&self) -> usize {
         self.len
     }
@@ -166,8 +213,8 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         &self.dtype
     }
 
-    fn vtable(&self) -> &dyn DynVTable {
-        &self.vtable
+    fn slots(&self) -> &[Option<ArrayRef>] {
+        &self.slots
     }
 
     fn encoding_id(&self) -> ArrayId {
@@ -260,16 +307,6 @@ impl<V: VTable> DynArray for ArrayInner<V> {
             .collect()
     }
 
-    fn slots(&self, this: &ArrayRef) -> Vec<Option<ArrayRef>> {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::slots(view).to_vec()
-    }
-
-    fn slot_name(&self, this: &ArrayRef, idx: usize) -> String {
-        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::slot_name(view, idx)
-    }
-
     fn buffers(&self, this: &ArrayRef) -> Vec<ByteBuffer> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         (0..V::nbuffers(view))
@@ -301,17 +338,18 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         V::nbuffers(view)
     }
 
-    fn metadata(&self, this: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
+    fn slot_name(&self, this: &ArrayRef, idx: usize) -> String {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        V::serialize(V::metadata(view)?)
+        V::slot_name(view, idx)
     }
 
-    fn metadata_fmt(&self, this: &ArrayRef, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn metadata(&self, this: &ArrayRef, session: &VortexSession) -> VortexResult<Option<Vec<u8>>> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
-        match V::metadata(view) {
-            Err(e) => write!(f, "<serde error: {e}>"),
-            Ok(metadata) => Debug::fmt(&metadata, f),
-        }
+        V::serialize(view, session)
+    }
+
+    fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.data, f)
     }
 
     fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: crate::Precision) {
@@ -319,16 +357,164 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         self.len.hash(&mut wrapper);
         self.dtype.hash(&mut wrapper);
         self.vtable.id().hash(&mut wrapper);
-        V::array_hash(&self.data, &mut wrapper, precision);
+        self.slots.len().hash(&mut wrapper);
+        for slot in &self.slots {
+            slot.array_hash(&mut wrapper, precision);
+        }
+        self.data.array_hash(&mut wrapper, precision);
     }
 
-    fn dyn_array_eq(&self, other: &dyn Any, precision: crate::Precision) -> bool {
-        other.downcast_ref::<Self>().is_some_and(|other| {
-            self.len == other.len
-                && self.dtype == other.dtype
-                && self.vtable.id() == other.vtable.id()
-                && V::array_eq(&self.data, &other.data, precision)
-        })
+    fn dyn_array_eq(&self, other: &ArrayRef, precision: crate::Precision) -> bool {
+        other
+            .inner()
+            .as_any()
+            .downcast_ref::<Self>()
+            .is_some_and(|other_inner| {
+                self.len == other.len()
+                    && self.dtype == *other.dtype()
+                    && self.vtable.id() == other.encoding_id()
+                    && self.slots.len() == other_inner.slots.len()
+                    && self
+                        .slots
+                        .iter()
+                        .zip(other_inner.slots.iter())
+                        .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
+                    && self.data.array_eq(&other_inner.data, precision)
+            })
+    }
+
+    fn with_slots(&self, this: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+        let data = self.data.clone();
+        let stats = this.statistics().to_owned();
+        Ok(Array::<V>::try_from_parts(
+            ArrayParts::new(self.vtable.clone(), this.dtype().clone(), this.len(), data)
+                .with_slots(slots),
+        )?
+        .with_stats_set(stats)
+        .into_array())
+    }
+
+    fn with_buffers(&self, this: &ArrayRef, buffers: Vec<BufferHandle>) -> VortexResult<ArrayRef> {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        let metadata_bytes = V::serialize(view, &LEGACY_SESSION)?.ok_or_else(|| {
+            vortex_err!("Array does not support serialization for buffer replacement")
+        })?;
+        let children: Vec<ArrayRef> = this.children();
+        let stats = this.statistics().to_owned();
+        let parts = self.vtable.deserialize(
+            this.dtype(),
+            this.len(),
+            &metadata_bytes,
+            &buffers,
+            &children.as_slice(),
+            &LEGACY_SESSION,
+        )?;
+        Ok(Array::<V>::try_from_parts(parts)?
+            .with_stats_set(stats)
+            .into_array())
+    }
+
+    fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        let Some(reduced) = V::reduce(view)? else {
+            return Ok(None);
+        };
+        vortex_ensure!(
+            reduced.len() == this.len(),
+            "Reduced array length mismatch from {} to {}",
+            this.encoding_id(),
+            reduced.encoding_id()
+        );
+        vortex_ensure!(
+            reduced.dtype() == this.dtype(),
+            "Reduced array dtype mismatch from {} to {}",
+            this.encoding_id(),
+            reduced.encoding_id()
+        );
+        Ok(Some(reduced))
+    }
+
+    fn reduce_parent(
+        &self,
+        this: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        let Some(reduced) = V::reduce_parent(view, parent, child_idx)? else {
+            return Ok(None);
+        };
+
+        vortex_ensure!(
+            reduced.len() == parent.len(),
+            "Reduced array length mismatch from {} to {}",
+            parent.encoding_id(),
+            reduced.encoding_id()
+        );
+        vortex_ensure!(
+            reduced.dtype() == parent.dtype(),
+            "Reduced array dtype mismatch from {} to {}",
+            parent.encoding_id(),
+            reduced.encoding_id()
+        );
+
+        Ok(Some(reduced))
+    }
+
+    fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let len = this.len();
+        let dtype = this.dtype().clone();
+        let stats = this.statistics().to_owned();
+
+        let typed = Array::<V>::try_from_array_ref(this)
+            .map_err(|_| vortex_err!("Failed to downcast array for execute"))
+            .vortex_expect("Failed to downcast array for execute");
+        let result = V::execute(typed, ctx)?;
+
+        if matches!(result.step(), ExecutionStep::Done) {
+            if cfg!(debug_assertions) {
+                vortex_ensure!(
+                    result.array().len() == len,
+                    "Result length mismatch for {:?}",
+                    self.vtable
+                );
+                vortex_ensure!(
+                    result.array().dtype() == &dtype,
+                    "Executed canonical dtype mismatch for {:?}",
+                    self.vtable
+                );
+            }
+
+            result.array().statistics().set_iter(stats.into_iter());
+        }
+
+        Ok(result)
+    }
+
+    fn execute_parent(
+        &self,
+        this: &ArrayRef,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        let Some(result) = V::execute_parent(view, parent, child_idx, ctx)? else {
+            return Ok(None);
+        };
+
+        if cfg!(debug_assertions) {
+            vortex_ensure!(
+                result.len() == parent.len(),
+                "Executed parent canonical length mismatch"
+            );
+            vortex_ensure!(
+                result.dtype() == parent.dtype(),
+                "Executed parent canonical dtype mismatch"
+            );
+        }
+
+        Ok(Some(result))
     }
 }
 

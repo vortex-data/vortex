@@ -9,6 +9,7 @@ use crate::array::ArrayView;
 use crate::arrays::Struct;
 use crate::arrays::StructArray;
 use crate::arrays::dict::TakeReduce;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::scalar::Scalar;
 use crate::validity::Validity;
@@ -43,7 +44,7 @@ impl TakeReduce for Struct {
                 .collect::<Result<Vec<_>, _>>()?,
             array.struct_fields().clone(),
             indices.len(),
-            array.validity().take(indices)?,
+            array.validity()?.take(indices)?,
         )
         .map(|a| a.into_array())
         .map(Some)

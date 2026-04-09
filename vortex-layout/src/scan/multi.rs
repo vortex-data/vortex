@@ -204,8 +204,8 @@ impl DataSource for MultiLayoutDataSource {
 
         for child in &self.children {
             match child {
-                MultiLayoutChild::Opened(reader) => ready.push_back(reader.clone()),
-                MultiLayoutChild::Deferred(factory) => deferred.push_back(factory.clone()),
+                MultiLayoutChild::Opened(reader) => ready.push_back(Arc::clone(reader)),
+                MultiLayoutChild::Deferred(factory) => deferred.push_back(Arc::clone(factory)),
             }
         }
 

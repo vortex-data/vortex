@@ -6,6 +6,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
+use crate::arrays::extension::ExtensionArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -79,7 +80,7 @@ mod tests {
         let storage = Buffer::<i64>::empty().into_array();
 
         let arr = ExtensionArray::new(ext_dtype.clone(), storage);
-        assert!(!arr.dtype.is_nullable());
+        assert!(!arr.dtype().is_nullable());
 
         let new_dtype = DType::Extension(ext_dtype).with_nullability(Nullability::Nullable);
 

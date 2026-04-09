@@ -10,6 +10,7 @@ use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::ALPArrayExt;
 use crate::alp::ALP;
 
 impl CastReduce for ALP {
@@ -45,8 +46,7 @@ impl CastReduce for ALP {
             // SAFETY: casting nullability doesn't alter the invariants
             unsafe {
                 Ok(Some(
-                    ALP::new_unchecked(new_encoded, array.exponents(), new_patches, dtype.clone())
-                        .into_array(),
+                    ALP::new_unchecked(new_encoded, array.exponents(), new_patches).into_array(),
                 ))
             }
         } else {
@@ -71,6 +71,7 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
+    use crate::alp::array::ALPArrayExt;
     use crate::alp_encode;
 
     #[test]

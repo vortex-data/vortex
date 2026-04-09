@@ -8,6 +8,10 @@ use std::any::TypeId;
 
 use vortex_array::ArrayRef;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinView;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_error::VortexExpect;
 
 use super::BoolStats;
@@ -67,7 +71,7 @@ impl StatsCache {
 ///
 /// Extension schemes can use `get_or_insert_with` for custom stats types.
 pub struct ArrayAndStats {
-    /// The array.
+    /// The array. This is always in canonical form.
     array: ArrayRef,
     /// The stats cache.
     cache: StatsCache,
@@ -79,7 +83,16 @@ impl ArrayAndStats {
     /// Creates a new bundle with the given stats generation options.
     ///
     /// Stats are generated lazily on first access via the typed accessor methods.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array is not canonical.
     pub fn new(array: ArrayRef, opts: GenerateStatsOptions) -> Self {
+        assert!(
+            array.is_canonical(),
+            "ArrayAndStats should only be created with canonical arrays"
+        );
+
         Self {
             array,
             cache: StatsCache::new(),
@@ -92,9 +105,40 @@ impl ArrayAndStats {
         &self.array
     }
 
+    // TODO(connor): This should return an `ArrayView<Primitive>` once more vtable changes land.
+    /// Returns the array as a [`PrimitiveArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array is not a primitive array.
+    pub fn array_as_primitive(&self) -> PrimitiveArray {
+        self.array
+            .as_opt::<Primitive>()
+            .vortex_expect("the array is guaranteed to already be canonical by construction")
+            .into_owned()
+    }
+
+    // TODO(connor): This should return an `ArrayView<VarBinView>` once more vtable changes land.
+    /// Returns the array as a [`VarBinViewArray`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the array is not a UTF-8 string array.
+    pub fn array_as_utf8(&self) -> VarBinViewArray {
+        self.array
+            .as_opt::<VarBinView>()
+            .vortex_expect("the array is guaranteed to already be canonical by construction")
+            .into_owned()
+    }
+
     /// Consumes the bundle and returns the array.
     pub fn into_array(self) -> ArrayRef {
         self.array
+    }
+
+    /// Returns the length of the array.
+    pub fn array_len(&self) -> usize {
+        self.array.len()
     }
 
     /// Returns bool stats, generating them lazily on first access.
@@ -105,6 +149,8 @@ impl ArrayAndStats {
             BoolStats::generate(&array.to_bool()).vortex_expect("BoolStats shouldn't fail")
         })
     }
+
+    // TODO(connor): These should all have interior mutability instead!!!
 
     /// Returns integer stats, generating them lazily on first access.
     pub fn integer_stats(&mut self) -> &IntegerStats {

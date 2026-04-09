@@ -4,6 +4,7 @@
 use std::fs;
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -92,7 +93,7 @@ impl Compressor for LanceCompressor {
         // Read the input parquet file
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let schema = builder.schema().clone();
+        let schema = Arc::clone(builder.schema());
         let reader = builder.build()?;
         let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
 
@@ -131,7 +132,7 @@ impl Compressor for LanceCompressor {
         // First compress to get the Lance dataset
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
-        let schema = builder.schema().clone();
+        let schema = Arc::clone(builder.schema());
         let reader = builder.build()?;
         let batches: Vec<RecordBatch> = reader.collect::<Result<Vec<_>, _>>()?;
 

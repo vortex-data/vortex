@@ -9,6 +9,7 @@ use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
+use crate::ALPRDArrayExt;
 use crate::alp_rd::ALPRD;
 
 impl CastReduce for ALPRD {

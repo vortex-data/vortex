@@ -10,6 +10,7 @@ use crate::array::ArrayView;
 use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::dict::TakeReduce;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
@@ -47,7 +48,7 @@ impl TakeReduce for ListView {
         let sizes = array.sizes();
 
         // Compute the new validity by combining the array's validity with the indices' validity.
-        let new_validity = array.validity().take(indices)?;
+        let new_validity = array.validity()?.take(indices)?;
 
         // Take the offsets and sizes arrays at the requested indices.
         // Take can reorder offsets, create gaps, and may introduce overlaps if the `indices`

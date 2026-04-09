@@ -8,6 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::scalar_fn::fns::mask::MaskReduce;
 use crate::validity::Validity;
 
@@ -22,7 +23,7 @@ impl MaskReduce for FixedSizeList {
                 FixedSizeListArray::new_unchecked(
                     array.elements().clone(),
                     array.list_size(),
-                    array.validity().and(Validity::Array(mask.clone()))?,
+                    array.validity()?.and(Validity::Array(mask.clone()))?,
                     array.len(),
                 )
             }

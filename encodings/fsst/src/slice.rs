@@ -12,21 +12,21 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::FSST;
-use crate::FSSTData;
+use crate::FSSTArrayExt;
 
 impl SliceReduce for FSST {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: slicing the `codes` leaves the symbol table intact
         Ok(Some(
             unsafe {
-                FSSTData::new_unchecked(
+                FSST::new_unchecked(
                     array.dtype().clone(),
                     array.symbols().clone(),
                     array.symbol_lengths().clone(),
                     array
                         .codes()
                         .slice(range.clone())?
-                        .try_into::<VarBin>()
+                        .try_downcast::<VarBin>()
                         .map_err(|_| vortex_err!("cannot fail conversion"))?,
                     array.uncompressed_lengths().slice(range)?,
                 )

@@ -3,6 +3,8 @@
 
 use std::iter;
 
+use vortex_error::VortexExpect;
+
 use crate::ToCanonical;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::PrimitiveArray;
@@ -14,7 +16,10 @@ impl<T: NativePType> ArrayAccessor<T> for PrimitiveArray {
     where
         F: for<'a> FnOnce(&mut dyn Iterator<Item = Option<&'a T>>) -> R,
     {
-        match self.validity() {
+        match self
+            .validity()
+            .vortex_expect("primitive validity should be derivable")
+        {
             Validity::NonNullable | Validity::AllValid => {
                 let mut iter = self.as_slice::<T>().iter().map(Some);
                 f(&mut iter)

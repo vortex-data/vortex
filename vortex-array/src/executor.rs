@@ -34,6 +34,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::matcher::Matcher;
+use crate::memory::HostAllocatorRef;
+use crate::memory::MemorySessionExt;
 use crate::optimizer::ArrayOptimizer;
 
 /// Maximum number of iterations to attempt when executing an array before giving up and returning
@@ -210,6 +212,11 @@ impl ExecutionCtx {
         &self.session
     }
 
+    /// Get the session-scoped host allocator for this execution context.
+    pub fn allocator(&self) -> HostAllocatorRef {
+        self.session.allocator()
+    }
+
     /// Log an execution step at the current depth.
     ///
     /// Steps are accumulated and dumped as a single trace on Drop at DEBUG level.
@@ -277,7 +284,7 @@ impl Executable for ArrayRef {
         }
 
         // 1. reduce (metadata-only rewrites)
-        if let Some(reduced) = array.vtable().reduce(&array)? {
+        if let Some(reduced) = array.reduce()? {
             ctx.log(format_args!("reduce: rewrote {} -> {}", array, reduced));
             reduced.statistics().inherit_from(array.statistics());
             return Ok(reduced);
@@ -288,7 +295,7 @@ impl Executable for ArrayRef {
             let Some(child) = slot else {
                 continue;
             };
-            if let Some(reduced_parent) = child.vtable().reduce_parent(child, &array, slot_idx)? {
+            if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
                 ctx.log(format_args!(
                     "reduce_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -306,10 +313,7 @@ impl Executable for ArrayRef {
             let Some(child) = slot else {
                 continue;
             };
-            if let Some(executed_parent) = child
-                .vtable()
-                .execute_parent(child, &array, slot_idx, ctx)?
-            {
+            if let Some(executed_parent) = child.execute_parent(&array, slot_idx, ctx)? {
                 ctx.log(format_args!(
                     "execute_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -348,8 +352,7 @@ impl Executable for ArrayRef {
 ///
 /// Extracts the vtable before consuming the array to avoid borrow conflicts.
 fn execute_step(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-    let vtable = array.vtable().clone_boxed();
-    vtable.execute(array, ctx)
+    array.execute_encoding(ctx)
 }
 
 /// Try execute_parent on each occupied slot of the array.
@@ -358,7 +361,7 @@ fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
         let Some(child) = slot else {
             continue;
         };
-        if let Some(result) = child.vtable().execute_parent(child, array, slot_idx, ctx)? {
+        if let Some(result) = child.execute_parent(array, slot_idx, ctx)? {
             result.statistics().inherit_from(array.statistics());
             return Ok(Some(result));
         }
@@ -492,55 +495,52 @@ macro_rules! require_opt_child {
     };
 }
 
-/// Require that all children of a [`Patches`](crate::patches::Patches) (indices, values, and
-/// optionally chunk_offsets) are `Primitive`. If no patches are present, this is a no-op.
+/// Require that patch slots (indices, values, and optionally chunk_offsets) are `Primitive`.
+/// If no patches are present (slots are `None`), this is a no-op.
 ///
 /// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
 ///
 /// ```ignore
-/// require_patches!(array, array.patches(), PATCH_INDICES_SLOT, PATCH_VALUES_SLOT, PATCH_CHUNK_OFFSETS_SLOT);
+/// require_patches!(array, PATCH_INDICES_SLOT, PATCH_VALUES_SLOT, PATCH_CHUNK_OFFSETS_SLOT);
 /// ```
 #[macro_export]
 macro_rules! require_patches {
-    ($parent:expr, $patches:expr, $indices_slot:expr, $values_slot:expr, $chunk_offsets_slot:expr) => {
-        let __patches = $patches;
+    ($parent:expr, $indices_slot:expr, $values_slot:expr, $chunk_offsets_slot:expr) => {
         $crate::require_opt_child!(
             $parent,
-            __patches.as_ref().map(|p| p.indices()),
+            $parent.slots()[$indices_slot].as_ref(),
             $indices_slot => $crate::arrays::Primitive
         );
-        let __patches = $patches;
         $crate::require_opt_child!(
             $parent,
-            __patches.as_ref().map(|p| p.values()),
+            $parent.slots()[$values_slot].as_ref(),
             $values_slot => $crate::arrays::Primitive
         );
-        let __patches = $patches;
         $crate::require_opt_child!(
             $parent,
-            __patches.as_ref().and_then(|p| p.chunk_offsets().as_ref()),
+            $parent.slots()[$chunk_offsets_slot].as_ref(),
             $chunk_offsets_slot => $crate::arrays::Primitive
         );
     };
 }
 
-/// Require that a [`Validity::Array`](crate::validity::Validity::Array) child matches `$M`. If validity is not array-backed
-/// (e.g. `NonNullable` or `AllValid`), this is a no-op. If it is array-backed but does not
-/// match `$M`, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
+/// Require that the validity slot is a [`Bool`](crate::arrays::Bool) array. If validity is not
+/// array-backed (e.g. `NonNullable` or `AllValid`), this is a no-op. If it is array-backed but
+/// not `Bool`, early-returns an [`ExecutionResult`] requesting execution of the validity slot.
 ///
 /// Like [`require_opt_child!`], `$parent` is moved (not cloned) into the early-return path.
 ///
 /// ```ignore
-/// require_validity!(array, &array.validity, VALIDITY_SLOT => AnyCanonical);
+/// require_validity!(array, VALIDITY_SLOT);
 /// ```
 #[macro_export]
 macro_rules! require_validity {
-    ($parent:expr, $validity:expr, $idx:expr => $M:ty) => {
-        if let $crate::validity::Validity::Array(v) = $validity {
-            if !v.is::<$M>() {
-                return Ok($crate::ExecutionResult::execute_slot::<$M>($parent, $idx));
-            }
-        }
+    ($parent:expr, $idx:expr) => {
+        $crate::require_opt_child!(
+            $parent,
+            $parent.slots()[$idx].as_ref(),
+            $idx => $crate::arrays::Bool
+        );
     };
 }
 

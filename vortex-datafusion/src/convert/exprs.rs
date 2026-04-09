@@ -952,7 +952,7 @@ mod tests {
 
         // WHEN value > 10 THEN 100
         let when1 = Arc::new(df_expr::BinaryExpr::new(
-            col_value.clone(),
+            Arc::clone(&col_value),
             DFOperator::Gt,
             lit_10,
         )) as Arc<dyn PhysicalExpr>;

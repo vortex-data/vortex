@@ -14,7 +14,7 @@ use ratzilla::CanvasBackend;
 use ratzilla::WebRenderer;
 use ratzilla::ratatui::Terminal;
 use vortex::array::MaskFuture;
-use vortex::array::serde::ArrayParts;
+use vortex::array::serde::SerializedArray;
 use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::Flat;
@@ -102,7 +102,7 @@ async fn load_flatbuffer_size(
         .request(segment_id)
         .await
         .vortex_expect("Failed to read segment");
-    ArrayParts::try_from(segment)
+    SerializedArray::try_from(segment)
         .vortex_expect("Failed to parse segment")
         .metadata()
         .len()

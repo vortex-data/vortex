@@ -114,6 +114,8 @@ pub fn vortex_session::VortexSession::empty() -> Self
 
 pub fn vortex_session::VortexSession::with<V: vortex_session::SessionVar + core::default::Default>(self) -> Self
 
+pub fn vortex_session::VortexSession::with_some<V: vortex_session::SessionVar>(self, var: V) -> Self
+
 impl core::clone::Clone for vortex_session::VortexSession
 
 pub fn vortex_session::VortexSession::clone(&self) -> vortex_session::VortexSession

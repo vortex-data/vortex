@@ -8,6 +8,7 @@ use super::DictArray;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::dict::DictArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
@@ -54,6 +55,7 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::Dict;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::dict::DictArrayExt;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::builtins::ArrayBuiltins;

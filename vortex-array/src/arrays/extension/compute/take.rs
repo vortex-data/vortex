@@ -10,6 +10,7 @@ use crate::array::ArrayView;
 use crate::arrays::Extension;
 use crate::arrays::ExtensionArray;
 use crate::arrays::dict::TakeExecute;
+use crate::arrays::extension::ExtensionArrayExt;
 
 impl TakeExecute for Extension {
     fn take(

@@ -21,7 +21,7 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
-use crate::arrays::dict::DictArrayParts;
+use crate::arrays::dict::DictArrayExt;
 use crate::arrow::ArrowArrayExecutor;
 
 pub(super) fn to_arrow_dictionary(
@@ -30,11 +30,11 @@ pub(super) fn to_arrow_dictionary(
     values_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let array = match array.try_into::<Dict>() {
+    let array = match array.try_downcast::<Dict>() {
         Ok(dict) => return dict_to_dict(dict, codes_type, values_type, ctx),
         Err(array) => array,
     };
-    let array = match array.try_into::<Constant>() {
+    let array = match array.try_downcast::<Constant>() {
         Ok(constant) => return constant_to_dict(constant, codes_type, values_type, ctx),
         Err(array) => array,
     };
@@ -78,9 +78,11 @@ fn dict_to_dict(
     values_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let DictArrayParts { codes, values, .. } = array.into_data().into_parts();
-    let codes = codes.execute_arrow(Some(codes_type), ctx)?;
-    let values = values.execute_arrow(Some(values_type), ctx)?;
+    let codes = array.codes().clone().execute_arrow(Some(codes_type), ctx)?;
+    let values = array
+        .values()
+        .clone()
+        .execute_arrow(Some(values_type), ctx)?;
     make_dict_array(codes_type, codes, values)
 }
 

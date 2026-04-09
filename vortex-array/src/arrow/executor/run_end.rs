@@ -46,7 +46,7 @@ pub(super) fn to_arrow_run_end(
     values_type: &Field,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let array = match array.try_into::<Constant>() {
+    let array = match array.try_downcast::<Constant>() {
         Ok(constant) => {
             return constant_to_run_end(constant, ends_type, values_type, ctx);
         }
@@ -80,7 +80,7 @@ fn run_end_to_arrow(
 ) -> VortexResult<ArrowArrayRef> {
     let length = array.len();
     let metadata_bytes = array
-        .metadata()?
+        .metadata(ctx.session())?
         .ok_or_else(|| vortex_err!("RunEndArray missing metadata"))?;
     let metadata = RunEndMetadata::decode(&*metadata_bytes)
         .map_err(|e| vortex_err!("Failed to decode RunEndMetadata: {e}"))?;

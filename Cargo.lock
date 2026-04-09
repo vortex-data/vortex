@@ -10068,7 +10068,9 @@ dependencies = [
  "fastlanes",
  "mimalloc",
  "parquet 58.0.0",
+ "paste",
  "rand 0.10.0",
+ "rand_distr 0.6.0",
  "serde_json",
  "tokio",
  "tracing",
@@ -10259,6 +10261,7 @@ dependencies = [
  "vortex-runend",
  "vortex-sequence",
  "vortex-sparse",
+ "vortex-tensor",
  "vortex-utils",
  "vortex-zigzag",
  "vortex-zstd",
@@ -10324,6 +10327,7 @@ dependencies = [
 name = "vortex-compressor"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
  "itertools 0.14.0",
  "num-traits",
  "parking_lot",
@@ -10514,7 +10518,6 @@ dependencies = [
 name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
- "arrayref",
  "codspeed-divan-compat",
  "fastlanes",
  "itertools 0.14.0",
@@ -10961,14 +10964,20 @@ dependencies = [
 name = "vortex-tensor"
 version = "0.1.0"
 dependencies = [
+ "half",
  "itertools 0.14.0",
  "num-traits",
  "prost 0.14.3",
+ "rand 0.10.0",
+ "rand_distr 0.6.0",
  "rstest",
  "vortex-array",
  "vortex-buffer",
+ "vortex-compressor",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]

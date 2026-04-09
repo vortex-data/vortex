@@ -11,6 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
+use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
 
 /// DecimalByteParts-specific is_constant kernel.
 ///

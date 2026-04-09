@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Debug;
-use std::fmt::Formatter;
 use std::hash::Hasher;
+use std::sync::Arc;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -12,9 +12,11 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
@@ -23,8 +25,9 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
+use crate::arrays::filter::FilterArrayExt;
+use crate::arrays::filter::array::CHILD_SLOT;
 use crate::arrays::filter::array::FilterData;
-use crate::arrays::filter::array::NUM_SLOTS;
 use crate::arrays::filter::array::SLOT_NAMES;
 use crate::arrays::filter::execute::execute_filter;
 use crate::arrays::filter::execute::execute_filter_fast_paths;
@@ -34,13 +37,13 @@ use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
 use crate::executor::ExecutionResult;
+use crate::require_child;
 use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
-use crate::vtable;
 
-vtable!(Filter, Filter, FilterData);
+/// A [`Filter`]-encoded Vortex array.
+pub type FilterArray = Array<Filter>;
 
 #[derive(Clone, Debug)]
 pub struct Filter;
@@ -49,39 +52,60 @@ impl Filter {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.filter");
 }
 
+impl ArrayHash for FilterData {
+    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
+        self.mask.array_hash(state, precision);
+    }
+}
+
+impl ArrayEq for FilterData {
+    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
+        self.mask.array_eq(&other.mask, precision)
+    }
+}
+
 impl VTable for Filter {
     type ArrayData = FilterData;
-    type Metadata = FilterMetadata;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-    fn vtable(_array: &FilterData) -> &Self {
-        &Filter
-    }
 
     fn id(&self) -> ArrayId {
         Self::ID
     }
 
-    fn len(array: &FilterData) -> usize {
-        array.mask.true_count()
-    }
-
-    fn dtype(array: &FilterData) -> &DType {
-        array.child().dtype()
-    }
-
-    fn stats(array: &FilterData) -> &ArrayStats {
-        &array.stats
-    }
-
-    fn array_hash<H: Hasher>(array: &FilterData, state: &mut H, precision: Precision) {
-        array.child().array_hash(state, precision);
-        array.mask.array_hash(state, precision);
-    }
-
-    fn array_eq(array: &FilterData, other: &FilterData, precision: Precision) -> bool {
-        array.child().array_eq(other.child(), precision)
-            && array.mask.array_eq(&other.mask, precision)
+    fn validate(
+        &self,
+        data: &Self::ArrayData,
+        dtype: &DType,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+    ) -> VortexResult<()> {
+        vortex_ensure!(
+            slots[CHILD_SLOT].is_some(),
+            "FilterArray child slot must be present"
+        );
+        let child = slots[CHILD_SLOT]
+            .as_ref()
+            .vortex_expect("validated child slot");
+        vortex_ensure!(
+            child.dtype() == dtype,
+            "FilterArray dtype {} does not match outer dtype {}",
+            child.dtype(),
+            dtype
+        );
+        vortex_ensure!(
+            data.len() == len,
+            "FilterArray length {} does not match outer length {}",
+            data.len(),
+            len
+        );
+        vortex_ensure!(
+            child.len() == data.mask.len(),
+            "FilterArray child length {} does not match mask length {}",
+            child.len(),
+            data.mask.len()
+        );
+        Ok(())
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -96,68 +120,48 @@ impl VTable for Filter {
         None
     }
 
-    fn slots(array: ArrayView<'_, Self>) -> &[Option<ArrayRef>] {
-        &array.data().slots
-    }
-
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn metadata(array: ArrayView<'_, Self>) -> VortexResult<Self::Metadata> {
-        Ok(FilterMetadata(array.mask.clone()))
-    }
-
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         // TODO(joe): make this configurable
         vortex_bail!("Filter array is not serializable")
     }
 
     fn deserialize(
-        _bytes: &[u8],
+        &self,
         _dtype: &DType,
         _len: usize,
+        _metadata: &[u8],
+
         _buffers: &[BufferHandle],
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<Self::Metadata> {
+    ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_bail!("Filter array is not serializable")
-    }
-
-    fn build(
-        dtype: &DType,
-        len: usize,
-        metadata: &FilterMetadata,
-        _buffers: &[BufferHandle],
-        children: &dyn ArrayChildren,
-    ) -> VortexResult<FilterData> {
-        assert_eq!(len, metadata.0.true_count());
-        let child = children.get(0, dtype, metadata.0.len())?;
-        FilterData::try_new(child, metadata.0.clone())
-    }
-
-    fn with_slots(array: &mut Self::ArrayData, slots: Vec<Option<ArrayRef>>) -> VortexResult<()> {
-        vortex_ensure!(
-            slots.len() == NUM_SLOTS,
-            "FilterArray expects exactly {} slots, got {}",
-            NUM_SLOTS,
-            slots.len()
-        );
-        array.slots = slots;
-        Ok(())
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         if let Some(canonical) = execute_filter_fast_paths(array.as_view(), ctx)? {
             return Ok(ExecutionResult::done(canonical));
         }
-        let Mask::Values(mask_values) = &array.mask else {
-            unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse")
+        let mask_values = match &array.mask {
+            Mask::Values(v) => Arc::clone(v),
+            _ => unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse"),
         };
+
+        let array = require_child!(array, array.child(), CHILD_SLOT => AnyCanonical);
 
         // We rely on the optimization pass that runs prior to this execution for filter pushdown,
         // so now we can just execute the filter without worrying.
+        // TODO(joe): fix the ownership of AnyCanonical
+        let child = Canonical::from(array.child().as_::<AnyCanonical>());
         Ok(ExecutionResult::done(
-            execute_filter(array.child().clone().execute(ctx)?, mask_values).into_array(),
+            execute_filter(child, &mask_values).into_array(),
         ))
     }
 
@@ -187,19 +191,5 @@ impl OperationsVTable<Filter> for Filter {
 impl ValidityVTable<Filter> for Filter {
     fn validity(array: ArrayView<'_, Filter>) -> VortexResult<Validity> {
         array.child().validity()?.filter(&array.mask)
-    }
-}
-
-pub struct FilterMetadata(pub(super) Mask);
-
-impl Debug for FilterMetadata {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} / {} => {}",
-            self.0.true_count(),
-            self.0.len(),
-            self.0.density()
-        )
     }
 }

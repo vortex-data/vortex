@@ -9,6 +9,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::ListView;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<ListView> for ListView {
@@ -26,7 +27,7 @@ impl OperationsVTable<ListView> for ListView {
         Ok(Scalar::list(
             Arc::new(list.dtype().clone()),
             children,
-            array.dtype.nullability(),
+            array.dtype().nullability(),
         ))
     }
 }

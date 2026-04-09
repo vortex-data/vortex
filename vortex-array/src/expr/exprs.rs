@@ -174,6 +174,7 @@ pub fn nested_case_when(
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
+/// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
@@ -198,6 +199,7 @@ pub fn eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray};
+/// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::{ IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
@@ -222,6 +224,7 @@ pub fn not_eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
@@ -246,6 +249,7 @@ pub fn gt_eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
@@ -270,6 +274,7 @@ pub fn gt(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
@@ -294,6 +299,7 @@ pub fn lt_eq(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::{BoolArray, PrimitiveArray };
+/// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_buffer::buffer;
@@ -318,6 +324,7 @@ pub fn lt(lhs: Expression, rhs: Expression) -> Expression {
 ///
 /// ```
 /// # use vortex_array::arrays::BoolArray;
+/// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::expr::{root, lit, or};
 /// let xs = BoolArray::from_iter(vec![true, false, true]);
@@ -353,6 +360,7 @@ where
 ///
 /// ```
 /// # use vortex_array::arrays::BoolArray;
+/// # use vortex_array::arrays::bool::BoolArrayExt;
 /// # use vortex_array::{IntoArray, ToCanonical};
 /// # use vortex_array::expr::{and, root, lit};
 /// let xs = BoolArray::from_iter(vec![true, false, true]).into_array();

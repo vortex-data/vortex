@@ -15,7 +15,7 @@ use futures::future::try_join_all;
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::buffer::DeviceBuffer;
-use vortex_array::serde::ArrayParts;
+use vortex_array::serde::SerializedArray;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -300,18 +300,18 @@ impl DeviceBuffer for LazyBufferHandle {
     }
 }
 
-/// Build an [`ArrayParts`] with lazy device buffers that defer segment I/O.
+/// Build an [`SerializedArray`] with lazy device buffers that defer segment I/O.
 ///
 /// Each buffer descriptor in the flatbuffer is turned into a [`LazyBufferHandle`]
 /// that records the segment source, segment ID, byte range, and alignment but
-/// does **not** perform any I/O. The returned [`ArrayParts`] can be decoded into
+/// does **not** perform any I/O. The returned [`SerializedArray`] can be decoded into
 /// an array tree and manipulated (sliced, filtered, optimized) before the lazy
 /// buffers are materialized with [`materialize_recursive`].
 pub fn create_lazy_array_parts(
     array_tree: ByteBuffer,
     source: Arc<dyn SegmentSource>,
     segment_id: SegmentId,
-) -> VortexResult<ArrayParts> {
+) -> VortexResult<SerializedArray> {
     use flatbuffers::root;
     use vortex_flatbuffers::FlatBuffer;
     use vortex_flatbuffers::array as fba;
@@ -341,7 +341,7 @@ pub fn create_lazy_array_parts(
         })
         .collect();
 
-    ArrayParts::from_flatbuffer_with_buffers(array_tree, buffers)
+    SerializedArray::from_flatbuffer_with_buffers(array_tree, buffers)
 }
 
 /// Recursively walk the array tree and materialize any [`LazyBufferHandle`]
@@ -528,7 +528,7 @@ mod tests {
             LazyBufferHandle::new(
                 Arc::new(SingleSegment {
                     buffer: buf,
-                    ranged_requests: ranged_requests.clone(),
+                    ranged_requests: Arc::clone(&ranged_requests),
                 }),
                 SegmentId::from(0u32),
                 data.len(),

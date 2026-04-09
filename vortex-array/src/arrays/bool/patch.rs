@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::bool::BoolArrayExt;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 
@@ -19,8 +20,8 @@ impl BoolArray {
         let values = patches.values().clone().execute::<BoolArray>(ctx)?;
 
         let patched_validity =
-            self.validity()
-                .patch(len, offset, patches.indices(), &values.validity(), ctx)?;
+            self.validity()?
+                .patch(len, offset, patches.indices(), &values.validity()?, ctx)?;
 
         let bit_buffer = self.into_bit_buffer();
         let mut own_values = bit_buffer

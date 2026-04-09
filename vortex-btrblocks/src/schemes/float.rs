@@ -4,14 +4,18 @@
 //! Float compression schemes.
 
 use vortex_alp::ALP;
+use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPRDArrayExt;
+use vortex_alp::ALPRDArrayOwnedExt;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::PType;
+use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
 use vortex_error::VortexResult;
@@ -25,7 +29,8 @@ use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::compress_patches;
-use crate::estimate_compression_ratio_with_sampling;
+use crate::schemes::rle_ancestor_exclusions;
+use crate::schemes::rle_descendant_exclusions;
 
 /// ALP (Adaptive Lossless floating-Point) encoding.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -52,7 +57,9 @@ pub use vortex_compressor::builtins::FloatDictScheme;
 pub use vortex_compressor::builtins::is_float_primitive;
 pub use vortex_compressor::stats::FloatStats;
 
-pub use crate::schemes::rle::RLE_FLOAT_SCHEME;
+/// RLE scheme for float arrays.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct FloatRLEScheme;
 
 impl Scheme for ALPScheme {
     fn scheme_name(&self) -> &'static str {
@@ -70,22 +77,21 @@ impl Scheme for ALPScheme {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+    ) -> CompressionEstimate {
         // ALP encodes floats as integers. Without integer compression afterward, the encoded ints
         // are the same size.
         if ctx.finished_cascading() {
-            return Ok(0.0);
+            return CompressionEstimate::Skip;
         }
 
         // We don't support ALP for f16.
-        if data.float_stats().source().ptype() == PType::F16 {
-            return Ok(0.0);
+        if data.array_as_primitive().ptype() == PType::F16 {
+            return CompressionEstimate::Skip;
         }
 
-        estimate_compression_ratio_with_sampling(self, compressor, data.array(), ctx)
+        CompressionEstimate::Sample
     }
 
     fn compress(
@@ -94,9 +100,7 @@ impl Scheme for ALPScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.float_stats();
-
-        let alp_encoded = alp_encode(stats.source(), None)?;
+        let alp_encoded = alp_encode(&data.array_as_primitive(), None)?;
 
         // Compress the ALP ints.
         let compressed_alp_ints =
@@ -121,15 +125,15 @@ impl Scheme for ALPRDScheme {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
-        ctx: CompressorContext,
-    ) -> VortexResult<f64> {
-        if data.float_stats().source().ptype() == PType::F16 {
-            return Ok(0.0);
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        // We don't support ALPRD for f16.
+        if data.array_as_primitive().ptype() == PType::F16 {
+            return CompressionEstimate::Skip;
         }
 
-        estimate_compression_ratio_with_sampling(self, compressor, data.array(), ctx)
+        CompressionEstimate::Sample
     }
 
     fn compress(
@@ -138,24 +142,29 @@ impl Scheme for ALPRDScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.float_stats();
+        let primitive_array = data.array_as_primitive();
 
-        let encoder = match stats.source().ptype() {
-            PType::F32 => RDEncoder::new(stats.source().as_slice::<f32>()),
-            PType::F64 => RDEncoder::new(stats.source().as_slice::<f64>()),
+        let encoder = match primitive_array.ptype() {
+            PType::F32 => RDEncoder::new(primitive_array.as_slice::<f32>()),
+            PType::F64 => RDEncoder::new(primitive_array.as_slice::<f64>()),
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        let alp_rd = encoder.encode(stats.source());
-        let mut alp_rd_data = alp_rd.into_data();
+        let alp_rd = encoder.encode(&primitive_array);
+        let dtype = alp_rd.dtype().clone();
+        let right_bit_width = alp_rd.right_bit_width();
+        let mut parts = ALPRDArrayOwnedExt::into_data_parts(alp_rd);
+        parts.left_parts_patches = parts.left_parts_patches.map(compress_patches).transpose()?;
 
-        let patches = alp_rd_data
-            .left_parts_patches()
-            .map(compress_patches)
-            .transpose()?;
-        alp_rd_data.replace_left_parts_patches(patches);
-
-        Ok(Array::<vortex_alp::ALPRD>::try_from_data(alp_rd_data)?.into_array())
+        Ok(vortex_alp::ALPRD::try_new(
+            dtype,
+            parts.left_parts,
+            parts.left_parts_dictionary,
+            parts.right_parts,
+            right_bit_width,
+            parts.left_parts_patches,
+        )?
+        .into_array())
     }
 }
 
@@ -183,24 +192,25 @@ impl Scheme for NullDominatedSparseScheme {
 
     fn expected_compression_ratio(
         &self,
-        _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
-    ) -> VortexResult<f64> {
+    ) -> CompressionEstimate {
+        let len = data.array_len() as f64;
         let stats = data.float_stats();
+        let value_count = stats.value_count();
 
-        if stats.value_count() == 0 {
-            // All nulls should use ConstantScheme instead of this.
-            return Ok(0.0);
+        // All-null arrays should be compressed as constant instead anyways.
+        if value_count == 0 {
+            return CompressionEstimate::Skip;
         }
 
         // If the majority (90%) of values is null, this will compress well.
-        if stats.null_count() as f64 / stats.source().len() as f64 > 0.9 {
-            return Ok(stats.source().len() as f64 / stats.value_count() as f64);
+        if stats.null_count() as f64 / len > 0.9 {
+            return CompressionEstimate::Ratio(len / value_count as f64);
         }
 
         // Otherwise we don't go this route.
-        Ok(0.0)
+        CompressionEstimate::Skip
     }
 
     fn compress(
@@ -209,10 +219,8 @@ impl Scheme for NullDominatedSparseScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.float_stats();
-
         // We pass None as we only run this pathway for NULL-dominated float arrays.
-        let sparse_encoded = Sparse::encode(&stats.source().clone().into_array(), None)?;
+        let sparse_encoded = Sparse::encode(data.array(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<Sparse>() {
             let indices = sparse.patches().indices().to_primitive().narrow()?;
@@ -242,17 +250,75 @@ impl Scheme for PcoScheme {
         is_float_primitive(canonical)
     }
 
+    fn expected_compression_ratio(
+        &self,
+        _data: &mut ArrayAndStats,
+        _ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Sample
+    }
+
     fn compress(
         &self,
         _compressor: &CascadingCompressor,
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let stats = data.float_stats();
-        Ok(
-            vortex_pco::Pco::from_primitive(stats.source(), pco::DEFAULT_COMPRESSION_LEVEL, 8192)?
-                .into_array(),
-        )
+        Ok(vortex_pco::Pco::from_primitive(
+            &data.array_as_primitive(),
+            pco::DEFAULT_COMPRESSION_LEVEL,
+            8192,
+        )?
+        .into_array())
+    }
+}
+
+impl Scheme for FloatRLEScheme {
+    fn scheme_name(&self) -> &'static str {
+        "vortex.float.rle"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        is_float_primitive(canonical)
+    }
+
+    /// Children: values=0, indices=1, offsets=2.
+    fn num_children(&self) -> usize {
+        3
+    }
+
+    fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
+        rle_descendant_exclusions()
+    }
+
+    fn ancestor_exclusions(&self) -> Vec<vortex_compressor::scheme::AncestorExclusion> {
+        rle_ancestor_exclusions()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        data: &mut ArrayAndStats,
+        ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        // RLE is only useful when we cascade it with another encoding.
+        if ctx.finished_cascading() {
+            return CompressionEstimate::Skip;
+        }
+
+        if data.float_stats().average_run_length() < super::integer::RUN_LENGTH_THRESHOLD {
+            return CompressionEstimate::Skip;
+        }
+
+        CompressionEstimate::Sample
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &mut ArrayAndStats,
+        ctx: CompressorContext,
+    ) -> VortexResult<ArrayRef> {
+        super::integer::rle_compress(self, compressor, data, ctx)
     }
 }
 
@@ -275,7 +341,7 @@ mod tests {
     use vortex_fastlanes::RLE;
 
     use crate::BtrBlocksCompressor;
-    use crate::schemes::rle::RLE_FLOAT_SCHEME;
+    use crate::schemes::float::FloatRLEScheme;
 
     #[test]
     fn test_empty() -> VortexResult<()> {
@@ -317,7 +383,7 @@ mod tests {
 
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
 
-        let compressor = CascadingCompressor::new(vec![&RLE_FLOAT_SCHEME]);
+        let compressor = CascadingCompressor::new(vec![&FloatRLEScheme]);
         let compressed = compressor.compress(&array.into_array())?;
         assert!(compressed.is::<RLE>());
 
@@ -398,7 +464,8 @@ mod scheme_selection_tests {
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
         let btr = BtrBlocksCompressor::default();
         let compressed = btr.compress(&array.into_array())?;
-        assert!(compressed.is::<Dict>());
+        assert!(compressed.is::<ALP>());
+        assert!(compressed.children()[0].is::<Dict>());
         Ok(())
     }
 

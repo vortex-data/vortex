@@ -11,6 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::ALP;
+use crate::ALPArrayExt;
 
 /// ALP-specific NaN count kernel.
 ///

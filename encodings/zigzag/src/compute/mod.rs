@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::ZigZagData;
 mod cast;
 
 use vortex_array::ArrayRef;
@@ -10,7 +9,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::arrays::filter::FilterReduce;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::scalar_fn::EmptyOptions;
 use vortex_array::scalar_fn::fns::mask::Mask as MaskExpr;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
@@ -18,11 +17,12 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ZigZag;
+use crate::array::ZigZagArrayExt;
 
 impl FilterReduce for ZigZag {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let encoded = array.encoded().filter(mask.clone())?;
-        Ok(Some(ZigZagData::try_new(encoded)?.into_array()))
+        Ok(Some(ZigZag::try_new(encoded)?.into_array()))
     }
 }
 
@@ -33,7 +33,7 @@ impl TakeExecute for ZigZag {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let encoded = array.encoded().take(indices.clone())?;
-        Ok(Some(ZigZagData::try_new(encoded)?.into_array()))
+        Ok(Some(ZigZag::try_new(encoded)?.into_array()))
     }
 }
 
@@ -44,7 +44,7 @@ impl MaskReduce for ZigZag {
             EmptyOptions,
             [array.encoded().clone(), mask.clone()],
         )?;
-        Ok(Some(ZigZagData::try_new(masked_encoded)?.into_array()))
+        Ok(Some(ZigZag::try_new(masked_encoded)?.into_array()))
     }
 }
 

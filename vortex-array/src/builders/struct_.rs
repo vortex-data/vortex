@@ -14,6 +14,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;

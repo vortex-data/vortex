@@ -9,14 +9,18 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::array::Array;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
+use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::list::ListArrayExt;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
+use crate::arrays::struct_::StructArrayExt;
 use crate::builders::PrimitiveBuilder;
 use crate::dtype::IntegerPType;
 use crate::dtype::Nullability;
@@ -36,8 +40,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // We reset the offsets here because mostly for convenience, and also because callers of this
     // function might not expect the output `ListViewArray` to have a bunch of leading and trailing
     // garbage data when they turn it back into a `ListArray`.
-    let list: ListArray =
-        Array::try_from_data(list.reset_offsets(false).vortex_expect("This can't fail"))?;
+    let list = list.reset_offsets(false).vortex_expect("This can't fail");
 
     let list_offsets = list.offsets().clone();
 
@@ -59,7 +62,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
             list.elements().clone(),
             adjusted_offsets,
             sizes,
-            list.validity(),
+            list.validity()?,
         )
         .with_zero_copy_to_list(true)
     })
@@ -122,7 +125,7 @@ pub fn list_from_list_view(list_view: ListViewArray) -> VortexResult<ListArray> 
         ListArray::new_unchecked(
             zctl_array.elements().clone(),
             list_offsets,
-            zctl_array.validity(),
+            zctl_array.validity()?,
         )
     })
 }
@@ -201,7 +204,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
                             converted_elements,
                             listview.offsets().clone(),
                             listview.sizes().clone(),
-                            listview.validity(),
+                            listview.validity()?,
                         )
                         .with_zero_copy_to_list(listview.is_zero_copy_to_list())
                     }
@@ -222,7 +225,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
                 FixedSizeListArray::try_new(
                     converted_elements,
                     fixed_size_list.list_size(),
-                    fixed_size_list.validity(),
+                    fixed_size_list.validity()?,
                     fixed_size_list.len(),
                 )
                 .vortex_expect(
@@ -250,7 +253,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
                     struct_array.names().clone(),
                     converted_fields,
                     struct_array.len(),
-                    struct_array.validity(),
+                    struct_array.validity()?,
                 )
                 .vortex_expect("StructArray reconstruction should not fail with valid components")
                 .into_array()
@@ -277,6 +280,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
 mod tests {
 
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
     use super::super::tests::common::create_basic_listview;
@@ -297,6 +301,8 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
+    use crate::arrays::list::ListArrayExt;
+    use crate::arrays::listview::ListViewArrayExt;
     use crate::arrays::listview::list_from_list_view;
     use crate::arrays::listview::list_view_from_list;
     use crate::assert_arrays_eq;
@@ -385,6 +391,7 @@ mod tests {
         assert!(
             nullable_list_view
                 .validity()
+                .vortex_expect("listview validity should be derivable")
                 .array_eq(&validity, Precision::Ptr)
         );
         assert_eq!(nullable_list_view.len(), 3);

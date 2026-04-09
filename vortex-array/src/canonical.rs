@@ -17,6 +17,7 @@ use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::array::child_to_validity;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::Decimal;
@@ -37,13 +38,16 @@ use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::Variant;
 use crate::arrays::VariantArray;
-use crate::arrays::bool::BoolArrayParts;
-use crate::arrays::decimal::DecimalArrayParts;
-use crate::arrays::listview::ListViewArrayParts;
+use crate::arrays::bool::BoolDataParts;
+use crate::arrays::decimal::DecimalDataParts;
+use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
+use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrays::primitive::PrimitiveArrayParts;
-use crate::arrays::struct_::StructArrayParts;
-use crate::arrays::varbinview::VarBinViewArrayParts;
+use crate::arrays::primitive::PrimitiveDataParts;
+use crate::arrays::struct_::StructDataParts;
+use crate::arrays::varbinview::VarBinViewDataParts;
+use crate::arrays::variant::VariantArrayExt;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
@@ -544,33 +548,30 @@ impl Executable for CanonicalValidity {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(CanonicalValidity(n)),
             Canonical::Bool(b) => {
-                let BoolArrayParts {
-                    bits,
-                    offset,
-                    len,
-                    validity,
-                } = b.into_parts();
+                let validity = child_to_validity(&b.slots()[0], b.dtype().nullability());
+                let len = b.len();
+                let BoolDataParts { bits, offset, len } = b.into_data().into_parts(len);
                 Ok(CanonicalValidity(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))
             }
             Canonical::Primitive(p) => {
-                let PrimitiveArrayParts {
+                let PrimitiveDataParts {
                     ptype,
                     buffer,
                     validity,
-                } = p.into_data().into_parts();
+                } = p.into_data_parts();
                 Ok(CanonicalValidity(Canonical::Primitive(unsafe {
                     PrimitiveArray::new_unchecked_from_handle(buffer, ptype, validity.execute(ctx)?)
                 })))
             }
             Canonical::Decimal(d) => {
-                let DecimalArrayParts {
+                let DecimalDataParts {
                     decimal_dtype,
                     values,
                     values_type,
                     validity,
-                } = d.into_data().into_parts();
+                } = d.into_data_parts();
                 Ok(CanonicalValidity(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(
                         values,
@@ -581,12 +582,12 @@ impl Executable for CanonicalValidity {
                 })))
             }
             Canonical::VarBinView(vbv) => {
-                let VarBinViewArrayParts {
+                let VarBinViewDataParts {
                     dtype,
                     buffers,
                     views,
                     validity,
-                } = vbv.into_data().into_parts();
+                } = vbv.into_data_parts();
                 Ok(CanonicalValidity(Canonical::VarBinView(unsafe {
                     VarBinViewArray::new_handle_unchecked(
                         views,
@@ -598,13 +599,13 @@ impl Executable for CanonicalValidity {
             }
             Canonical::List(l) => {
                 let zctl = l.is_zero_copy_to_list();
-                let ListViewArrayParts {
+                let ListViewDataParts {
                     elements,
                     offsets,
                     sizes,
                     validity,
                     ..
-                } = l.into_data().into_parts();
+                } = l.into_data_parts();
                 Ok(CanonicalValidity(Canonical::List(unsafe {
                     ListViewArray::new_unchecked(elements, offsets, sizes, validity.execute(ctx)?)
                         .with_zero_copy_to_list(zctl)
@@ -613,18 +614,20 @@ impl Executable for CanonicalValidity {
             Canonical::FixedSizeList(fsl) => {
                 let list_size = fsl.list_size();
                 let len = fsl.len();
-                let (elements, validity, _) = fsl.into_data().into_parts();
+                let parts = fsl.into_data_parts();
+                let elements = parts.elements;
+                let validity = parts.validity;
                 Ok(CanonicalValidity(Canonical::FixedSizeList(
                     FixedSizeListArray::new(elements, list_size, validity.execute(ctx)?, len),
                 )))
             }
             Canonical::Struct(st) => {
                 let len = st.len();
-                let StructArrayParts {
+                let StructDataParts {
                     struct_fields,
                     fields,
                     validity,
-                } = st.into_parts();
+                } = st.into_data_parts();
                 Ok(CanonicalValidity(Canonical::Struct(unsafe {
                     StructArray::new_unchecked(fields, struct_fields, len, validity.execute(ctx)?)
                 })))
@@ -664,33 +667,30 @@ impl Executable for RecursiveCanonical {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(RecursiveCanonical(n)),
             Canonical::Bool(b) => {
-                let BoolArrayParts {
-                    bits,
-                    offset,
-                    len,
-                    validity,
-                } = b.into_parts();
+                let validity = child_to_validity(&b.slots()[0], b.dtype().nullability());
+                let len = b.len();
+                let BoolDataParts { bits, offset, len } = b.into_data().into_parts(len);
                 Ok(RecursiveCanonical(Canonical::Bool(
                     BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
                 )))
             }
             Canonical::Primitive(p) => {
-                let PrimitiveArrayParts {
+                let PrimitiveDataParts {
                     ptype,
                     buffer,
                     validity,
-                } = p.into_data().into_parts();
+                } = p.into_data_parts();
                 Ok(RecursiveCanonical(Canonical::Primitive(unsafe {
                     PrimitiveArray::new_unchecked_from_handle(buffer, ptype, validity.execute(ctx)?)
                 })))
             }
             Canonical::Decimal(d) => {
-                let DecimalArrayParts {
+                let DecimalDataParts {
                     decimal_dtype,
                     values,
                     values_type,
                     validity,
-                } = d.into_data().into_parts();
+                } = d.into_data_parts();
                 Ok(RecursiveCanonical(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(
                         values,
@@ -701,12 +701,12 @@ impl Executable for RecursiveCanonical {
                 })))
             }
             Canonical::VarBinView(vbv) => {
-                let VarBinViewArrayParts {
+                let VarBinViewDataParts {
                     dtype,
                     buffers,
                     views,
                     validity,
-                } = vbv.into_data().into_parts();
+                } = vbv.into_data_parts();
                 Ok(RecursiveCanonical(Canonical::VarBinView(unsafe {
                     VarBinViewArray::new_handle_unchecked(
                         views,
@@ -718,13 +718,13 @@ impl Executable for RecursiveCanonical {
             }
             Canonical::List(l) => {
                 let zctl = l.is_zero_copy_to_list();
-                let ListViewArrayParts {
+                let ListViewDataParts {
                     elements,
                     offsets,
                     sizes,
                     validity,
                     ..
-                } = l.into_data().into_parts();
+                } = l.into_data_parts();
                 Ok(RecursiveCanonical(Canonical::List(unsafe {
                     ListViewArray::new_unchecked(
                         elements.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
@@ -738,7 +738,9 @@ impl Executable for RecursiveCanonical {
             Canonical::FixedSizeList(fsl) => {
                 let list_size = fsl.list_size();
                 let len = fsl.len();
-                let (elements, validity, _) = fsl.into_data().into_parts();
+                let parts = fsl.into_data_parts();
+                let elements = parts.elements;
+                let validity = parts.validity;
                 Ok(RecursiveCanonical(Canonical::FixedSizeList(
                     FixedSizeListArray::new(
                         elements.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
@@ -750,11 +752,11 @@ impl Executable for RecursiveCanonical {
             }
             Canonical::Struct(st) => {
                 let len = st.len();
-                let StructArrayParts {
+                let StructDataParts {
                     struct_fields,
                     fields,
                     validity,
-                } = st.into_parts();
+                } = st.into_data_parts();
                 let executed_fields = fields
                     .iter()
                     .map(|f| Ok(f.clone().execute::<RecursiveCanonical>(ctx)?.0.into_array()))
@@ -802,7 +804,10 @@ impl<T: NativePType> Executable for Buffer<T> {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let array = PrimitiveArray::execute(array, ctx)?;
         vortex_ensure!(
-            matches!(array.validity(), Validity::NonNullable | Validity::AllValid),
+            matches!(
+                array.validity()?,
+                Validity::NonNullable | Validity::AllValid
+            ),
             "Cannot execute to native buffer: array is not all-valid."
         );
         Ok(array.into_buffer())
@@ -814,7 +819,7 @@ impl<T: NativePType> Executable for Buffer<T> {
 /// This will panic if the array's dtype is not primitive.
 impl Executable for PrimitiveArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Primitive>() {
+        match array.try_downcast::<Primitive>() {
             Ok(primitive) => Ok(primitive),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_primitive()),
         }
@@ -826,7 +831,7 @@ impl Executable for PrimitiveArray {
 /// This will panic if the array's dtype is not bool.
 impl Executable for BoolArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Bool>() {
+        match array.try_downcast::<Bool>() {
             Ok(bool_array) => Ok(bool_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_bool()),
         }
@@ -852,7 +857,7 @@ impl Executable for BitBuffer {
 /// This will panic if the array's dtype is not null.
 impl Executable for NullArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Null>() {
+        match array.try_downcast::<Null>() {
             Ok(null_array) => Ok(null_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_null()),
         }
@@ -864,7 +869,7 @@ impl Executable for NullArray {
 /// This will panic if the array's dtype is not utf8 or binary.
 impl Executable for VarBinViewArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<VarBinView>() {
+        match array.try_downcast::<VarBinView>() {
             Ok(varbinview) => Ok(varbinview),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_varbinview()),
         }
@@ -876,7 +881,7 @@ impl Executable for VarBinViewArray {
 /// This will panic if the array's dtype is not an extension type.
 impl Executable for ExtensionArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Extension>() {
+        match array.try_downcast::<Extension>() {
             Ok(ext_array) => Ok(ext_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_extension()),
         }
@@ -888,7 +893,7 @@ impl Executable for ExtensionArray {
 /// This will panic if the array's dtype is not decimal.
 impl Executable for DecimalArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Decimal>() {
+        match array.try_downcast::<Decimal>() {
             Ok(decimal) => Ok(decimal),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_decimal()),
         }
@@ -900,7 +905,7 @@ impl Executable for DecimalArray {
 /// This will panic if the array's dtype is not list.
 impl Executable for ListViewArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<ListView>() {
+        match array.try_downcast::<ListView>() {
             Ok(list) => Ok(list),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_listview()),
         }
@@ -912,7 +917,7 @@ impl Executable for ListViewArray {
 /// This will panic if the array's dtype is not fixed size list.
 impl Executable for FixedSizeListArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<FixedSizeList>() {
+        match array.try_downcast::<FixedSizeList>() {
             Ok(fsl) => Ok(fsl),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_fixed_size_list()),
         }
@@ -924,7 +929,7 @@ impl Executable for FixedSizeListArray {
 /// This will panic if the array's dtype is not struct.
 impl Executable for StructArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<Struct>() {
+        match array.try_downcast::<Struct>() {
             Ok(struct_array) => Ok(struct_array),
             Err(array) => Ok(Canonical::execute(array, ctx)?.into_struct()),
         }
@@ -1094,9 +1099,7 @@ mod test {
                 .is_some()
         );
 
-        let inner_struct = arrow_struct
-            .column(1)
-            .clone()
+        let inner_struct = Arc::clone(arrow_struct.column(1))
             .as_any()
             .downcast_ref::<ArrowStructArray>()
             .cloned()
