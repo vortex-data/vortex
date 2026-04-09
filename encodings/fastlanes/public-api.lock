@@ -570,8 +570,6 @@ impl vortex_array::hash::ArrayHash for vortex_fastlanes::RLEData
 
 pub fn vortex_fastlanes::RLEData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::hash::Precision)
 
-pub static vortex_fastlanes::USE_EXPERIMENTAL_PATCHES: std::sync::lazy_lock::LazyLock<bool>
-
 pub trait vortex_fastlanes::BitPackedArrayExt: vortex_fastlanes::BitPackedArraySlotsExt
 
 pub fn vortex_fastlanes::BitPackedArrayExt::bit_width(&self) -> u8
