@@ -4,6 +4,12 @@
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
 
+#[cfg(target_arch = "x86_64")]
+mod avx512;
+
+#[cfg(target_arch = "aarch64")]
+mod neon;
+
 #[cfg(vortex_nightly)]
 mod portable;
 
@@ -37,13 +43,18 @@ static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(||
             // nightly codepath: use portable_simd kernel
             &portable::TakeKernelPortableSimd
         } else if #[cfg(target_arch = "x86_64")] {
-            // stable x86_64 path: use the optimized AVX2 kernel when available, falling
-            // back to scalar when not.
-            if is_x86_feature_detected!("avx2") {
+            // stable x86_64 path: prefer the widest available gather kernel and fall back to
+            // scalar when the CPU lacks the required features.
+            if is_x86_feature_detected!("avx512f") {
+                &avx512::TakeKernelAVX512
+            } else if is_x86_feature_detected!("avx2") {
                 &avx2::TakeKernelAVX2
             } else {
                 &TakeKernelScalar
             }
+        } else if #[cfg(target_arch = "aarch64")] {
+            // stable AArch64 path: NEON is part of the baseline ISA, so use the NEON kernel.
+            &neon::TakeKernelNEON
         } else {
             // stable all other platforms: scalar kernel
             &TakeKernelScalar

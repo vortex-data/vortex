@@ -6,8 +6,6 @@
 //! Only enabled for x86_64 hosts and it is gated at runtime behind feature detection to
 //! ensure AVX2 instructions are available.
 
-#![cfg(any(target_arch = "x86_64", target_arch = "x86"))]
-
 use std::arch::x86_64::__m256i;
 use std::arch::x86_64::_mm_loadu_si128;
 use std::arch::x86_64::_mm_setzero_si128;
@@ -482,7 +480,7 @@ where
     // Loop terminates STRIDE elements before end of the indices array because the `GatherFn`
     // might read up to STRIDE src elements at a time, even though it only advances WIDTH elements
     // in the dst.
-    while offset + Gather::STRIDE < indices_len {
+    while offset + Gather::STRIDE <= indices_len {
         // SAFETY: `gather_simd` preconditions satisfied:
         //  1. `(indices + offset)..(indices + offset + STRIDE)` is in-bounds for indices
         //     allocation.
