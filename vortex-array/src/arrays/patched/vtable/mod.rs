@@ -260,22 +260,10 @@ impl VTable for Patched {
 
         let len = array.len();
 
-        fn downcast_slot(slot: ArrayRef) -> PrimitiveArray {
-            slot.try_downcast::<Primitive>()
-                .ok()
-                .vortex_expect("slot must be primitive")
-        }
-
         let n_lanes = array.n_lanes;
         let offset = array.offset;
         let slots = match array.try_into_parts() {
-            Ok(parts) => {
-                PatchedSlots::from_slots(parts.slots)
-                // let inner = downcast_slot(take_slot(&mut parts.slots, INNER_SLOT));
-                // let lane_offsets = downcast_slot(take_slot(&mut parts.slots, LANE_OFFSETS_SLOT));
-                // let indices = downcast_slot(take_slot(&mut parts.slots, INDICES_SLOT));
-                // let values = downcast_slot(take_slot(&mut parts.slots, VALUES_SLOT));
-            }
+            Ok(parts) => PatchedSlots::from_slots(parts.slots),
             Err(array) => PatchedSlotsView::from_slots(array.slots()).to_owned(),
         };
 

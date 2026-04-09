@@ -2156,6 +2156,8 @@ impl<'a> vortex_array::arrays::dict::DictSlotsView<'a>
 
 pub fn vortex_array::arrays::dict::DictSlotsView<'a>::from_slots(slots: &'a [core::option::Option<vortex_array::ArrayRef>]) -> Self
 
+pub fn vortex_array::arrays::dict::DictSlotsView<'a>::to_owned(&self) -> vortex_array::arrays::dict::DictSlots
+
 impl<'a> core::clone::Clone for vortex_array::arrays::dict::DictSlotsView<'a>
 
 pub fn vortex_array::arrays::dict::DictSlotsView<'a>::clone(&self) -> vortex_array::arrays::dict::DictSlotsView<'a>
@@ -3523,6 +3525,8 @@ pub vortex_array::arrays::patched::PatchedSlotsView::patch_values: &'a vortex_ar
 impl<'a> vortex_array::arrays::patched::PatchedSlotsView<'a>
 
 pub fn vortex_array::arrays::patched::PatchedSlotsView<'a>::from_slots(slots: &'a [core::option::Option<vortex_array::ArrayRef>]) -> Self
+
+pub fn vortex_array::arrays::patched::PatchedSlotsView<'a>::to_owned(&self) -> vortex_array::arrays::patched::PatchedSlots
 
 impl<'a> core::clone::Clone for vortex_array::arrays::patched::PatchedSlotsView<'a>
 

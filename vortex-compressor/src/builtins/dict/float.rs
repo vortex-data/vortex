@@ -238,7 +238,6 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::dict::DictArrayExt;
     use vortex_array::arrays::dict::DictArraySlotsExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;

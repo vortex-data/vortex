@@ -338,6 +338,8 @@ impl<'a> vortex_alp::ALPSlotsView<'a>
 
 pub fn vortex_alp::ALPSlotsView<'a>::from_slots(slots: &'a [core::option::Option<vortex_array::array::erased::ArrayRef>]) -> Self
 
+pub fn vortex_alp::ALPSlotsView<'a>::to_owned(&self) -> vortex_alp::ALPSlots
+
 impl<'a> core::clone::Clone for vortex_alp::ALPSlotsView<'a>
 
 pub fn vortex_alp::ALPSlotsView<'a>::clone(&self) -> vortex_alp::ALPSlotsView<'a>
