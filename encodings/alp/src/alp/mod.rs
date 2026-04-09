@@ -18,7 +18,10 @@ mod compress;
 pub(crate) mod compute;
 mod decompress;
 mod ops;
+mod plugin;
 mod rules;
+
+pub(crate) use plugin::ALPPatchedPlugin;
 
 #[cfg(test)]
 mod tests {
