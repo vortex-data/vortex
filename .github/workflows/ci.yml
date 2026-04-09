@@ -81,7 +81,7 @@ jobs:
           || 'ubuntu-latest' }}
     timeout-minutes: 40
     env:
-      RUST_LOG: "info,maturin=warn,uv=debug"
+      RUST_LOG: "info,maturin=off,uv=debug"
       MATURIN_PEP517_ARGS: "--profile ci"
     steps:
       - uses: runs-on/action@v2
