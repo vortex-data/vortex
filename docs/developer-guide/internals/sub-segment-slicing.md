@@ -284,60 +284,17 @@ impl SerializedArray {
 This mirrors `from_flatbuffer_and_segment` but creates `Segment` handles instead of
 slicing real data. The byte offset computation is identical.
 
-### Materialization
-
-After the optimizer refines all Segment handles, a `materialize` step collects them,
-issues one coalesced fetch, and fills the `OnceLock`s:
-
-```rust
-/// Collect all Segment buffer handles in the array tree, fetch their needed
-/// byte ranges in one coalesced IO, and resolve them to Host buffers.
-pub async fn materialize(
-    array: &ArrayRef,
-    source: &dyn SegmentSource,
-) -> VortexResult<()> {
-    // 1. Walk the array tree, collect all Segment handles
-    let segment_refs: Vec<SegmentBufferRef> = array
-        .depth_first_traversal()
-        .flat_map(|a| a.buffers())
-        .filter_map(|bh| bh.as_segment().cloned())
-        .collect();
-
-    if segment_refs.is_empty() {
-        return Ok(());
-    }
-
-    // 2. Group by segment_id, compute byte ranges
-    let mut by_segment: HashMap<SegmentId, Vec<&SegmentBufferRef>> = HashMap::new();
-    for seg in &segment_refs {
-        by_segment.entry(seg.segment_id).or_default().push(seg);
-    }
-
-    // 3. For each segment, coalesce and fetch
-    for (segment_id, refs) in by_segment {
-        let ranges: Vec<Range<usize>> = refs.iter()
-            .map(|r| r.segment_byte_range())
-            .collect();
-
-        let data = source.request_ranges(segment_id, &ranges).await?;
-
-        // 4. Resolve each handle
-        for (seg_ref, buffer) in refs.iter().zip(data) {
-            seg_ref.resolved.set(buffer.unwrap_host())
-                .expect("buffer already resolved");
-        }
-    }
-
-    Ok(())
-}
-```
-
 ### The Async Segment Executor
 
 The current execution loop (`execute_until` in `vortex-array`) is synchronous -- it
 assumes all buffer data is already in memory. We add a second executor in `vortex-layout`
-that is async, knows about `SegmentSource`, and handles the reduce -> fetch -> execute
-cycle:
+that is async, knows about `SegmentSource`, and runs the same reduce/execute loop but
+can resolve Segment buffers on demand.
+
+The executor is the **decision-maker**: at each step it inspects the array, sees which
+buffers are Segment (unfetched) vs Host (resolved), and decides whether to resolve one,
+some, or all before continuing. It runs the same four-phase execution model
+(reduce -> reduce_parent -> execute_parent -> execute) but adds IO awareness.
 
 ```rust
 /// An async executor that can load segment buffers on demand.
@@ -356,41 +313,78 @@ impl SegmentExecutor {
 
     /// Execute an array that may contain unfetched Segment buffer handles.
     ///
-    /// 1. Run optimizer (reduce to fixpoint) -- refines Segment byte ranges
-    /// 2. Collect all Segment handles, coalesce, single async fetch
-    /// 3. Run sync execute_until on resolved data
+    /// The loop mirrors `execute_until` but is async and can resolve buffers:
+    ///
+    /// 1. optimize (reduce to fixpoint) -- refines Segment byte ranges via SliceReduce
+    /// 2. if Segment handles remain, resolve them (the executor decides: one, some, or all)
+    /// 3. continue execution -- which may produce new arrays, loop back
+    ///
+    /// The executor guarantees: no more than one IO round-trip per segment. It collects
+    /// all Segment handles for a segment and coalesces them into a single fetch.
     pub async fn execute<M: Matcher>(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
-        // Phase 1: Reduce to fixpoint.
-        // SliceReduce calls buffer.slice() on Segment handles -> refines byte ranges.
-        // This is metadata-only, no IO.
-        let array = array.optimize()?;
+        let mut current = array;
 
-        // Phase 2: Materialize all Segment handles in one coalesced fetch.
-        self.materialize(&array).await?;
+        for _ in 0..*MAX_ITERATIONS {
+            // Run reduce to fixpoint. This is metadata-only: SliceReduce calls
+            // buffer.slice() on Segment handles, narrowing byte ranges.
+            // Any Host buffers (e.g. a filter mask already in memory) pass through
+            // unchanged.
+            current = current.optimize()?;
 
-        // Phase 3: All buffers are now Host data. Run sync execution.
-        let mut ctx = self.session.create_execution_ctx();
-        array.execute_until::<M>(&mut ctx)
+            // Check if we're done.
+            if M::matches(&current) {
+                return Ok(current);
+            }
+
+            // Inspect the array tree for unresolved Segment handles.
+            let segments = Self::collect_segments(&current);
+            if !segments.is_empty() {
+                // Resolve them. The executor decides the policy:
+                // - resolve ALL remaining Segment handles (simple, one IO batch)
+                // - or resolve only the ones that the next execute step needs
+                //
+                // For now: resolve all. This guarantees one IO round-trip per segment.
+                self.resolve(segments).await?;
+
+                // After resolution, more reduce rules may apply (e.g. a SliceReduce
+                // that returned None because it needed buffer data can now succeed
+                // as a SliceKernel). Loop back.
+                continue;
+            }
+
+            // All buffers are resolved. Run one sync execution step.
+            let mut ctx = self.session.create_execution_ctx();
+            match current.execute::<ArrayRef>(&mut ctx) {
+                Ok(executed) => {
+                    current = executed;
+                    // The execution step may have produced new arrays.
+                    // Loop back to check/optimize again.
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        vortex_bail!("SegmentExecutor exceeded maximum iterations")
     }
 
-    /// Collect all Segment buffer handles in the array tree, coalesce nearby
-    /// byte ranges within the same segment, fetch in a single IO batch, and
-    /// fill each handle's OnceLock with the resolved data.
-    async fn materialize(&self, array: &ArrayRef) -> VortexResult<()> {
-        // Walk the array tree, collect all Segment handles
-        let segment_refs: Vec<SegmentBufferRef> = array
+    /// Walk the array tree and collect all unresolved Segment buffer refs.
+    fn collect_segments(array: &ArrayRef) -> Vec<SegmentBufferRef> {
+        array
             .depth_first_traversal()
             .flat_map(|a| a.buffer_handles())
             .filter_map(|bh| bh.as_segment().cloned())
-            .collect();
+            .filter(|seg| !seg.is_resolved())
+            .collect()
+    }
 
-        if segment_refs.is_empty() {
-            return Ok(());
-        }
-
+    /// Resolve a set of Segment handles by coalescing and fetching.
+    ///
+    /// Groups by segment_id, coalesces nearby byte ranges within the same segment
+    /// into minimal reads, fetches, and fills each handle's OnceLock.
+    async fn resolve(&self, segments: Vec<SegmentBufferRef>) -> VortexResult<()> {
         // Group by segment_id
         let mut by_segment: HashMap<SegmentId, Vec<SegmentBufferRef>> = HashMap::new();
-        for seg in segment_refs {
+        for seg in segments {
             by_segment.entry(seg.segment_id).or_default().push(seg);
         }
 
@@ -403,7 +397,7 @@ impl SegmentExecutor {
             // Single IO per segment, coalesced
             let data = self.source.request_ranges(segment_id, &ranges).await?;
 
-            // Resolve each handle's OnceLock
+            // Fill each handle's OnceLock
             for (seg_ref, buffer) in refs.iter().zip(data) {
                 seg_ref.resolved.set(buffer.unwrap_host())
                     .expect("buffer already resolved");
@@ -414,6 +408,49 @@ impl SegmentExecutor {
     }
 }
 ```
+
+The executor loop has three possible states at each iteration:
+
+```
+                    +----------+
+                    | optimize |  (reduce to fixpoint, refines Segment ranges)
+                    +----+-----+
+                         |
+                  +------v-------+
+                  | M::matches?  |--yes--> return
+                  +------+-------+
+                         | no
+                  +------v-------+
+                  | has Segments? |--yes--> resolve (async IO) --> loop back
+                  +------+-------+
+                         | no
+                  +------v-------+
+                  | execute step |  (sync, one step toward canonical)
+                  +------+-------+
+                         |
+                         +--> loop back
+```
+
+This means:
+
+- **First iteration**: optimize pushes slices down (refining Segment handles), then
+  resolve fetches them. One IO round-trip.
+- **Second iteration**: optimize again (SliceKernel rules may now fire with real data),
+  then execute steps start decoding toward canonical. All buffers are Host now.
+- Execute steps never produce new Segment handles (they create computed Host buffers),
+  so the resolve step typically fires exactly once.
+
+### Starting state: mixed resolved and unresolved
+
+The array starts with **all buffers unresolved** from `from_flatbuffer_with_segment_refs`.
+But some buffers may already be in memory from other sources:
+
+- A filter mask computed by a previous evaluation (already a Host `BoolArray`)
+- A dictionary shared across chunks (already materialized)
+- A constant array (no buffers at all)
+
+These are Host handles from the start. The executor sees them as already resolved and
+skips them. Only the Segment handles get refined and fetched.
 
 ### How FlatReader uses the SegmentExecutor
 
@@ -441,14 +478,15 @@ impl LayoutReader for FlatReader {
             )?;
             let array = parts.decode(&dtype, row_count, &ctx, &session)?;
 
-            // 2. Apply slice + filter bounding range (refines Segment handles)
+            // 2. Apply slice + filter bounding range
+            //    .slice() triggers optimizer -> SliceReduce refines Segment handles
             let mut array = array.slice(row_range)?;
             let mask = mask.await?;
             if let Some(bounds) = mask.bounding_range() {
                 array = array.slice(bounds)?;
             }
 
-            // 3. Async execute: reduce -> fetch -> execute in one call
+            // 3. Hand to executor: it runs the reduce -> resolve -> execute loop
             let array = executor.execute::<Columnar>(array).await?;
 
             // 4. Filter and project on resolved data
@@ -601,29 +639,46 @@ Everything else collapses.
 
 5. **Phase 5**: Evaluate filter-aware refinement beyond bounding-range.
 
+## Resolve Policy: One vs All vs Selective
+
+The executor's `resolve` method currently fetches **all** remaining Segment handles in
+one batch. But the design supports other policies:
+
+- **Resolve all** (default): collect every unresolved Segment, coalesce, one IO.
+  Simple and effective. One IO round-trip per segment.
+
+- **Resolve one**: fetch only the single buffer that the next execute step needs.
+  Useful if execution might short-circuit (e.g., a constant fold eliminates a subtree).
+  Costs more round-trips but avoids wasted reads.
+
+- **Resolve selective**: fetch buffers that are "close" in the segment (within
+  coalescing distance) to the one that's needed. A middle ground.
+
+The policy can be a parameter on `SegmentExecutor` or even adaptive: start with
+resolve-all, switch to selective if profiling shows wasted reads.
+
 ## Open Questions
 
 1. **Inline array tree**: Sub-segment slicing requires the flatbuffer metadata before IO.
    `FLAT_LAYOUT_INLINE_ARRAY_NODE` provides this. Should inlining become the default?
 
-2. **OnceLock vs re-creation**: The OnceLock approach allows interior mutability on the
-   existing array tree. An alternative is to re-deserialize from the flatbuffer with
-   fetched partial buffers (using `from_flatbuffer_and_segment_with_overrides`). The
-   OnceLock approach avoids double-deserialization but adds complexity to BufferHandle.
+2. **OnceLock vs re-creation**: The OnceLock approach provides interior mutability --
+   cloned BufferHandles share the same Arc, so resolving one resolves all clones.
+   An alternative is to re-deserialize from the flatbuffer with fetched partial buffers.
+   OnceLock avoids double-deserialization but adds a variant to BufferHandle.
 
-3. **Multi-round materialization**: The `SegmentExecutor` currently does one
-   reduce-fetch-execute cycle. If a future encoding needs multiple rounds (e.g., read
-   offsets first, then refine data ranges), the executor could loop:
-   `reduce -> materialize -> check for remaining Segment handles -> repeat if needed`.
-   The `SegmentBufferRef` on `BufferHandle` makes this straightforward -- just check
-   if any Segment handles remain after execute and loop back.
+3. **Multi-round for data-dependent encodings**: List can't refine its elements buffer
+   without reading offsets. With the interleaved executor, this naturally becomes:
+   first resolve pass fetches offsets (Segment handles refined by SliceReduce), second
+   pass could refine elements using the now-resolved offset values. This requires
+   an encoding that creates NEW Segment handles from resolved data -- a future extension.
 
 4. **Field mask integration**: `FlatReader` receives a `FieldMask` from projection pushdown.
-   For Struct columns, non-projected fields could have their Segment handles skipped
-   entirely during deserialization, compounding savings.
+   For Struct columns, non-projected fields could have their Segment handles set to
+   zero-length ranges during deserialization (effectively skipping them), compounding
+   the savings from sub-segment slicing.
 
-5. **Executor reuse across evaluations**: The `SegmentExecutor` is cheap to create (just
-   holds `Arc` references). But if `FlatReader` runs multiple evaluations on the same
-   segment (filter + projection), could the executor cache the materialized segment
-   data across calls? Today `FlatReader` uses `SharedArrayFuture` for this -- the
-   executor should integrate with that caching.
+5. **Executor reuse across evaluations**: `FlatReader` may call `filter_evaluation` and
+   `projection_evaluation` on the same segment. Today it uses `SharedArrayFuture` to
+   cache the deserialized array. The `SegmentExecutor` could integrate with this caching
+   so that buffers resolved in the filter pass are reused in the projection pass.
