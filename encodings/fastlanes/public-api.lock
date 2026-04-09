@@ -248,6 +248,34 @@ pub vortex_fastlanes::BitPackedDataParts::patches: core::option::Option<vortex_a
 
 pub vortex_fastlanes::BitPackedDataParts::validity: vortex_array::validity::Validity
 
+pub struct vortex_fastlanes::BitPackedSlots
+
+pub vortex_fastlanes::BitPackedSlots::patch_chunk_offsets: core::option::Option<vortex_array::array::erased::ArrayRef>
+
+pub vortex_fastlanes::BitPackedSlots::patch_indices: core::option::Option<vortex_array::array::erased::ArrayRef>
+
+pub vortex_fastlanes::BitPackedSlots::patch_values: core::option::Option<vortex_array::array::erased::ArrayRef>
+
+pub vortex_fastlanes::BitPackedSlots::validity_child: core::option::Option<vortex_array::array::erased::ArrayRef>
+
+impl vortex_fastlanes::BitPackedSlots
+
+pub const vortex_fastlanes::BitPackedSlots::COUNT: usize
+
+pub const vortex_fastlanes::BitPackedSlots::NAMES: [&'static str; 4]
+
+pub const vortex_fastlanes::BitPackedSlots::PATCH_CHUNK_OFFSETS: usize
+
+pub const vortex_fastlanes::BitPackedSlots::PATCH_INDICES: usize
+
+pub const vortex_fastlanes::BitPackedSlots::PATCH_VALUES: usize
+
+pub const vortex_fastlanes::BitPackedSlots::VALIDITY_CHILD: usize
+
+pub fn vortex_fastlanes::BitPackedSlots::from_slots(slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> Self
+
+pub fn vortex_fastlanes::BitPackedSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
 pub struct vortex_fastlanes::Delta
 
 impl vortex_fastlanes::Delta

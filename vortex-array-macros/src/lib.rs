@@ -84,9 +84,7 @@ fn expand_array_slots(
     let view_from_slots = field_specs.iter().map(SlotField::view_from_slots);
     let owned_from_slots = field_specs.iter().map(SlotField::owned_from_slots);
     let into_slots = field_specs.iter().map(SlotField::storage_slot);
-    let ext_methods = field_specs
-        .iter()
-        .map(|field| field.ext_method(&view_ident));
+    let ext_methods = field_specs.iter().map(SlotField::ext_method);
     let slot_names = field_specs.iter().map(|field| field.slot_name.as_str());
     let slot_count = field_specs.len();
 
@@ -253,15 +251,28 @@ impl SlotField {
         }
     }
 
-    fn ext_method(&self, view_ident: &Ident) -> proc_macro2::TokenStream {
+    fn ext_method(&self) -> proc_macro2::TokenStream {
         let field_ident = &self.field_ident;
-        let ty = self.slot_type.method_return_ty();
+        let struct_ident = &self.struct_ident;
+        let const_ident = &self.const_ident;
+        let expect_message = &self.expect_message;
 
-        quote! {
-            #[inline]
-            fn #field_ident(&self) -> #ty {
-                #view_ident::from_slots(self.as_ref().slots()).#field_ident
-            }
+        match self.slot_type {
+            SlotFieldType::Required => quote! {
+                #[inline]
+                fn #field_ident(&self) -> &::vortex_array::ArrayRef {
+                    ::vortex_error::VortexExpect::vortex_expect(
+                        self.as_ref().slots()[#struct_ident::#const_ident].as_ref(),
+                        #expect_message,
+                    )
+                }
+            },
+            SlotFieldType::Optional => quote! {
+                #[inline]
+                fn #field_ident(&self) -> Option<&::vortex_array::ArrayRef> {
+                    self.as_ref().slots()[#struct_ident::#const_ident].as_ref()
+                }
+            },
         }
     }
 }
@@ -294,13 +305,6 @@ impl SlotFieldType {
         match self {
             Self::Required => quote! { &'a ::vortex_array::ArrayRef },
             Self::Optional => quote! { Option<&'a ::vortex_array::ArrayRef> },
-        }
-    }
-
-    fn method_return_ty(self) -> proc_macro2::TokenStream {
-        match self {
-            Self::Required => quote! { &::vortex_array::ArrayRef },
-            Self::Optional => quote! { Option<&::vortex_array::ArrayRef> },
         }
     }
 }
