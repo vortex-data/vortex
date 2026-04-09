@@ -99,11 +99,6 @@ impl RotationMatrix {
         self.apply_inverse_srht(output);
     }
 
-    /// Returns the number of sign-diagonal + WHT rounds.
-    pub fn num_rounds(&self) -> usize {
-        self.num_rounds
-    }
-
     /// Returns the padded dimension (next power of 2 >= dim).
     ///
     /// All rotate/inverse_rotate buffers must be this length.
@@ -144,6 +139,7 @@ impl RotationMatrix {
     /// Convention: `1` = positive (+1), `0` = negative (-1). The output has length
     /// `num_rounds * padded_dim` and is suitable for bitpacking via FastLanes
     /// `bitpack_encode(..., 1, None)`.
+    #[cfg(test)]
     pub fn export_inverse_signs_u8(&self) -> Vec<u8> {
         let total = self.num_rounds * self.padded_dim;
         let mut out = Vec::with_capacity(total);
@@ -166,6 +162,7 @@ impl RotationMatrix {
     ///
     /// This is the decode-time reconstruction path: FastLanes SIMD-unpacks the stored
     /// [`BitPackedArray`] into `&[u8]`, which is passed here.
+    #[cfg(test)]
     pub fn from_u8_slice(
         signs_u8: &[u8],
         dimension: usize,
