@@ -269,7 +269,7 @@ impl VTable for Patched {
         let n_lanes = array.n_lanes;
         let offset = array.offset;
         let slots = match array.try_into_parts() {
-            Ok(mut parts) => {
+            Ok(parts) => {
                 PatchedSlots::from_slots(parts.slots)
                 // let inner = downcast_slot(take_slot(&mut parts.slots, INNER_SLOT));
                 // let lane_offsets = downcast_slot(take_slot(&mut parts.slots, LANE_OFFSETS_SLOT));
