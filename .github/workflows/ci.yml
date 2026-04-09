@@ -822,7 +822,7 @@ jobs:
           command: "cargo test --profile ci -p vortex-sqllogictest --test sqllogictests --no-run"
 
   wasm-integration:
-    name: "wasm-integration"
+    name: "WASM integration smoke test"
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
