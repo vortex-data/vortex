@@ -7,10 +7,12 @@ use crate::Buffer;
 use crate::ByteBufferMut;
 use crate::trusted_len::TrustedLenExt;
 
-/// Apply a unary operation to a borrowed [`BitBuffer`], always allocating a new buffer.
+/// Apply a unary operation to a [`BitBuffer`], allocating a new output buffer.
 ///
-/// Use this instead of [`bitwise_unary_op`] when you only have a reference, since
-/// clone + try_into_mut always fails (the clone shares the Arc with the original).
+/// In practice, `BitBuffer`s almost always have shared backing storage (from slicing,
+/// array construction, etc.), so attempting `try_into_mut` for in-place mutation is
+/// wasted overhead — it nearly always fails. We always allocate a fresh output instead.
+/// For true in-place mutation, use [`bitwise_unary_op_mut`] on a [`BitBufferMut`].
 #[inline]
 pub(super) fn bitwise_unary_op_copy<F: FnMut(u64) -> u64>(
     buffer: &BitBuffer,
@@ -51,53 +53,6 @@ pub(super) fn bitwise_unary_op_copy<F: FnMut(u64) -> u64>(
     // SAFETY: we wrote exactly src.len() bytes into the spare capacity.
     unsafe { dst.set_len(src.len()) };
     BitBuffer::new_with_offset(dst.freeze(), len, offset)
-}
-
-#[inline]
-pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: BitBuffer, mut op: F) -> BitBuffer {
-    match buffer.try_into_mut() {
-        Ok(mut buf) => {
-            bitwise_unary_op_mut(&mut buf, op);
-            buf.freeze()
-        }
-        Err(buffer) => {
-            let len = buffer.len();
-            let offset = buffer.offset();
-            let src = buffer.inner().as_slice();
-
-            let mut dst = ByteBufferMut::with_capacity(src.len());
-            let u64_len = src.len() / 8;
-            let remainder = src.len() % 8;
-
-            let mut src_ptr = src.as_ptr() as *const u64;
-            let mut dst_ptr = dst.spare_capacity_mut().as_mut_ptr() as *mut u64;
-            for _ in 0..u64_len {
-                let value = unsafe { src_ptr.read_unaligned() };
-                unsafe { dst_ptr.write_unaligned(op(value)) };
-                src_ptr = unsafe { src_ptr.add(1) };
-                dst_ptr = unsafe { dst_ptr.add(1) };
-            }
-
-            if remainder > 0 {
-                let mut remainder_u64 = 0u64;
-                let src_bytes = src_ptr as *const u8;
-                let dst_bytes = dst_ptr as *mut u8;
-                for i in 0..remainder {
-                    let byte = unsafe { src_bytes.add(i).read() };
-                    remainder_u64 |= (byte as u64) << (i * 8);
-                }
-                let remainder_u64 = op(remainder_u64);
-                for i in 0..remainder {
-                    let byte = ((remainder_u64 >> (i * 8)) & 0xFF) as u8;
-                    unsafe { dst_bytes.add(i).write(byte) };
-                }
-            }
-
-            // SAFETY: we wrote exactly src.len() bytes into the spare capacity.
-            unsafe { dst.set_len(src.len()) };
-            BitBuffer::new_with_offset(dst.freeze(), len, offset)
-        }
-    }
 }
 
 #[inline]
@@ -182,7 +137,7 @@ mod tests {
     #[test]
     fn test_bitwise_unary_not() {
         let buffer = BitBuffer::new(buffer![0b10101010u8], 4);
-        let result = bitwise_unary_op(buffer, |x| !x);
+        let result = bitwise_unary_op_copy(&buffer, |x| !x);
         assert_eq!(result, bitbuffer![true, false, true, false]);
     }
 
@@ -213,7 +168,7 @@ mod tests {
         assert_eq!(result, bitbuffer![false, true, true, false]);
     }
 
-    /// Regression test for a bug where [`bitwise_unary_op`] produced corrupt results when
+    /// Regression test for a bug where [`bitwise_unary_op_copy`] produced corrupt results when
     /// the [`BitBuffer`]'s underlying byte pointer was not u64-aligned. Slicing a buffer by
     /// a non-multiple-of-8 number of bytes can cause this misalignment. The bug only
     /// manifested for buffers larger than 16 bytes (> 128 bits), because Arrow's
