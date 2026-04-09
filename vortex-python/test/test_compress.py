@@ -32,13 +32,6 @@ def test_arrange_encode():
     assert compressed.nbytes < a.nbytes
 
 
-def test_zigzag_encode():
-    a = vortex.array(pa.array([-1, -1, 0, -1, 1, -1]))
-    zarr = vortex.ZigZagArray.encode(a)
-    assert isinstance(zarr, vortex.ZigZagArray)
-    # TODO(ngates): support decoding once we have decompressor.
-
-
 def test_chunked_encode():
     chunked = pa.chunked_array([pa.array([0, 1, 2]), pa.array([3, 4, 5])])
     encoded = vortex.array(chunked)

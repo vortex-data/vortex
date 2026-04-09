@@ -468,27 +468,23 @@ mod tests {
             let ctx = ArrayContext::empty();
 
             // Write the array into a byte buffer.
-            let (layout, _segments) = {
-                let segments = Arc::new(TestSegments::default());
-                let (ptr, eof) = SequenceId::root().split();
-                // Only allow the dict encoding; canonical primitive children remain permitted.
-                let mut allowed = HashSet::default();
-                allowed.insert(Dict.id());
-                let layout = FlatLayoutStrategy::default()
-                    .with_allow_encodings(allowed)
-                    .write_stream(
-                        ctx,
-                        Arc::<TestSegments>::clone(&segments),
-                        dict.into_array().to_array_stream().sequenced(ptr),
-                        eof,
-                        &session,
-                    )
-                    .await;
 
-                (layout, segments)
-            };
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            // Only allow the dict encoding; canonical primitive children remain permitted.
+            let mut allowed = HashSet::default();
+            allowed.insert(Dict.id());
 
-            assert!(layout.is_ok());
+            FlatLayoutStrategy::default()
+                .with_allow_encodings(allowed)
+                .write_stream(
+                    ctx,
+                    Arc::<TestSegments>::clone(&segments),
+                    dict.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
 
             Ok(())
         })

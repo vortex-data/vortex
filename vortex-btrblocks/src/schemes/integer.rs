@@ -42,9 +42,8 @@ use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
 use vortex_sequence::sequence_encode;
 use vortex_sparse::Sparse;
-use vortex_zigzag::ZigZag;
-use vortex_zigzag::ZigZagArrayExt;
 use vortex_zigzag::zigzag_encode;
+use vortex_zigzag::zigzag_try_new;
 
 use crate::ArrayAndStats;
 use crate::CascadingCompressor;
@@ -290,13 +289,13 @@ impl Scheme for ZigZagScheme {
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
         let zag = zigzag_encode(data.array_as_primitive())?;
-        let encoded = zag.encoded().to_primitive();
+        let encoded = zag.nth_child(0).vortex_expect("ZigZag should have 1 child");
 
-        let compressed = compressor.compress_child(&encoded.into_array(), &ctx, self.id(), 0)?;
+        let compressed = compressor.compress_child(&encoded, &ctx, self.id(), 0)?;
 
         tracing::debug!("zigzag output: {}", compressed.encoding_id());
 
-        Ok(ZigZag::try_new(compressed)?.into_array())
+        zigzag_try_new(compressed)
     }
 }
 

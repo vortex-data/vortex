@@ -30,10 +30,11 @@ use vortex::encodings::runend::RunEnd;
 use vortex::encodings::runend::RunEndArrayExt;
 use vortex::encodings::sequence::Sequence;
 use vortex::encodings::zigzag::ZigZag;
-use vortex::encodings::zigzag::ZigZagArrayExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
+use vortex::scalar_fn::ScalarFnPlugin;
+use vortex_error::VortexExpect;
 
 use super::CudaDispatchPlan;
 use super::MaterializedStage;
@@ -546,8 +547,10 @@ impl FusedPlan {
         array: ArrayRef,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {
-        let zz = array.as_::<ZigZag>();
-        let encoded = zz.encoded().clone();
+        let encoded = array
+            .nth_child(0)
+            .vortex_expect("ZigZag should have 1 child");
+
         let output_ptype = ptype_to_tag(PType::try_from(array.dtype()).map_err(|_| {
             vortex_err!("ZigZag must have primitive dtype, got {:?}", array.dtype())
         })?);

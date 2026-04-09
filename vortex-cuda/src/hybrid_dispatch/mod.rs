@@ -241,6 +241,7 @@ mod tests {
         let session = VortexSession::empty();
         fastlanes::initialize(&session);
         session.arrays().register(ZstdBuffers);
+
         let mut ctx = CudaSession::create_execution_ctx(&session).vortex_expect("ctx");
 
         let num_values: u32 = 64;

@@ -76,6 +76,7 @@ use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zstd::Zstd;
 #[cfg(feature = "unstable_encodings")]
 use vortex::encodings::zstd::ZstdBuffers;
+use vortex::scalar_fn::ScalarFnPlugin;
 #[cfg(test)]
 use vortex_cuda_macros::test;
 pub use vortex_nvcomp as nvcomp;

@@ -12,6 +12,7 @@ use vortex::array::validity::Validity;
 use vortex::encodings::zigzag::ZigZag;
 use vortex::encodings::zigzag::zigzag_encode;
 use vortex::error::VortexResult;
+use vortex::scalar_fn::ScalarFnVTable;
 
 use super::N;
 use crate::fixtures::FlatLayoutFixture;
@@ -81,17 +82,17 @@ impl FlatLayoutFixture for ZigZagFixture {
                 "head_tail_nulls",
             ]),
             vec![
-                zigzag_encode(alternating_i32.as_view())?.into_array(),
-                zigzag_encode(small_i64.as_view())?.into_array(),
-                zigzag_encode(deltas_i32.as_view())?.into_array(),
-                zigzag_encode(small_i16.as_view())?.into_array(),
-                zigzag_encode(small_i8.as_view())?.into_array(),
-                zigzag_encode(nullable_zigzag.as_view())?.into_array(),
-                zigzag_encode(extremes_i32.as_view())?.into_array(),
-                zigzag_encode(zero_heavy_outliers.as_view())?.into_array(),
-                zigzag_encode(repeated_negative.as_view())?.into_array(),
-                zigzag_encode(zero_crossing.as_view())?.into_array(),
-                zigzag_encode(head_tail_nulls.as_view())?.into_array(),
+                zigzag_encode(alternating_i32.as_view())?,
+                zigzag_encode(small_i64.as_view())?,
+                zigzag_encode(deltas_i32.as_view())?,
+                zigzag_encode(small_i16.as_view())?,
+                zigzag_encode(small_i8.as_view())?,
+                zigzag_encode(nullable_zigzag.as_view())?,
+                zigzag_encode(extremes_i32.as_view())?,
+                zigzag_encode(zero_heavy_outliers.as_view())?,
+                zigzag_encode(repeated_negative.as_view())?,
+                zigzag_encode(zero_crossing.as_view())?,
+                zigzag_encode(head_tail_nulls.as_view())?,
             ],
             N,
             Validity::NonNullable,
