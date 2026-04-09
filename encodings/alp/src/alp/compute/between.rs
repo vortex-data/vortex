@@ -123,7 +123,7 @@ mod tests {
     fn comparison_range() {
         let value = 0.0605_f32;
         let array = PrimitiveArray::from_iter([value; 1]);
-        let encoded = alp_encode(&array, None).unwrap();
+        let encoded = alp_encode(array.as_view(), None).unwrap();
         assert!(encoded.patches().is_none());
 
         assert_between(

@@ -874,7 +874,7 @@ mod tests {
             .collect();
         let float_prim = PrimitiveArray::new(Buffer::from(floats.clone()), NonNullable);
 
-        let alp = alp_encode(&float_prim, Some(exponents))?;
+        let alp = alp_encode(float_prim.as_view(), Some(exponents))?;
         assert!(alp.patches().is_none());
         let for_arr = FoR::encode(alp.encoded().to_primitive())?;
         let bp = BitPacked::encode(for_arr.encoded(), 6)?;

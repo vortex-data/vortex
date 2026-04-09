@@ -16,7 +16,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -244,7 +244,7 @@ impl RLE {
     }
 
     /// Encode a primitive array using FastLanes RLE.
-    pub fn encode(array: &PrimitiveArray) -> VortexResult<RLEArray> {
+    pub fn encode(array: ArrayView<'_, Primitive>) -> VortexResult<RLEArray> {
         RLEData::encode(array)
     }
 }

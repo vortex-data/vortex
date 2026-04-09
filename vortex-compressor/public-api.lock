@@ -268,9 +268,9 @@ pub fn vortex_compressor::builtins::StringDictScheme::scheme_name(&self) -> &'st
 
 pub fn vortex_compressor::builtins::StringDictScheme::stats_options(&self) -> vortex_compressor::stats::GenerateStatsOptions
 
-pub fn vortex_compressor::builtins::float_dictionary_encode(array: vortex_array::arrays::primitive::vtable::PrimitiveArray, stats: &vortex_compressor::stats::FloatStats) -> vortex_error::VortexResult<vortex_array::arrays::dict::vtable::DictArray>
+pub fn vortex_compressor::builtins::float_dictionary_encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, stats: &vortex_compressor::stats::FloatStats) -> vortex_error::VortexResult<vortex_array::arrays::dict::vtable::DictArray>
 
-pub fn vortex_compressor::builtins::integer_dictionary_encode(array: vortex_array::arrays::primitive::vtable::PrimitiveArray, stats: &vortex_compressor::stats::IntegerStats) -> vortex_error::VortexResult<vortex_array::arrays::dict::vtable::DictArray>
+pub fn vortex_compressor::builtins::integer_dictionary_encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, stats: &vortex_compressor::stats::IntegerStats) -> vortex_error::VortexResult<vortex_array::arrays::dict::vtable::DictArray>
 
 pub fn vortex_compressor::builtins::is_float_primitive(canonical: &vortex_array::canonical::Canonical) -> bool
 
@@ -668,9 +668,9 @@ impl vortex_compressor::stats::ArrayAndStats
 
 pub fn vortex_compressor::stats::ArrayAndStats::array(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_compressor::stats::ArrayAndStats::array_as_primitive(&self) -> vortex_array::arrays::primitive::vtable::PrimitiveArray
+pub fn vortex_compressor::stats::ArrayAndStats::array_as_primitive(&self) -> vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>
 
-pub fn vortex_compressor::stats::ArrayAndStats::array_as_utf8(&self) -> vortex_array::arrays::varbinview::vtable::VarBinViewArray
+pub fn vortex_compressor::stats::ArrayAndStats::array_as_utf8(&self) -> vortex_array::array::view::ArrayView<'_, vortex_array::arrays::varbinview::vtable::VarBinView>
 
 pub fn vortex_compressor::stats::ArrayAndStats::array_len(&self) -> usize
 

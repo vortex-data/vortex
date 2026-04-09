@@ -105,7 +105,7 @@ impl Scheme for ALPScheme {
         data: &mut ArrayAndStats,
         ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = alp_encode(&data.array_as_primitive(), None)?;
+        let alp_encoded = alp_encode(data.array_as_primitive(), None)?;
 
         // Compress the ALP ints.
         let compressed_alp_ints =
@@ -174,7 +174,7 @@ impl Scheme for ALPRDScheme {
             ptype => vortex_panic!("cannot ALPRD compress ptype {ptype}"),
         };
 
-        let alp_rd = encoder.encode(&primitive_array);
+        let alp_rd = encoder.encode(primitive_array);
         let dtype = alp_rd.dtype().clone();
         let right_bit_width = alp_rd.right_bit_width();
         let mut parts = ALPRDArrayOwnedExt::into_data_parts(alp_rd);
@@ -289,7 +289,7 @@ impl Scheme for PcoScheme {
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
         Ok(vortex_pco::Pco::from_primitive(
-            &data.array_as_primitive(),
+            data.array_as_primitive(),
             pco::DEFAULT_COMPRESSION_LEVEL,
             8192,
         )?

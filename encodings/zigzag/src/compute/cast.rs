@@ -42,7 +42,7 @@ mod tests {
     #[test]
     fn test_cast_zigzag_i32_to_i64() {
         let values = PrimitiveArray::from_iter([-100i32, -1, 0, 1, 100]);
-        let zigzag = zigzag_encode(values).unwrap();
+        let zigzag = zigzag_encode(values.as_view()).unwrap();
 
         let casted = zigzag
             .into_array()
@@ -68,7 +68,7 @@ mod tests {
     fn test_cast_zigzag_width_changes() {
         // Test i32 to i16 (narrowing)
         let values = PrimitiveArray::from_iter([100i32, -50, 0, 25, -100]);
-        let zigzag = zigzag_encode(values).unwrap();
+        let zigzag = zigzag_encode(values.as_view()).unwrap();
 
         let casted = zigzag
             .into_array()
@@ -87,7 +87,7 @@ mod tests {
 
         // Test i16 to i64 (widening)
         let values16 = PrimitiveArray::from_iter([1000i16, -500, 0, 250, -1000]);
-        let zigzag16 = zigzag_encode(values16).unwrap();
+        let zigzag16 = zigzag_encode(values16.as_view()).unwrap();
 
         let casted64 = zigzag16
             .into_array()
@@ -109,7 +109,7 @@ mod tests {
     fn test_cast_zigzag_nullable() {
         let values =
             PrimitiveArray::from_option_iter([Some(-10i32), None, Some(0), Some(10), None]);
-        let zigzag = zigzag_encode(values).unwrap();
+        let zigzag = zigzag_encode(values.as_view()).unwrap();
 
         let casted = zigzag
             .into_array()
@@ -122,10 +122,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(zigzag_encode(PrimitiveArray::from_iter([-100i32, -50, -1, 0, 1, 50, 100])).unwrap())]
-    #[case(zigzag_encode(PrimitiveArray::from_iter([-1000i64, -1, 0, 1, 1000])).unwrap())]
-    #[case(zigzag_encode(PrimitiveArray::from_option_iter([Some(-5i16), None, Some(0), Some(5), None])).unwrap())]
-    #[case(zigzag_encode(PrimitiveArray::from_iter([i32::MIN, -1, 0, 1, i32::MAX])).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_iter([-100i32, -50, -1, 0, 1, 50, 100]).as_view()).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_iter([-1000i64, -1, 0, 1, 1000]).as_view()).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_option_iter([Some(-5i16), None, Some(0), Some(5), None]).as_view()).unwrap())]
+    #[case(zigzag_encode(PrimitiveArray::from_iter([i32::MIN, -1, 0, 1, i32::MAX]).as_view()).unwrap())]
     fn test_cast_zigzag_conformance(#[case] array: ZigZagArray) {
         test_cast_conformance(&array.into_array());
     }

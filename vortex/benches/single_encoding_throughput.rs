@@ -217,13 +217,13 @@ fn bench_zigzag_compress_i32(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| int_array.clone())
-        .bench_values(|a| zigzag_encode(a).unwrap());
+        .bench_values(|a| zigzag_encode(a.as_view()).unwrap());
 }
 
 #[divan::bench(name = "zigzag_decompress_i32")]
 fn bench_zigzag_decompress_i32(bencher: Bencher) {
     let (_, int_array, _) = setup_primitive_arrays();
-    let compressed = zigzag_encode(int_array).unwrap().into_array();
+    let compressed = zigzag_encode(int_array.as_view()).unwrap().into_array();
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| &compressed)
@@ -237,7 +237,7 @@ fn bench_sequence_compress_u32(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 4)
         .with_inputs(|| seq_array.clone())
-        .bench_values(|a| sequence_encode(&a).unwrap().unwrap());
+        .bench_values(|a| sequence_encode(a.as_view()).unwrap().unwrap());
 }
 
 #[expect(clippy::cast_possible_truncation)]
@@ -258,13 +258,13 @@ fn bench_alp_compress_f64(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &float_array)
-        .bench_refs(|a| alp_encode(a, None).unwrap());
+        .bench_refs(|a| alp_encode(a.as_view(), None).unwrap());
 }
 
 #[divan::bench(name = "alp_decompress_f64")]
 fn bench_alp_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
-    let compressed = alp_encode(&float_array, None).unwrap();
+    let compressed = alp_encode(float_array.as_view(), None).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &compressed)
@@ -279,7 +279,7 @@ fn bench_alp_rd_compress_f64(bencher: Bencher) {
         .with_inputs(|| &float_array)
         .bench_refs(|a| {
             let encoder = RDEncoder::new(a.as_slice::<f64>());
-            encoder.encode(a)
+            encoder.encode(a.as_view())
         });
 }
 
@@ -287,7 +287,7 @@ fn bench_alp_rd_compress_f64(bencher: Bencher) {
 fn bench_alp_rd_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
     let encoder = RDEncoder::new(float_array.as_slice::<f64>());
-    let compressed = encoder.encode(&float_array);
+    let compressed = encoder.encode(float_array.as_view());
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &compressed)
@@ -300,13 +300,13 @@ fn bench_pcodec_compress_f64(bencher: Bencher) {
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &float_array)
-        .bench_refs(|a| Pco::from_primitive(a, 3, 0).unwrap());
+        .bench_refs(|a| Pco::from_primitive(a.as_view(), 3, 0).unwrap());
 }
 
 #[divan::bench(name = "pcodec_decompress_f64")]
 fn bench_pcodec_decompress_f64(bencher: Bencher) {
     let (_, _, float_array) = setup_primitive_arrays();
-    let compressed = Pco::from_primitive(&float_array, 3, 0).unwrap();
+    let compressed = Pco::from_primitive(float_array.as_view(), 3, 0).unwrap();
 
     with_byte_counter(bencher, NUM_VALUES * 8)
         .with_inputs(|| &compressed)

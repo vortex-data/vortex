@@ -116,7 +116,7 @@ mod tests {
             .collect();
 
         let parray = PrimitiveArray::from_iter(values);
-        let alp_encoded = alp_encode(&parray, None)?;
+        let alp_encoded = alp_encode(parray.as_view(), None)?;
 
         assert!(
             alp_encoded.patches().is_some(),
@@ -165,7 +165,7 @@ mod tests {
         // Values that encode cleanly without patches.
         let values: Vec<f64> = (0..100).map(|i| i as f64).collect();
         let parray = PrimitiveArray::from_iter(values);
-        let alp_encoded = alp_encode(&parray, None)?;
+        let alp_encoded = alp_encode(parray.as_view(), None)?;
 
         assert!(
             alp_encoded.patches().is_none(),

@@ -205,7 +205,7 @@ mod tests {
             Some(5.0),
         ];
         let prim = PrimitiveArray::from_option_iter(values);
-        let alp_array = alp_encode(&prim, None)?;
+        let alp_array = alp_encode(prim.as_view(), None)?;
 
         let cpu_result = alp_array.to_canonical()?.into_array();
 
@@ -232,7 +232,7 @@ mod tests {
             Buffer::from(vec![1.0f32, 2.0, 3.0, 4.0, 5.0]),
             Validity::AllValid,
         );
-        let alp_array = alp_encode(&values, None)?;
+        let alp_array = alp_encode(values.as_view(), None)?;
 
         let cpu_result = alp_array.to_canonical()?.into_array();
 

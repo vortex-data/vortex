@@ -103,7 +103,7 @@ mod setup {
     /// Create ALP <- FoR <- BitPacked encoding tree for f64
     pub fn alp_for_bp_f64() -> ArrayRef {
         let (_, _, float_array) = setup_primitive_arrays();
-        let alp_compressed = alp_encode(&float_array, None).unwrap();
+        let alp_compressed = alp_encode(float_array.as_view(), None).unwrap();
 
         // Manually construct ALP <- FoR <- BitPacked tree
         let for_array = FoR::encode(alp_compressed.encoded().to_primitive()).unwrap();

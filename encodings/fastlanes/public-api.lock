@@ -16,7 +16,7 @@ pub fn vortex_fastlanes::bit_transpose::untranspose_validity(validity: &vortex_a
 
 pub mod vortex_fastlanes::bitpack_compress
 
-pub fn vortex_fastlanes::bitpack_compress::bit_width_histogram(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<alloc::vec::Vec<usize>>
+pub fn vortex_fastlanes::bitpack_compress::bit_width_histogram(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> vortex_error::VortexResult<alloc::vec::Vec<usize>>
 
 pub fn vortex_fastlanes::bitpack_compress::bitpack_encode(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray, bit_width: u8, bit_width_freq: core::option::Option<&[usize]>) -> vortex_error::VortexResult<vortex_fastlanes::BitPackedArray>
 
@@ -476,7 +476,7 @@ impl vortex_fastlanes::RLE
 
 pub const vortex_fastlanes::RLE::ID: vortex_array::array::ArrayId
 
-pub fn vortex_fastlanes::RLE::encode(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
+pub fn vortex_fastlanes::RLE::encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
 
 pub unsafe fn vortex_fastlanes::RLE::new_unchecked(values: vortex_array::array::erased::ArrayRef, indices: vortex_array::array::erased::ArrayRef, values_idx_offsets: vortex_array::array::erased::ArrayRef, offset: usize, length: usize) -> vortex_fastlanes::RLEArray
 
@@ -540,7 +540,7 @@ pub struct vortex_fastlanes::RLEData
 
 impl vortex_fastlanes::RLEData
 
-pub fn vortex_fastlanes::RLEData::encode(array: &vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
+pub fn vortex_fastlanes::RLEData::encode(array: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> vortex_error::VortexResult<vortex_fastlanes::RLEArray>
 
 impl vortex_fastlanes::RLEData
 

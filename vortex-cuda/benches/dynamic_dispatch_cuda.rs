@@ -382,7 +382,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
         let float_prim = PrimitiveArray::new(Buffer::from(floats), NonNullable);
 
         // Encode: ALP → FoR → BitPacked
-        let alp = alp_encode(&float_prim, Some(exponents)).vortex_expect("alp_encode");
+        let alp = alp_encode(float_prim.as_view(), Some(exponents)).vortex_expect("alp_encode");
         assert!(alp.patches().is_none());
         let for_arr = FoRData::encode(alp.encoded().to_primitive()).vortex_expect("for encode");
         let bp =

@@ -43,7 +43,7 @@ fn encode_specialized(bencher: Bencher) {
     let stats = IntegerStats::generate(&array);
     bencher
         .with_inputs(|| &stats)
-        .bench_refs(|stats| integer_dictionary_encode(array.clone(), stats));
+        .bench_refs(|stats| integer_dictionary_encode(array.as_view(), stats));
 }
 
 fn main() {
