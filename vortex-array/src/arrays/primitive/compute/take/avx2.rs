@@ -135,6 +135,10 @@ unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(buffer: &[V], indices: &[I
         }};
     }
 
+    if buffer.is_empty() {
+        return Buffer::zeroed(indices.len());
+    }
+
     match (I::PTYPE, V::PTYPE) {
         // Int value types. Only 32 and 64 bit types are supported.
         (PType::U8, PType::I32) => dispatch_avx2!(u8, i32),
