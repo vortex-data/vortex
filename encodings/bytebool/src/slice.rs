@@ -9,7 +9,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::filter::FilterReduce;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ByteBool;
@@ -29,17 +28,9 @@ impl SliceReduce for ByteBool {
 
 impl FilterReduce for ByteBool {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        let ranges = match mask.slices() {
-            AllOr::Some(slices) => slices,
-            // Precondition: FilterReduce only runs for non-trivial masks.
-            AllOr::All | AllOr::None => {
-                unreachable!("precondition violated: expected a Mask::Values slice list")
-            }
-        };
-        let ranges: Vec<Range<usize>> = ranges.iter().map(|&(s, e)| s..e).collect();
         Ok(Some(
             ByteBoolData::new(
-                array.buffer().filter_typed::<u8>(&ranges)?,
+                array.buffer().filter(mask, size_of::<u8>())?,
                 array.validity().filter(mask)?,
             )
             .into_array(),

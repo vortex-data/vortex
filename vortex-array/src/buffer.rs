@@ -15,6 +15,8 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
 
@@ -113,16 +115,6 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
 pub trait DeviceBufferExt: DeviceBuffer {
     /// Slice a range of elements `T` out of the device buffer.
     fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
-
-    /// Select and concatenate multiple element ranges of type `T` from this buffer.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the device cannot allocate memory or copy the data.
-    fn filter_typed<T: Sized>(
-        &self,
-        ranges: &[Range<usize>],
-    ) -> VortexResult<Arc<dyn DeviceBuffer>>;
 }
 
 impl<B: DeviceBuffer> DeviceBufferExt for B {
@@ -130,17 +122,6 @@ impl<B: DeviceBuffer> DeviceBufferExt for B {
         let start_bytes = range.start * size_of::<T>();
         let end_bytes = range.end * size_of::<T>();
         self.slice(start_bytes..end_bytes)
-    }
-
-    fn filter_typed<T: Sized>(
-        &self,
-        ranges: &[Range<usize>],
-    ) -> VortexResult<Arc<dyn DeviceBuffer>> {
-        let byte_ranges: Vec<Range<usize>> = ranges
-            .iter()
-            .map(|r| (r.start * size_of::<T>())..(r.end * size_of::<T>()))
-            .collect();
-        self.filter(&byte_ranges)
     }
 }
 
@@ -249,10 +230,10 @@ impl BufferHandle {
     /// # use vortex_array::buffer::BufferHandle;
     /// # use vortex_buffer::buffer;
     /// let handle = BufferHandle::new_host(buffer![1u8, 2, 3, 4, 5, 6]);
-    /// let filtered = handle.filter(&[0..2, 4..6]).unwrap();
+    /// let filtered = handle.copy_ranges(&[0..2, 4..6]).unwrap();
     /// assert_eq!(filtered.unwrap_host(), buffer![1u8, 2, 5, 6]);
     /// ```
-    pub fn filter(&self, ranges: &[Range<usize>]) -> VortexResult<Self> {
+    pub fn copy_ranges(&self, ranges: &[Range<usize>]) -> VortexResult<Self> {
         match &self.0 {
             Inner::Host(host) => {
                 let total_len: usize = ranges.iter().map(|r| r.len()).sum();
@@ -266,25 +247,35 @@ impl BufferHandle {
         }
     }
 
-    /// Select and concatenate multiple element ranges of type `T` from this buffer.
+    /// Filter this buffer using a mask, where each element is `byte_width` bytes wide.
+    ///
+    /// Extracts the contiguous runs of `true` values from the mask, scales them by `byte_width`,
+    /// and copies the selected byte ranges into a new buffer.
     ///
     /// # Example
     ///
     /// ```
     /// # use vortex_array::buffer::BufferHandle;
     /// # use vortex_buffer::{buffer, Buffer};
+    /// # use vortex_mask::Mask;
     /// let values = buffer![1u32, 2u32, 3u32, 4u32, 5u32, 6u32];
     /// let handle = BufferHandle::new_host(values.into_byte_buffer());
-    /// let filtered = handle.filter_typed::<u32>(&[0..2, 4..6]).unwrap();
+    /// let mask = Mask::from_slices(6, vec![(0, 2), (4, 6)]);
+    /// let filtered = handle.filter(&mask, size_of::<u32>()).unwrap();
     /// let result = Buffer::<u32>::from_byte_buffer(filtered.to_host_sync());
     /// assert_eq!(result, buffer![1, 2, 5, 6]);
     /// ```
-    pub fn filter_typed<T: Sized>(&self, ranges: &[Range<usize>]) -> VortexResult<Self> {
-        let byte_ranges: Vec<Range<usize>> = ranges
+    pub fn filter(&self, mask: &Mask, byte_width: usize) -> VortexResult<Self> {
+        let slices = match mask.slices() {
+            AllOr::Some(slices) => slices,
+            AllOr::All => return Ok(self.clone()),
+            AllOr::None => return self.copy_ranges(&[]),
+        };
+        let byte_ranges: Vec<Range<usize>> = slices
             .iter()
-            .map(|r| (r.start * size_of::<T>())..(r.end * size_of::<T>()))
+            .map(|&(s, e)| (s * byte_width)..(e * byte_width))
             .collect();
-        self.filter(&byte_ranges)
+        self.copy_ranges(&byte_ranges)
     }
 
     /// Reinterpret the pointee as a buffer of `T` and slice the provided element range.

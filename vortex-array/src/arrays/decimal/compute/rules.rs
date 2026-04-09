@@ -4,7 +4,6 @@
 use std::ops::Range;
 
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -79,20 +78,12 @@ impl SliceReduce for Decimal {
 
 impl FilterReduce for Decimal {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        let ranges = match mask.slices() {
-            AllOr::Some(slices) => slices,
-            // Precondition: FilterReduce only runs for non-trivial masks.
-            AllOr::All | AllOr::None => {
-                unreachable!("precondition violated: expected a Mask::Values slice list")
-            }
-        };
-        let ranges: Vec<Range<usize>> = ranges.iter().map(|&(s, e)| s..e).collect();
         let result = match_each_decimal_value_type!(array.values_type(), |D| {
             // SAFETY: Filtering preserves all DecimalArray invariants — values within
             // precision bounds remain valid, and we correctly filter the validity.
             unsafe {
                 DecimalArray::new_unchecked_handle(
-                    array.buffer_handle().filter_typed::<D>(&ranges)?,
+                    array.buffer_handle().filter(mask, size_of::<D>())?,
                     array.values_type(),
                     array.decimal_dtype(),
                     array.validity().filter(mask)?,

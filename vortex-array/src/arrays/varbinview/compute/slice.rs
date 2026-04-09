@@ -5,7 +5,6 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -35,17 +34,9 @@ impl SliceReduce for VarBinView {
 
 impl FilterReduce for VarBinView {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
-        let ranges = match mask.slices() {
-            AllOr::Some(slices) => slices,
-            // Precondition: FilterReduce only runs for non-trivial masks.
-            AllOr::All | AllOr::None => {
-                unreachable!("precondition violated: expected a Mask::Values slice list")
-            }
-        };
-        let ranges: Vec<Range<usize>> = ranges.iter().map(|&(s, e)| s..e).collect();
         Ok(Some(
             VarBinViewArray::new_handle(
-                array.views_handle().filter_typed::<BinaryView>(&ranges)?,
+                array.views_handle().filter(mask, size_of::<BinaryView>())?,
                 Arc::clone(array.data_buffers()),
                 array.dtype().clone(),
                 array.validity().filter(mask)?,
