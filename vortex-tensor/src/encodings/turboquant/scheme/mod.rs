@@ -1,16 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant compression scheme and decompression.
+//! TurboQuant compression scheme.
 //!
 //! The scheme first normalizes the input via [`normalize_as_l2_denorm`], then encodes the
-//! normalized child via [`turboquant_encode`]. The result is:
+//! normalized child via [`turboquant_encode_unchecked`]. The result is:
 //!
 //! ```text
-//! ScalarFnArray(L2Denorm, [TurboQuantArray, norms])
+//! ScalarFnArray(L2Denorm, [
+//!     ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))]),
+//!     norms
+//! ])
 //! ```
 //!
+//! Decompression is automatic: executing the outer array walks the ScalarFn tree.
+//!
 //! [`normalize_as_l2_denorm`]: crate::scalar_fns::l2_denorm::normalize_as_l2_denorm
+//! [`turboquant_encode_unchecked`]: crate::encodings::turboquant::turboquant_encode_unchecked
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -25,15 +31,15 @@ use vortex_compressor::stats::ArrayAndStats;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::encodings::turboquant::TurboQuant;
+use crate::encodings::turboquant::MAX_CENTROIDS;
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::turboquant_encode_unchecked;
+use crate::encodings::turboquant::validate_vector_dtype;
 use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 
 pub(super) mod compress;
-pub(super) mod decompress;
 
 /// TurboQuant compression scheme for [`Vector`] extension types.
 ///
@@ -64,7 +70,7 @@ impl Scheme for TurboQuantScheme {
             return false;
         };
 
-        TurboQuant::validate_dtype(ext.dtype()).is_ok()
+        validate_vector_dtype(ext.dtype()).is_ok()
     }
 
     fn expected_compression_ratio(
@@ -76,7 +82,7 @@ impl Scheme for TurboQuantScheme {
         let dtype = data.array().dtype();
 
         let vector_metadata =
-            TurboQuant::validate_dtype(dtype).vortex_expect("invalid dtype for TurboQuant");
+            validate_vector_dtype(dtype).vortex_expect("invalid dtype for TurboQuant");
         let element_ptype = vector_metadata.element_ptype();
         let bit_width: u8 = element_ptype
             .bit_width()
@@ -100,28 +106,29 @@ impl Scheme for TurboQuantScheme {
 
         let mut ctx = compressor.execution_ctx();
 
-        // Normalize first: produces L2Denorm(normalized_vectors, norms).
+        // 1. Normalize: produces L2Denorm(normalized_vectors, norms).
         let l2_denorm =
             normalize_as_l2_denorm(&ApproxOptions::Exact, ext_array.as_ref().clone(), &mut ctx)?;
         let normalized = l2_denorm.child_at(0).clone();
         let norms = l2_denorm.child_at(1).clone();
         let num_rows = l2_denorm.len();
 
-        // Quantize the normalized child.
+        // 2. Quantize the normalized child → SorfTransform(FSL(Dict)).
         let normalized_ext = normalized
             .as_opt::<Extension>()
             .vortex_expect("normalized child should be an Extension array");
         let config = TurboQuantConfig::default();
         // SAFETY: We just normalized the input via `normalize_as_l2_denorm`, so all rows are
         // guaranteed to be unit-norm (or zero for originally-null rows).
-        let tq = unsafe { turboquant_encode_unchecked(normalized_ext, &config, &mut ctx)? };
+        let sorf_dict = unsafe { turboquant_encode_unchecked(normalized_ext, &config, &mut ctx)? };
 
+        // 3. Wrap in L2Denorm: the SorfTransform is the "normalized" child.
         // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
         // bypass the strict normalized-row validation when reattaching the stored norms.
-        Ok(
-            unsafe { L2Denorm::new_array_unchecked(&ApproxOptions::Exact, tq, norms, num_rows) }?
-                .into_array(),
-        )
+        Ok(unsafe {
+            L2Denorm::new_array_unchecked(&ApproxOptions::Exact, sorf_dict, norms, num_rows)
+        }?
+        .into_array())
     }
 }
 
@@ -134,12 +141,11 @@ fn estimate_compression_ratio(bits_per_element: u8, dimensions: u32, num_vectors
     let compressed_bits_per_vector = 32 // norm is always f32
         + (config.bit_width as usize) * padded_dim; // MSE codes
 
-    // Shared overhead: codebook centroids (2^bit_width f32 values) and
-    // rotation signs (num_rounds * padded_dim bits).
+    // Shared overhead: codebook centroids (2^bit_width f32 values).
+    // Note: rotation signs are no longer stored — rotation is deterministic from seed.
     let num_centroids = 1usize << config.bit_width;
-    debug_assert!(num_centroids <= TurboQuant::MAX_CENTROIDS);
-    let overhead_bits = num_centroids * 32 // centroids are always f32
-        + config.num_rounds as usize * padded_dim; // rotation signs, 1 bit each
+    debug_assert!(num_centroids <= MAX_CENTROIDS);
+    let overhead_bits = num_centroids * 32; // centroids are always f32
 
     let compressed_size_bits = compressed_bits_per_vector * num_vectors + overhead_bits;
 
@@ -155,15 +161,15 @@ mod tests {
 
     /// Verify compression ratio for typical embedding dimensions.
     ///
-    /// f32 input at 768-d (padded to 1024) with 1000 vectors should give ~4-6x.
-    /// f32 input at 1024-d (no padding) should give higher ratio since no waste.
+    /// f32 input at 768-d (padded to 1024) with 1000 vectors should give ~3x.
+    /// f32 input at 1024-d (no padding) should give ~4x since no padding waste.
     #[rstest]
-    #[case::f32_768d(32, 768, 1000, 2.5, 4.0)]
+    #[case::f32_768d(32, 768, 1000, 2.5, 4.5)]
     #[case::f32_1024d(32, 1024, 1000, 3.5, 5.0)]
-    #[case::f32_1536d(32, 1536, 1000, 2.5, 4.0)]
+    #[case::f32_1536d(32, 1536, 1000, 2.5, 4.5)]
     #[case::f32_128d(32, 128, 1000, 3.0, 5.0)]
-    #[case::f64_768d(64, 768, 1000, 5.0, 7.0)]
-    #[case::f16_768d(16, 768, 1000, 1.2, 2.0)]
+    #[case::f64_768d(64, 768, 1000, 5.0, 9.0)]
+    #[case::f16_768d(16, 768, 1000, 1.2, 2.5)]
     fn compression_ratio_in_expected_range(
         #[case] bits_per_element: u8,
         #[case] dim: u32,

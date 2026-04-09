@@ -9,6 +9,7 @@ pub mod cosine_similarity;
 pub mod inner_product;
 pub mod l2_denorm;
 pub mod l2_norm;
+pub mod sorf_transform;
 
 /// Options for tensor-related expressions that might have error.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]

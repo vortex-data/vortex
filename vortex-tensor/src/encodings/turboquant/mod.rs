@@ -17,19 +17,28 @@
 //! TurboQuant minimizes mean-squared reconstruction error (1-8 bits per coordinate)
 //! using MSE-optimal scalar quantization on coordinates of a rotated unit vector.
 //!
-//! The `TurboQuantArray` stores only the quantized unit-norm vector data (codes, centroids,
-//! rotation signs). Per-vector L2 norms are stored separately in an [`L2Denorm`] ScalarFnArray
-//! wrapper. The [`turboquant_encode`] function returns this wrapper:
+//! The encoding is decomposed into independently swappable layers:
+//!
+//! - **Normalization**: [`L2Denorm`] stores per-vector norms and wraps the compressed child.
+//! - **Rotation**: [`SorfTransform`] records the structured random rotation (SORF) and applies
+//!   the inverse at decode time.
+//! - **Quantization**: `DictArray(codes, centroids)` wrapped in `FixedSizeListArray` stores
+//!   the per-coordinate codebook indices.
+//!
+//! The full encoded tree is:
 //!
 //! ```text
-//! ScalarFnArray(L2Denorm, [TurboQuantArray, norms])
+//! ScalarFnArray(L2Denorm, [
+//!     ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))]),
+//!     norms
+//! ])
 //! ```
 //!
-//! When executed, the TQ array decompresses to unit-norm vectors, and the [`L2Denorm`] function
-//! lazily re-applies the stored norms to reconstruct the original magnitudes.
+//! When executed, the tree automatically decompresses: Dict dequantizes codes → SorfTransform
+//! inverse-rotates → L2Denorm re-applies norms → original vectors (approximately).
 //!
 //! [`L2Denorm`]: crate::scalar_fns::l2_denorm::L2Denorm
-//! [`turboquant_encode`]: crate::encodings::turboquant::turboquant_encode
+//! [`SorfTransform`]: crate::scalar_fns::sorf_transform::SorfTransform
 //!
 //! The TurboQuant paper analyzes a full random orthogonal rotation. The current Vortex
 //! implementation instead uses a fixed 3-round Walsh-Hadamard-based structured transform with
@@ -133,24 +142,55 @@
 //! assert!(tq.nbytes() < 51200);
 //! ```
 
-mod array;
-pub use array::data::TurboQuantArrayExt;
-pub use array::data::TurboQuantData;
-
-pub(crate) mod compute;
-
-mod metadata;
-
-mod vtable;
-
-pub use vtable::TurboQuant;
-pub use vtable::TurboQuantArray;
+pub(crate) mod centroids;
+pub(crate) mod rotation;
 
 mod scheme;
 pub use scheme::TurboQuantScheme;
 pub use scheme::compress::TurboQuantConfig;
 pub use scheme::compress::turboquant_encode;
 pub use scheme::compress::turboquant_encode_unchecked;
+
+/// Minimum vector dimension for TurboQuant encoding.
+///
+/// Note that this is not a theoretical minimum, it is mostly a practical one to limit the total
+/// amount of distortion.
+pub const MIN_DIMENSION: u32 = 128;
+
+/// Maximum supported number of bits per quantized coordinate.
+pub const MAX_BIT_WIDTH: u8 = 8;
+
+/// Maximum supported number of centroids in the scalar quantizer codebook.
+pub const MAX_CENTROIDS: usize = 1usize << (MAX_BIT_WIDTH as usize);
+
+use vortex_array::dtype::DType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
+use vortex_error::vortex_err;
+
+use crate::vector::AnyVector;
+use crate::vector::VectorMatcherMetadata;
+
+/// Validates that `dtype` is a [`Vector`](crate::vector::Vector) extension type with
+/// dimension >= [`MIN_DIMENSION`].
+///
+/// Returns the validated vector metadata on success.
+pub fn validate_vector_dtype(dtype: &DType) -> VortexResult<VectorMatcherMetadata> {
+    let vector_metadata = dtype
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<AnyVector>())
+        .ok_or_else(|| {
+            vortex_err!("TurboQuant dtype must be a Vector extension type, got {dtype}")
+        })?;
+
+    let dimensions = vector_metadata.dimensions();
+    vortex_ensure!(
+        dimensions >= MIN_DIMENSION,
+        "TurboQuant requires dimension >= {MIN_DIMENSION}, got {dimensions}",
+    );
+
+    Ok(vector_metadata)
+}
 
 #[cfg(test)]
 mod tests;
