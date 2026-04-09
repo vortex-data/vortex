@@ -211,7 +211,7 @@ pub fn find_nearest_centroid(value: f32, boundaries: &[f32]) -> u8 {
     );
     debug_assert!(
         boundaries.len() <= 256, // 1 << 8
-        "boundaries must be sorted"
+        "too many boundaries"
     );
 
     #[expect(

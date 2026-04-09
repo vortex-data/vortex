@@ -7,10 +7,10 @@
 //! approximation to a random orthogonal matrix using random sign diagonals interleaved with the
 //! Fast Walsh-Hadamard Transform (FWHT).
 //!
-//! For `k` rounds, the transform is `D_k * H * ... * D_1 * H`, followed by normalization. The
-//! number of rounds is configurable (typically 3). Each round applies a random sign diagonal `D_i`
-//! and the Hadamard matrix `H`, giving O(d log d) cost per matrix-vector product instead of O(d^2)
-//! for a dense orthogonal matrix.
+//! For `k` rounds, the transform is `norm * H * D_k * ... * H * D_1 * x`, where `D_1` is the
+//! first sign diagonal applied. The number of rounds is configurable (typically 3). Each round
+//! applies a random sign diagonal `D_i` and then the Hadamard matrix `H`, giving O(d log d) cost
+//! per matrix-vector product instead of the O(d^2) cost of a dense orthogonal matrix.
 //!
 //! [sorf-paper]: https://proceedings.neurips.cc/paper_files/paper/2016/file/53adaf494dc89ef7196d73636eb2451b-Paper.pdf
 //!
@@ -117,7 +117,7 @@ impl SorfMatrix {
         self.apply_inverse_srht(output);
     }
 
-    /// Apply the forward structured transform: `D_k · H · ... · D₁ · H · x`, with normalization.
+    /// Apply the forward structured transform: `norm · H · D_k · ... · H · D₁ · x`.
     fn apply_srht(&self, buf: &mut [f32]) {
         for round in 0..self.num_rounds {
             let offset = round * self.padded_dim;
@@ -131,7 +131,7 @@ impl SorfMatrix {
 
     /// Apply the inverse structured transform.
     ///
-    /// Forward is: `norm · H · D_k · H · ... · D₁ · H`.
+    /// Forward is: `norm · H · D_k · ... · H · D₁`.
     /// Inverse is: `norm · D₁ · H · ... · D_k · H`.
     fn apply_inverse_srht(&self, buf: &mut [f32]) {
         for round in (0..self.num_rounds).rev() {

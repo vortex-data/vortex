@@ -315,8 +315,8 @@ pub fn normalize_as_l2_denorm(
     })?;
 
     // SAFETY:
-    // - `norms_array` was produced by `L2Norm(Exact, input)`, so every stored norm is
-    //   non-negative and null rows already carry null validity through that child.
+    // - `norms_array` was produced by `L2Norm(input)`, so every stored norm is non-negative and
+    //   null rows already carry null validity through that child.
     // - For every valid row, we either emit all zeros when the norm is zero or divide every
     //   element by the exact stored norm, so the normalized child is unit-norm (or zero) by
     //   construction.

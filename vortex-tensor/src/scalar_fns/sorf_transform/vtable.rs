@@ -180,7 +180,7 @@ impl ScalarFnVTable for SorfTransform {
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
-        true
+        false
     }
 }
 
