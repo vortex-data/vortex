@@ -10,8 +10,9 @@ use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
-use crate::aggregate_fn::combined::{BinaryCombined, CombinedOptions};
+use crate::aggregate_fn::combined::BinaryCombined;
 use crate::aggregate_fn::combined::Combined;
+use crate::aggregate_fn::combined::CombinedOptions;
 use crate::aggregate_fn::combined::PairOptions;
 use crate::aggregate_fn::fns::count::Count;
 use crate::aggregate_fn::fns::sum::Sum;
@@ -98,7 +99,7 @@ impl BinaryCombined for Mean {
     fn serialize(&self, _options: &CombinedOptions<Self>) -> VortexResult<Option<Vec<u8>>> {
         unimplemented!("Mean is not yet serializable");
     }
-    
+
     fn coerce_args(
         &self,
         _options: &PairOptions<
