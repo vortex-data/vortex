@@ -296,6 +296,60 @@ pub fn vortex_alp::ALPRDMetadata::clear(&mut self)
 
 pub fn vortex_alp::ALPRDMetadata::encoded_len(&self) -> usize
 
+pub struct vortex_alp::ALPSlots
+
+pub vortex_alp::ALPSlots::encoded: vortex_array::array::erased::ArrayRef
+
+pub vortex_alp::ALPSlots::patch_chunk_offsets: core::option::Option<vortex_array::array::erased::ArrayRef>
+
+pub vortex_alp::ALPSlots::patch_indices: core::option::Option<vortex_array::array::erased::ArrayRef>
+
+pub vortex_alp::ALPSlots::patch_values: core::option::Option<vortex_array::array::erased::ArrayRef>
+
+impl vortex_alp::ALPSlots
+
+pub const vortex_alp::ALPSlots::COUNT: usize
+
+pub const vortex_alp::ALPSlots::ENCODED: usize
+
+pub const vortex_alp::ALPSlots::NAMES: [&'static str; 4]
+
+pub const vortex_alp::ALPSlots::PATCH_CHUNK_OFFSETS: usize
+
+pub const vortex_alp::ALPSlots::PATCH_INDICES: usize
+
+pub const vortex_alp::ALPSlots::PATCH_VALUES: usize
+
+pub fn vortex_alp::ALPSlots::from_slots(slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> Self
+
+pub fn vortex_alp::ALPSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+pub struct vortex_alp::ALPSlotsView<'a>
+
+pub vortex_alp::ALPSlotsView::encoded: &'a vortex_array::array::erased::ArrayRef
+
+pub vortex_alp::ALPSlotsView::patch_chunk_offsets: core::option::Option<&'a vortex_array::array::erased::ArrayRef>
+
+pub vortex_alp::ALPSlotsView::patch_indices: core::option::Option<&'a vortex_array::array::erased::ArrayRef>
+
+pub vortex_alp::ALPSlotsView::patch_values: core::option::Option<&'a vortex_array::array::erased::ArrayRef>
+
+impl<'a> vortex_alp::ALPSlotsView<'a>
+
+pub fn vortex_alp::ALPSlotsView<'a>::from_slots(slots: &'a [core::option::Option<vortex_array::array::erased::ArrayRef>]) -> Self
+
+pub fn vortex_alp::ALPSlotsView<'a>::to_owned(&self) -> vortex_alp::ALPSlots
+
+impl<'a> core::clone::Clone for vortex_alp::ALPSlotsView<'a>
+
+pub fn vortex_alp::ALPSlotsView<'a>::clone(&self) -> vortex_alp::ALPSlotsView<'a>
+
+impl<'a> core::fmt::Debug for vortex_alp::ALPSlotsView<'a>
+
+pub fn vortex_alp::ALPSlotsView<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::Copy for vortex_alp::ALPSlotsView<'a>
+
 pub struct vortex_alp::Exponents
 
 pub vortex_alp::Exponents::e: u8
@@ -338,17 +392,13 @@ pub fn vortex_alp::RDEncoder::from_parts(right_bit_width: u8, codes: alloc::vec:
 
 pub fn vortex_alp::RDEncoder::new<T>(sample: &[T]) -> Self where T: vortex_alp::ALPRDFloat + vortex_array::dtype::ptype::NativePType, <T as vortex_alp::ALPRDFloat>::UINT: vortex_array::dtype::ptype::NativePType
 
-pub trait vortex_alp::ALPArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALP>
-
-pub fn vortex_alp::ALPArrayExt::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+pub trait vortex_alp::ALPArrayExt: vortex_alp::ALPArraySlotsExt
 
 pub fn vortex_alp::ALPArrayExt::exponents(&self) -> vortex_alp::Exponents
 
 pub fn vortex_alp::ALPArrayExt::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALP>> vortex_alp::ALPArrayExt for T
-
-pub fn T::encoded(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn T::exponents(&self) -> vortex_alp::Exponents
 
@@ -361,6 +411,30 @@ pub fn vortex_alp::ALPArrayOwnedExt::into_parts(self) -> (vortex_array::array::e
 impl vortex_alp::ALPArrayOwnedExt for vortex_array::array::typed::Array<vortex_alp::ALP>
 
 pub fn vortex_array::array::typed::Array<vortex_alp::ALP>::into_parts(self) -> (vortex_array::array::erased::ArrayRef, vortex_alp::Exponents, core::option::Option<vortex_array::patches::Patches>)
+
+pub trait vortex_alp::ALPArraySlotsExt: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALP>
+
+pub fn vortex_alp::ALPArraySlotsExt::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_alp::ALPArraySlotsExt::patch_chunk_offsets(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_alp::ALPArraySlotsExt::patch_indices(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_alp::ALPArraySlotsExt::patch_values(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_alp::ALPArraySlotsExt::slots_view(&self) -> vortex_alp::ALPSlotsView<'_>
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALP>> vortex_alp::ALPArraySlotsExt for T
+
+pub fn T::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::patch_chunk_offsets(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::patch_indices(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::patch_values(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::slots_view(&self) -> vortex_alp::ALPSlotsView<'_>
 
 pub trait vortex_alp::ALPFloat: vortex_alp::alp::private::Sealed + num_traits::float::Float + core::fmt::Display + vortex_array::dtype::ptype::NativePType
 

@@ -11,7 +11,7 @@ use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
-use vortex::array::arrays::dict::DictArrayExt;
+use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;

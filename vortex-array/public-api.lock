@@ -1,5 +1,7 @@
 pub mod vortex_array
 
+pub use vortex_array::array_slots
+
 pub mod vortex_array::accessor
 
 pub trait vortex_array::accessor::ArrayAccessor<Item: ?core::marker::Sized>
@@ -1930,7 +1932,7 @@ pub fn vortex_array::arrays::dict::Dict::serialize(array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::dict::Dict::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::dict::Dict::validate(&self, data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::dict::Dict::validate(&self, _data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::ValidityVTable<vortex_array::arrays::dict::Dict> for vortex_array::arrays::dict::Dict
 
@@ -2026,7 +2028,7 @@ pub fn vortex_array::arrays::dict::Dict::serialize(array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::dict::Dict::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::dict::Dict::validate(&self, data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::dict::Dict::validate(&self, _data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::ValidityVTable<vortex_array::arrays::dict::Dict> for vortex_array::arrays::dict::Dict
 
@@ -2124,6 +2126,48 @@ pub fn vortex_array::arrays::dict::DictMetadata::clear(&mut self)
 
 pub fn vortex_array::arrays::dict::DictMetadata::encoded_len(&self) -> usize
 
+pub struct vortex_array::arrays::dict::DictSlots
+
+pub vortex_array::arrays::dict::DictSlots::codes: vortex_array::ArrayRef
+
+pub vortex_array::arrays::dict::DictSlots::values: vortex_array::ArrayRef
+
+impl vortex_array::arrays::dict::DictSlots
+
+pub const vortex_array::arrays::dict::DictSlots::CODES: usize
+
+pub const vortex_array::arrays::dict::DictSlots::COUNT: usize
+
+pub const vortex_array::arrays::dict::DictSlots::NAMES: [&'static str; 2]
+
+pub const vortex_array::arrays::dict::DictSlots::VALUES: usize
+
+pub fn vortex_array::arrays::dict::DictSlots::from_slots(slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> Self
+
+pub fn vortex_array::arrays::dict::DictSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>
+
+pub struct vortex_array::arrays::dict::DictSlotsView<'a>
+
+pub vortex_array::arrays::dict::DictSlotsView::codes: &'a vortex_array::ArrayRef
+
+pub vortex_array::arrays::dict::DictSlotsView::values: &'a vortex_array::ArrayRef
+
+impl<'a> vortex_array::arrays::dict::DictSlotsView<'a>
+
+pub fn vortex_array::arrays::dict::DictSlotsView<'a>::from_slots(slots: &'a [core::option::Option<vortex_array::ArrayRef>]) -> Self
+
+pub fn vortex_array::arrays::dict::DictSlotsView<'a>::to_owned(&self) -> vortex_array::arrays::dict::DictSlots
+
+impl<'a> core::clone::Clone for vortex_array::arrays::dict::DictSlotsView<'a>
+
+pub fn vortex_array::arrays::dict::DictSlotsView<'a>::clone(&self) -> vortex_array::arrays::dict::DictSlotsView<'a>
+
+impl<'a> core::fmt::Debug for vortex_array::arrays::dict::DictSlotsView<'a>
+
+pub fn vortex_array::arrays::dict::DictSlotsView<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::Copy for vortex_array::arrays::dict::DictSlotsView<'a>
+
 pub struct vortex_array::arrays::dict::TakeExecuteAdaptor<V>(pub V)
 
 impl<V: core::default::Default> core::default::Default for vortex_array::arrays::dict::TakeExecuteAdaptor<V>
@@ -2156,9 +2200,7 @@ pub type vortex_array::arrays::dict::TakeReduceAdaptor<V>::Parent = vortex_array
 
 pub fn vortex_array::arrays::dict::TakeReduceAdaptor<V>::reduce_parent(&self, array: vortex_array::ArrayView<'_, V>, parent: vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub trait vortex_array::arrays::dict::DictArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::dict::Dict>
-
-pub fn vortex_array::arrays::dict::DictArrayExt::codes(&self) -> &vortex_array::ArrayRef
+pub trait vortex_array::arrays::dict::DictArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::dict::Dict> + vortex_array::arrays::dict::DictArraySlotsExt
 
 pub fn vortex_array::arrays::dict::DictArrayExt::compute_referenced_values_mask(&self, referenced: bool) -> vortex_error::VortexResult<vortex_buffer::bit::buf::BitBuffer>
 
@@ -2166,17 +2208,27 @@ pub fn vortex_array::arrays::dict::DictArrayExt::has_all_values_referenced(&self
 
 pub fn vortex_array::arrays::dict::DictArrayExt::validate_all_values_referenced(&self) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::arrays::dict::DictArrayExt::values(&self) -> &vortex_array::ArrayRef
-
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::dict::Dict>> vortex_array::arrays::dict::DictArrayExt for T
-
-pub fn T::codes(&self) -> &vortex_array::ArrayRef
 
 pub fn T::compute_referenced_values_mask(&self, referenced: bool) -> vortex_error::VortexResult<vortex_buffer::bit::buf::BitBuffer>
 
 pub fn T::has_all_values_referenced(&self) -> bool
 
 pub fn T::validate_all_values_referenced(&self) -> vortex_error::VortexResult<()>
+
+pub trait vortex_array::arrays::dict::DictArraySlotsExt: vortex_array::TypedArrayRef<vortex_array::arrays::dict::Dict>
+
+pub fn vortex_array::arrays::dict::DictArraySlotsExt::codes(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::dict::DictArraySlotsExt::slots_view(&self) -> vortex_array::arrays::dict::DictSlotsView<'_>
+
+pub fn vortex_array::arrays::dict::DictArraySlotsExt::values(&self) -> &vortex_array::ArrayRef
+
+impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::dict::Dict>> vortex_array::arrays::dict::DictArraySlotsExt for T
+
+pub fn T::codes(&self) -> &vortex_array::ArrayRef
+
+pub fn T::slots_view(&self) -> vortex_array::arrays::dict::DictSlotsView<'_>
 
 pub fn T::values(&self) -> &vortex_array::ArrayRef
 
@@ -3432,11 +3484,61 @@ pub fn vortex_array::arrays::patched::PatchedMetadata::clear(&mut self)
 
 pub fn vortex_array::arrays::patched::PatchedMetadata::encoded_len(&self) -> usize
 
-pub trait vortex_array::arrays::patched::PatchedArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::patched::Patched>
+pub struct vortex_array::arrays::patched::PatchedSlots
 
-pub fn vortex_array::arrays::patched::PatchedArrayExt::base_array(&self) -> &vortex_array::ArrayRef
+pub vortex_array::arrays::patched::PatchedSlots::inner: vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::patched::PatchedArrayExt::lane_offsets(&self) -> &vortex_array::ArrayRef
+pub vortex_array::arrays::patched::PatchedSlots::lane_offsets: vortex_array::ArrayRef
+
+pub vortex_array::arrays::patched::PatchedSlots::patch_indices: vortex_array::ArrayRef
+
+pub vortex_array::arrays::patched::PatchedSlots::patch_values: vortex_array::ArrayRef
+
+impl vortex_array::arrays::patched::PatchedSlots
+
+pub const vortex_array::arrays::patched::PatchedSlots::COUNT: usize
+
+pub const vortex_array::arrays::patched::PatchedSlots::INNER: usize
+
+pub const vortex_array::arrays::patched::PatchedSlots::LANE_OFFSETS: usize
+
+pub const vortex_array::arrays::patched::PatchedSlots::NAMES: [&'static str; 4]
+
+pub const vortex_array::arrays::patched::PatchedSlots::PATCH_INDICES: usize
+
+pub const vortex_array::arrays::patched::PatchedSlots::PATCH_VALUES: usize
+
+pub fn vortex_array::arrays::patched::PatchedSlots::from_slots(slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> Self
+
+pub fn vortex_array::arrays::patched::PatchedSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>
+
+pub struct vortex_array::arrays::patched::PatchedSlotsView<'a>
+
+pub vortex_array::arrays::patched::PatchedSlotsView::inner: &'a vortex_array::ArrayRef
+
+pub vortex_array::arrays::patched::PatchedSlotsView::lane_offsets: &'a vortex_array::ArrayRef
+
+pub vortex_array::arrays::patched::PatchedSlotsView::patch_indices: &'a vortex_array::ArrayRef
+
+pub vortex_array::arrays::patched::PatchedSlotsView::patch_values: &'a vortex_array::ArrayRef
+
+impl<'a> vortex_array::arrays::patched::PatchedSlotsView<'a>
+
+pub fn vortex_array::arrays::patched::PatchedSlotsView<'a>::from_slots(slots: &'a [core::option::Option<vortex_array::ArrayRef>]) -> Self
+
+pub fn vortex_array::arrays::patched::PatchedSlotsView<'a>::to_owned(&self) -> vortex_array::arrays::patched::PatchedSlots
+
+impl<'a> core::clone::Clone for vortex_array::arrays::patched::PatchedSlotsView<'a>
+
+pub fn vortex_array::arrays::patched::PatchedSlotsView<'a>::clone(&self) -> vortex_array::arrays::patched::PatchedSlotsView<'a>
+
+impl<'a> core::fmt::Debug for vortex_array::arrays::patched::PatchedSlotsView<'a>
+
+pub fn vortex_array::arrays::patched::PatchedSlotsView<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::Copy for vortex_array::arrays::patched::PatchedSlotsView<'a>
+
+pub trait vortex_array::arrays::patched::PatchedArrayExt: vortex_array::arrays::patched::PatchedArraySlotsExt
 
 pub fn vortex_array::arrays::patched::PatchedArrayExt::lane_range(&self, chunk: usize, lane: usize) -> vortex_error::VortexResult<core::ops::range::Range<usize>>
 
@@ -3444,17 +3546,9 @@ pub fn vortex_array::arrays::patched::PatchedArrayExt::n_lanes(&self) -> usize
 
 pub fn vortex_array::arrays::patched::PatchedArrayExt::offset(&self) -> usize
 
-pub fn vortex_array::arrays::patched::PatchedArrayExt::patch_indices(&self) -> &vortex_array::ArrayRef
-
-pub fn vortex_array::arrays::patched::PatchedArrayExt::patch_values(&self) -> &vortex_array::ArrayRef
-
 pub fn vortex_array::arrays::patched::PatchedArrayExt::slice_chunks(&self, chunks: core::ops::range::Range<usize>) -> vortex_error::VortexResult<vortex_array::Array<vortex_array::arrays::patched::Patched>>
 
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::patched::Patched>> vortex_array::arrays::patched::PatchedArrayExt for T
-
-pub fn T::base_array(&self) -> &vortex_array::ArrayRef
-
-pub fn T::lane_offsets(&self) -> &vortex_array::ArrayRef
 
 pub fn T::lane_range(&self, chunk: usize, lane: usize) -> vortex_error::VortexResult<core::ops::range::Range<usize>>
 
@@ -3462,11 +3556,31 @@ pub fn T::n_lanes(&self) -> usize
 
 pub fn T::offset(&self) -> usize
 
+pub fn T::slice_chunks(&self, chunks: core::ops::range::Range<usize>) -> vortex_error::VortexResult<vortex_array::Array<vortex_array::arrays::patched::Patched>>
+
+pub trait vortex_array::arrays::patched::PatchedArraySlotsExt: vortex_array::TypedArrayRef<vortex_array::arrays::patched::Patched>
+
+pub fn vortex_array::arrays::patched::PatchedArraySlotsExt::inner(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::patched::PatchedArraySlotsExt::lane_offsets(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::patched::PatchedArraySlotsExt::patch_indices(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::patched::PatchedArraySlotsExt::patch_values(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::patched::PatchedArraySlotsExt::slots_view(&self) -> vortex_array::arrays::patched::PatchedSlotsView<'_>
+
+impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::patched::Patched>> vortex_array::arrays::patched::PatchedArraySlotsExt for T
+
+pub fn T::inner(&self) -> &vortex_array::ArrayRef
+
+pub fn T::lane_offsets(&self) -> &vortex_array::ArrayRef
+
 pub fn T::patch_indices(&self) -> &vortex_array::ArrayRef
 
 pub fn T::patch_values(&self) -> &vortex_array::ArrayRef
 
-pub fn T::slice_chunks(&self, chunks: core::ops::range::Range<usize>) -> vortex_error::VortexResult<vortex_array::Array<vortex_array::arrays::patched::Patched>>
+pub fn T::slots_view(&self) -> vortex_array::arrays::patched::PatchedSlotsView<'_>
 
 pub type vortex_array::arrays::patched::PatchedArray = vortex_array::Array<vortex_array::arrays::patched::Patched>
 
@@ -5510,7 +5624,7 @@ pub fn vortex_array::arrays::dict::Dict::serialize(array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::dict::Dict::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::dict::Dict::validate(&self, data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::dict::Dict::validate(&self, _data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::ValidityVTable<vortex_array::arrays::dict::Dict> for vortex_array::arrays::dict::Dict
 
@@ -19938,7 +20052,7 @@ pub fn vortex_array::arrays::dict::Dict::serialize(array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::dict::Dict::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::dict::Dict::validate(&self, data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::dict::Dict::validate(&self, _data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::null::Null
 
@@ -20910,7 +21024,7 @@ pub fn vortex_array::arrays::dict::Dict::serialize(array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::dict::Dict::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::dict::Dict::validate(&self, data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::dict::Dict::validate(&self, _data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::null::Null
 
@@ -23590,7 +23704,7 @@ pub fn vortex_array::arrays::dict::Dict::serialize(array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::dict::Dict::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::dict::Dict::validate(&self, data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::dict::Dict::validate(&self, _data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::null::Null
 
@@ -24810,7 +24924,7 @@ pub fn vortex_array::arrays::dict::Dict::serialize(array: vortex_array::ArrayVie
 
 pub fn vortex_array::arrays::dict::Dict::slot_name(_array: vortex_array::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
-pub fn vortex_array::arrays::dict::Dict::validate(&self, data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_array::arrays::dict::Dict::validate(&self, _data: &vortex_array::arrays::dict::DictData, dtype: &vortex_array::dtype::DType, len: usize, slots: &[core::option::Option<vortex_array::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::VTable for vortex_array::arrays::null::Null
 

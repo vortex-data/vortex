@@ -27,6 +27,7 @@ use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::encodings::alp::ALP;
 use vortex::encodings::alp::ALPArrayExt;
+use vortex::encodings::alp::ALPArraySlotsExt;
 use vortex::encodings::alp::alp_encode;
 use vortex::encodings::datetime_parts::DateTimeParts;
 use vortex::encodings::datetime_parts::split_temporal;

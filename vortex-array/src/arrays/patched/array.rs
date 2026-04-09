@@ -7,7 +7,6 @@ use std::ops::Range;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -19,6 +18,7 @@ use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
+use crate::array_slots;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::TransposedPatches;
@@ -32,18 +32,6 @@ use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
 use crate::validity::Validity;
-
-/// The inner array containing the base unpatched values.
-pub(super) const INNER_SLOT: usize = 0;
-/// The lane offsets array for locating patches within lanes.
-pub(super) const LANE_OFFSETS_SLOT: usize = 1;
-/// The indices of patched (exception) values.
-pub(super) const INDICES_SLOT: usize = 2;
-/// The patched (exception) values at the corresponding indices.
-pub(super) const VALUES_SLOT: usize = 3;
-pub(super) const NUM_SLOTS: usize = 4;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] =
-    ["inner", "lane_offsets", "patch_indices", "patch_values"];
 
 #[derive(Debug, Clone)]
 pub struct PatchedData {
@@ -60,6 +48,18 @@ pub struct PatchedData {
     pub(super) offset: usize,
 }
 
+#[array_slots(Patched)]
+pub struct PatchedSlots {
+    /// The inner array containing the base unpatched values.
+    pub inner: ArrayRef,
+    /// The lane offsets array for locating patches within lanes.
+    pub lane_offsets: ArrayRef,
+    /// The indices of patched (exception) values.
+    pub patch_indices: ArrayRef,
+    /// The patched (exception) values at the corresponding indices.
+    pub patch_values: ArrayRef,
+}
+
 impl Display for PatchedData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "n_lanes: {}, offset: {}", self.n_lanes, self.offset)
@@ -71,79 +71,31 @@ impl PatchedData {
         &self,
         dtype: &DType,
         len: usize,
-        slots: &[Option<ArrayRef>],
+        slots: &PatchedSlotsView,
     ) -> VortexResult<()> {
-        let base_array = base_array_from_slots(slots);
-        let patch_indices = patch_indices_from_slots(slots);
-        let patch_values = patch_values_from_slots(slots);
-
         vortex_ensure!(
-            base_array.dtype() == dtype,
+            slots.inner.dtype() == dtype,
             "PatchedArray base dtype {} does not match outer dtype {}",
-            base_array.dtype(),
+            slots.inner.dtype(),
             dtype
         );
         vortex_ensure!(
-            base_array.len() == len,
+            slots.inner.len() == len,
             "PatchedArray base len {} does not match outer len {}",
-            base_array.len(),
+            slots.inner.len(),
             len
         );
         vortex_ensure!(
-            patch_indices.len() == patch_values.len(),
+            slots.patch_indices.len() == slots.patch_values.len(),
             "PatchedArray patch indices len {} does not match patch values len {}",
-            patch_indices.len(),
-            patch_values.len()
+            slots.patch_indices.len(),
+            slots.patch_values.len()
         );
         Ok(())
     }
 }
 
-fn base_array_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
-    slots[INNER_SLOT]
-        .as_ref()
-        .vortex_expect("PatchedArray inner slot")
-}
-
-fn lane_offsets_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
-    slots[LANE_OFFSETS_SLOT]
-        .as_ref()
-        .vortex_expect("PatchedArray lane_offsets slot")
-}
-
-fn patch_indices_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
-    slots[INDICES_SLOT]
-        .as_ref()
-        .vortex_expect("PatchedArray indices slot")
-}
-
-fn patch_values_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
-    slots[VALUES_SLOT]
-        .as_ref()
-        .vortex_expect("PatchedArray values slot")
-}
-
-pub trait PatchedArrayExt: TypedArrayRef<Patched> {
-    #[inline]
-    fn base_array(&self) -> &ArrayRef {
-        base_array_from_slots(self.as_ref().slots())
-    }
-
-    #[inline]
-    fn lane_offsets(&self) -> &ArrayRef {
-        lane_offsets_from_slots(self.as_ref().slots())
-    }
-
-    #[inline]
-    fn patch_indices(&self) -> &ArrayRef {
-        patch_indices_from_slots(self.as_ref().slots())
-    }
-
-    #[inline]
-    fn patch_values(&self) -> &ArrayRef {
-        patch_values_from_slots(self.as_ref().slots())
-    }
-
+pub trait PatchedArrayExt: PatchedArraySlotsExt {
     #[inline]
     fn n_lanes(&self) -> usize {
         self.n_lanes
@@ -195,15 +147,16 @@ pub trait PatchedArrayExt: TypedArrayRef<Patched> {
             .min(self.as_ref().len());
 
         let offset = if chunks.start == 0 { self.offset() } else { 0 };
-        let inner = self.base_array().slice(begin..end)?;
+        let inner = self.inner().slice(begin..end)?;
         let len = inner.len();
         let dtype = self.as_ref().dtype().clone();
-        let slots = vec![
-            Some(inner),
-            Some(sliced_lane_offsets),
-            Some(indices),
-            Some(values),
-        ];
+        let slots = PatchedSlots {
+            inner,
+            lane_offsets: sliced_lane_offsets,
+            patch_indices: indices,
+            patch_values: values,
+        }
+        .into_slots();
 
         Ok(unsafe { Patched::new_unchecked(dtype, len, slots, self.n_lanes(), offset) })
     }
@@ -267,7 +220,13 @@ impl Patched {
 
         let dtype = inner.dtype().clone();
         let len = inner.len();
-        let slots = vec![Some(inner), Some(lane_offsets), Some(indices), Some(values)];
+        let slots = PatchedSlots {
+            inner,
+            lane_offsets,
+            patch_indices: indices,
+            patch_values: values,
+        }
+        .into_slots();
         Ok(unsafe { Self::new_unchecked(dtype, len, slots, n_lanes, 0) })
     }
 
@@ -394,5 +353,48 @@ fn transpose<I: IntegerPType, V: NativePType>(
         lane_offsets: lane_offsets.freeze().into_byte_buffer(),
         indices: indices_buffer.freeze().into_byte_buffer(),
         values: values_buffer.freeze().into_byte_buffer(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+
+    use super::PatchedSlots;
+    use crate::ArrayRef;
+    use crate::IntoArray;
+    use crate::array_slots;
+    use crate::arrays::Null;
+    use crate::arrays::PrimitiveArray;
+    use crate::validity::Validity;
+
+    #[array_slots(Null)]
+    struct OptionalPatchedSlots {
+        required: ArrayRef,
+        maybe: Option<ArrayRef>,
+    }
+
+    #[test]
+    fn generated_slots_round_trip() {
+        let required = PrimitiveArray::new(buffer![1u8, 2, 3], Validity::NonNullable).into_array();
+        let optional = PrimitiveArray::new(buffer![4u8, 5, 6], Validity::NonNullable).into_array();
+
+        let slot_vec = vec![Some(required.clone()), Some(optional.clone())];
+        let view = OptionalPatchedSlotsView::from_slots(&slot_vec);
+        assert_eq!(view.required.len(), 3);
+        assert_eq!(view.maybe.expect("optional slot").len(), 3);
+
+        let cloned = OptionalPatchedSlots::from_slots(slot_vec);
+        assert_eq!(cloned.required.len(), required.len());
+        assert_eq!(cloned.maybe.expect("optional clone").len(), optional.len());
+
+        let rebuilt = PatchedSlots::from_slots(vec![
+            Some(required.clone()),
+            Some(optional.clone()),
+            Some(required.clone()),
+            Some(optional.clone()),
+        ]);
+        assert_eq!(rebuilt.inner.len(), required.len());
+        assert_eq!(rebuilt.patch_values.len(), optional.len());
     }
 }

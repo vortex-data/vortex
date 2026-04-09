@@ -13,6 +13,7 @@ use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
 use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::primitive::PrimitiveDataParts;
 use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
@@ -32,7 +33,7 @@ impl TakeExecute for Patched {
 
         // Perform take on the inner array, including the placeholders.
         let inner = array
-            .base_array()
+            .inner()
             .take(indices.clone())?
             .execute::<PrimitiveArray>(ctx)?;
 

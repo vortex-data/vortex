@@ -490,6 +490,7 @@ mod tests {
     use vortex::dtype::PType;
     use vortex::encodings::alp::ALP;
     use vortex::encodings::alp::ALPArrayExt;
+    use vortex::encodings::alp::ALPArraySlotsExt;
     use vortex::encodings::alp::ALPFloat;
     use vortex::encodings::alp::Exponents;
     use vortex::encodings::alp::alp_encode;

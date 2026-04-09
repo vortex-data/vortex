@@ -5,6 +5,7 @@
 
 use vortex_alp::ALP;
 use vortex_alp::ALPArrayExt;
+use vortex_alp::ALPArraySlotsExt;
 use vortex_alp::ALPRDArrayExt;
 use vortex_alp::ALPRDArrayOwnedExt;
 use vortex_alp::RDEncoder;

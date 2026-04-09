@@ -11,6 +11,7 @@ use vortex_mask::Mask;
 
 use crate::ALP;
 use crate::ALPArrayExt;
+use crate::ALPArraySlotsExt;
 
 impl FilterKernel for ALP {
     fn filter(

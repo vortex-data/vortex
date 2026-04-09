@@ -8,7 +8,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::ValidityVTable;
 use crate::arrays::DictArray;
-use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::Nullability;
 use crate::scalar::Scalar;

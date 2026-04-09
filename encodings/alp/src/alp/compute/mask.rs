@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 
 use crate::ALP;
 use crate::ALPArrayExt;
+use crate::ALPArraySlotsExt;
 
 impl MaskReduce for ALP {
     fn mask(array: ArrayView<'_, Self>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
