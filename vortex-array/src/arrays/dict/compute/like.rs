@@ -10,6 +10,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar_fn::fns::like::Like;

@@ -12,6 +12,7 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;

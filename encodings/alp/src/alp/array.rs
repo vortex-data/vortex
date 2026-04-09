@@ -85,9 +85,7 @@ impl VTable for ALP {
             dtype,
             len,
             data.exponents,
-            slots[ENCODED_SLOT]
-                .as_ref()
-                .vortex_expect("ALPArray encoded slot"),
+            ALPSlotsView::from_slots(slots).encoded,
             patches_from_slots(
                 slots,
                 data.patch_offset,
@@ -170,16 +168,16 @@ impl VTable for ALP {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        ALPSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let array = require_child!(array, array.encoded(), ENCODED_SLOT => Primitive);
+        let array = require_child!(array, array.encoded(), ALPSlots::ENCODED => Primitive);
         require_patches!(
             array,
-            PATCH_INDICES_SLOT,
-            PATCH_VALUES_SLOT,
-            PATCH_CHUNK_OFFSETS_SLOT
+            ALPSlots::PATCH_INDICES,
+            ALPSlots::PATCH_VALUES,
+            ALPSlots::PATCH_CHUNK_OFFSETS
         );
 
         Ok(ExecutionResult::done(
@@ -205,21 +203,17 @@ impl VTable for ALP {
     }
 }
 
-/// The ALP-encoded values array.
-pub(super) const ENCODED_SLOT: usize = 0;
-/// The indices of exception values that could not be ALP-encoded.
-pub(super) const PATCH_INDICES_SLOT: usize = 1;
-/// The exception values that could not be ALP-encoded.
-pub(super) const PATCH_VALUES_SLOT: usize = 2;
-/// Chunk offsets for the patch indices/values.
-pub(super) const PATCH_CHUNK_OFFSETS_SLOT: usize = 3;
-pub(super) const NUM_SLOTS: usize = 4;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
-    "encoded",
-    "patch_indices",
-    "patch_values",
-    "patch_chunk_offsets",
-];
+#[vortex_array::array_slots(ALP)]
+pub struct ALPSlots {
+    /// The ALP-encoded values array.
+    pub encoded: ArrayRef,
+    /// The indices of exception values that could not be ALP-encoded.
+    pub patch_indices: Option<ArrayRef>,
+    /// The exception values that could not be ALP-encoded.
+    pub patch_values: Option<ArrayRef>,
+    /// Chunk offsets for the patch indices/values.
+    pub patch_chunk_offsets: Option<ArrayRef>,
+}
 
 #[derive(Clone, Debug)]
 pub struct ALPData {
@@ -439,13 +433,7 @@ impl ALPData {
     }
 }
 
-pub trait ALPArrayExt: TypedArrayRef<ALP> {
-    fn encoded(&self) -> &ArrayRef {
-        self.as_ref().slots()[ENCODED_SLOT]
-            .as_ref()
-            .vortex_expect("ALPArray encoded slot")
-    }
-
+pub trait ALPArrayExt: ALPArraySlotsExt {
     fn exponents(&self) -> Exponents {
         self.exponents
     }
@@ -466,7 +454,8 @@ fn patches_from_slots(
     patch_offset_within_chunk: Option<usize>,
     len: usize,
 ) -> Option<Patches> {
-    match (&slots[PATCH_INDICES_SLOT], &slots[PATCH_VALUES_SLOT]) {
+    let view = ALPSlotsView::from_slots(slots);
+    match (view.patch_indices, view.patch_values) {
         (Some(indices), Some(values)) => {
             let patch_offset = patch_offset.vortex_expect("has patch slots but no patch_offset");
             Some(unsafe {
@@ -475,7 +464,7 @@ fn patches_from_slots(
                     patch_offset,
                     indices.clone(),
                     values.clone(),
-                    slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                    view.patch_chunk_offsets.cloned(),
                     patch_offset_within_chunk,
                 )
             })

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     # Core crates in dependency order
+    "vortex-array-macros",
     "vortex-error",
     "vortex-buffer",
     "vortex-mask",
@@ -238,6 +239,7 @@ tempfile = "3"
 termtree = { version = "1.0" }
 test-with = "0.15"
 thiserror = "2.0.3"
+vortex-array-macros = { path = "./vortex-array-macros" }
 tokio = { version = "1.48" }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.17"

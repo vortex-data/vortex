@@ -30,21 +30,17 @@ use crate::bitpack_compress::bitpack_encode;
 use crate::unpack_iter::BitPacked;
 use crate::unpack_iter::BitUnpackedChunks;
 
-/// The indices of exception values that don't fit in the bit-packed representation.
-pub(super) const PATCH_INDICES_SLOT: usize = 0;
-/// The exception values that don't fit in the bit-packed representation.
-pub(super) const PATCH_VALUES_SLOT: usize = 1;
-/// Chunk offsets for the patch indices/values.
-pub(super) const PATCH_CHUNK_OFFSETS_SLOT: usize = 2;
-/// The validity bitmap indicating which elements are non-null.
-pub(super) const VALIDITY_SLOT: usize = 3;
-pub(super) const NUM_SLOTS: usize = 4;
-pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
-    "patch_indices",
-    "patch_values",
-    "patch_chunk_offsets",
-    "validity",
-];
+#[vortex_array::array_slots(crate::BitPacked)]
+pub struct BitPackedSlots {
+    /// The indices of exception values that don't fit in the bit-packed representation.
+    pub patch_indices: Option<ArrayRef>,
+    /// The exception values that don't fit in the bit-packed representation.
+    pub patch_values: Option<ArrayRef>,
+    /// Chunk offsets for the patch indices/values.
+    pub patch_chunk_offsets: Option<ArrayRef>,
+    /// The validity bitmap indicating which elements are non-null.
+    pub validity_child: Option<ArrayRef>,
+}
 
 pub struct BitPackedDataParts {
     pub offset: u16,
@@ -274,7 +270,7 @@ impl BitPackedData {
     }
 }
 
-pub trait BitPackedArrayExt: TypedArrayRef<crate::BitPacked> {
+pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
     #[inline]
     fn packed(&self) -> &BufferHandle {
         BitPackedData::packed(self)
@@ -288,26 +284,6 @@ pub trait BitPackedArrayExt: TypedArrayRef<crate::BitPacked> {
     #[inline]
     fn offset(&self) -> u16 {
         BitPackedData::offset(self)
-    }
-
-    #[inline]
-    fn patch_indices(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[PATCH_INDICES_SLOT].as_ref()
-    }
-
-    #[inline]
-    fn patch_values(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[PATCH_VALUES_SLOT].as_ref()
-    }
-
-    #[inline]
-    fn patch_chunk_offsets(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[PATCH_CHUNK_OFFSETS_SLOT].as_ref()
-    }
-
-    #[inline]
-    fn validity_child(&self) -> Option<&ArrayRef> {
-        self.as_ref().slots()[VALIDITY_SLOT].as_ref()
     }
 
     #[inline]
@@ -368,6 +344,7 @@ mod test {
 
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
+    use crate::bitpacking::array::BitPackedArraySlotsExt;
 
     #[test]
     fn test_encode() {

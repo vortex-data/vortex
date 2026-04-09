@@ -15,9 +15,8 @@ use vortex_session::VortexSession;
 
 use super::DictData;
 use super::DictMetadata;
-use super::array::CODES_SLOT;
-use super::array::SLOT_NAMES;
-use super::array::VALUES_SLOT;
+use super::array::DictSlots;
+use super::array::DictSlotsView;
 use super::take_canonical;
 use crate::AnyCanonical;
 use crate::ArrayEq;
@@ -32,6 +31,7 @@ use crate::array::VTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::Primitive;
 use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -84,12 +84,9 @@ impl VTable for Dict {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         _ = data;
-        let codes = slots[CODES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray codes slot");
-        let values = slots[VALUES_SLOT]
-            .as_ref()
-            .vortex_expect("DictArray values slot");
+        let view = DictSlotsView::from_slots(slots);
+        let codes = view.codes;
+        let values = view.values;
         vortex_ensure!(codes.len() == len, "DictArray codes length mismatch");
         vortex_ensure!(
             values
@@ -170,7 +167,7 @@ impl VTable for Dict {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        DictSlots::NAMES[idx].to_string()
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
@@ -181,7 +178,7 @@ impl VTable for Dict {
             return Ok(ExecutionResult::done(Canonical::empty(&result_dtype)));
         }
 
-        let array = require_child!(array, array.codes(), 0 => Primitive);
+        let array = require_child!(array, array.codes(), DictSlots::CODES => Primitive);
 
         // TODO(joe): use stat get instead computing.
         // Also not the check to do here it take value validity using code validity, but this approx
@@ -193,7 +190,7 @@ impl VTable for Dict {
             )));
         }
 
-        let array = require_child!(array, array.values(), 1 => AnyCanonical);
+        let array = require_child!(array, array.values(), DictSlots::VALUES => AnyCanonical);
 
         let codes = array
             .codes()

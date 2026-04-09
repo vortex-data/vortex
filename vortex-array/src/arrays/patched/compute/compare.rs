@@ -17,6 +17,7 @@ use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::bool::BoolDataParts;
 use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::primitive::NativeValue;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::NativePType;
@@ -44,7 +45,7 @@ impl CompareKernel for Patched {
         // NOTE: due to offset, it's possible that the inner.len != array.len.
         //  We slice the inner before performing the comparison.
         let result = lhs
-            .base_array()
+            .inner()
             .binary(
                 ConstantArray::new(constant.clone(), lhs.len()).into_array(),
                 operator.into(),

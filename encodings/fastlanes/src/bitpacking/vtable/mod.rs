@@ -42,11 +42,7 @@ use crate::BitPackedData;
 use crate::BitPackedDataParts;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
-use crate::bitpacking::array::PATCH_CHUNK_OFFSETS_SLOT;
-use crate::bitpacking::array::PATCH_INDICES_SLOT;
-use crate::bitpacking::array::PATCH_VALUES_SLOT;
-use crate::bitpacking::array::SLOT_NAMES;
-use crate::bitpacking::array::VALIDITY_SLOT;
+use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
@@ -104,8 +100,14 @@ impl VTable for BitPacked {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let validity = child_to_validity(&slots[VALIDITY_SLOT].clone(), dtype.nullability());
-        let patches = match (&slots[PATCH_INDICES_SLOT], &slots[PATCH_VALUES_SLOT]) {
+        let validity = child_to_validity(
+            &slots[BitPackedSlots::VALIDITY_CHILD].clone(),
+            dtype.nullability(),
+        );
+        let patches = match (
+            &slots[BitPackedSlots::PATCH_INDICES],
+            &slots[BitPackedSlots::PATCH_VALUES],
+        ) {
             (Some(indices), Some(values)) => {
                 let patch_offset = data
                     .patch_offset
@@ -116,7 +118,7 @@ impl VTable for BitPacked {
                         patch_offset,
                         indices.clone(),
                         values.clone(),
-                        slots[PATCH_CHUNK_OFFSETS_SLOT].clone(),
+                        slots[BitPackedSlots::PATCH_CHUNK_OFFSETS].clone(),
                         data.patch_offset_within_chunk,
                     )
                 })
@@ -161,7 +163,7 @@ impl VTable for BitPacked {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        BitPackedSlots::NAMES[idx].to_string()
     }
 
     fn serialize(
@@ -285,11 +287,11 @@ impl VTable for BitPacked {
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         require_patches!(
             array,
-            PATCH_INDICES_SLOT,
-            PATCH_VALUES_SLOT,
-            PATCH_CHUNK_OFFSETS_SLOT
+            BitPackedSlots::PATCH_INDICES,
+            BitPackedSlots::PATCH_VALUES,
+            BitPackedSlots::PATCH_CHUNK_OFFSETS
         );
-        require_validity!(array, VALIDITY_SLOT);
+        require_validity!(array, BitPackedSlots::VALIDITY_CHILD);
 
         Ok(ExecutionResult::done(
             unpack_array(array.as_view(), ctx)?.into_array(),

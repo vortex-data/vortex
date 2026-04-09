@@ -135,6 +135,7 @@ mod tests {
 
     use super::*;
     use crate::alp::array::ALPArrayExt;
+    use crate::alp::array::ALPArraySlotsExt;
     use crate::decompress_into_array;
 
     #[test]

@@ -11,6 +11,7 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::ALPArrayExt;
+use crate::ALPArraySlotsExt;
 use crate::alp::ALP;
 
 impl CastReduce for ALP {
@@ -72,6 +73,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::alp::array::ALPArrayExt;
+    use crate::alp::array::ALPArraySlotsExt;
     use crate::alp_encode;
 
     #[test]

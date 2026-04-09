@@ -20,6 +20,7 @@ use vortex_error::VortexResult;
 use crate::ALP;
 use crate::ALPFloat;
 use crate::alp::array::ALPArrayExt;
+use crate::alp::array::ALPArraySlotsExt;
 use crate::match_each_alp_float_ptype;
 
 impl BetweenReduce for ALP {
@@ -103,6 +104,7 @@ mod tests {
 
     use crate::ALPArray;
     use crate::alp::array::ALPArrayExt;
+    use crate::alp::array::ALPArraySlotsExt;
     use crate::alp::compute::between::between_impl;
     use crate::alp_encode;
 

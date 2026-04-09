@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::ALP;
 use crate::ALPArrayExt;
+use crate::ALPArraySlotsExt;
 
 impl TakeExecute for ALP {
     fn take(

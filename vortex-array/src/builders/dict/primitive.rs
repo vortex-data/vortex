@@ -158,6 +158,7 @@ mod test {
 
     use crate::IntoArray as _;
     use crate::arrays::dict::DictArrayExt;
+    use crate::arrays::dict::DictArraySlotsExt;
     use crate::assert_arrays_eq;
     use crate::builders::dict::dict_encode;
     use crate::builders::dict::primitive::PrimitiveArray;

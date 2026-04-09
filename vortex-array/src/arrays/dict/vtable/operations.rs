@@ -9,6 +9,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::dict::DictArrayExt;
+use crate::arrays::dict::DictArraySlotsExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Dict> for Dict {

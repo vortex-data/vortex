@@ -72,6 +72,7 @@ vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["array", "dtype"] }
 vortex-mask = { workspace = true }
+vortex-array-macros = { workspace = true }
 vortex-proto = { workspace = true, features = ["dtype", "expr", "scalar"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dyn-traits"] }
