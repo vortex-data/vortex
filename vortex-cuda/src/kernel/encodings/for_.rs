@@ -134,6 +134,7 @@ mod tests {
     use vortex::buffer::Buffer;
     use vortex::dtype::NativePType;
     use vortex::encodings::fastlanes::BitPacked;
+    use vortex::encodings::fastlanes::BitPackedArrayExt;
     use vortex::encodings::fastlanes::FoR;
     use vortex::encodings::fastlanes::FoRArray;
     use vortex::error::VortexExpect;
@@ -202,5 +203,52 @@ mod tests {
             .into_array();
 
         assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+    }
+
+    /// FoR(BitPacked) where the BitPacked child has patches (residuals that
+    /// overflow the bit width). Exercises the `+ reference` fix in the
+    /// standalone bit-unpack kernel: patch values are residuals and must
+    /// have the FoR reference added, just like unpacked values.
+    #[crate::test]
+    async fn test_ffor_with_patches() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let reference = 1000u32;
+        // Residuals: mostly [0..63] fitting in 6 bits, but with outliers
+        // (e.g. 500, 999) that will become patches.
+        let residuals: Vec<u32> = (0..2048)
+            .map(|i| {
+                if i % 512 == 0 {
+                    500 // exceeds 6-bit max (63) → patch
+                } else if i % 1024 == 511 {
+                    999 // exceeds 6-bit max (63) → patch
+                } else {
+                    (i % 64) as u32
+                }
+            })
+            .collect();
+        let expected: Vec<u32> = residuals.iter().map(|r| r + reference).collect();
+
+        let prim = PrimitiveArray::new(Buffer::from(residuals), NonNullable);
+        let bp = BitPacked::encode(&prim.into_array(), 6)?;
+        assert!(bp.patches().is_some(), "test requires patches");
+        let for_arr = FoR::try_new(bp.into_array(), reference.into())?;
+
+        let cpu_result = for_arr.to_canonical()?.into_array();
+        // Sanity check: CPU result matches our expected values.
+        let expected_arr = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
+        assert_arrays_eq!(expected_arr, cpu_result.clone());
+
+        let gpu_result = FoRExecutor
+            .execute(for_arr.into_array(), &mut cuda_ctx)
+            .await?
+            .into_host()
+            .await?
+            .into_array();
+
+        assert_arrays_eq!(cpu_result, gpu_result);
+
+        Ok(())
     }
 }

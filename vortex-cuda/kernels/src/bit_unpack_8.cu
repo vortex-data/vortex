@@ -269,7 +269,7 @@ __device__ void _bit_unpack_8_device(const uint8_t *__restrict in, uint8_t *__re
     for (int i = 0; i < 32; i++) {
         auto idx = i * 32 + thread_idx;
         if (idx == patch.index) {
-            out[idx] = patch.value;
+            out[idx] = patch.value + reference;
             patch = cursor.next();
         } else {
             out[idx] = shared_out[idx];

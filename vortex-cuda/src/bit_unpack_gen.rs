@@ -163,7 +163,7 @@ __device__ void _bit_unpack_{bits}_device(const uint{bits}_t *__restrict in, uin
     for (int i = 0; i < {shared_copy_ncount}; i++) {{
         auto idx = i * {thread_count} + thread_idx;
         if (idx == patch.index) {{
-            out[idx] = patch.value;
+            out[idx] = patch.value + reference;
             patch = cursor.next();
         }} else {{
             out[idx] = shared_out[idx];

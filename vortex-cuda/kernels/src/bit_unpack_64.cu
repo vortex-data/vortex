@@ -12589,7 +12589,7 @@ __device__ void _bit_unpack_64_device(const uint64_t *__restrict in, uint64_t *_
     for (int i = 0; i < 64; i++) {
         auto idx = i * 16 + thread_idx;
         if (idx == patch.index) {
-            out[idx] = patch.value;
+            out[idx] = patch.value + reference;
             patch = cursor.next();
         } else {
             out[idx] = shared_out[idx];
