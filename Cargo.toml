@@ -388,7 +388,7 @@ inherits = "dev"
 debug = "line-tables-only"
 incremental = false
 
-# This rule only applies to all dependencies that are not members of the workspace.
+# This rule only applies to dependencies that are not members of the workspace.
 [profile.ci.package."*"]
 debug = false
 debug-assertions = false
