@@ -25,6 +25,7 @@ use crate::bit::collect_bool_word;
 use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
+use crate::bit::ops::bitwise_unary_op;
 use crate::bit::ops::bitwise_unary_op_copy;
 use crate::bit::select::bit_select;
 use crate::buffer;
@@ -503,7 +504,7 @@ impl Not for BitBuffer {
 
     #[inline]
     fn not(self) -> Self::Output {
-        bitwise_unary_op_copy(&self, |a| !a)
+        bitwise_unary_op(self, |a| !a)
     }
 }
 

@@ -7,12 +7,7 @@ use crate::Buffer;
 use crate::ByteBufferMut;
 use crate::trusted_len::TrustedLenExt;
 
-/// Apply a unary operation to a [`BitBuffer`], allocating a new output buffer.
-///
-/// In practice, `BitBuffer`s almost always have shared backing storage (from slicing,
-/// array construction, etc.), so attempting `try_into_mut` for in-place mutation is
-/// wasted overhead — it nearly always fails. We always allocate a fresh output instead.
-/// For true in-place mutation, use [`bitwise_unary_op_mut`] on a [`BitBufferMut`].
+/// Apply a unary operation to a [`BitBuffer`], always allocating a new output buffer.
 #[inline]
 pub(super) fn bitwise_unary_op_copy<F: FnMut(u64) -> u64>(
     buffer: &BitBuffer,
@@ -53,6 +48,21 @@ pub(super) fn bitwise_unary_op_copy<F: FnMut(u64) -> u64>(
     // SAFETY: we wrote exactly src.len() bytes into the spare capacity.
     unsafe { dst.set_len(src.len()) };
     BitBuffer::new_with_offset(dst.freeze(), len, offset)
+}
+
+/// Apply a unary operation to an owned [`BitBuffer`], mutating in-place when possible.
+///
+/// Tries to get exclusive access via `try_into_mut`. If the backing storage is shared
+/// (Arc refcount > 1), falls back to [`bitwise_unary_op_copy`].
+#[inline]
+pub(super) fn bitwise_unary_op<F: FnMut(u64) -> u64>(buffer: BitBuffer, op: F) -> BitBuffer {
+    match buffer.try_into_mut() {
+        Ok(mut buf) => {
+            bitwise_unary_op_mut(&mut buf, op);
+            buf.freeze()
+        }
+        Err(buffer) => bitwise_unary_op_copy(&buffer, op),
+    }
 }
 
 #[inline]
@@ -137,7 +147,7 @@ mod tests {
     #[test]
     fn test_bitwise_unary_not() {
         let buffer = BitBuffer::new(buffer![0b10101010u8], 4);
-        let result = bitwise_unary_op_copy(&buffer, |x| !x);
+        let result = bitwise_unary_op(buffer, |x| !x);
         assert_eq!(result, bitbuffer![true, false, true, false]);
     }
 
@@ -168,7 +178,7 @@ mod tests {
         assert_eq!(result, bitbuffer![false, true, true, false]);
     }
 
-    /// Regression test for a bug where [`bitwise_unary_op_copy`] produced corrupt results when
+    /// Regression test for a bug where [`bitwise_unary_op`] produced corrupt results when
     /// the [`BitBuffer`]'s underlying byte pointer was not u64-aligned. Slicing a buffer by
     /// a non-multiple-of-8 number of bytes can cause this misalignment. The bug only
     /// manifested for buffers larger than 16 bytes (> 128 bits), because Arrow's
