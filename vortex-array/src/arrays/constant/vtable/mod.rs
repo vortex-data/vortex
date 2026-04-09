@@ -115,7 +115,10 @@ impl VTable for Constant {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         // HACK: Because the scalar is stored in the buffers, we do not need to serialize the
         // metadata at all.
         Ok(Some(vec![]))

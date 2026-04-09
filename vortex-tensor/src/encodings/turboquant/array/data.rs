@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
@@ -19,12 +21,16 @@ use crate::encodings::turboquant::vtable::TurboQuant;
 /// TurboQuant array data.
 ///
 /// TurboQuant is a lossy vector quantization encoding for [`Vector`](crate::vector::Vector)
-/// extension arrays. It stores quantized coordinate codes and per-vector norms, along with shared
+/// extension arrays. It stores quantized coordinate codes for unit-norm vectors, along with shared
 /// codebook centroids and the parameters of the current structured rotation.
+///
+/// Norms should be stored externally in the [`L2Denorm`](crate::scalar_fns::l2_denorm::L2Denorm)
+/// `ScalarFnArray` wrapper.
 ///
 /// See the [module docs](crate::encodings::turboquant) for algorithmic details.
 ///
-/// A degenerate TurboQuant array has zero rows and `bit_width == 0`, with all slots empty.
+/// Note that degenerate TurboQuant arrays have zero rows and `bit_width == 0`, with all slots
+/// empty.
 #[derive(Clone, Debug)]
 pub struct TurboQuantData {
     /// The vector dimension `d`, cached from the `FixedSizeList` storage dtype's list size.
@@ -36,6 +42,21 @@ pub struct TurboQuantData {
     ///
     /// This is 0 for degenerate empty arrays.
     pub(crate) bit_width: u8,
+
+    /// The number of sign-diagonal + WHT rounds in the structured rotation.
+    ///
+    /// This is 0 for degenerate empty arrays.
+    pub(crate) num_rounds: u8,
+}
+
+impl Display for TurboQuantData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "dimension: {}, bit_width: {}, num_rounds: {}",
+            self.dimension, self.bit_width, self.num_rounds
+        )
+    }
 }
 
 impl TurboQuantData {
@@ -46,7 +67,7 @@ impl TurboQuantData {
     /// Returns an error if:
     /// - `dimension` is less than [`MIN_DIMENSION`](TurboQuant::MIN_DIMENSION).
     /// - `bit_width` is greater than [`MAX_BIT_WIDTH`](TurboQuant::MAX_BIT_WIDTH).
-    pub fn try_new(dimension: u32, bit_width: u8) -> VortexResult<Self> {
+    pub fn try_new(dimension: u32, bit_width: u8, num_rounds: u8) -> VortexResult<Self> {
         vortex_ensure!(
             dimension >= TurboQuant::MIN_DIMENSION,
             "TurboQuant requires dimension >= {}, got {dimension}",
@@ -61,6 +82,7 @@ impl TurboQuantData {
         Ok(Self {
             dimension,
             bit_width,
+            num_rounds,
         })
     }
 
@@ -72,12 +94,14 @@ impl TurboQuantData {
     ///
     /// - `dimension` is >= [`MIN_DIMENSION`](TurboQuant::MIN_DIMENSION).
     /// - `bit_width` is in the range `[0, MAX_BIT_WIDTH]`.
+    /// - `num_rounds` is >= 1 (or 0 for degenerate empty arrays).
     ///
     /// Violating these invariants may produce incorrect results during decompression.
-    pub unsafe fn new_unchecked(dimension: u32, bit_width: u8) -> Self {
+    pub unsafe fn new_unchecked(dimension: u32, bit_width: u8, num_rounds: u8) -> Self {
         Self {
             dimension,
             bit_width,
+            num_rounds,
         }
     }
 
@@ -87,7 +111,6 @@ impl TurboQuantData {
     pub fn validate(
         dtype: &DType,
         codes: &ArrayRef,
-        norms: &ArrayRef,
         centroids: &ArrayRef,
         rotation_signs: &ArrayRef,
     ) -> VortexResult<()> {
@@ -95,8 +118,14 @@ impl TurboQuantData {
         let dimension = vector_metadata.dimensions();
         let padded_dim = dimension.next_power_of_two();
 
+        // TurboQuant arrays are always non-nullable. Nullability should be handled by the external
+        // L2Denorm ScalarFnArray wrapper.
+        vortex_ensure!(
+            !dtype.is_nullable(),
+            "TurboQuant dtype must be non-nullable, got {dtype}",
+        );
+
         // Codes must be a non-nullable FixedSizeList<u8> with list_size == padded_dim.
-        // Null vectors are represented by all-zero codes since validity lives in the norms array.
         let expected_codes_dtype = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
             padded_dim,
@@ -108,14 +137,28 @@ impl TurboQuantData {
             "codes dtype does not match expected {expected_codes_dtype}",
         );
 
-        let num_rows = codes.len();
+        // Centroids are always f32 regardless of element type.
+        let centroids_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
         vortex_ensure_eq!(
-            norms.len(),
-            num_rows,
-            "norms length must match codes length",
+            *centroids.dtype(),
+            centroids_dtype,
+            "centroids dtype must be non-nullable f32",
         );
 
+        // Rotation signs must be a FixedSizeList<u8> with list_size == padded_dim. The FSL length
+        // is the number of rotation rounds.
+        let expected_signs_dtype = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
+            padded_dim,
+            Nullability::NonNullable,
+        );
+        vortex_ensure_eq!(
+            *rotation_signs.dtype(),
+            expected_signs_dtype,
+            "rotation_signs dtype does not match expected {expected_signs_dtype}",
+        );
         // Degenerate (empty) case: all children must be empty, and bit_width is 0.
+        let num_rows = codes.len();
         if num_rows == 0 {
             vortex_ensure!(
                 centroids.is_empty(),
@@ -129,6 +172,11 @@ impl TurboQuantData {
             );
             return Ok(());
         }
+
+        vortex_ensure!(
+            !rotation_signs.is_empty(),
+            "rotation_signs must have at least 1 round"
+        );
 
         // Non-degenerate: derive and validate bit_width from centroids.
         let num_centroids = centroids.len();
@@ -150,43 +198,16 @@ impl TurboQuantData {
             TurboQuant::MAX_BIT_WIDTH
         );
 
-        // Norms dtype must match the element ptype of the Vector, with the parent's nullability.
-        // Norms carry the validity of the entire TurboQuant array.
-        let element_ptype = vector_metadata.element_ptype();
-        let expected_norms_dtype = DType::Primitive(element_ptype, dtype.nullability());
-        vortex_ensure_eq!(
-            *norms.dtype(),
-            expected_norms_dtype,
-            "norms dtype does not match expected {expected_norms_dtype}",
-        );
-
-        // Centroids are always f32 regardless of element type.
-        let centroids_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
-        vortex_ensure_eq!(
-            *centroids.dtype(),
-            centroids_dtype,
-            "centroids dtype must be non-nullable f32",
-        );
-
-        // Rotation signs count must be 3 * padded_dim.
-        vortex_ensure_eq!(
-            rotation_signs.len(),
-            3 * padded_dim as usize,
-            "rotation_signs length does not match expected 3 * {padded_dim}",
-        );
-
         Ok(())
     }
 
     pub(crate) fn make_slots(
         codes: ArrayRef,
-        norms: ArrayRef,
         centroids: ArrayRef,
         rotation_signs: ArrayRef,
     ) -> Vec<Option<ArrayRef>> {
         let mut slots = vec![None; Slot::COUNT];
         slots[Slot::Codes as usize] = Some(codes);
-        slots[Slot::Norms as usize] = Some(norms);
         slots[Slot::Centroids as usize] = Some(centroids);
         slots[Slot::RotationSigns as usize] = Some(rotation_signs);
         slots
@@ -203,6 +224,11 @@ impl TurboQuantData {
         self.bit_width
     }
 
+    /// The number of sign-diagonal + WHT rounds in the structured rotation.
+    pub fn num_rounds(&self) -> u8 {
+        self.num_rounds
+    }
+
     /// Padded dimension (next power of 2 >= [`dimension`](Self::dimension)).
     ///
     /// The current Walsh-Hadamard-based structured rotation requires power-of-2 input, so
@@ -213,28 +239,10 @@ impl TurboQuantData {
 }
 
 pub trait TurboQuantArrayExt: TypedArrayRef<TurboQuant> {
-    fn dimension(&self) -> u32 {
-        std::ops::Deref::deref(self).dimension()
-    }
-
-    fn bit_width(&self) -> u8 {
-        std::ops::Deref::deref(self).bit_width()
-    }
-
-    fn padded_dim(&self) -> u32 {
-        std::ops::Deref::deref(self).padded_dim()
-    }
-
     fn codes(&self) -> &ArrayRef {
         self.as_ref().slots()[Slot::Codes as usize]
             .as_ref()
             .vortex_expect("TurboQuantArray codes slot")
-    }
-
-    fn norms(&self) -> &ArrayRef {
-        self.as_ref().slots()[Slot::Norms as usize]
-            .as_ref()
-            .vortex_expect("TurboQuantArray norms slot")
     }
 
     fn centroids(&self) -> &ArrayRef {

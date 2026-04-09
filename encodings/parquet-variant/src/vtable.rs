@@ -112,7 +112,10 @@ impl VTable for ParquetVariant {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         let typed_value_dtype = array
             .typed_value_array()
             .map(|tv| tv.dtype().try_into())
@@ -264,16 +267,17 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
+        let session = VortexSession::empty().with::<vortex_array::session::ArraySession>();
         let ctx = ArrayContext::empty();
-        let serialized = array.serialize(&ctx, &SerializeOptions::default()).unwrap();
+        let serialized = array
+            .serialize(&ctx, &session, &SerializeOptions::default())
+            .unwrap();
 
         let mut concat = ByteBufferMut::empty();
         for buf in serialized {
             concat.extend_from_slice(buf.as_ref());
         }
         let concat = concat.freeze();
-
-        let session = VortexSession::empty().with::<vortex_array::session::ArraySession>();
         session.arrays().register(ParquetVariant);
         session.arrays().register(Variant);
 

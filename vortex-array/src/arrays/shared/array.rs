@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -31,6 +33,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["source"];
 pub struct SharedData {
     cached: Arc<OnceLock<SharedVortexResult<ArrayRef>>>,
     async_compute_lock: Arc<AsyncMutex<()>>,
+}
+
+impl Display for SharedData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
 }
 
 #[allow(async_fn_in_trait)]

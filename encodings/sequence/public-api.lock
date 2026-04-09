@@ -42,7 +42,7 @@ pub fn vortex_sequence::Sequence::nbuffers(_array: vortex_array::array::view::Ar
 
 pub fn vortex_sequence::Sequence::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_sequence::Sequence::serialize(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_sequence::Sequence::serialize(array: vortex_array::array::view::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_sequence::Sequence::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -99,6 +99,10 @@ impl core::clone::Clone for vortex_sequence::SequenceData
 pub fn vortex_sequence::SequenceData::clone(&self) -> vortex_sequence::SequenceData
 
 impl core::fmt::Debug for vortex_sequence::SequenceData
+
+pub fn vortex_sequence::SequenceData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_sequence::SequenceData
 
 pub fn vortex_sequence::SequenceData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 

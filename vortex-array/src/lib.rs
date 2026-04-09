@@ -52,6 +52,7 @@ pub mod kernel;
 pub mod mask;
 mod mask_future;
 pub mod matcher;
+pub mod memory;
 mod metadata;
 pub mod normalize;
 pub mod optimizer;

@@ -89,7 +89,10 @@ impl VTable for List {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             ListMetadata {
                 elements_len: array.elements().len() as u64,

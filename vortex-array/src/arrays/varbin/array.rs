@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use num_traits::AsPrimitive;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -35,6 +38,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["offsets", "validity"];
 #[derive(Clone, Debug)]
 pub struct VarBinData {
     pub(super) bytes: BufferHandle,
+}
+
+impl Display for VarBinData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
 }
 
 pub struct VarBinDataParts {

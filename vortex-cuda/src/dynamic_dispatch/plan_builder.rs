@@ -34,9 +34,12 @@ use vortex::error::vortex_err;
 
 use super::CudaDispatchPlan;
 use super::MaterializedStage;
+use super::PTypeTag;
 use super::SMEM_TILE_SIZE;
 use super::ScalarOp;
 use super::SourceOp;
+use super::ptype_to_tag;
+use super::tag_to_ptype;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 
@@ -52,6 +55,12 @@ pub struct MaterializedPlan {
 
 /// Checks whether the encoding of an array can be fused into a dynamic-dispatch plan.
 fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
+    // The dynamic dispatch kernel only supports F32 floats (via ALP).
+    // F16 and F64 have no reinterpret path in the kernel.
+    if matches!(PType::try_from(array.dtype()), Ok(PType::F16 | PType::F64)) {
+        return false;
+    }
+
     let id = array.encoding_id();
     if id == ALP::ID {
         let arr = array.as_::<ALP>();
@@ -62,25 +71,27 @@ fn is_dyn_dispatch_compatible(array: &ArrayRef) -> bool {
     }
     if id == Dict::ID {
         let arr = array.as_::<Dict>();
-        // As of now the dict dyn dispatch kernel requires
-        // codes and values to have the same byte width.
-        return match (
-            PType::try_from(arr.values().dtype()),
-            PType::try_from(arr.codes().dtype()),
-        ) {
-            (Ok(values), Ok(codes)) => values.byte_width() == codes.byte_width(),
+        // Dict codes and values may have different byte widths.
+        // The kernel handles mixed widths via widening input stages,
+        // but only when codes are no wider than values (the output type).
+        // Wider codes would be truncated by load_element<T>().
+        let values_ptype = PType::try_from(arr.values().dtype());
+        let codes_ptype = PType::try_from(arr.codes().dtype());
+        return match (values_ptype, codes_ptype) {
+            (Ok(vp), Ok(cp)) => cp.byte_width() <= vp.byte_width(),
             _ => false,
         };
     }
     if id == RunEnd::ID {
         let arr = array.as_::<RunEnd>();
-        // As of now the run-end dyn dispatch kernel requires
-        // ends and values to have the same byte width.
-        return match (
-            PType::try_from(arr.ends().dtype()),
-            PType::try_from(arr.values().dtype()),
-        ) {
-            (Ok(e), Ok(v)) => e.byte_width() == v.byte_width(),
+        // RunEnd ends and values may have different byte widths.
+        // The kernel handles mixed widths via widening input stages,
+        // but only when ends are no wider than values (the output type).
+        // Wider ends would be truncated by load_element<T>().
+        let ends_ptype = PType::try_from(arr.ends().dtype());
+        let values_ptype = PType::try_from(arr.values().dtype());
+        return match (ends_ptype, values_ptype) {
+            (Ok(ep), Ok(vp)) => ep.byte_width() <= vp.byte_width(),
             _ => false,
         };
     }
@@ -98,19 +109,22 @@ struct Stage {
     /// Index into `FusedPlan::source_buffers`, or `None`
     /// for sources that don't read from a device buffer.
     source_buffer_index: Option<usize>,
+    /// PType tag for the source op's output type.
+    source_ptype: PTypeTag,
 }
 
 impl Stage {
-    fn new(source: SourceOp, source_buffer_index: Option<usize>) -> Self {
+    fn new(source: SourceOp, source_buffer_index: Option<usize>, source_ptype: PTypeTag) -> Self {
         Self {
             source,
             scalar_ops: vec![],
             source_buffer_index,
+            source_ptype,
         }
     }
 }
 
-type SmemOffset = u32;
+type SmemByteOffset = u32;
 type OutputLen = u32;
 
 /// A dispatch plan before device materialization.
@@ -146,16 +160,35 @@ pub enum DispatchPlan {
 ///    reference data from the earlier stages), and writing the result to
 ///    global memory.
 ///
+/// # Per-stage PType tracking
+///
+/// Each stage carries a `source_ptype` (`PTypeTag`) that identifies the
+/// primitive type produced by its source op (LOAD, BITUNPACK, etc.).
+/// Scalar ops may change the type (e.g. DICT transforms codes → values,
+/// ALP transforms encoded ints → floats); each `ScalarOp` declares its
+/// `output_ptype`. The kernel uses these tags to dispatch typed memory
+/// operations and cross-stage references at the correct element width.
+///
 /// # Shared memory allocation
 ///
-/// Total shared memory = (`smem_cursor` + `SMEM_TILE_SIZE`) × `elem_bytes`.
+/// Total shared memory = `smem_byte_cursor` + `SMEM_TILE_SIZE` × `output_elem_bytes`.
+///
+/// `smem_byte_cursor` is tracked in bytes and covers the preceding
+/// fully-decoded stages (dict values, run-end endpoints). Each stage's
+/// shared memory footprint is `len × final_ptype_byte_width`, where the
+/// final ptype is determined by the last scalar op's `output_ptype` (or
+/// `source_ptype` if there are no scalar ops).
+///
+/// All shared memory offsets are byte offsets — the C ABI uses byte
+/// offsets and per-field `PTypeTag` values so that stages with different
+/// element widths can coexist in the same shared memory pool.
 ///
 /// This is sufficient because:
 ///
 /// - Earlier stages only originate from dict (values) and run-end (ends,
-///   values). `push_smem_stage` reserves the full auxiliary data length in
-///   `smem_cursor`, so each stage's source op has room to decode the complete
-///   input.
+///   values). `push_smem_stage` reserves the appropriate number of bytes
+///   in `smem_byte_cursor`, so each stage's source op has room to decode
+///   the complete input.
 ///
 /// - The output stage (last) tiles at `SMEM_TILE_SIZE` (1024 elements),
 ///   so its source op never writes more than 1024 elements into the
@@ -169,13 +202,16 @@ pub enum DispatchPlan {
 pub struct FusedPlan {
     /// Stages in kernel execution order; all but the last decode into
     /// shared memory, the last decodes into global memory.
-    stages: Vec<(Stage, SmemOffset, OutputLen)>,
-    /// Shared memory reserved by the non-output stages.
-    smem_cursor: SmemOffset,
+    stages: Vec<(Stage, SmemByteOffset, OutputLen)>,
+    /// Shared memory reserved by the non-output stages, in bytes.
+    smem_byte_cursor: SmemByteOffset,
     /// Source buffers. `None` entries are placeholder slots for pending subtrees,
     /// filled by [`materialize_with_subtrees`] before device copy.
     source_buffers: Vec<Option<BufferHandle>>,
-    elem_bytes: u32,
+    /// Bytes per element of the root (output) array.
+    output_elem_bytes: u32,
+    /// PType of the root (output) array, as a C ABI tag.
+    output_ptype: PTypeTag,
 }
 
 impl DispatchPlan {
@@ -212,56 +248,64 @@ impl DispatchPlan {
 }
 
 impl FusedPlan {
-    /// Maximum shared memory per block in bytes (48 KB).
+    /// Maximum shared memory per block in bytes (48 KB, static + dynamic).
     ///
-    /// 48 KB is the default per-block dynamic shared memory limit across
-    /// all CUDA architectures. Higher limits (up to 227 KB on Hopper)
-    /// require an explicit opt-in via `cuFuncSetAttribute`.
+    /// 48 KB is the default per-block shared memory limit across all CUDA
+    /// architectures. Higher limits (up to 227 KB on Hopper) require an
+    /// explicit opt-in via `cuFuncSetAttribute`.
     const MAX_SHARED_MEM_BYTES: u32 = 48 * 1024;
+
+    /// Fixed shared memory used by the kernel (bytes).
+    /// Sourced from the C header via bindgen.
+    const FIXED_SHARED_MEM_BYTES: u32 = super::KERNEL_FIXED_SHARED_BYTES;
 
     /// Build a plan by walking the encoding tree from root to leaf.
     ///
     /// During the walk, incompatible nodes are discovered and recorded in the
     /// returned `Vec<ArrayRef>`.
     fn build(array: &ArrayRef) -> VortexResult<(Self, Vec<ArrayRef>)> {
-        let elem_bytes = PType::try_from(array.dtype())
-            .map_err(|_| {
-                vortex_err!(
-                    "dyn dispatch requires primitive dtype, got {:?}",
-                    array.dtype()
-                )
-            })?
-            .byte_width() as u32;
+        let output_ptype_rust = PType::try_from(array.dtype()).map_err(|_| {
+            vortex_err!(
+                "dyn dispatch requires primitive dtype, got {:?}",
+                array.dtype()
+            )
+        })?;
+        if output_ptype_rust == PType::F64 {
+            vortex_bail!("dynamic dispatch does not support f64 output");
+        }
+        let output_elem_bytes = output_ptype_rust.byte_width() as u32;
+        let output_ptype = ptype_to_tag(output_ptype_rust);
 
         let mut pending_subtrees: Vec<ArrayRef> = Vec::new();
         let mut plan = Self {
             stages: Vec::new(),
-            smem_cursor: SmemOffset::from(0u32),
+            smem_byte_cursor: 0u32,
             source_buffers: Vec::new(),
-            elem_bytes,
+            output_elem_bytes,
+            output_ptype,
         };
 
         let len = array.len() as u32;
         let output = plan.walk(array.clone(), &mut pending_subtrees)?;
-        plan.stages.push((output, plan.smem_cursor, len));
+        plan.stages.push((output, plan.smem_byte_cursor, len));
 
         Ok((plan, pending_subtrees))
     }
 
-    /// Shared memory bytes needed to launch this plan.
-    ///
-    /// `smem_cursor` covers the preceding fully-decoded stages (dict values,
-    /// run-end ). `SMEM_TILE_SIZE` covers the output stage's scratch region —
-    /// the output stage processes `ELEMENTS_PER_BLOCK` (2048) elements per
-    /// block by tiling through this 1024-element window.
-    fn shared_mem_bytes(&self) -> u32 {
-        (self.smem_cursor + SMEM_TILE_SIZE) * self.elem_bytes
+    /// Dynamic shared memory bytes passed to the CUDA launch config.
+    fn dynamic_shared_mem_bytes(&self) -> u32 {
+        self.smem_byte_cursor + SMEM_TILE_SIZE * self.output_elem_bytes
+    }
+
+    /// Total shared memory (fixed + dynamic) for limit checking.
+    fn total_shared_mem_bytes(&self) -> u32 {
+        Self::FIXED_SHARED_MEM_BYTES + self.dynamic_shared_mem_bytes()
     }
 
     /// Returns `true` if this plan's shared memory requirement exceeds
     /// the per-block limit, logging a trace message when it does.
     fn exceeds_shared_mem_limit(&self) -> bool {
-        let required = self.shared_mem_bytes();
+        let required = self.total_shared_mem_bytes();
         if required > Self::MAX_SHARED_MEM_BYTES {
             trace!(
                 required,
@@ -275,7 +319,7 @@ impl FusedPlan {
 
     /// Copy source buffers to the device, producing a [`MaterializedPlan`].
     pub fn materialize(self, ctx: &CudaExecutionCtx) -> VortexResult<MaterializedPlan> {
-        let shared_mem_bytes = self.shared_mem_bytes();
+        let shared_mem_bytes = self.dynamic_shared_mem_bytes();
 
         let mut device_buffers = Vec::new();
         let mut device_ptrs: Vec<u64> = Vec::new();
@@ -298,14 +342,18 @@ impl FusedPlan {
             }
         };
 
+        // Byte offsets are passed directly to the C ABI — the kernel now
+        // indexes shared memory by byte offset and casts to the correct type
+        // using source_ptype / output_ptype.
         let stages: Vec<MaterializedStage> = self
             .stages
             .iter()
-            .map(|(stage, smem_offset, len)| {
+            .map(|(stage, smem_byte_offset, len)| {
                 MaterializedStage::new(
                     resolve_ptr(stage),
-                    *smem_offset,
+                    *smem_byte_offset,
                     *len,
+                    stage.source_ptype,
                     stage.source,
                     &stage.scalar_ops,
                 )
@@ -313,7 +361,7 @@ impl FusedPlan {
             .collect();
 
         Ok(MaterializedPlan {
-            dispatch_plan: CudaDispatchPlan::new(stages),
+            dispatch_plan: CudaDispatchPlan::new(stages, self.output_ptype),
             device_buffers,
             shared_mem_bytes,
         })
@@ -347,16 +395,20 @@ impl FusedPlan {
         if !is_dyn_dispatch_compatible(&array) {
             // Subtree can't be fused — record it as a deferred LOAD source.
             // Bail if dtype is non-primitive (can't become a LOAD stage).
-            if PType::try_from(array.dtype()).is_err() {
-                vortex_bail!(
+            let ptype = PType::try_from(array.dtype()).map_err(|_| {
+                vortex_err!(
                     "unfusable subtree has non-primitive dtype {:?}, cannot partially fuse",
                     array.dtype()
-                );
-            }
+                )
+            })?;
             let buf_idx = self.source_buffers.len();
             self.source_buffers.push(None); // placeholder, filled at materialize time
             pending_subtrees.push(array);
-            return Ok(Stage::new(SourceOp::load(), Some(buf_idx)));
+            return Ok(Stage::new(
+                SourceOp::load(),
+                Some(buf_idx),
+                ptype_to_tag(ptype),
+            ));
         }
 
         let id = array.encoding_id();
@@ -413,7 +465,11 @@ impl FusedPlan {
         let prim = array.as_::<Primitive>();
         let buf_index = self.source_buffers.len();
         self.source_buffers.push(Some(prim.buffer_handle().clone()));
-        Ok(Stage::new(SourceOp::load(), Some(buf_index)))
+        Ok(Stage::new(
+            SourceOp::load(),
+            Some(buf_index),
+            ptype_to_tag(prim.ptype()),
+        ))
     }
 
     fn walk_bitpacked(&mut self, array: ArrayRef) -> VortexResult<Stage> {
@@ -423,11 +479,15 @@ impl FusedPlan {
             vortex_bail!("Dynamic dispatch does not support BitPackedArray with patches");
         }
 
+        let source_ptype = ptype_to_tag(PType::try_from(bp.dtype()).map_err(|_| {
+            vortex_err!("BitPacked must have primitive dtype, got {:?}", bp.dtype())
+        })?);
         let buf_index = self.source_buffers.len();
         self.source_buffers.push(Some(bp.packed().clone()));
         Ok(Stage::new(
             SourceOp::bitunpack(bp.bit_width(), bp.offset()),
             Some(buf_index),
+            source_ptype,
         ))
     }
 
@@ -443,12 +503,18 @@ impl FusedPlan {
             .pvalue()
             .ok_or_else(|| vortex_err!("FoR reference scalar is null"))?;
         let encoded = for_arr.encoded().clone();
+        let output_ptype =
+            ptype_to_tag(PType::try_from(array.dtype()).map_err(|_| {
+                vortex_err!("FoR must have primitive dtype, got {:?}", array.dtype())
+            })?);
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
         let ref_u64 = ref_pvalue
             .reinterpret_cast(ref_pvalue.ptype().to_unsigned())
             .cast::<u64>()?;
-        pipeline.scalar_ops.push(ScalarOp::frame_of_ref(ref_u64));
+        pipeline
+            .scalar_ops
+            .push(ScalarOp::frame_of_ref(ref_u64, output_ptype));
         Ok(pipeline)
     }
 
@@ -459,9 +525,12 @@ impl FusedPlan {
     ) -> VortexResult<Stage> {
         let zz = array.as_::<ZigZag>();
         let encoded = zz.encoded().clone();
+        let output_ptype = ptype_to_tag(PType::try_from(array.dtype()).map_err(|_| {
+            vortex_err!("ZigZag must have primitive dtype, got {:?}", array.dtype())
+        })?);
 
         let mut pipeline = self.walk(encoded, pending_subtrees)?;
-        pipeline.scalar_ops.push(ScalarOp::zigzag());
+        pipeline.scalar_ops.push(ScalarOp::zigzag(output_ptype));
         Ok(pipeline)
     }
 
@@ -494,6 +563,31 @@ impl FusedPlan {
         Ok(pipeline)
     }
 
+    /// Handle a child array whose element width differs from the output type.
+    ///
+    /// If the child is a `Primitive`, its buffer is grabbed directly as a LOAD
+    /// source — no separate kernel launch needed, since `load_element<T>()`
+    /// handles the widening in-kernel. Otherwise, the child is recorded as a
+    /// pending subtree for separate execution.
+    fn walk_mixed_width_child(
+        &mut self,
+        child: ArrayRef,
+        pending_subtrees: &mut Vec<ArrayRef>,
+    ) -> VortexResult<Stage> {
+        let ptype = PType::try_from(child.dtype())?;
+        if child.encoding_id() == Primitive::ID {
+            return self.walk_primitive(child);
+        }
+        let buf_idx = self.source_buffers.len();
+        self.source_buffers.push(None);
+        pending_subtrees.push(child);
+        Ok(Stage::new(
+            SourceOp::load(),
+            Some(buf_idx),
+            ptype_to_tag(ptype),
+        ))
+    }
+
     fn walk_dict(
         &mut self,
         array: ArrayRef,
@@ -503,12 +597,35 @@ impl FusedPlan {
         let values = dict.values().clone();
         let codes = dict.codes().clone();
 
-        let values_len = values.len() as u32;
-        let values_spec = self.walk(values, pending_subtrees)?;
-        let values_smem_offset = self.push_smem_stage(values_spec, values_len);
+        let values_ptype = PType::try_from(values.dtype())?;
+        let values_elem_bytes = values_ptype.byte_width() as u32;
+        let codes_ptype = PType::try_from(codes.dtype())?;
+        let codes_elem_bytes = codes_ptype.byte_width() as u32;
 
-        let mut pipeline = self.walk(codes, pending_subtrees)?;
-        pipeline.scalar_ops.push(ScalarOp::dict(values_smem_offset));
+        // If values have a different width than the output type, they
+        // can't be fused into the same kernel instantiation. Primitives
+        // are handled directly (just grab the buffer); other encodings
+        // become pending subtrees executed by a separate kernel.
+        let values_len = values.len() as u32;
+        let values_spec = if values_elem_bytes != self.output_elem_bytes {
+            self.walk_mixed_width_child(values, pending_subtrees)?
+        } else {
+            self.walk(values, pending_subtrees)?
+        };
+        let values_smem_byte_offset = self.push_smem_stage(values_spec, values_len);
+
+        // Same for codes.
+        let mut pipeline = if codes_elem_bytes != self.output_elem_bytes {
+            self.walk_mixed_width_child(codes, pending_subtrees)?
+        } else {
+            self.walk(codes, pending_subtrees)?
+        };
+        // DICT scalar op: pass byte offset directly (C ABI uses byte offsets).
+        // output_ptype is the values' ptype — DICT transforms codes → values.
+        pipeline.scalar_ops.push(ScalarOp::dict(
+            values_smem_byte_offset,
+            ptype_to_tag(values_ptype),
+        ));
         Ok(pipeline)
     }
 
@@ -518,6 +635,7 @@ impl FusedPlan {
         Ok(Stage::new(
             SourceOp::sequence(seq.base().cast()?, seq.multiplier().cast()?),
             None,
+            self.output_ptype,
         ))
     }
 
@@ -533,23 +651,66 @@ impl FusedPlan {
         let num_runs = ends.len() as u32;
         let num_values = values.len() as u32;
 
-        let ends_spec = self.walk(ends, pending_subtrees)?;
-        let ends_smem = self.push_smem_stage(ends_spec, num_runs);
-        let values_spec = self.walk(values, pending_subtrees)?;
-        let values_smem = self.push_smem_stage(values_spec, num_values);
+        let ends_ptype = PType::try_from(ends.dtype())?;
+        let ends_elem_bytes = ends_ptype.byte_width() as u32;
+        let values_ptype = PType::try_from(values.dtype())?;
+        let values_elem_bytes = values_ptype.byte_width() as u32;
 
+        // If ends or values have a different width than the output type,
+        // they can't be fused into the same kernel instantiation.
+        // Primitives are handled directly; others become pending subtrees.
+        let ends_spec = if ends_elem_bytes != self.output_elem_bytes {
+            self.walk_mixed_width_child(ends, pending_subtrees)?
+        } else {
+            self.walk(ends, pending_subtrees)?
+        };
+        let ends_smem_byte_offset = self.push_smem_stage(ends_spec, num_runs);
+
+        let values_spec = if values_elem_bytes != self.output_elem_bytes {
+            self.walk_mixed_width_child(values, pending_subtrees)?
+        } else {
+            self.walk(values, pending_subtrees)?
+        };
+        let values_smem_byte_offset = self.push_smem_stage(values_spec, num_values);
+
+        // Pass byte offsets and PTypeTags directly — the C ABI now uses
+        // byte offsets and per-field ptype tags for cross-stage references.
         Ok(Stage::new(
-            SourceOp::runend(ends_smem, values_smem, num_runs as u64, offset),
+            SourceOp::runend(
+                ends_smem_byte_offset,
+                values_smem_byte_offset,
+                num_runs as u64,
+                offset,
+            ),
             None,
+            self.output_ptype,
         ))
     }
 
     /// Add a stage that decodes fully into shared memory before the output
-    /// stage runs. Returns the shared memory offset where the data starts.
+    /// stage runs. Returns the shared memory byte offset where the data starts.
+    ///
+    /// The smem region is sized at the stage's output ptype width — i.e.
+    /// the ptype after all scalar ops have run. For stages that go through
+    /// type-changing scalar ops (e.g. dict values with FoR→ALP), the final
+    /// smem footprint is `len × final_ptype_byte_width`. If there are no
+    /// scalar ops, the source_ptype determines the width.
     fn push_smem_stage(&mut self, spec: Stage, len: u32) -> u32 {
-        let smem_offset = self.smem_cursor;
-        self.stages.push((spec, smem_offset, len));
-        self.smem_cursor += len;
-        smem_offset
+        let smem_byte_offset = self.smem_byte_cursor;
+        // The kernel's execute_input_stage<T> always writes T-wide elements
+        // into smem (reinterpret_cast<T*>), so we must allocate at least
+        // output_elem_bytes per element — even if the stage's final ptype
+        // is narrower. Otherwise the writes overflow into the next region.
+        let final_ptype = spec
+            .scalar_ops
+            .last()
+            .map(|op| op.output_ptype)
+            .unwrap_or(spec.source_ptype);
+        let final_elem_bytes = tag_to_ptype(final_ptype).byte_width() as u32;
+        let elem_bytes = final_elem_bytes.max(self.output_elem_bytes);
+        let stage_bytes = len * elem_bytes;
+        self.stages.push((spec, smem_byte_offset, len));
+        self.smem_byte_cursor += stage_bytes;
+        smem_byte_offset
     }
 }

@@ -698,10 +698,10 @@ impl PyArray {
     /// >>> arr = vx.array([1, 2, None, 3])
     /// >>> print(arr.display_tree()) # doctest: +ELLIPSIS
     /// root: vortex.primitive(i64?, len=4) nbytes=33 B (100.00%)
-    ///   metadata: EmptyMetadata
+    ///   metadata: ptype: i64
     ///   buffer: values host 32 B (align=8) (96.97%)
     ///   validity: vortex.bool(bool, len=4) nbytes=1 B (3.03%)...
-    ///     metadata: BoolMetadata { offset: 0 }
+    ///     metadata: offset: 0
     ///     buffer: bits host 1 B (align=1) (100.00%)
     /// <BLANKLINE>
     /// ```
@@ -717,7 +717,11 @@ impl PyArray {
         // FIXME(ngates): do not copy to vec, use buffer protocol
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?;
         Ok(array
-            .serialize(ctx, &Default::default())?
+            .serialize(
+                ctx,
+                &vortex::session::VortexSession::empty(),
+                &Default::default(),
+            )?
             .into_iter()
             .map(|buffer| buffer.to_vec())
             .collect())
@@ -733,7 +737,7 @@ impl PyArray {
         let py = slf.py();
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
-        let mut encoder = MessageEncoder::default();
+        let mut encoder = MessageEncoder::new(vortex::session::VortexSession::empty());
         let buffers = encoder.encode(EncoderMessage::Array(&array))?;
 
         // Return buffers as a list instead of concatenating
@@ -765,7 +769,7 @@ impl PyArray {
 
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
-        let mut encoder = MessageEncoder::default();
+        let mut encoder = MessageEncoder::new(vortex::session::VortexSession::empty());
         let array_buffers = encoder.encode(EncoderMessage::Array(&array))?;
         let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()))?;
 

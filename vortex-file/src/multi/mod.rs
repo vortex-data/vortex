@@ -127,10 +127,10 @@ impl MultiFileDataSource {
             .iter()
             .map(|f| {
                 Arc::new(VortexFileReaderFactory {
-                    fs: fs.clone(),
+                    fs: Arc::clone(&fs),
                     file: f.clone(),
                     session: self.session.clone(),
-                    open_options_fn: self.open_options_fn.clone(),
+                    open_options_fn: Arc::clone(&self.open_options_fn),
                 }) as Arc<dyn LayoutReaderFactory>
             })
             .collect();

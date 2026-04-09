@@ -6,6 +6,8 @@
 //! Vortex is a chunked array library that's able to
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 
 use futures::stream;
 use vortex_buffer::BufferMut;
@@ -35,6 +37,12 @@ pub(super) const CHUNKS_OFFSET: usize = 1;
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
     pub(super) chunk_offsets: Vec<usize>,
+}
+
+impl Display for ChunkedData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "nchunks: {}", self.chunk_offsets.len().saturating_sub(1))
+    }
 }
 
 pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {

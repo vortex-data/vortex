@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -88,7 +87,10 @@ impl VTable for Bool {
         }
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
         Ok(Some(
             BoolMetadata {
@@ -96,10 +98,6 @@ impl VTable for Bool {
             }
             .encode_to_vec(),
         ))
-    }
-
-    fn fmt_metadata(array: ArrayView<'_, Self>, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BoolMetadata {{ offset: {} }}", array.offset)
     }
 
     fn validate(
@@ -219,7 +217,7 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();

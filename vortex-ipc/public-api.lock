@@ -32,15 +32,15 @@ pub fn vortex_ipc::iterator::SyncIPCReader<R>::dtype(&self) -> &vortex_array::dt
 
 pub trait vortex_ipc::iterator::ArrayIteratorIPC
 
-pub fn vortex_ipc::iterator::ArrayIteratorIPC::into_ipc(self) -> vortex_error::VortexResult<vortex_ipc::iterator::ArrayIteratorIPCBytes> where Self: core::marker::Sized
+pub fn vortex_ipc::iterator::ArrayIteratorIPC::into_ipc(self, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_ipc::iterator::ArrayIteratorIPCBytes> where Self: core::marker::Sized
 
-pub fn vortex_ipc::iterator::ArrayIteratorIPC::write_ipc<W: std::io::Write>(self, write: W) -> vortex_error::VortexResult<W> where Self: core::marker::Sized
+pub fn vortex_ipc::iterator::ArrayIteratorIPC::write_ipc<W: std::io::Write>(self, write: W, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<W> where Self: core::marker::Sized
 
 impl<I: vortex_array::iter::ArrayIterator + 'static> vortex_ipc::iterator::ArrayIteratorIPC for I
 
-pub fn I::into_ipc(self) -> vortex_error::VortexResult<vortex_ipc::iterator::ArrayIteratorIPCBytes> where Self: core::marker::Sized
+pub fn I::into_ipc(self, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_ipc::iterator::ArrayIteratorIPCBytes> where Self: core::marker::Sized
 
-pub fn I::write_ipc<W: std::io::Write>(self, write: W) -> vortex_error::VortexResult<W> where Self: core::marker::Sized
+pub fn I::write_ipc<W: std::io::Write>(self, write: W, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<W> where Self: core::marker::Sized
 
 pub mod vortex_ipc::messages
 
@@ -96,7 +96,7 @@ pub fn vortex_ipc::messages::AsyncMessageWriter<W>::inner(&self) -> &W
 
 pub fn vortex_ipc::messages::AsyncMessageWriter<W>::into_inner(self) -> W
 
-pub fn vortex_ipc::messages::AsyncMessageWriter<W>::new(write: W) -> Self
+pub fn vortex_ipc::messages::AsyncMessageWriter<W>::new(write: W, session: &vortex_session::VortexSession) -> Self
 
 pub async fn vortex_ipc::messages::AsyncMessageWriter<W>::write_message(&mut self, message: vortex_ipc::messages::EncoderMessage<'_>) -> vortex_error::VortexResult<()>
 
@@ -128,9 +128,7 @@ impl vortex_ipc::messages::MessageEncoder
 
 pub fn vortex_ipc::messages::MessageEncoder::encode(&mut self, message: vortex_ipc::messages::EncoderMessage<'_>) -> vortex_error::VortexResult<alloc::vec::Vec<bytes::bytes::Bytes>>
 
-impl core::default::Default for vortex_ipc::messages::MessageEncoder
-
-pub fn vortex_ipc::messages::MessageEncoder::default() -> Self
+pub fn vortex_ipc::messages::MessageEncoder::new(session: vortex_session::VortexSession) -> Self
 
 pub struct vortex_ipc::messages::SyncMessageReader<R>
 
@@ -148,7 +146,7 @@ pub struct vortex_ipc::messages::SyncMessageWriter<W>
 
 impl<W: std::io::Write> vortex_ipc::messages::SyncMessageWriter<W>
 
-pub fn vortex_ipc::messages::SyncMessageWriter<W>::new(write: W) -> Self
+pub fn vortex_ipc::messages::SyncMessageWriter<W>::new(write: W, session: &vortex_session::VortexSession) -> Self
 
 pub fn vortex_ipc::messages::SyncMessageWriter<W>::write_message(&mut self, message: vortex_ipc::messages::EncoderMessage<'_>) -> vortex_error::VortexResult<()>
 
@@ -186,12 +184,12 @@ pub fn vortex_ipc::stream::AsyncIPCReader<R>::dtype(&self) -> &vortex_array::dty
 
 pub trait vortex_ipc::stream::ArrayStreamIPC
 
-pub fn vortex_ipc::stream::ArrayStreamIPC::into_ipc(self) -> vortex_ipc::stream::ArrayStreamIPCBytes where Self: core::marker::Sized
+pub fn vortex_ipc::stream::ArrayStreamIPC::into_ipc(self, session: &vortex_session::VortexSession) -> vortex_ipc::stream::ArrayStreamIPCBytes where Self: core::marker::Sized
 
-pub fn vortex_ipc::stream::ArrayStreamIPC::write_ipc<W: futures_io::if_std::AsyncWrite + core::marker::Unpin>(self, write: W) -> impl core::future::future::Future<Output = vortex_error::VortexResult<W>> where Self: core::marker::Sized
+pub fn vortex_ipc::stream::ArrayStreamIPC::write_ipc<W: futures_io::if_std::AsyncWrite + core::marker::Unpin>(self, write: W, session: &vortex_session::VortexSession) -> impl core::future::future::Future<Output = vortex_error::VortexResult<W>> where Self: core::marker::Sized
 
 impl<S: vortex_array::stream::ArrayStream + 'static> vortex_ipc::stream::ArrayStreamIPC for S
 
-pub fn S::into_ipc(self) -> vortex_ipc::stream::ArrayStreamIPCBytes where Self: core::marker::Sized
+pub fn S::into_ipc(self, session: &vortex_session::VortexSession) -> vortex_ipc::stream::ArrayStreamIPCBytes where Self: core::marker::Sized
 
-pub async fn S::write_ipc<W: futures_io::if_std::AsyncWrite + core::marker::Unpin>(self, write: W) -> vortex_error::VortexResult<W> where Self: core::marker::Sized
+pub async fn S::write_ipc<W: futures_io::if_std::AsyncWrite + core::marker::Unpin>(self, write: W, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<W> where Self: core::marker::Sized

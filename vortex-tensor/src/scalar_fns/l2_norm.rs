@@ -12,7 +12,9 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::ScalarFnVTable as ScalarFnArrayVTable;
 use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -29,10 +31,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 
-use crate::encodings::turboquant::TurboQuant;
-use crate::encodings::turboquant::TurboQuantArrayExt;
 use crate::matcher::AnyTensor;
 use crate::scalar_fns::ApproxOptions;
+use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::utils::extract_flat_elements;
 use crate::utils::validate_tensor_float_input;
 
@@ -71,7 +72,7 @@ impl ScalarFnVTable for L2Norm {
     type Options = ApproxOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.tensor.l2_norm")
+        ScalarFnId::from("vortex.tensor.l2_norm")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -121,15 +122,17 @@ impl ScalarFnVTable for L2Norm {
         let tensor_flat_size = tensor_match.list_size();
         let element_ptype = tensor_match.element_ptype();
 
-        // TODO(connor): TQ might not store norms in the future.
-        // TurboQuant stores exact precomputed norms, so no decompression needed.
-        if let Some(tq) = input_ref.as_opt::<TurboQuant>() {
-            let norms: PrimitiveArray = tq.norms().clone().execute(ctx)?;
+        // L2Norm(L2Denorm(normalized, norms)) == norms, since normalized vectors have unit norm
+        // and L2 norms are non-negative. This avoids decompressing the TQ child just to recompute
+        // norms that are already stored.
+        if let Some(sfn) = input_ref.as_opt::<ScalarFnArrayVTable>()
+            && sfn.scalar_fn().as_opt::<L2Denorm>().is_some()
+        {
+            let norms: PrimitiveArray = sfn.child_at(1).clone().execute(ctx)?;
 
-            // Assert that the norms dtype has the correct output dtype and nullability.
             vortex_ensure_eq!(
                 norms.dtype(),
-                &DType::Primitive(element_ptype, input_ref.dtype().nullability(),)
+                &DType::Primitive(element_ptype, input_ref.dtype().nullability())
             );
 
             return Ok(norms.into_array());

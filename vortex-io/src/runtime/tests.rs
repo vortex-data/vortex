@@ -213,7 +213,7 @@ fn test_handle_spawn_future() {
 async fn test_handle_spawn_cpu() {
     let handle = TokioRuntime::current();
     let counter = Arc::new(AtomicUsize::new(0));
-    let c = counter.clone();
+    let c = Arc::clone(&counter);
 
     let task = handle.spawn_cpu(move || {
         c.fetch_add(1, Ordering::SeqCst);
@@ -278,7 +278,7 @@ async fn test_custom_vortex_read() {
 
     let read_at: Arc<dyn VortexReadAt> = Arc::new(CountingReadAt {
         data: ByteBuffer::from(TEST_DATA.to_vec()),
-        read_count: read_count.clone(),
+        read_count: Arc::clone(&read_count),
     });
 
     // Perform several reads
@@ -315,7 +315,7 @@ async fn test_read_out_of_bounds() {
 async fn test_task_detach() {
     let handle = TokioRuntime::current();
     let counter = Arc::new(AtomicUsize::new(0));
-    let c = counter.clone();
+    let c = Arc::clone(&counter);
     let (tx, rx) = oneshot::channel::<()>();
 
     let task = handle.spawn(async move {

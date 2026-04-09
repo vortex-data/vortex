@@ -90,7 +90,10 @@ impl VTable for ListView {
         vortex_panic!("ListViewArray buffer_name index {idx} out of bounds")
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             ListViewMetadata {
                 elements_len: array.elements().len() as u64,

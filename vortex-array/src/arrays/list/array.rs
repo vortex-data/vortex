@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
@@ -95,6 +97,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["elements", "offsets", "validi
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct ListData;
+
+impl Display for ListData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
 
 pub struct ListDataParts {
     pub elements: ArrayRef,

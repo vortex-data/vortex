@@ -15,6 +15,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
 use crate::Array;
@@ -563,13 +564,13 @@ impl ArrayRef {
     }
 
     /// Returns the serialized metadata of the array.
-    pub fn metadata(&self) -> VortexResult<Option<Vec<u8>>> {
-        self.0.metadata(self)
+    pub fn metadata(&self, session: &VortexSession) -> VortexResult<Option<Vec<u8>>> {
+        self.0.metadata(self, session)
     }
 
     /// Formats a human-readable metadata description.
     pub fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.metadata_fmt(self, f)
+        self.0.metadata_fmt(f)
     }
 
     /// Returns whether all buffers are host-resident.

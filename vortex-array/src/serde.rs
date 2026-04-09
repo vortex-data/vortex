@@ -59,6 +59,7 @@ impl ArrayRef {
     pub fn serialize(
         &self,
         ctx: &ArrayContext,
+        session: &VortexSession,
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
         // Collect all array buffers
@@ -117,7 +118,7 @@ impl ArrayRef {
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
 
-        let root = ArrayNodeFlatBuffer::try_new(ctx, self)?;
+        let root = ArrayNodeFlatBuffer::try_new(ctx, session, self)?;
         let fb_root = root.try_write_flatbuffer(&mut fbb)?;
 
         let fb_buffers = fbb.create_vector(&fb_buffers);
@@ -157,15 +158,21 @@ impl ArrayRef {
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
     ctx: &'a ArrayContext,
+    session: &'a VortexSession,
     array: &'a ArrayRef,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn try_new(ctx: &'a ArrayContext, array: &'a ArrayRef) -> VortexResult<Self> {
+    pub fn try_new(
+        ctx: &'a ArrayContext,
+        session: &'a VortexSession,
+        array: &'a ArrayRef,
+    ) -> VortexResult<Self> {
         // Depth-first traversal of the array to ensure it supports serialization.
+        // FIXME(ngates): this serializes the metadata and throws it away!
         for child in array.depth_first_traversal() {
-            if child.metadata()?.is_none() {
+            if child.metadata(session)?.is_none() {
                 vortex_bail!(
                     "Array {} does not support serialization",
                     child.encoding_id()
@@ -181,6 +188,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         };
         Ok(Self {
             ctx,
+            session,
             array,
             buffer_idx: 0,
         })
@@ -201,7 +209,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 )
             })?;
 
-        let metadata = self.array.metadata()?.ok_or_else(|| {
+        let metadata = self.array.metadata(self.session)?.ok_or_else(|| {
             vortex_err!(
                 "Array {} does not support serialization",
                 self.array.encoding_id()
@@ -222,6 +230,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 // Update the number of buffers required.
                 let msg = ArrayNodeFlatBuffer {
                     ctx: self.ctx,
+                    session: self.session,
                     array: child,
                     buffer_idx: child_buffer_idx,
                 }

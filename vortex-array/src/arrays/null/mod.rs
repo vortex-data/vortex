@@ -1,23 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hasher;
-
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::ArrayEq;
-use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayParts;
 use crate::array::ArrayView;
+use crate::array::EmptyArrayData;
 use crate::array::OperationsVTable;
 use crate::array::VTable;
 use crate::array::ValidityVTable;
@@ -33,21 +29,8 @@ pub(crate) mod compute;
 /// A [`Null`]-encoded Vortex array.
 pub type NullArray = Array<Null>;
 
-impl ArrayHash for NullData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {
-        // len and dtype are hashed by ArrayInner; NullData has no additional fields.
-    }
-}
-
-impl ArrayEq for NullData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
-        // len, dtype, and slots are compared by ArrayInner; NullData has no additional fields.
-        true
-    }
-}
-
 impl VTable for Null {
-    type ArrayData = NullData;
+    type ArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -58,7 +41,7 @@ impl VTable for Null {
 
     fn validate(
         &self,
-        _data: &NullData,
+        _data: &EmptyArrayData,
         dtype: &DType,
         _len: usize,
         _slots: &[Option<ArrayRef>],
@@ -83,7 +66,10 @@ impl VTable for Null {
         vortex_panic!("NullArray slot_name index {idx} out of bounds")
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
@@ -106,7 +92,7 @@ impl VTable for Null {
             self.clone(),
             dtype.clone(),
             len,
-            NullData::new(),
+            EmptyArrayData,
         ))
     }
 
@@ -151,9 +137,6 @@ impl VTable for Null {
 /// # }
 /// ```
 #[derive(Clone, Debug)]
-pub struct NullData;
-
-#[derive(Clone, Debug)]
 pub struct Null;
 
 impl Null {
@@ -163,22 +146,11 @@ impl Null {
 impl Array<Null> {
     pub fn new(len: usize) -> Self {
         unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Null, DType::Null, len, NullData::new()))
+            Array::from_parts_unchecked(ArrayParts::new(Null, DType::Null, len, EmptyArrayData))
         }
     }
 }
 
-impl Default for NullData {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl NullData {
-    pub fn new() -> Self {
-        Self
-    }
-}
 impl OperationsVTable<Null> for Null {
     fn scalar_at(
         _array: ArrayView<'_, Null>,

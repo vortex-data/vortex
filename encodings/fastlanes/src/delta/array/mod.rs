@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use fastlanes::FastLanes;
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
@@ -62,6 +65,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 #[derive(Clone, Debug)]
 pub struct DeltaData {
     pub(super) offset: usize,
+}
+
+impl Display for DeltaData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "offset: {}", self.offset)
+    }
 }
 
 pub trait DeltaArrayExt: TypedArrayRef<crate::Delta> {

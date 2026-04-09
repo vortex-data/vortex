@@ -9,8 +9,10 @@ publish = false
 edition = "2024"
 rust-version = "1.86"
 
-#[lib]
-#crate-type = ["cdylib"]
-
 [dependencies]
 vortex = { path = "../vortex", default-features = false }
+
+[profile.ci]
+inherits = "dev"
+debug = "line-tables-only"
+incremental = false

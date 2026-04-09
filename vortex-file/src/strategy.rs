@@ -219,7 +219,7 @@ impl WriteStrategyBuilder {
         };
 
         // 7. for each chunk create a flat layout
-        let chunked = ChunkedLayoutStrategy::new(flat.clone());
+        let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
@@ -234,7 +234,7 @@ impl WriteStrategyBuilder {
                     .exclude_schemes([IntDictScheme.id()])
                     .build(),
             ),
-            CompressorConfig::Opaque(compressor) => compressor.clone(),
+            CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
         };
         let compressing = CompressingStrategy::new(buffered, data_compressor);
 

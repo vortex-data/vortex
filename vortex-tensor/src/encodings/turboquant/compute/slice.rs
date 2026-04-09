@@ -17,14 +17,12 @@ impl SliceReduce for TurboQuant {
         array: ArrayView<'_, TurboQuant>,
         range: Range<usize>,
     ) -> VortexResult<Option<ArrayRef>> {
-        let sliced_codes = array.codes().slice(range.clone())?;
-        let sliced_norms = array.norms().slice(range)?;
+        let sliced_codes = array.codes().slice(range)?;
 
         Ok(Some(
             TurboQuant::try_new_array(
                 array.dtype().clone(),
                 sliced_codes,
-                sliced_norms,
                 array.centroids().clone(),
                 array.rotation_signs().clone(),
             )?

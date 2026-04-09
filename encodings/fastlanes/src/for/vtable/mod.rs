@@ -96,7 +96,10 @@ impl VTable for FoR {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         // Note that we **only** serialize the optional scalar value (not including the dtype).
         Ok(Some(ScalarValue::to_proto_bytes(
             array.reference_scalar().value(),

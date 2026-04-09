@@ -26,6 +26,7 @@ use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::array::buffer::BufferHandle;
 use vortex::array::dtype::DType;
 use vortex::array::serde::SerializedArray;
+use vortex::array::session::ArraySessionExt;
 use vortex::array::stream::ArrayStream;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBufferMut;
@@ -368,7 +369,7 @@ impl VortexFileHandle {
             .decode(&dtype, row_count, ctx, &self.session)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-        let tree = build_array_encoding_tree_from_array(&array);
+        let tree = build_array_encoding_tree_from_array(&array, &self.session);
         serde_json::to_string(&tree)
             .map_err(|e| JsValue::from_str(&format!("JSON serialization failed: {e}")))
     }
@@ -636,14 +637,17 @@ fn build_array_encoding_tree(parts: &SerializedArray, ctx: &ReadContext) -> Arra
 
 /// Recursively build the array encoding tree from a fully decoded array,
 /// extracting dtype, child names, and buffer names from the encoding vtables.
-fn build_array_encoding_tree_from_array(array: &ArrayRef) -> ArrayEncodingNodeJson {
+fn build_array_encoding_tree_from_array(
+    array: &ArrayRef,
+    session: &VortexSession,
+) -> ArrayEncodingNodeJson {
     let encoding = array.encoding_id().to_string();
     let dtype = array.dtype().to_string();
     let buffer_names = array.buffer_names();
     let buffer_handles = array.buffer_handles();
     let buffer_lengths: Vec<usize> = buffer_handles.iter().map(|b| b.len()).collect();
-    let metadata_bytes = array
-        .metadata()
+    let metadata_bytes = session
+        .array_serialize(array)
         .ok()
         .flatten()
         .map(|m| m.len())
@@ -656,7 +660,7 @@ fn build_array_encoding_tree_from_array(array: &ArrayRef) -> ArrayEncodingNodeJs
         .collect();
     let children: Vec<ArrayEncodingNodeJson> = named_children
         .iter()
-        .map(|(_, child)| build_array_encoding_tree_from_array(child))
+        .map(|(_, child)| build_array_encoding_tree_from_array(child, session))
         .collect();
 
     ArrayEncodingNodeJson {

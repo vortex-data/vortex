@@ -318,7 +318,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *cons
     };
 
     match opts.tz.as_ref() {
-        Some(zone) => vx_string::new(zone.clone()),
+        Some(zone) => vx_string::new(Arc::clone(zone)),
         None => ptr::null(),
     }
 }

@@ -80,7 +80,7 @@ fn run_end_to_arrow(
 ) -> VortexResult<ArrowArrayRef> {
     let length = array.len();
     let metadata_bytes = array
-        .metadata()?
+        .metadata(ctx.session())?
         .ok_or_else(|| vortex_err!("RunEndArray missing metadata"))?;
     let metadata = RunEndMetadata::decode(&*metadata_bytes)
         .map_err(|e| vortex_err!("Failed to decode RunEndMetadata: {e}"))?;

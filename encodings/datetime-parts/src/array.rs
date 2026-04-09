@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use prost::Message;
@@ -124,7 +126,10 @@ impl VTable for DateTimeParts {
         vortex_panic!("DateTimePartsArray buffer_name index {idx} out of bounds")
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             DateTimePartsMetadata {
                 days_ptype: PType::try_from(array.days().dtype())? as i32,
@@ -212,6 +217,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["days", "seconds", "subseconds
 
 #[derive(Clone, Debug)]
 pub struct DateTimePartsData {}
+
+impl Display for DateTimePartsData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
 
 pub trait DateTimePartsArrayExt: TypedArrayRef<DateTimeParts> {
     fn days(&self) -> &ArrayRef {

@@ -1,11 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant compression scheme for the pluggable compressor.
+//! TurboQuant compression scheme and decompression.
+//!
+//! The scheme first normalizes the input via [`normalize_as_l2_denorm`], then encodes the
+//! normalized child via [`turboquant_encode`]. The result is:
+//!
+//! ```text
+//! ScalarFnArray(L2Denorm, [TurboQuantArray, norms])
+//! ```
+//!
+//! [`normalize_as_l2_denorm`]: crate::scalar_fns::l2_denorm::normalize_as_l2_denorm
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::IntoArray;
 use vortex_array::arrays::Extension;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_compressor::CascadingCompressor;
 use vortex_compressor::ctx::CompressorContext;
 use vortex_compressor::estimate::CompressionEstimate;
@@ -16,7 +27,13 @@ use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::TurboQuant;
 use crate::encodings::turboquant::TurboQuantConfig;
-use crate::encodings::turboquant::turboquant_encode;
+use crate::encodings::turboquant::turboquant_encode_unchecked;
+use crate::scalar_fns::ApproxOptions;
+use crate::scalar_fns::l2_denorm::L2Denorm;
+use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
+
+pub(super) mod compress;
+pub(super) mod decompress;
 
 /// TurboQuant compression scheme for [`Vector`] extension types.
 ///
@@ -81,8 +98,30 @@ impl Scheme for TurboQuantScheme {
             .as_opt::<Extension>()
             .vortex_expect("expected an extension array");
 
+        let mut ctx = compressor.execution_ctx();
+
+        // Normalize first: produces L2Denorm(normalized_vectors, norms).
+        let l2_denorm =
+            normalize_as_l2_denorm(&ApproxOptions::Exact, ext_array.as_ref().clone(), &mut ctx)?;
+        let normalized = l2_denorm.child_at(0).clone();
+        let norms = l2_denorm.child_at(1).clone();
+        let num_rows = l2_denorm.len();
+
+        // Quantize the normalized child.
+        let normalized_ext = normalized
+            .as_opt::<Extension>()
+            .vortex_expect("normalized child should be an Extension array");
         let config = TurboQuantConfig::default();
-        turboquant_encode(ext_array, &config, &mut compressor.execution_ctx())
+        // SAFETY: We just normalized the input via `normalize_as_l2_denorm`, so all rows are
+        // guaranteed to be unit-norm (or zero for originally-null rows).
+        let tq = unsafe { turboquant_encode_unchecked(normalized_ext, &config, &mut ctx)? };
+
+        // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
+        // bypass the strict normalized-row validation when reattaching the stored norms.
+        Ok(
+            unsafe { L2Denorm::new_array_unchecked(&ApproxOptions::Exact, tq, norms, num_rows) }?
+                .into_array(),
+        )
     }
 }
 
@@ -96,11 +135,11 @@ fn estimate_compression_ratio(bits_per_element: u8, dimensions: u32, num_vectors
         + (config.bit_width as usize) * padded_dim; // MSE codes
 
     // Shared overhead: codebook centroids (2^bit_width f32 values) and
-    // rotation signs (3 * padded_dim bits).
+    // rotation signs (num_rounds * padded_dim bits).
     let num_centroids = 1usize << config.bit_width;
     debug_assert!(num_centroids <= TurboQuant::MAX_CENTROIDS);
     let overhead_bits = num_centroids * 32 // centroids are always f32
-        + 3 * padded_dim; // rotation signs, 1 bit each
+        + config.num_rounds as usize * padded_dim; // rotation signs, 1 bit each
 
     let compressed_size_bits = compressed_bits_per_vector * num_vectors + overhead_bits;
 

@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -115,7 +117,10 @@ impl VTable for RunEnd {
         vortex_panic!("RunEndArray buffer_name index {idx} out of bounds")
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             RunEndMetadata {
                 ends_ptype: PType::try_from(array.ends().dtype())
@@ -184,6 +189,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["ends", "values"];
 #[derive(Clone, Debug)]
 pub struct RunEndData {
     offset: usize,
+}
+
+impl Display for RunEndData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "offset: {}", self.offset)
+    }
 }
 
 pub struct RunEndDataParts {

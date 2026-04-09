@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use vortex_array::Array;
@@ -92,7 +94,10 @@ impl VTable for ByteBool {
         }
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
@@ -168,6 +173,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 #[derive(Clone, Debug)]
 pub struct ByteBoolData {
     buffer: BufferHandle,
+}
+
+impl Display for ByteBoolData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
 }
 
 pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
@@ -341,6 +352,7 @@ impl From<Vec<Option<bool>>> for ByteBoolData {
 mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
@@ -395,7 +407,7 @@ mod tests {
         let serialized = array
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();

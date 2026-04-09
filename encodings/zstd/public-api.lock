@@ -46,7 +46,7 @@ pub fn vortex_zstd::Zstd::nbuffers(array: vortex_array::array::view::ArrayView<'
 
 pub fn vortex_zstd::Zstd::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_zstd::Zstd::serialize(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_zstd::Zstd::serialize(array: vortex_array::array::view::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_zstd::Zstd::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -127,6 +127,10 @@ impl core::clone::Clone for vortex_zstd::ZstdData
 pub fn vortex_zstd::ZstdData::clone(&self) -> vortex_zstd::ZstdData
 
 impl core::fmt::Debug for vortex_zstd::ZstdData
+
+pub fn vortex_zstd::ZstdData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_zstd::ZstdData
 
 pub fn vortex_zstd::ZstdData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 

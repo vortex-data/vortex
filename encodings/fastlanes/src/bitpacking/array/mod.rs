@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
@@ -63,6 +66,12 @@ pub struct BitPackedData {
     pub(super) patch_offset: Option<usize>,
     /// The offset_within_chunk metadata from patches.
     pub(super) patch_offset_within_chunk: Option<usize>,
+}
+
+impl Display for BitPackedData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "bit_width: {}, offset: {}", self.bit_width, self.offset)
+    }
 }
 
 impl BitPackedData {

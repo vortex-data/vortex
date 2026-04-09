@@ -48,7 +48,7 @@ pub fn vortex_alp::ALP::nbuffers(_array: vortex_array::array::view::ArrayView<'_
 
 pub fn vortex_alp::ALP::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_alp::ALP::serialize(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_alp::ALP::serialize(array: vortex_array::array::view::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_alp::ALP::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -109,6 +109,10 @@ impl core::clone::Clone for vortex_alp::ALPData
 pub fn vortex_alp::ALPData::clone(&self) -> vortex_alp::ALPData
 
 impl core::fmt::Debug for vortex_alp::ALPData
+
+pub fn vortex_alp::ALPData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_alp::ALPData
 
 pub fn vortex_alp::ALPData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
@@ -182,7 +186,7 @@ pub fn vortex_alp::ALPRD::nbuffers(_array: vortex_array::array::view::ArrayView<
 
 pub fn vortex_alp::ALPRD::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_alp::ALPRD::serialize(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_alp::ALPRD::serialize(array: vortex_array::array::view::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_alp::ALPRD::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -233,6 +237,10 @@ impl core::clone::Clone for vortex_alp::ALPRDData
 pub fn vortex_alp::ALPRDData::clone(&self) -> vortex_alp::ALPRDData
 
 impl core::fmt::Debug for vortex_alp::ALPRDData
+
+pub fn vortex_alp::ALPRDData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_alp::ALPRDData
 
 pub fn vortex_alp::ALPRDData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 

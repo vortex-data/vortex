@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -59,6 +62,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["storage"];
 pub struct ExtensionData {
     /// The storage dtype. This **must** be a [`Extension::DType`] variant.
     pub(super) ext_dtype: ExtDTypeRef,
+}
+
+impl Display for ExtensionData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ext_dtype: {}", self.ext_dtype)
+    }
 }
 
 impl ExtensionData {
