@@ -24,6 +24,7 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFn;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -222,9 +223,15 @@ impl CosineSimilarity {
         let (normalized_r, _) = extract_l2_denorm_children(rhs_ref);
 
         // Dot product of already-normalized children IS the cosine similarity.
-        InnerProduct::try_new_array(options, normalized_l, normalized_r, len)?
-            .into_array()
-            .mask(validity.to_array(len))
+        let dot =
+            InnerProduct::try_new_array(options, normalized_l, normalized_r, len)?.into_array();
+
+        if !matches!(validity, Validity::NonNullable) {
+            // Masking always changes the nullability to nullable.
+            dot.mask(validity.to_array(len))
+        } else {
+            Ok(dot)
+        }
     }
 
     /// One side is `L2Denorm`: `cosine_similarity = dot(n, b) / ||b||`.
