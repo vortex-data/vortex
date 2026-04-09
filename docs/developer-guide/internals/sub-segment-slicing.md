@@ -332,71 +332,179 @@ pub async fn materialize(
 }
 ```
 
-### Integration with FlatReader
+### The Async Segment Executor
+
+The current execution loop (`execute_until` in `vortex-array`) is synchronous -- it
+assumes all buffer data is already in memory. We add a second executor in `vortex-layout`
+that is async, knows about `SegmentSource`, and handles the reduce -> fetch -> execute
+cycle:
 
 ```rust
-// FlatReader::projection_evaluation (simplified):
-async fn projection_evaluation(&self, row_range, expr, mask) {
-    let array_tree = self.layout.array_tree().unwrap();
+/// An async executor that can load segment buffers on demand.
+///
+/// Lives in `vortex-layout` because it needs `SegmentSource` for IO.
+/// This is the async counterpart to the sync `execute_until` in `vortex-array`.
+pub struct SegmentExecutor {
+    source: Arc<dyn SegmentSource>,
+    session: VortexSession,
+}
 
-    // 1. Deserialize with Segment handles (no IO)
-    let parts = SerializedArray::from_flatbuffer_with_segment_refs(
-        array_tree, self.layout.segment_id(),
-    )?;
-    let array = parts.decode(&dtype, row_count, &ctx, &session)?;
-
-    // 2. Wrap in slice -- triggers optimizer which runs SliceReduce
-    //    SliceReduce calls buffer.slice() -> refines Segment handles
-    let array = array.slice(row_range)?;
-
-    // 3. Materialize: collect all refined Segment handles, one coalesced fetch
-    materialize(&array, &self.segment_source).await?;
-
-    // 4. From here, all buffers are resolved Host data.
-    //    Filter, project, execute as before.
-    if !mask.all_true() {
-        array = array.filter(mask)?;
+impl SegmentExecutor {
+    pub fn new(source: Arc<dyn SegmentSource>, session: VortexSession) -> Self {
+        Self { source, session }
     }
-    array = array.apply(&expr)?;
 
-    // 5. Execute to canonical (sync, all data in memory)
-    let mut ctx = session.create_execution_ctx();
-    array.execute_until::<Canonical>(&mut ctx)?
+    /// Execute an array that may contain unfetched Segment buffer handles.
+    ///
+    /// 1. Run optimizer (reduce to fixpoint) -- refines Segment byte ranges
+    /// 2. Collect all Segment handles, coalesce, single async fetch
+    /// 3. Run sync execute_until on resolved data
+    pub async fn execute<M: Matcher>(&self, array: ArrayRef) -> VortexResult<ArrayRef> {
+        // Phase 1: Reduce to fixpoint.
+        // SliceReduce calls buffer.slice() on Segment handles -> refines byte ranges.
+        // This is metadata-only, no IO.
+        let array = array.optimize()?;
+
+        // Phase 2: Materialize all Segment handles in one coalesced fetch.
+        self.materialize(&array).await?;
+
+        // Phase 3: All buffers are now Host data. Run sync execution.
+        let mut ctx = self.session.create_execution_ctx();
+        array.execute_until::<M>(&mut ctx)
+    }
+
+    /// Collect all Segment buffer handles in the array tree, coalesce nearby
+    /// byte ranges within the same segment, fetch in a single IO batch, and
+    /// fill each handle's OnceLock with the resolved data.
+    async fn materialize(&self, array: &ArrayRef) -> VortexResult<()> {
+        // Walk the array tree, collect all Segment handles
+        let segment_refs: Vec<SegmentBufferRef> = array
+            .depth_first_traversal()
+            .flat_map(|a| a.buffer_handles())
+            .filter_map(|bh| bh.as_segment().cloned())
+            .collect();
+
+        if segment_refs.is_empty() {
+            return Ok(());
+        }
+
+        // Group by segment_id
+        let mut by_segment: HashMap<SegmentId, Vec<SegmentBufferRef>> = HashMap::new();
+        for seg in segment_refs {
+            by_segment.entry(seg.segment_id).or_default().push(seg);
+        }
+
+        // For each segment, coalesce nearby ranges and fetch
+        for (segment_id, refs) in by_segment {
+            let ranges: Vec<Range<usize>> = refs.iter()
+                .map(|r| r.segment_byte_range())
+                .collect();
+
+            // Single IO per segment, coalesced
+            let data = self.source.request_ranges(segment_id, &ranges).await?;
+
+            // Resolve each handle's OnceLock
+            for (seg_ref, buffer) in refs.iter().zip(data) {
+                seg_ref.resolved.set(buffer.unwrap_host())
+                    .expect("buffer already resolved");
+            }
+        }
+
+        Ok(())
+    }
 }
 ```
 
-Step 2 is the key: `array.slice(row_range)` internally creates a `SliceArray` and calls
-`.optimize()`, which runs reduce to fixpoint. `SliceReduce` for each encoding fires,
-calling `buffer.slice()` on Segment handles. After optimize, every Segment handle in
-the tree has its minimal needed byte range.
+### How FlatReader uses the SegmentExecutor
 
-Step 3 is the single coordination point: `materialize` sees all refined handles,
-coalesces nearby ranges within the same segment, fetches once.
+```rust
+impl FlatReader {
+    fn segment_executor(&self) -> SegmentExecutor {
+        SegmentExecutor::new(self.segment_source.clone(), self.session.clone())
+    }
+}
 
-Steps 4-5 run on fully resolved data, unchanged from today.
+impl LayoutReader for FlatReader {
+    fn projection_evaluation(&self, row_range, expr, mask) {
+        let executor = self.segment_executor();
+        let array_tree = self.layout.array_tree().unwrap();
+        let segment_id = self.layout.segment_id();
+        let dtype = self.layout.dtype().clone();
+        let row_count = self.layout.row_count() as usize;
+        let ctx = self.layout.array_ctx().clone();
+        let session = self.session.clone();
+
+        Ok(async move {
+            // 1. Deserialize with Segment handles (no IO)
+            let parts = SerializedArray::from_flatbuffer_with_segment_refs(
+                array_tree, segment_id,
+            )?;
+            let array = parts.decode(&dtype, row_count, &ctx, &session)?;
+
+            // 2. Apply slice + filter bounding range (refines Segment handles)
+            let mut array = array.slice(row_range)?;
+            let mask = mask.await?;
+            if let Some(bounds) = mask.bounding_range() {
+                array = array.slice(bounds)?;
+            }
+
+            // 3. Async execute: reduce -> fetch -> execute in one call
+            let array = executor.execute::<Columnar>(array).await?;
+
+            // 4. Filter and project on resolved data
+            let array = array.filter(mask)?;
+            array.apply(&expr)
+        }.boxed())
+    }
+}
+```
+
+The `SegmentExecutor` is the single integration point between the array execution
+model and the IO model. FlatReader doesn't need to manually orchestrate reduce,
+materialize, and execute -- it hands the array to the executor and gets back
+resolved data.
+
+### Why a separate executor, not modifying the existing one
+
+The sync executor in `vortex-array` has no dependency on `vortex-layout` or any IO
+concepts. It operates purely on in-memory arrays. The async `SegmentExecutor` in
+`vortex-layout` adds IO awareness:
+
+| | Sync executor (`vortex-array`) | Async executor (`vortex-layout`) |
+|---|---|---|
+| **Crate** | `vortex-array` | `vortex-layout` |
+| **Async** | No | Yes |
+| **Knows about IO** | No | Yes (`SegmentSource`) |
+| **Handles Segment buffers** | No (expects Host/Device) | Yes (materialize) |
+| **Used by** | Anything with in-memory arrays | FlatReader, layout readers |
+
+The async executor delegates to the sync executor for the actual compute work.
+It just wraps it with the reduce-refine and IO materialization steps.
 
 ## What Changes, What Doesn't
 
 ### Changes
 
-| Component | Change |
-|-----------|--------|
-| `BufferHandle` | Add `Inner::Segment(SegmentBufferRef)` variant |
-| `BufferHandle::slice()` | Handle Segment: narrow byte range |
-| `BufferHandle::len()` | Handle Segment: return needed range length |
-| `BufferHandle::to_host*()` | Handle Segment: read from OnceLock |
-| `SerializedArray` | Add `from_flatbuffer_with_segment_refs()` constructor |
-| `SegmentSource` | Add `request_ranges()` method |
-| `FlatReader` | Use segment refs + materialize instead of full segment fetch |
+| Component | Crate | Change |
+|-----------|-------|--------|
+| `BufferHandle` | `vortex-array` | Add `Inner::Segment(SegmentBufferRef)` variant |
+| `BufferHandle::slice()` | `vortex-array` | Handle Segment: narrow byte range |
+| `BufferHandle::len()` | `vortex-array` | Handle Segment: return needed range length |
+| `BufferHandle::to_host*()` | `vortex-array` | Handle Segment: read from OnceLock |
+| `SerializedArray` | `vortex-array` | Add `from_flatbuffer_with_segment_refs()` |
+| `SegmentSource` | `vortex-layout` | Add `request_ranges()` method |
+| `SegmentExecutor` | `vortex-layout` | **New**: async executor with IO awareness |
+| `FlatReader` | `vortex-layout` | Use `SegmentExecutor` for lazy load + execute |
 
 ### Unchanged
 
 | Component | Why unchanged |
 |-----------|---------------|
 | Every `SliceReduce` impl | Already calls `buffer.slice()` / `buffer.slice_typed()` |
-| The execution loop | Runs after materialization, sees only Host buffers |
+| Sync execution loop | Runs after materialization, sees only Host buffers |
 | `IoRequestStream` coalescing | Reused by `request_ranges` implementation |
 | Optimizer / reduce rules | Already runs SliceReduce via `SliceReduceAdaptor` |
+| Other `LayoutReader` impls | Only FlatReader changes; Chunked/Zoned delegate to children |
 
 **No new VTable methods. No per-encoding `plan_read`. No logic duplication.**
 
@@ -503,13 +611,19 @@ Everything else collapses.
    fetched partial buffers (using `from_flatbuffer_and_segment_with_overrides`). The
    OnceLock approach avoids double-deserialization but adds complexity to BufferHandle.
 
-3. **Segment handles in the execution loop**: Today, `materialize` runs before the
-   execution loop. If a future change needs the execution loop itself to trigger
-   materialization (e.g., an encoding discovers new buffer needs during execute),
-   the execution loop could return a new `ExecutionStep::NeedBuffers` signal and the
-   async caller would materialize and retry. This is not needed for the initial design
-   but the Segment variant on BufferHandle makes it straightforward to add later.
+3. **Multi-round materialization**: The `SegmentExecutor` currently does one
+   reduce-fetch-execute cycle. If a future encoding needs multiple rounds (e.g., read
+   offsets first, then refine data ranges), the executor could loop:
+   `reduce -> materialize -> check for remaining Segment handles -> repeat if needed`.
+   The `SegmentBufferRef` on `BufferHandle` makes this straightforward -- just check
+   if any Segment handles remain after execute and loop back.
 
 4. **Field mask integration**: `FlatReader` receives a `FieldMask` from projection pushdown.
    For Struct columns, non-projected fields could have their Segment handles skipped
    entirely during deserialization, compounding savings.
+
+5. **Executor reuse across evaluations**: The `SegmentExecutor` is cheap to create (just
+   holds `Arc` references). But if `FlatReader` runs multiple evaluations on the same
+   segment (filter + projection), could the executor cache the materialized segment
+   data across calls? Today `FlatReader` uses `SharedArrayFuture` for this -- the
+   executor should integrate with that caching.
