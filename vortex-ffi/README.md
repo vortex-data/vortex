@@ -76,6 +76,7 @@ cargo +nightly test -Zbuild-std \
 ThreadSanitizer:
 
 ```sh
+TSAN_OPTIONS="suppressions=$HOME/vortex/vortex-ffi/tsan_suppressions.txt" \
 RUSTFLAGS="-Z sanitizer=thread -Cunsafe-allow-abi-mismatch=sanitizer" \
 cargo +nightly test -Zbuild-std \
     --no-default-features --target <target triple> \
