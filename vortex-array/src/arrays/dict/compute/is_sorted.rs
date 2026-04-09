@@ -11,7 +11,6 @@ use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Dict;
-use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::scalar::Scalar;
 

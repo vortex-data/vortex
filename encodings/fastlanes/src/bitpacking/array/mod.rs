@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
@@ -27,10 +28,10 @@ pub mod unpack_iter;
 
 use crate::BitPackedArray;
 use crate::bitpack_compress::bitpack_encode;
-use crate::unpack_iter::BitPacked;
+use crate::unpack_iter::BitPacked as BitPackedIter;
 use crate::unpack_iter::BitUnpackedChunks;
 
-#[vortex_array::array_slots(crate::BitPacked)]
+#[array_slots(crate::BitPacked)]
 pub struct BitPackedSlots {
     /// The indices of exception values that don't fit in the bit-packed representation.
     pub patch_indices: Option<ArrayRef>,
@@ -218,7 +219,7 @@ impl BitPackedData {
     }
 
     /// Accessor for bit unpacked chunks
-    pub fn unpacked_chunks<T: BitPacked>(
+    pub fn unpacked_chunks<T: BitPackedIter>(
         &self,
         dtype: &DType,
         len: usize,
@@ -327,7 +328,7 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
     }
 
     #[inline]
-    fn unpacked_chunks<T: BitPacked>(&self) -> VortexResult<BitUnpackedChunks<T>> {
+    fn unpacked_chunks<T: BitPackedIter>(&self) -> VortexResult<BitUnpackedChunks<T>> {
         BitPackedData::unpacked_chunks::<T>(self, self.as_ref().dtype(), self.as_ref().len())
     }
 }
@@ -344,7 +345,6 @@ mod test {
 
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
-    use crate::bitpacking::array::BitPackedArraySlotsExt;
 
     #[test]
     fn test_encode() {

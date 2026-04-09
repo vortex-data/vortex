@@ -20,6 +20,7 @@ use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
+use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -81,13 +82,14 @@ impl VTable for ALP {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
+        let slots = ALPSlotsView::from_slots(slots);
         validate_parts(
             dtype,
             len,
             data.exponents,
-            ALPSlotsView::from_slots(slots).encoded,
+            slots.encoded,
             patches_from_slots(
-                slots,
+                &slots,
                 data.patch_offset,
                 data.patch_offset_within_chunk,
                 len,
@@ -203,7 +205,7 @@ impl VTable for ALP {
     }
 }
 
-#[vortex_array::array_slots(ALP)]
+#[array_slots(ALP)]
 pub struct ALPSlots {
     /// The ALP-encoded values array.
     pub encoded: ArrayRef,
@@ -440,7 +442,7 @@ pub trait ALPArrayExt: ALPArraySlotsExt {
 
     fn patches(&self) -> Option<Patches> {
         patches_from_slots(
-            self.as_ref().slots(),
+            &self.slots_view(),
             self.patch_offset,
             self.patch_offset_within_chunk,
             self.as_ref().len(),
@@ -449,13 +451,12 @@ pub trait ALPArrayExt: ALPArraySlotsExt {
 }
 
 fn patches_from_slots(
-    slots: &[Option<ArrayRef>],
+    slots: &ALPSlotsView,
     patch_offset: Option<usize>,
     patch_offset_within_chunk: Option<usize>,
     len: usize,
 ) -> Option<Patches> {
-    let view = ALPSlotsView::from_slots(slots);
-    match (view.patch_indices, view.patch_values) {
+    match (slots.patch_indices, slots.patch_values) {
         (Some(indices), Some(values)) => {
             let patch_offset = patch_offset.vortex_expect("has patch slots but no patch_offset");
             Some(unsafe {
@@ -464,7 +465,7 @@ fn patches_from_slots(
                     patch_offset,
                     indices.clone(),
                     values.clone(),
-                    view.patch_chunk_offsets.cloned(),
+                    slots.patch_chunk_offsets.cloned(),
                     patch_offset_within_chunk,
                 )
             })

@@ -78,12 +78,11 @@ impl VTable for Dict {
 
     fn validate(
         &self,
-        data: &DictData,
+        _data: &DictData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        _ = data;
         let view = DictSlotsView::from_slots(slots);
         let codes = view.codes;
         let values = view.values;

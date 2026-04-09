@@ -43,6 +43,7 @@ use crate::BitPackedDataParts;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::BitPackedSlots;
+use crate::bitpacking::array::BitPackedSlotsView;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
@@ -100,14 +101,10 @@ impl VTable for BitPacked {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let validity = child_to_validity(
-            &slots[BitPackedSlots::VALIDITY_CHILD].clone(),
-            dtype.nullability(),
-        );
-        let patches = match (
-            &slots[BitPackedSlots::PATCH_INDICES],
-            &slots[BitPackedSlots::PATCH_VALUES],
-        ) {
+        let slots = BitPackedSlotsView::from_slots(slots);
+
+        let validity = child_to_validity(&slots.validity_child.cloned(), dtype.nullability());
+        let patches = match (slots.patch_indices, slots.patch_values) {
             (Some(indices), Some(values)) => {
                 let patch_offset = data
                     .patch_offset
@@ -118,7 +115,7 @@ impl VTable for BitPacked {
                         patch_offset,
                         indices.clone(),
                         values.clone(),
-                        slots[BitPackedSlots::PATCH_CHUNK_OFFSETS].clone(),
+                        slots.patch_chunk_offsets.cloned(),
                         data.patch_offset_within_chunk,
                     )
                 })

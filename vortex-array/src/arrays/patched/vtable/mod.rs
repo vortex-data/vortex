@@ -36,6 +36,7 @@ use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::patched::PatchedData;
 use crate::arrays::patched::PatchedSlots;
+use crate::arrays::patched::PatchedSlotsView;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
 use crate::arrays::primitive::PrimitiveDataParts;
@@ -110,7 +111,7 @@ impl VTable for Patched {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate(dtype, len, slots)
+        data.validate(dtype, len, &PatchedSlotsView::from_slots(slots))
     }
 
     fn buffer(_array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {

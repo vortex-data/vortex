@@ -50,9 +50,13 @@ pub struct PatchedData {
 
 #[array_slots(Patched)]
 pub struct PatchedSlots {
+    /// The inner array containing the base unpatched values.
     pub inner: ArrayRef,
+    /// The lane offsets array for locating patches within lanes.
     pub lane_offsets: ArrayRef,
+    /// The indices of patched (exception) values.
     pub patch_indices: ArrayRef,
+    /// The patched (exception) values at the corresponding indices.
     pub patch_values: ArrayRef,
 }
 
@@ -67,10 +71,8 @@ impl PatchedData {
         &self,
         dtype: &DType,
         len: usize,
-        slots: &[Option<ArrayRef>],
+        slots: &PatchedSlotsView,
     ) -> VortexResult<()> {
-        let slots = PatchedSlotsView::from_slots(slots);
-
         vortex_ensure!(
             slots.inner.dtype() == dtype,
             "PatchedArray base dtype {} does not match outer dtype {}",

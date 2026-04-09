@@ -14,7 +14,6 @@ use crate::arrays::Dict;
 use crate::arrays::DictArray;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
-use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
