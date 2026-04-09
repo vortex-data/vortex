@@ -80,7 +80,7 @@ public final class IsNull implements Expression {
 
     @Override
     public String toString() {
-        return "is_null(" + child + ")";
+        return "vortex.is_null(" + child + ")";
     }
 
     /**
