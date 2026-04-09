@@ -460,7 +460,9 @@ impl Patches {
             .saturating_sub(offset_within_chunk);
 
         let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
-            self.chunk_offset_at(chunk_idx + 1)? - base_offset - offset_within_chunk
+            (self.chunk_offset_at(chunk_idx + 1)? - base_offset)
+                .saturating_sub(offset_within_chunk)
+                .min(self.indices.len())
         } else {
             self.indices.len()
         };
@@ -522,13 +524,10 @@ impl Patches {
             .saturating_sub(offset_within_chunk);
 
         let patches_end_idx = if chunk_idx < chunk_offsets.len() - 1 {
-            let base_offset_end = chunk_offsets[chunk_idx + 1];
-
-            let offset_within_chunk = O::from(offset_within_chunk)
-                .ok_or_else(|| vortex_err!("offset_within_chunk failed to convert to O"))?;
-
-            usize::try_from(base_offset_end - chunk_offsets[0] - offset_within_chunk)
+            usize::try_from(chunk_offsets[chunk_idx + 1] - chunk_offsets[0])
                 .map_err(|_| vortex_err!("patches_end_idx failed to convert to usize"))?
+                .saturating_sub(offset_within_chunk)
+                .min(indices.len())
         } else {
             self.indices.len()
         };
