@@ -181,9 +181,17 @@ impl BitBufferMut {
 
     /// Create a bit buffer of `len` with `indices` set as true.
     pub fn from_indices(len: usize, indices: &[usize]) -> BitBufferMut {
+        let num_bytes = len.div_ceil(8);
         let mut buf = BitBufferMut::new_unset(len);
-        // TODO(ngates): for dense indices, we can do better by collecting into u64s.
-        indices.iter().for_each(|&idx| buf.set(idx));
+        let slice = &mut buf.buffer.as_mut_slice()[..num_bytes];
+
+        // Batch set bits by writing directly to the byte slice.
+        let ptr = slice.as_mut_ptr();
+        for &idx in indices {
+            debug_assert!(idx < len);
+            // SAFETY: idx < len ensures idx/8 < num_bytes.
+            unsafe { set_bit_unchecked(ptr, idx) };
+        }
         buf
     }
 
@@ -303,6 +311,7 @@ impl BitBufferMut {
     /// Set the bit at `index` to the given boolean value.
     ///
     /// This operation is checked so if `index` exceeds the buffer length, this will panic.
+    #[inline]
     pub fn set_to(&mut self, index: usize, value: bool) {
         if value {
             self.set(index);
@@ -316,6 +325,7 @@ impl BitBufferMut {
     /// # Safety
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    #[inline]
     pub unsafe fn set_to_unchecked(&mut self, index: usize, value: bool) {
         if value {
             // SAFETY: checked by caller
@@ -329,6 +339,7 @@ impl BitBufferMut {
     /// Set a position to `true`.
     ///
     /// This operation is checked so if `index` exceeds the buffer length, this will panic.
+    #[inline]
     pub fn set(&mut self, index: usize) {
         assert!(index < self.len, "index {index} exceeds len {}", self.len);
 
@@ -354,6 +365,7 @@ impl BitBufferMut {
     /// # Safety
     ///
     /// The caller must ensure that `index` does not exceed the largest bit index in the backing buffer.
+    #[inline]
     unsafe fn set_unchecked(&mut self, index: usize) {
         // SAFETY: checked by caller
         unsafe { set_bit_unchecked(self.buffer.as_mut_ptr(), self.offset + index) }
@@ -406,6 +418,7 @@ impl BitBufferMut {
     }
 
     /// Append a new boolean into the bit buffer, incrementing the length.
+    #[inline]
     pub fn append(&mut self, value: bool) {
         if value {
             self.append_true()
@@ -415,6 +428,7 @@ impl BitBufferMut {
     }
 
     /// Append a new true value to the buffer.
+    #[inline]
     pub fn append_true(&mut self) {
         let bit_pos = self.offset + self.len;
         let byte_pos = bit_pos / 8;
@@ -431,21 +445,18 @@ impl BitBufferMut {
     }
 
     /// Append a new false value to the buffer.
+    #[inline]
     pub fn append_false(&mut self) {
         let bit_pos = self.offset + self.len;
         let byte_pos = bit_pos / 8;
-        let bit_in_byte = bit_pos % 8;
 
-        // Ensure buffer has enough bytes
+        // Ensure buffer has enough bytes (pushed as 0x00, so bit is already unset).
         if byte_pos >= self.buffer.len() {
             self.buffer.push(0u8);
         }
 
-        // Bit is already 0 if we just pushed a new byte, otherwise ensure it's unset
-        if bit_in_byte != 0 {
-            self.buffer.as_mut_slice()[byte_pos] &= !(1 << bit_in_byte);
-        }
-
+        // The bit is guaranteed to be 0: new bytes are zero-initialized, and
+        // existing bytes have this bit unset (it's beyond the current length).
         self.len += 1;
     }
 
@@ -514,24 +525,39 @@ impl BitBufferMut {
         let end_bit_pos = start_bit_pos + bit_len;
         let required_bytes = end_bit_pos.div_ceil(8);
 
-        // Ensure buffer has enough bytes
+        // Ensure buffer has enough bytes, zero-initialized for OR-based writes.
         if required_bytes > self.buffer.len() {
             self.buffer.push_n(0x00, required_bytes - self.buffer.len());
         }
 
-        // Use bitvec for efficient bit copying
-        let self_slice = self
-            .buffer
-            .as_mut_slice()
-            .view_bits_mut::<bitvec::prelude::Lsb0>();
-        let other_slice = buffer
-            .inner()
-            .as_slice()
-            .view_bits::<bitvec::prelude::Lsb0>();
+        let dst_bit_offset = start_bit_pos % 8;
+        let src_bit_offset = buffer.offset();
 
-        // Copy from source buffer (accounting for its offset) to destination (accounting for our offset + len)
-        let source_range = buffer.offset()..buffer.offset() + bit_len;
-        self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
+        if dst_bit_offset == 0 && src_bit_offset == 0 {
+            // Both byte-aligned: use memcpy for full bytes, then mask the tail.
+            let dst_byte = start_bit_pos / 8;
+            let src_bytes = buffer.inner().as_slice();
+            let full_bytes = bit_len / 8;
+            self.buffer.as_mut_slice()[dst_byte..dst_byte + full_bytes]
+                .copy_from_slice(&src_bytes[..full_bytes]);
+            let rem = bit_len % 8;
+            if rem != 0 {
+                let mask = (1u8 << rem) - 1;
+                self.buffer.as_mut_slice()[dst_byte + full_bytes] |= src_bytes[full_bytes] & mask;
+            }
+        } else {
+            // Use bitvec for unaligned bit copying.
+            let self_slice = self
+                .buffer
+                .as_mut_slice()
+                .view_bits_mut::<bitvec::prelude::Lsb0>();
+            let other_slice = buffer
+                .inner()
+                .as_slice()
+                .view_bits::<bitvec::prelude::Lsb0>();
+            let source_range = src_bit_offset..src_bit_offset + bit_len;
+            self_slice[start_bit_pos..end_bit_pos].copy_from_bitslice(&other_slice[source_range]);
+        }
 
         self.len += bit_len;
     }
@@ -627,11 +653,13 @@ impl BitBufferMut {
     }
 
     /// Get the number of set bits in the buffer.
+    #[inline]
     pub fn true_count(&self) -> usize {
         self.unaligned_chunks().count_ones()
     }
 
     /// Get the number of unset bits in the buffer.
+    #[inline]
     pub fn false_count(&self) -> usize {
         self.len - self.true_count()
     }
@@ -697,9 +725,68 @@ impl FromIterator<bool> for BitBufferMut {
             }
         }
 
-        // Append the remaining items (as we do not know how many more there are).
-        for v in iter {
-            buf.append(v);
+        // Batch remaining items in 64-bit words instead of appending one bit at a time.
+        'outer: loop {
+            let mut packed = 0u64;
+            for bit_idx in 0..64 {
+                let Some(v) = iter.next() else {
+                    // Flush partial word.
+                    if bit_idx > 0 {
+                        let old_len = buf.len;
+                        let new_len = old_len + bit_idx;
+                        let required_bytes = (buf.offset + new_len).div_ceil(8);
+                        if required_bytes > buf.buffer.len() {
+                            buf.buffer.push_n(0x00, required_bytes - buf.buffer.len());
+                        }
+                        // Write the packed bits into the buffer at the current bit position.
+                        let byte_start = (buf.offset + old_len) / 8;
+                        let bit_start = (buf.offset + old_len) % 8;
+                        if bit_start == 0 {
+                            let bytes = packed.to_le_bytes();
+                            let bytes_needed = bit_idx.div_ceil(8);
+                            buf.buffer.as_mut_slice()[byte_start..byte_start + bytes_needed]
+                                .copy_from_slice(&bytes[..bytes_needed]);
+                        } else {
+                            // Unaligned: set bits individually from packed word.
+                            let ptr = buf.buffer.as_mut_ptr();
+                            for j in 0..bit_idx {
+                                if (packed >> j) & 1 == 1 {
+                                    unsafe {
+                                        set_bit_unchecked(ptr, buf.offset + old_len + j);
+                                    }
+                                }
+                            }
+                        }
+                        buf.len = new_len;
+                    }
+                    break 'outer;
+                };
+                packed |= (v as u64) << bit_idx;
+            }
+
+            // Flush full 64-bit word.
+            let old_len = buf.len;
+            let new_len = old_len + 64;
+            let required_bytes = (buf.offset + new_len).div_ceil(8);
+            if required_bytes > buf.buffer.len() {
+                buf.buffer.push_n(0x00, required_bytes - buf.buffer.len());
+            }
+            let byte_start = (buf.offset + old_len) / 8;
+            let bit_start = (buf.offset + old_len) % 8;
+            if bit_start == 0 {
+                buf.buffer.as_mut_slice()[byte_start..byte_start + 8]
+                    .copy_from_slice(&packed.to_le_bytes());
+            } else {
+                let ptr = buf.buffer.as_mut_ptr();
+                for j in 0..64usize {
+                    if (packed >> j) & 1 == 1 {
+                        unsafe {
+                            set_bit_unchecked(ptr, buf.offset + old_len + j);
+                        }
+                    }
+                }
+            }
+            buf.len = new_len;
         }
 
         buf

@@ -25,6 +25,7 @@ use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
+use crate::bit::ops::bitwise_unary_op_copy;
 use crate::buffer;
 
 /// An immutable bitset stored as a packed byte buffer.
@@ -55,6 +56,29 @@ impl PartialEq for BitBuffer {
     fn eq(&self, other: &Self) -> bool {
         if self.len != other.len {
             return false;
+        }
+
+        if self.len == 0 {
+            return true;
+        }
+
+        // Fast path: both byte-aligned and same length — direct byte comparison.
+        if self.offset == 0 && other.offset == 0 {
+            let full_bytes = self.len / 8;
+            let self_bytes = &self.buffer.as_slice()[..full_bytes];
+            let other_bytes = &other.buffer.as_slice()[..full_bytes];
+            if self_bytes != other_bytes {
+                return false;
+            }
+            // Compare remaining bits in the last partial byte.
+            let rem = self.len % 8;
+            if rem != 0 {
+                let mask = (1u8 << rem) - 1;
+                let a = self.buffer.as_slice()[full_bytes] & mask;
+                let b = other.buffer.as_slice()[full_bytes] & mask;
+                return a == b;
+            }
+            return true;
         }
 
         self.chunks()
@@ -315,11 +339,13 @@ impl BitBuffer {
     }
 
     /// Get the number of set bits in the buffer.
+    #[inline]
     pub fn true_count(&self) -> usize {
         count_ones(self.buffer.as_slice(), self.offset, self.len)
     }
 
     /// Get the number of unset bits in the buffer.
+    #[inline]
     pub fn false_count(&self) -> usize {
         self.len - self.true_count()
     }
@@ -343,12 +369,14 @@ impl BitBuffer {
     pub fn sliced(&self) -> Self {
         if self.offset.is_multiple_of(8) {
             return Self::new(
-                self.buffer.slice(self.offset / 8..self.len.div_ceil(8)),
+                self.buffer
+                    .slice(self.offset / 8..(self.offset + self.len).div_ceil(8)),
                 self.len,
             );
         }
 
-        bitwise_unary_op(self.clone(), |a| a)
+        // Allocate directly rather than clone + identity op which would fail try_into_mut.
+        bitwise_unary_op_copy(self, |a| a)
     }
 }
 
@@ -455,7 +483,9 @@ impl Not for &BitBuffer {
 
     #[inline]
     fn not(self) -> Self::Output {
-        !self.clone()
+        // Allocate directly rather than clone+try_into_mut, which always fails
+        // since the clone shares the Arc with the original reference.
+        bitwise_unary_op_copy(self, |a| !a)
     }
 }
 
@@ -514,44 +544,23 @@ impl BitBuffer {
             return;
         }
 
-        let is_bit_set = |byte: u8, bit_idx: usize| (byte & (1 << bit_idx)) != 0;
-        let bit_offset = self.offset % 8;
-        let mut buffer_ptr = unsafe { self.buffer.as_ptr().add(self.offset / 8) };
-        let mut callback_idx = 0;
+        // Process in 64-bit chunks for better ILP and fewer loop iterations.
+        let chunks = self.chunks();
+        let chunks_count = total_bits / 64;
+        let remainder = total_bits % 64;
 
-        // Handle incomplete first byte.
-        if bit_offset > 0 {
-            let bits_in_first_byte = (8 - bit_offset).min(total_bits);
-            let byte = unsafe { *buffer_ptr };
-
-            for bit_idx in 0..bits_in_first_byte {
-                f(callback_idx, is_bit_set(byte, bit_offset + bit_idx));
-                callback_idx += 1;
+        for (chunk_idx, chunk) in chunks.iter().enumerate() {
+            let base = chunk_idx * 64;
+            for bit_idx in 0..64 {
+                f(base + bit_idx, (chunk >> bit_idx) & 1 == 1);
             }
-
-            buffer_ptr = unsafe { buffer_ptr.add(1) };
         }
 
-        // Process complete bytes.
-        let complete_bytes = (total_bits - callback_idx) / 8;
-        for _ in 0..complete_bytes {
-            let byte = unsafe { *buffer_ptr };
-
-            for bit_idx in 0..8 {
-                f(callback_idx, is_bit_set(byte, bit_idx));
-                callback_idx += 1;
-            }
-            buffer_ptr = unsafe { buffer_ptr.add(1) };
-        }
-
-        // Handle remaining bits at the end.
-        let remaining_bits = total_bits - callback_idx;
-        if remaining_bits > 0 {
-            let byte = unsafe { *buffer_ptr };
-
-            for bit_idx in 0..remaining_bits {
-                f(callback_idx, is_bit_set(byte, bit_idx));
-                callback_idx += 1;
+        if remainder != 0 {
+            let rem_chunk = chunks.remainder_bits();
+            let base = chunks_count * 64;
+            for bit_idx in 0..remainder {
+                f(base + bit_idx, (rem_chunk >> bit_idx) & 1 == 1);
             }
         }
     }

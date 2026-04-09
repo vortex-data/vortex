@@ -21,30 +21,50 @@ pub(super) fn filter_bit_buffer(bb: &BitBuffer, mask: &MaskValues) -> BitBuffer 
 }
 
 fn filter_bitbuffer_by_indices(bb: &BitBuffer, indices: &[usize]) -> BitBuffer {
+    if indices.is_empty() {
+        return BitBuffer::empty();
+    }
+
+    let mut out = BitBufferMut::with_capacity(indices.len());
     let bools = bb.inner().as_ref();
     let bit_offset = bb.offset();
 
-    // FIXME(ngates): this is slower than it could be!
-    BitBufferMut::collect_bool(indices.len(), |idx| {
-        let idx = *unsafe { indices.get_unchecked(idx) };
-        get_bit(bools, bit_offset + idx) // Panics if out of bounds.
-    })
-    .freeze()
+    // Scan for contiguous runs in the indices and copy them in bulk.
+    let mut i = 0;
+    while i < indices.len() {
+        let run_start = indices[i];
+        let mut run_end = run_start + 1;
+        let mut j = i + 1;
+        while j < indices.len() && indices[j] == run_end {
+            run_end += 1;
+            j += 1;
+        }
+
+        let run_len = j - i;
+        if run_len >= 64 {
+            // Bulk copy for long contiguous runs.
+            out.append_buffer(&bb.slice(run_start..run_end));
+        } else {
+            // Gather individual bits for short/scattered indices.
+            for k in i..j {
+                let idx = unsafe { *indices.get_unchecked(k) };
+                out.append(get_bit(bools, bit_offset + idx));
+            }
+        }
+
+        i = j;
+    }
+
+    out.freeze()
 }
 
 #[allow(unused)]
 fn filter_bitbuffer_by_slices(bb: &BitBuffer, slices: &[(usize, usize)]) -> BitBuffer {
-    let bools = bb.inner().as_ref();
-    let bit_offset = bb.offset();
     let output_len: usize = slices.iter().map(|(start, end)| end - start).sum();
-
     let mut out = BitBufferMut::with_capacity(output_len);
 
-    // FIXME(ngates): this is slower than it could be!
     for &(start, end) in slices {
-        for idx in start..end {
-            out.append(get_bit(bools, bit_offset + idx)); // Panics if out of bounds.
-        }
+        out.append_buffer(&bb.slice(start..end));
     }
 
     out.freeze()
