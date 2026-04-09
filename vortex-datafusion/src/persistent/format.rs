@@ -266,7 +266,7 @@ impl FileFormat for VortexFormat {
                     }
 
                     // Not entry or invalid - open the file
-                    let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
+                    let reader = Arc::new(ObjectStoreReadAt::new(
                         store,
                         object.location.clone(),
                         session.handle(),
@@ -339,7 +339,7 @@ impl FileFormat for VortexFormat {
                 Some(metadata) => metadata,
                 None => {
                     // Not entry - open the file
-                    let reader = Arc::new(ObjectStoreReadAt::new_with_allocator(
+                    let reader = Arc::new(ObjectStoreReadAt::new(
                         store,
                         object.location.clone(),
                         session.handle(),
