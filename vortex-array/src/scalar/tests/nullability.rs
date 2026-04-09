@@ -589,7 +589,10 @@ mod tests {
             Nullability::Nullable,
         ));
 
-        let middle_dtype = Arc::new(DType::List(innermost_dtype.clone(), Nullability::Nullable));
+        let middle_dtype = Arc::new(DType::List(
+            Arc::clone(&innermost_dtype),
+            Nullability::Nullable,
+        ));
 
         // Create innermost FixedSizeLists with different null patterns.
         let inner1 = Scalar::fixed_size_list(
@@ -618,7 +621,7 @@ mod tests {
 
         // Create middle Lists.
         let middle1 = Scalar::list(
-            innermost_dtype.clone(),
+            Arc::clone(&innermost_dtype),
             vec![inner1, inner2],
             Nullability::Nullable,
         );

@@ -237,7 +237,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         let input = PrimitiveArray::from_iter(0i64..1024).into_array();
-        let compressed = ZstdBuffers::compress(&input, 3)?;
+        let compressed = ZstdBuffers::compress(&input, 3, &VortexSession::empty())?;
 
         let cpu_result = compressed.clone().into_array().to_canonical()?;
         let gpu_result = ZstdBuffersExecutor
@@ -264,7 +264,7 @@ mod tests {
             "baz",
         ])
         .into_array();
-        let compressed = ZstdBuffers::compress(&input, 3)?;
+        let compressed = ZstdBuffers::compress(&input, 3, &VortexSession::empty())?;
 
         let cpu_result = compressed.clone().into_array().to_canonical()?;
         let gpu_result = ZstdBuffersExecutor

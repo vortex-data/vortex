@@ -3,7 +3,6 @@
 
 mod array;
 pub use array::StructArrayExt;
-pub use array::StructData;
 pub use array::StructDataParts;
 pub use vtable::StructArray;
 pub(crate) mod compute;

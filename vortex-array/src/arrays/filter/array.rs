@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -26,6 +29,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child"];
 pub struct FilterData {
     /// The boolean mask selecting which elements to keep.
     pub(super) mask: Mask,
+}
+
+impl Display for FilterData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "mask_len: {}", self.mask.len())
+    }
 }
 
 pub struct FilterDataParts {

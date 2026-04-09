@@ -3,10 +3,12 @@
 
 use std::sync::Arc;
 
+use vortex_error::VortexResult;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
+use crate::ArrayRef;
 use crate::array::ArrayPlugin;
 use crate::array::ArrayPluginRef;
 use crate::arrays::Bool;
@@ -85,6 +87,14 @@ pub trait ArraySessionExt: SessionExt {
     /// Returns the array encoding registry.
     fn arrays(&self) -> Ref<'_, ArraySession> {
         self.get::<ArraySession>()
+    }
+
+    /// Serialize an array using a plugin from the registry.
+    fn array_serialize(&self, array: &ArrayRef) -> VortexResult<Option<Vec<u8>>> {
+        let Some(plugin) = self.arrays().registry.find(&array.encoding_id()) else {
+            return Ok(None);
+        };
+        plugin.serialize(array, &self.session())
     }
 }
 

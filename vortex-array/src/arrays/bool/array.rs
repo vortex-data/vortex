@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use arrow_array::BooleanArray;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
@@ -63,6 +66,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 pub struct BoolData {
     pub(super) bits: BufferHandle,
     pub(super) offset: usize,
+}
+
+impl Display for BoolData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "offset: {}", self.offset)
+    }
 }
 
 pub struct BoolDataParts {

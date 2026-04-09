@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::DataType;
@@ -151,7 +153,7 @@ fn data_type_no_views(data_type: DataType) -> DataType {
             let viewless_fields: Vec<FieldRef> = fields
                 .iter()
                 .map(|field_ref| {
-                    let field = (*field_ref.clone()).clone();
+                    let field = (*Arc::clone(field_ref)).clone();
                     let data_type = field.data_type().clone();
                     let field = field.with_data_type(data_type_no_views(data_type));
                     FieldRef::new(field)

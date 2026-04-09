@@ -31,10 +31,15 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::array::ValidityChild;
 use crate::array::ValidityVTableFromChild;
+use crate::arrays::Primitive;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedData;
+use crate::arrays::patched::array::INDICES_SLOT;
+use crate::arrays::patched::array::INNER_SLOT;
+use crate::arrays::patched::array::LANE_OFFSETS_SLOT;
 use crate::arrays::patched::array::SLOT_NAMES;
+use crate::arrays::patched::array::VALUES_SLOT;
 use crate::arrays::patched::compute::rules::PARENT_RULES;
 use crate::arrays::patched::vtable::kernels::PARENT_KERNELS;
 use crate::arrays::primitive::PrimitiveDataParts;
@@ -45,6 +50,7 @@ use crate::dtype::DType;
 use crate::dtype::NativePType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
+use crate::require_child;
 use crate::serde::ArrayChildren;
 
 /// A [`Patched`]-encoded Vortex array.
@@ -130,7 +136,10 @@ impl VTable for Patched {
         }
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             PatchedMetadata {
                 n_patches: u32::try_from(array.patch_indices().len())?,
@@ -242,45 +251,58 @@ impl VTable for Patched {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let inner = array
-            .base_array()
-            .clone()
-            .execute::<Canonical>(ctx)?
-            .into_primitive();
+    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let array = require_child!(array, array.base_array(), INNER_SLOT => Primitive);
+        let array = require_child!(array, array.lane_offsets(), LANE_OFFSETS_SLOT => Primitive);
+        let array = require_child!(array, array.patch_indices(), INDICES_SLOT => Primitive);
+        let array = require_child!(array, array.patch_values(), VALUES_SLOT => Primitive);
 
+        let len = array.len();
+
+        fn take_slot(slots: &mut [Option<ArrayRef>], idx: usize) -> ArrayRef {
+            slots[idx].take().vortex_expect("slot must be present")
+        }
+
+        fn downcast_slot(slot: ArrayRef) -> PrimitiveArray {
+            slot.try_downcast::<Primitive>()
+                .ok()
+                .vortex_expect("slot must be primitive")
+        }
+
+        let (n_lanes, offset, inner, lane_offsets, indices, values) = match array.try_into_parts() {
+            Ok(mut parts) => {
+                let PatchedData { n_lanes, offset } = parts.data;
+                let inner = downcast_slot(take_slot(&mut parts.slots, INNER_SLOT));
+                let lane_offsets = downcast_slot(take_slot(&mut parts.slots, LANE_OFFSETS_SLOT));
+                let indices = downcast_slot(take_slot(&mut parts.slots, INDICES_SLOT));
+                let values = downcast_slot(take_slot(&mut parts.slots, VALUES_SLOT));
+                (n_lanes, offset, inner, lane_offsets, indices, values)
+            }
+            Err(array) => {
+                let PatchedData { n_lanes, offset } = array.data().clone();
+                let inner = downcast_slot(array.base_array().clone());
+                let lane_offsets = downcast_slot(array.lane_offsets().clone());
+                let indices = downcast_slot(array.patch_indices().clone());
+                let values = downcast_slot(array.patch_values().clone());
+                (n_lanes, offset, inner, lane_offsets, indices, values)
+            }
+        };
+
+        // TODO(joe): use iterative execution
         let PrimitiveDataParts {
             buffer,
             ptype,
             validity,
         } = inner.into_data_parts();
 
-        let lane_offsets = array
-            .lane_offsets()
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
-        let indices = array
-            .patch_indices()
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
-
-        // TODO(aduffy): add support for non-primitive PatchedArray patches application (?)
-        let values = array
-            .patch_values()
-            .clone()
-            .execute::<PrimitiveArray>(ctx)?;
-
         let patched_values = match_each_native_ptype!(values.ptype(), |V| {
-            let offset = array.offset();
-            let len = array.len();
-
             let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
 
             apply_patches_primitive::<V>(
                 &mut output,
                 offset,
                 len,
-                array.n_lanes(),
+                n_lanes,
                 lane_offsets.as_slice::<u32>(),
                 indices.as_slice::<u16>(),
                 values.as_slice::<V>(),
@@ -581,7 +603,9 @@ mod tests {
         let len = array.len();
 
         let ctx = ArrayContext::empty();
-        let serialized = array.serialize(&ctx, &SerializeOptions::default()).unwrap();
+        let serialized = array
+            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
+            .unwrap();
 
         // Concat into a single buffer.
         let mut concat = ByteBufferMut::empty();

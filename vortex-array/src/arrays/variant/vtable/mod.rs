@@ -4,25 +4,21 @@
 mod operations;
 mod validity;
 
-use std::hash::Hasher;
-
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
-use crate::ArrayEq;
-use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
-use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
+use crate::array::EmptyArrayData;
 use crate::array::VTable;
 use crate::arrays::variant::SLOT_NAMES;
-use crate::arrays::variant::VariantData;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -37,18 +33,8 @@ impl Variant {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.variant");
 }
 
-impl ArrayHash for VariantData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
-}
-
-impl ArrayEq for VariantData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
-        true
-    }
-}
-
 impl VTable for Variant {
-    type ArrayData = VariantData;
+    type ArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
 
@@ -103,7 +89,10 @@ impl VTable for Variant {
         None
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
@@ -115,7 +104,7 @@ impl VTable for Variant {
 
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &vortex_session::VortexSession,
+        _session: &VortexSession,
     ) -> VortexResult<crate::array::ArrayParts<Self>> {
         vortex_ensure!(
             metadata.is_empty(),
@@ -131,7 +120,7 @@ impl VTable for Variant {
         // The child carries the nullability for the whole VariantArray.
         let child = children.get(0, dtype, len)?;
         Ok(
-            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, VariantData)
+            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
                 .with_slots(vec![Some(child)]),
         )
     }

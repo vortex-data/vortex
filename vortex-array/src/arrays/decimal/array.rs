@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use itertools::Itertools;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
@@ -103,6 +106,16 @@ pub struct DecimalData {
     pub(super) decimal_dtype: DecimalDType,
     pub(super) values: BufferHandle,
     pub(super) values_type: DecimalType,
+}
+
+impl Display for DecimalData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "decimal_dtype: {}, values_type: {}",
+            self.decimal_dtype, self.values_type
+        )
+    }
 }
 
 pub struct DecimalDataParts {

@@ -12,6 +12,7 @@ use vortex_session::VortexSession;
 
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::new_foreign_aggregate_fn;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
 
 impl AggregateFnRef {
@@ -38,12 +39,13 @@ impl AggregateFnRef {
     /// Note: the serialization format is not stable and may change between versions.
     pub fn from_proto(proto: &pb::AggregateFn, session: &VortexSession) -> VortexResult<Self> {
         let agg_fn_id: AggregateFnId = ArcRef::new_arc(Arc::from(proto.id.as_str()));
-        let plugin = session
-            .aggregate_fns()
-            .registry()
-            .find(&agg_fn_id)
-            .ok_or_else(|| vortex_err!("unknown aggregate function id: {}", proto.id))?;
-        let agg_fn = plugin.deserialize(proto.metadata(), session)?;
+        let agg_fn = if let Some(plugin) = session.aggregate_fns().registry().find(&agg_fn_id) {
+            plugin.deserialize(proto.metadata(), session)?
+        } else if session.allows_unknown() {
+            new_foreign_aggregate_fn(agg_fn_id.clone(), proto.metadata().to_vec())
+        } else {
+            return Err(vortex_err!("unknown aggregate function id: {}", proto.id));
+        };
 
         if agg_fn.id() != agg_fn_id {
             vortex_bail!(
@@ -163,5 +165,24 @@ mod tests {
         let deserialized = AggregateFnRef::from_proto(&deserialized_proto, &session).unwrap();
 
         assert_eq!(deserialized, agg_fn);
+    }
+
+    #[test]
+    fn unknown_aggregate_fn_id_allow_unknown() {
+        let session = VortexSession::empty()
+            .with::<AggregateFnSession>()
+            .allow_unknown();
+
+        let proto = pb::AggregateFn {
+            id: "vortex.test.foreign_aggregate".to_string(),
+            metadata: Some(vec![7, 8, 9]),
+        };
+
+        let agg_fn = AggregateFnRef::from_proto(&proto, &session).unwrap();
+        assert_eq!(agg_fn.id().as_ref(), "vortex.test.foreign_aggregate");
+
+        let roundtrip = agg_fn.serialize_proto().unwrap();
+        assert_eq!(roundtrip.id, proto.id);
+        assert_eq!(roundtrip.metadata(), proto.metadata());
     }
 }

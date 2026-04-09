@@ -58,7 +58,7 @@ jobs:
       - name: Build binary
         shell: bash
         env:
-          RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
+          RUSTFLAGS: "-C target-cpu=native"
         run: |
           cargo build --package ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
 

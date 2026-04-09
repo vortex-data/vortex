@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 use std::sync::Arc;
@@ -135,7 +136,10 @@ impl VTable for FSST {
         }
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         let codes_offsets = array.as_ref().slots()[CODES_OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("FSSTArray codes_offsets slot");
@@ -335,6 +339,12 @@ pub struct FSSTData {
 
     /// Memoized compressor used for push-down of compute by compressing the RHS.
     compressor: Arc<LazyLock<Compressor, Box<dyn Fn() -> Compressor + Send>>>,
+}
+
+impl Display for FSSTData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "len: {}, nsymbols: {}", self.len, self.symbols.len())
+    }
 }
 
 impl Debug for FSSTData {

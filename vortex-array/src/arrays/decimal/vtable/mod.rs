@@ -89,7 +89,10 @@ impl VTable for Decimal {
         }
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             DecimalMetadata {
                 values_type: array.values_type() as i32,
@@ -233,7 +236,7 @@ mod tests {
         let ctx = ArrayContext::empty();
         let out = array
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
             .unwrap();
         // Concat into a single buffer
         let mut concat = ByteBufferMut::empty();
@@ -264,7 +267,7 @@ mod tests {
         let out = array
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&ctx, &LEGACY_SESSION, &SerializeOptions::default())
             .unwrap();
         let mut concat = ByteBufferMut::empty();
         for buf in out {

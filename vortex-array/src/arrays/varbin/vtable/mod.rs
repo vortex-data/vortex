@@ -119,7 +119,10 @@ impl VTable for VarBin {
         }
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             VarBinMetadata {
                 offsets_ptype: PType::try_from(array.offsets().dtype())

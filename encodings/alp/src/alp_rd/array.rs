@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -127,7 +129,10 @@ impl VTable for ALPRD {
         None
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         let dict = array
             .left_parts_dictionary()
             .iter()
@@ -228,7 +233,6 @@ impl VTable for ALPRD {
         let array = require_child!(array, array.right_parts(), 1 => Primitive);
         require_patches!(
             array,
-            array.left_parts_patches(),
             LP_PATCH_INDICES_SLOT,
             LP_PATCH_VALUES_SLOT,
             LP_PATCH_CHUNK_OFFSETS_SLOT
@@ -329,6 +333,16 @@ pub struct ALPRDData {
     patch_offset_within_chunk: Option<usize>,
     left_parts_dictionary: Buffer<u16>,
     right_bit_width: u8,
+}
+
+impl Display for ALPRDData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "right_bit_width: {}", self.right_bit_width)?;
+        if let Some(offset) = self.patch_offset {
+            write!(f, ", patch_offset: {offset}")?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug)]

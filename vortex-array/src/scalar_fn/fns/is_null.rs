@@ -34,7 +34,7 @@ impl ScalarFnVTable for IsNull {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("is_null")
+        ScalarFnId::from("vortex.is_null")
     }
 
     fn serialize(&self, _instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

@@ -76,7 +76,7 @@ impl FileSystem for ObjectStoreFileSystem {
 
     async fn open_read(&self, path: &str) -> VortexResult<Arc<dyn VortexReadAt>> {
         Ok(Arc::new(ObjectStoreReadAt::new(
-            self.store.clone(),
+            Arc::clone(&self.store),
             path.into(),
             self.handle.clone(),
         )))

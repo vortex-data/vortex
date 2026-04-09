@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
@@ -173,7 +175,10 @@ impl VTable for Zstd {
         }
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(array.metadata.clone().encode_to_vec()))
     }
 
@@ -322,6 +327,16 @@ pub struct ZstdData {
     unsliced_n_rows: usize,
     slice_start: usize,
     slice_stop: usize,
+}
+
+impl Display for ZstdData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "nrows: {}, slice: {}..{}",
+            self.unsliced_n_rows, self.slice_start, self.slice_stop
+        )
+    }
 }
 
 pub struct ZstdDataParts {

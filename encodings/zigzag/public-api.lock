@@ -40,7 +40,7 @@ pub fn vortex_zigzag::ZigZag::nbuffers(_array: vortex_array::array::view::ArrayV
 
 pub fn vortex_zigzag::ZigZag::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_zigzag::ZigZag::serialize(_array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_zigzag::ZigZag::serialize(_array: vortex_array::array::view::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_zigzag::ZigZag::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -93,6 +93,10 @@ pub fn vortex_zigzag::ZigZagData::default() -> Self
 impl core::fmt::Debug for vortex_zigzag::ZigZagData
 
 pub fn vortex_zigzag::ZigZagData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_zigzag::ZigZagData
+
+pub fn vortex_zigzag::ZigZagData::fmt(&self, _f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::hash::ArrayEq for vortex_zigzag::ZigZagData
 

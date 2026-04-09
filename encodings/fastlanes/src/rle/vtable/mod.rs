@@ -130,7 +130,10 @@ impl VTable for RLE {
         crate::rle::array::SLOT_NAMES[idx].to_string()
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             RLEMetadata {
                 values_len: array.values().len() as u64,

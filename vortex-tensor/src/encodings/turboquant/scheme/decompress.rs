@@ -2,6 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! TurboQuant decoding (dequantization) logic.
+//!
+//! Decompression produces unit-norm vectors. The original magnitudes are restored externally
+//! by the [`L2Denorm`](crate::scalar_fns::l2_denorm::L2Denorm) ScalarFnArray wrapper.
 
 use num_traits::Float;
 use num_traits::FromPrimitive;
@@ -26,10 +29,12 @@ use crate::encodings::turboquant::array::rotation::RotationMatrix;
 use crate::encodings::turboquant::compute::float_from_f32;
 use crate::vector::AnyVector;
 
-/// Decompress a `TurboQuantArray` into a [`Vector`] extension array.
+/// Decompress a `TurboQuantArray` into a unit-norm [`Vector`] extension array.
 ///
-/// The returned array is an [`ExtensionArray`] with the original Vector dtype wrapping a
-/// `FixedSizeListArray` of the original vector element type.
+/// The returned array is an [`ExtensionArray`] with the (non-nullable) Vector dtype wrapping a
+/// `FixedSizeListArray` of the original vector element type. Each vector has unit L2 norm; the
+/// original magnitudes are restored by the [`L2Denorm`](crate::scalar_fns::l2_denorm::L2Denorm)
+/// ScalarFnArray wrapper.
 ///
 /// [`Vector`]: crate::vector::Vector
 pub fn execute_decompress(
@@ -38,19 +43,17 @@ pub fn execute_decompress(
 ) -> VortexResult<ArrayRef> {
     let dim = array.dimension() as usize;
     let padded_dim = array.padded_dim() as usize;
-    let num_rows = array.norms().len();
+    let num_rows = array.len();
     let ext_dtype = array.dtype().as_extension().clone();
     let element_ptype = ext_dtype.metadata::<AnyVector>().element_ptype();
 
     if num_rows == 0 {
-        let fsl_validity = Validity::from(ext_dtype.storage_dtype().nullability());
-
         match_each_float_ptype!(element_ptype, |T| {
             let elements = PrimitiveArray::empty::<T>(Nullability::NonNullable);
             let fsl = FixedSizeListArray::try_new(
                 elements.into_array(),
                 array.dimension(),
-                fsl_validity,
+                Validity::NonNullable,
                 0,
             )?;
 
@@ -62,14 +65,20 @@ pub fn execute_decompress(
     let centroids_prim = array.centroids().clone().execute::<PrimitiveArray>(ctx)?;
     let centroids = centroids_prim.as_slice::<f32>();
 
-    // FastLanes SIMD-unpacks the 1-bit bitpacked rotation signs into u8 0/1 values, then we expand
-    // to u32 XOR masks once (amortized over all rows). This enables branchless XOR-based sign
-    // application in the per-row structured-rotation hot loop.
-    let signs_prim = array
+    // The rotation signs are stored as a FixedSizeListArray wrapping bitpacked u8 values.
+    // We unwrap to the flat elements, then FastLanes SIMD-unpacks the 1-bit values into u8 0/1.
+    // These are expanded to u32 XOR masks once (amortized over all rows), enabling branchless
+    // XOR-based sign application in the per-row structured-rotation hot loop.
+    let num_rounds = array.num_rounds() as usize;
+    let signs_fsl = array
         .rotation_signs()
         .clone()
+        .execute::<FixedSizeListArray>(ctx)?;
+    let signs_prim = signs_fsl
+        .elements()
+        .clone()
         .execute::<PrimitiveArray>(ctx)?;
-    let rotation = RotationMatrix::from_u8_slice(signs_prim.as_slice::<u8>(), dim)?;
+    let rotation = RotationMatrix::from_u8_slice(signs_prim.as_slice::<u8>(), dim, num_rounds)?;
 
     // Unpack codes from FixedSizeListArray -> flat u8 elements.
     let codes_fsl = array.codes().clone().execute::<FixedSizeListArray>(ctx)?;
@@ -79,38 +88,27 @@ pub fn execute_decompress(
         .execute::<PrimitiveArray>(ctx)?;
     let indices = codes_prim.as_slice::<u8>();
 
-    // Read norms in their native precision. Norms carry the validity of the array.
-    let norms_prim = array.norms().clone().execute::<PrimitiveArray>(ctx)?;
-    let output_validity = array.norms().validity()?;
-
-    // MSE decode: dequantize (f32) -> inverse rotate (f32) -> scale by norm -> cast to T.
+    // MSE decode: dequantize (f32) -> inverse rotate (f32) -> cast to T.
     // The rotation and centroid lookup always happen in f32. The final output is cast to the
-    // Vector's element type to match the original storage dtype.
+    // Vector's element type to match the original storage dtype. No norm scaling is applied here;
+    // that is handled by the external L2Denorm wrapper.
     match_each_float_ptype!(element_ptype, |T| {
-        decompress_typed::<T>(
-            &norms_prim,
-            centroids,
-            &rotation,
-            indices,
-            dim,
-            padded_dim,
-            num_rows,
+        decompress_typed::<T>(centroids, &rotation, indices, dim, padded_dim, num_rows).and_then(
+            |elements| {
+                let fsl = FixedSizeListArray::try_new(
+                    elements.into_array(),
+                    array.dimension(),
+                    Validity::NonNullable,
+                    num_rows,
+                )?;
+                Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
+            },
         )
-        .and_then(|elements| {
-            let fsl = FixedSizeListArray::try_new(
-                elements.into_array(),
-                array.dimension(),
-                output_validity,
-                num_rows,
-            )?;
-            Ok(ExtensionArray::new(ext_dtype, fsl.into_array()).into_array())
-        })
     })
 }
 
-/// Typed decompress: reads norms as `T`, dequantizes in f32, and produces output as `T`.
+/// Typed decompress: dequantizes in f32 and produces unit-norm output as `T`.
 fn decompress_typed<T: NativePType + Float + FromPrimitive>(
-    norms_prim: &PrimitiveArray,
     centroids: &[f32],
     rotation: &RotationMatrix,
     indices: &[u8],
@@ -118,15 +116,12 @@ fn decompress_typed<T: NativePType + Float + FromPrimitive>(
     padded_dim: usize,
     num_rows: usize,
 ) -> VortexResult<PrimitiveArray> {
-    let norms = norms_prim.as_slice::<T>();
-
     let mut output = BufferMut::<T>::with_capacity(num_rows * dim);
     let mut dequantized = vec![0.0f32; padded_dim];
     let mut unrotated = vec![0.0f32; padded_dim];
 
     for row in 0..num_rows {
         let row_indices = &indices[row * padded_dim..(row + 1) * padded_dim];
-        let norm = norms[row];
 
         for idx in 0..padded_dim {
             dequantized[idx] = centroids[row_indices[idx] as usize];
@@ -135,8 +130,7 @@ fn decompress_typed<T: NativePType + Float + FromPrimitive>(
         rotation.inverse_rotate(&dequantized, &mut unrotated);
 
         for idx in 0..dim {
-            let val = float_from_f32::<T>(unrotated[idx]) * norm;
-            output.push(val);
+            output.push(float_from_f32::<T>(unrotated[idx]));
         }
     }
 

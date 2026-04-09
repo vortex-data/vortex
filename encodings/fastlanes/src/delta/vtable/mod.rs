@@ -118,7 +118,10 @@ impl VTable for Delta {
         SLOT_NAMES[idx].to_string()
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             DeltaMetadata {
                 deltas_len: array.deltas().len() as u64,

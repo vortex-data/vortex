@@ -398,11 +398,11 @@ pub const vortex_file::VORTEX_FILE_EXTENSION: &str
 
 pub static vortex_file::ALLOWED_ENCODINGS: std::sync::lazy_lock::LazyLock<vortex_utils::aliases::hash_set::HashSet<vortex_array::array::ArrayId>>
 
-pub trait vortex_file::OpenOptionsSessionExt: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt
+pub trait vortex_file::OpenOptionsSessionExt: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt + vortex_array::memory::MemorySessionExt
 
 pub fn vortex_file::OpenOptionsSessionExt::open_options(&self) -> vortex_file::VortexOpenOptions
 
-impl<S: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt> vortex_file::OpenOptionsSessionExt for S
+impl<S: vortex_array::session::ArraySessionExt + vortex_layout::session::LayoutSessionExt + vortex_io::session::RuntimeSessionExt + vortex_array::memory::MemorySessionExt> vortex_file::OpenOptionsSessionExt for S
 
 pub fn S::open_options(&self) -> vortex_file::VortexOpenOptions
 

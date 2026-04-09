@@ -41,7 +41,7 @@ mod varbinview;
 
 /// Reconstruct a [`Mask`] from an [`Arc<MaskValues>`].
 fn values_to_mask(values: &Arc<MaskValues>) -> Mask {
-    Mask::Values(values.clone())
+    Mask::Values(Arc::clone(values))
 }
 
 /// A helper function that lazily filters a [`Validity`] with selection mask values.

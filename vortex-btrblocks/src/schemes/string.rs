@@ -254,7 +254,10 @@ impl Scheme for ZstdBuffersScheme {
         data: &mut ArrayAndStats,
         _ctx: CompressorContext,
     ) -> VortexResult<ArrayRef> {
-        Ok(vortex_zstd::ZstdBuffers::compress(data.array(), 3)?.into_array())
+        Ok(
+            vortex_zstd::ZstdBuffers::compress(data.array(), 3, &vortex_array::LEGACY_SESSION)?
+                .into_array(),
+        )
     }
 }
 

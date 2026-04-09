@@ -4,6 +4,7 @@
 //! Execution logic for MaskedArray - applies a validity mask to canonical arrays.
 
 use std::ops::BitAnd;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -136,7 +137,7 @@ fn mask_validity_varbinview(
     Ok(unsafe {
         VarBinViewArray::new_handle_unchecked(
             array.views_handle().clone(),
-            array.data_buffers().clone(),
+            Arc::clone(array.data_buffers()),
             dtype,
             new_validity,
         )

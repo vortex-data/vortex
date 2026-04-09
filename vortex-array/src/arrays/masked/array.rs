@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -23,6 +26,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["child", "validity"];
 
 #[derive(Clone, Debug)]
 pub struct MaskedData;
+
+impl Display for MaskedData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
 
 pub trait MaskedArrayExt: TypedArrayRef<Masked> {
     fn child(&self) -> &ArrayRef {

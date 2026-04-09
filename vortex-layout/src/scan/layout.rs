@@ -158,7 +158,7 @@ impl DataSource for LayoutReaderDataSource {
         }
 
         Ok(Box::new(LayoutReaderScan {
-            reader: self.reader.clone(),
+            reader: Arc::clone(&self.reader),
             session: self.session.clone(),
             dtype,
             projection: scan_request.projection,
@@ -246,7 +246,7 @@ impl Stream for LayoutReaderScan {
         }
 
         let split = Box::new(LayoutReaderSplit {
-            reader: this.reader.clone(),
+            reader: Arc::clone(&this.reader),
             session: this.session.clone(),
             projection: this.projection.clone(),
             filter: this.filter.clone(),

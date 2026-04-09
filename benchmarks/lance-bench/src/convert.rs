@@ -84,7 +84,7 @@ impl Iterator for ParquetFilesIterator {
 
 impl RecordBatchReader for ParquetFilesIterator {
     fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+        Arc::clone(&self.schema)
     }
 }
 
@@ -161,7 +161,7 @@ pub async fn convert_parquet_to_lance<'p>(
             // Get schema from the first Parquet file
             let first_file = File::open(&parquet_files[0])?;
             let first_builder = ParquetRecordBatchReaderBuilder::try_new(first_file)?;
-            let schema = first_builder.schema().clone();
+            let schema = Arc::clone(first_builder.schema());
 
             // Create a streaming iterator that reads from all Parquet files
             let batch_iter = ParquetFilesIterator::new(parquet_files, schema)?;
@@ -237,7 +237,7 @@ pub fn convert_utf8view_batch(batch: RecordBatch) -> anyhow::Result<RecordBatch>
             // Cast Utf8View to Utf8.
             cast(column, &DataType::Utf8)?
         } else {
-            column.clone()
+            Arc::clone(column)
         };
         new_columns.push(new_column);
     }
@@ -277,6 +277,6 @@ impl Iterator for ConvertingParquetFilesIterator {
 
 impl RecordBatchReader for ConvertingParquetFilesIterator {
     fn schema(&self) -> SchemaRef {
-        self.converted_schema.clone()
+        Arc::clone(&self.converted_schema)
     }
 }

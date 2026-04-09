@@ -6,8 +6,11 @@
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::scalar::Scalar;
 use vortex_compressor::builtins::FloatDictScheme;
@@ -16,13 +19,20 @@ use vortex_compressor::estimate::CompressionEstimate;
 use vortex_compressor::scheme::AncestorExclusion;
 use vortex_compressor::scheme::ChildSelection;
 use vortex_compressor::scheme::DescendantExclusion;
+#[cfg(feature = "unstable_encodings")]
+use vortex_compressor::scheme::SchemeId;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_fastlanes::BitPackedArrayExt;
+use vortex_fastlanes::BitPacked;
+#[cfg(feature = "unstable_encodings")]
+use vortex_fastlanes::Delta;
 use vortex_fastlanes::FoR;
 use vortex_fastlanes::FoRArrayExt;
+use vortex_fastlanes::RLE;
+use vortex_fastlanes::RLEArrayExt;
+use vortex_fastlanes::USE_EXPERIMENTAL_PATCHES;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
@@ -41,6 +51,8 @@ use crate::GenerateStatsOptions;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::compress_patches;
+use crate::schemes::rle_ancestor_exclusions;
+use crate::schemes::rle_descendant_exclusions;
 
 /// Frame of Reference encoding.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -77,7 +89,12 @@ pub use vortex_compressor::builtins::IntDictScheme;
 pub use vortex_compressor::builtins::is_integer_primitive;
 pub use vortex_compressor::stats::IntegerStats;
 
-pub use crate::schemes::rle::RLE_INTEGER_SCHEME;
+/// RLE scheme for integer arrays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IntRLEScheme;
+
+/// Threshold for the average run length in an array before we consider run-length encoding.
+pub(crate) const RUN_LENGTH_THRESHOLD: u32 = 4;
 
 /// Threshold for the average run length in an array before we consider run-end encoding.
 const RUN_END_THRESHOLD: u32 = 4;
@@ -324,21 +341,50 @@ impl Scheme for BitPackingScheme {
 
         let packed_stats = packed.statistics().to_owned();
         let ptype = packed.dtype().as_ptype();
-        let patches = packed.patches().map(compress_patches).transpose()?;
-        let mut parts = vortex_fastlanes::BitPacked::into_parts(packed);
-        parts.patches = patches;
+        let mut parts = BitPacked::into_parts(packed);
 
-        Ok(vortex_fastlanes::BitPacked::try_new(
-            parts.packed,
-            ptype,
-            parts.validity,
-            parts.patches,
-            parts.bit_width,
-            parts.len,
-            parts.offset,
-        )?
-        .with_stats_set(packed_stats)
-        .into_array())
+        let array = if *USE_EXPERIMENTAL_PATCHES {
+            let patches = parts.patches.take();
+            // Transpose patches into G-ALP style PatchedArray, wrapping an inner BitPackedArray.
+            let array = BitPacked::try_new(
+                parts.packed,
+                ptype,
+                parts.validity,
+                None,
+                parts.bit_width,
+                parts.len,
+                parts.offset,
+            )?
+            .into_array();
+
+            match patches {
+                None => array,
+                Some(p) => Patched::from_array_and_patches(
+                    array,
+                    &p,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
+                .with_stats_set(packed_stats)
+                .into_array(),
+            }
+        } else {
+            // Compress patches and place back into BitPackedArray.
+            let patches = parts.patches.take().map(compress_patches).transpose()?;
+            parts.patches = patches;
+            BitPacked::try_new(
+                parts.packed,
+                ptype,
+                parts.validity,
+                parts.patches,
+                parts.bit_width,
+                parts.len,
+                parts.offset,
+            )?
+            .with_stats_set(packed_stats)
+            .into_array()
+        };
+
+        Ok(array)
     }
 }
 
@@ -375,7 +421,7 @@ impl Scheme for SparseScheme {
                 children: ChildSelection::One(1),
             },
             DescendantExclusion {
-                excluded: RLE_INTEGER_SCHEME.id(),
+                excluded: IntRLEScheme.id(),
                 children: ChildSelection::One(1),
             },
             DescendantExclusion {
@@ -520,7 +566,7 @@ impl Scheme for RunEndScheme {
                 children: ChildSelection::One(1),
             },
             DescendantExclusion {
-                excluded: RLE_INTEGER_SCHEME.id(),
+                excluded: IntRLEScheme.id(),
                 children: ChildSelection::One(1),
             },
             DescendantExclusion {
@@ -712,6 +758,133 @@ impl Scheme for PcoScheme {
     }
 }
 
+/// Shared compression logic for RLE schemes.
+pub(crate) fn rle_compress(
+    scheme: &dyn Scheme,
+    compressor: &CascadingCompressor,
+    data: &mut ArrayAndStats,
+    ctx: CompressorContext,
+) -> VortexResult<ArrayRef> {
+    let array = data.array_as_primitive();
+    let rle_array = RLE::encode(&array)?;
+
+    let compressed_values = compressor.compress_child(
+        &rle_array.values().to_primitive().into_array(),
+        &ctx,
+        scheme.id(),
+        0,
+    )?;
+
+    // Delta is an unstable encoding, once we deem it stable we can switch over to this always.
+    #[cfg(feature = "unstable_encodings")]
+    let compressed_indices = try_compress_delta(
+        compressor,
+        &rle_array.indices().to_primitive().narrow()?.into_array(),
+        &ctx,
+        scheme.id(),
+        1,
+    )?;
+
+    #[cfg(not(feature = "unstable_encodings"))]
+    let compressed_indices = compressor.compress_child(
+        &rle_array.indices().to_primitive().narrow()?.into_array(),
+        &ctx,
+        scheme.id(),
+        1,
+    )?;
+
+    let compressed_offsets = compressor.compress_child(
+        &rle_array
+            .values_idx_offsets()
+            .to_primitive()
+            .narrow()?
+            .into_array(),
+        &ctx,
+        scheme.id(),
+        2,
+    )?;
+
+    // SAFETY: Recursive compression doesn't affect the invariants.
+    unsafe {
+        Ok(RLE::new_unchecked(
+            compressed_values,
+            compressed_indices,
+            compressed_offsets,
+            rle_array.offset(),
+            rle_array.len(),
+        )
+        .into_array())
+    }
+}
+
+#[cfg(feature = "unstable_encodings")]
+fn try_compress_delta(
+    compressor: &CascadingCompressor,
+    child: &ArrayRef,
+    parent_ctx: &CompressorContext,
+    parent_id: SchemeId,
+    child_index: usize,
+) -> VortexResult<ArrayRef> {
+    let (bases, deltas) =
+        vortex_fastlanes::delta_compress(&child.to_primitive(), &mut compressor.execution_ctx())?;
+
+    let compressed_bases =
+        compressor.compress_child(&bases.into_array(), parent_ctx, parent_id, child_index)?;
+    let compressed_deltas =
+        compressor.compress_child(&deltas.into_array(), parent_ctx, parent_id, child_index)?;
+
+    Delta::try_new(compressed_bases, compressed_deltas, 0, child.len()).map(IntoArray::into_array)
+}
+
+impl Scheme for IntRLEScheme {
+    fn scheme_name(&self) -> &'static str {
+        "vortex.int.rle"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        is_integer_primitive(canonical)
+    }
+
+    /// Children: values=0, indices=1, offsets=2.
+    fn num_children(&self) -> usize {
+        3
+    }
+
+    fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
+        rle_descendant_exclusions()
+    }
+
+    fn ancestor_exclusions(&self) -> Vec<AncestorExclusion> {
+        rle_ancestor_exclusions()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        data: &mut ArrayAndStats,
+        ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        // RLE is only useful when we cascade it with another encoding.
+        if ctx.finished_cascading() {
+            return CompressionEstimate::Skip;
+        }
+
+        if data.integer_stats().average_run_length() < RUN_LENGTH_THRESHOLD {
+            return CompressionEstimate::Skip;
+        }
+
+        CompressionEstimate::Sample
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &mut ArrayAndStats,
+        ctx: CompressorContext,
+    ) -> VortexResult<ArrayRef> {
+        rle_compress(self, compressor, data, ctx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter;
@@ -736,7 +909,7 @@ mod tests {
     use vortex_sequence::Sequence;
 
     use crate::BtrBlocksCompressor;
-    use crate::schemes::rle::RLE_INTEGER_SCHEME;
+    use crate::schemes::integer::IntRLEScheme;
 
     #[test]
     fn test_empty() -> VortexResult<()> {
@@ -821,7 +994,7 @@ mod tests {
         values.extend(iter::repeat_n(987i32, 150));
 
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressor = CascadingCompressor::new(vec![&RLE_INTEGER_SCHEME]);
+        let compressor = CascadingCompressor::new(vec![&IntRLEScheme]);
         let compressed = compressor.compress(&array.into_array())?;
         assert!(compressed.is::<RLE>());
 

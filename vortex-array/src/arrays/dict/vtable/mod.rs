@@ -113,7 +113,10 @@ impl VTable for Dict {
         None
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             DictMetadata {
                 codes_ptype: PType::try_from(array.codes().dtype())? as i32,

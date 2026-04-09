@@ -150,6 +150,8 @@ impl vortex_io::object_store::ObjectStoreReadAt
 
 pub fn vortex_io::object_store::ObjectStoreReadAt::new(store: alloc::sync::Arc<dyn object_store::ObjectStore>, path: object_store::path::Path, handle: vortex_io::runtime::Handle) -> Self
 
+pub fn vortex_io::object_store::ObjectStoreReadAt::new_with_allocator(store: alloc::sync::Arc<dyn object_store::ObjectStore>, path: object_store::path::Path, handle: vortex_io::runtime::Handle, allocator: vortex_array::memory::HostAllocatorRef) -> Self
+
 pub fn vortex_io::object_store::ObjectStoreReadAt::with_coalesce_config(self, config: vortex_io::CoalesceConfig) -> Self
 
 pub fn vortex_io::object_store::ObjectStoreReadAt::with_concurrency(self, concurrency: usize) -> Self
@@ -465,6 +467,8 @@ pub struct vortex_io::std_file::FileReadAt
 impl vortex_io::std_file::FileReadAt
 
 pub fn vortex_io::std_file::FileReadAt::open(path: impl core::convert::AsRef<std::path::Path>, handle: vortex_io::runtime::Handle) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_io::std_file::FileReadAt::open_with_allocator(path: impl core::convert::AsRef<std::path::Path>, handle: vortex_io::runtime::Handle, allocator: vortex_array::memory::HostAllocatorRef) -> vortex_error::VortexResult<Self>
 
 impl vortex_io::VortexReadAt for vortex_io::std_file::FileReadAt
 

@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -121,7 +123,10 @@ impl VTable for Sparse {
         }
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         let patches = array.patches().to_metadata(array.len(), array.dtype())?;
         let metadata = SparseMetadata { patches };
 
@@ -210,6 +215,12 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
 pub struct SparseData {
     patches: Patches,
     fill_value: Scalar,
+}
+
+impl Display for SparseData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "fill_value: {}", self.fill_value)
+    }
 }
 
 #[derive(Clone, Debug)]

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
@@ -118,6 +120,12 @@ pub struct ListViewData {
     /// `offsets[i] + sizes[i]` are in order), conversions can bypass the very expensive rebuild
     /// process which must rebuild the array from scratch.
     is_zero_copy_to_list: bool,
+}
+
+impl Display for ListViewData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "is_zero_copy_to_list: {}", self.is_zero_copy_to_list)
+    }
 }
 
 pub struct ListViewDataParts {

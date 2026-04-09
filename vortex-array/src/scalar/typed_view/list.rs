@@ -340,7 +340,11 @@ mod tests {
             Scalar::primitive(1i32, Nullability::NonNullable),
             Scalar::primitive(2i32, Nullability::NonNullable),
         ];
-        let list_scalar1 = Scalar::list(element_dtype.clone(), children1, Nullability::NonNullable);
+        let list_scalar1 = Scalar::list(
+            Arc::clone(&element_dtype),
+            children1,
+            Nullability::NonNullable,
+        );
 
         let children2 = vec![
             Scalar::primitive(1i32, Nullability::NonNullable),
@@ -361,7 +365,11 @@ mod tests {
             Scalar::primitive(1i32, Nullability::NonNullable),
             Scalar::primitive(2i32, Nullability::NonNullable),
         ];
-        let list_scalar1 = Scalar::list(element_dtype.clone(), children1, Nullability::NonNullable);
+        let list_scalar1 = Scalar::list(
+            Arc::clone(&element_dtype),
+            children1,
+            Nullability::NonNullable,
+        );
 
         let children2 = vec![
             Scalar::primitive(1i32, Nullability::NonNullable),
@@ -380,7 +388,11 @@ mod tests {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
 
         let children1 = vec![Scalar::primitive(1i32, Nullability::NonNullable)];
-        let list_scalar1 = Scalar::list(element_dtype.clone(), children1, Nullability::NonNullable);
+        let list_scalar1 = Scalar::list(
+            Arc::clone(&element_dtype),
+            children1,
+            Nullability::NonNullable,
+        );
 
         let children2 = vec![Scalar::primitive(2i32, Nullability::NonNullable)];
         let list_scalar2 = Scalar::list(element_dtype, children2, Nullability::NonNullable);
@@ -521,12 +533,12 @@ mod tests {
     fn test_nested_lists() {
         let inner_element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let inner_list_dtype = Arc::new(DType::List(
-            inner_element_dtype.clone(),
+            Arc::clone(&inner_element_dtype),
             Nullability::NonNullable,
         ));
 
         let inner_list1 = Scalar::list(
-            inner_element_dtype.clone(),
+            Arc::clone(&inner_element_dtype),
             vec![
                 Scalar::primitive(1i32, Nullability::NonNullable),
                 Scalar::primitive(2i32, Nullability::NonNullable),

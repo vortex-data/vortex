@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use itertools::Itertools as _;
 use prost::Message;
@@ -54,7 +55,7 @@ impl ScalarFnVTable for Pack {
     type Options = PackOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new_ref("vortex.pack")
+        ScalarFnId::from("vortex.pack")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -90,7 +91,7 @@ impl ScalarFnVTable for Pack {
 
     fn child_name(&self, instance: &Self::Options, child_idx: usize) -> ChildName {
         match instance.names.get(child_idx) {
-            Some(name) => ChildName::from(name.inner().clone()),
+            Some(name) => ChildName::from(Arc::clone(name.inner())),
             None => unreachable!(
                 "Invalid child index {} for Pack expression with {} fields",
                 child_idx,

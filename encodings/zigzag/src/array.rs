@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hasher;
 
 use vortex_array::Array;
@@ -86,7 +88,10 @@ impl VTable for ZigZag {
         vortex_panic!("ZigZagArray buffer_name index {idx} out of bounds")
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
@@ -163,6 +168,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["encoded"];
 
 #[derive(Clone, Debug)]
 pub struct ZigZagData {}
+
+impl Display for ZigZagData {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
 
 pub trait ZigZagArrayExt: TypedArrayRef<ZigZag> {
     fn encoded(&self) -> &ArrayRef {

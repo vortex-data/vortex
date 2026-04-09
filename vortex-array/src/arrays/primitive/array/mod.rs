@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::iter;
 
 use vortex_buffer::Alignment;
@@ -84,6 +86,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity"];
 pub struct PrimitiveData {
     pub(super) ptype: PType,
     pub(super) buffer: BufferHandle,
+}
+
+impl Display for PrimitiveData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ptype: {}", self.ptype)
+    }
 }
 
 pub struct PrimitiveDataParts {

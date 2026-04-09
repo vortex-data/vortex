@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
@@ -90,6 +92,12 @@ pub struct FixedSizeListData {
     /// and `elements.len()`) is because in the degenerate case where `list_size == 0`, we cannot
     /// use `0 / 0` to determine the length.
     pub(super) degenerate_len: usize,
+}
+
+impl Display for FixedSizeListData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "degenerate_len: {}", self.degenerate_len)
+    }
 }
 
 pub struct FixedSizeListDataParts {

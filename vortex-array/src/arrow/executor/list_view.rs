@@ -71,7 +71,7 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     let null_buffer = to_arrow_null_buffer(validity, offsets.len(), ctx)?;
 
     Ok(Arc::new(GenericListViewArray::<O>::new(
-        elements_field.clone(),
+        Arc::clone(elements_field),
         offsets,
         sizes,
         elements,

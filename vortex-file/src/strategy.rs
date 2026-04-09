@@ -7,8 +7,6 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use vortex_alp::ALP;
-// Compressed encodings from encoding crates
-// Canonical array encodings from vortex-array
 use vortex_alp::ALPRD;
 use vortex_array::ArrayId;
 use vortex_array::VTable;
@@ -23,6 +21,7 @@ use vortex_array::arrays::List;
 use vortex_array::arrays::ListView;
 use vortex_array::arrays::Masked;
 use vortex_array::arrays::Null;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::VarBin;
@@ -91,6 +90,10 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
     allowed.insert(Constant.id());
     allowed.insert(Masked.id());
     allowed.insert(Dict.id());
+
+    if *vortex_fastlanes::USE_EXPERIMENTAL_PATCHES {
+        allowed.insert(Patched.id());
+    }
 
     // Compressed encodings from encoding crates
     allowed.insert(ALP.id());
@@ -219,7 +222,7 @@ impl WriteStrategyBuilder {
         };
 
         // 7. for each chunk create a flat layout
-        let chunked = ChunkedLayoutStrategy::new(flat.clone());
+        let chunked = ChunkedLayoutStrategy::new(Arc::clone(&flat));
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
@@ -234,7 +237,7 @@ impl WriteStrategyBuilder {
                     .exclude_schemes([IntDictScheme.id()])
                     .build(),
             ),
-            CompressorConfig::Opaque(compressor) => compressor.clone(),
+            CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
         };
         let compressing = CompressingStrategy::new(buffered, data_compressor);
 

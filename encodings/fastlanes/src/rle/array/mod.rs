@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+
 use vortex_array::ArrayRef;
 use vortex_array::TypedArrayRef;
 use vortex_error::VortexExpect as _;
@@ -31,6 +34,12 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["values", "indices", "values_i
 pub struct RLEData {
     // Offset relative to the start of the chunk.
     pub(super) offset: usize,
+}
+
+impl Display for RLEData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "offset: {}", self.offset)
+    }
 }
 
 impl RLEData {
@@ -347,7 +356,7 @@ mod tests {
         let ctx = ArrayContext::empty();
         let serialized = rle_array
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&ctx, &SESSION, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();
@@ -390,7 +399,7 @@ mod tests {
         let serialized = sliced
             .clone()
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&ctx, &SESSION, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();

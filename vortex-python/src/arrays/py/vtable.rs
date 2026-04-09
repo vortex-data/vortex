@@ -94,7 +94,10 @@ impl VTable for PythonVTable {
         vortex_panic!("PythonArray child_name index {idx} out of bounds")
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(None)
     }
 

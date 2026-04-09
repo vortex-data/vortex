@@ -29,6 +29,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayContext;
 use crate::ArrayRef;
+use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
@@ -59,6 +60,7 @@ impl ArrayRef {
     pub fn serialize(
         &self,
         ctx: &ArrayContext,
+        session: &VortexSession,
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
         // Collect all array buffers
@@ -117,7 +119,7 @@ impl ArrayRef {
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
 
-        let root = ArrayNodeFlatBuffer::try_new(ctx, self)?;
+        let root = ArrayNodeFlatBuffer::try_new(ctx, session, self)?;
         let fb_root = root.try_write_flatbuffer(&mut fbb)?;
 
         let fb_buffers = fbb.create_vector(&fb_buffers);
@@ -157,15 +159,21 @@ impl ArrayRef {
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
     ctx: &'a ArrayContext,
+    session: &'a VortexSession,
     array: &'a ArrayRef,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn try_new(ctx: &'a ArrayContext, array: &'a ArrayRef) -> VortexResult<Self> {
+    pub fn try_new(
+        ctx: &'a ArrayContext,
+        session: &'a VortexSession,
+        array: &'a ArrayRef,
+    ) -> VortexResult<Self> {
         // Depth-first traversal of the array to ensure it supports serialization.
+        // FIXME(ngates): this serializes the metadata and throws it away!
         for child in array.depth_first_traversal() {
-            if child.metadata()?.is_none() {
+            if child.metadata(session)?.is_none() {
                 vortex_bail!(
                     "Array {} does not support serialization",
                     child.encoding_id()
@@ -181,6 +189,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         };
         Ok(Self {
             ctx,
+            session,
             array,
             buffer_idx: 0,
         })
@@ -201,7 +210,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 )
             })?;
 
-        let metadata = self.array.metadata()?.ok_or_else(|| {
+        let metadata = self.array.metadata(self.session)?.ok_or_else(|| {
             vortex_err!(
                 "Array {} does not support serialization",
                 self.array.encoding_id()
@@ -222,6 +231,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
                 // Update the number of buffers required.
                 let msg = ArrayNodeFlatBuffer {
                     ctx: self.ctx,
+                    session: self.session,
                     array: child,
                     buffer_idx: child_buffer_idx,
                 }
@@ -268,16 +278,16 @@ pub trait ArrayChildren {
     }
 }
 
-impl ArrayChildren for &[ArrayRef] {
+impl<T: AsRef<[ArrayRef]>> ArrayChildren for T {
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-        let array = self[index].clone();
+        let array = self.as_ref()[index].clone();
         assert_eq!(array.len(), len);
         assert_eq!(array.dtype(), dtype);
         Ok(array)
     }
 
     fn len(&self) -> usize {
-        <[_]>::len(self)
+        self.as_ref().len()
     }
 }
 
@@ -323,11 +333,12 @@ impl SerializedArray {
         let encoding_id = ctx
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
-        let plugin = session
-            .arrays()
-            .registry()
-            .find(&encoding_id)
-            .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
+        let Some(plugin) = session.arrays().registry().find(&encoding_id) else {
+            if session.allows_unknown() {
+                return self.decode_foreign(encoding_id, dtype, len, ctx);
+            }
+            return Err(vortex_err!("Unknown encoding: {}", encoding_id));
+        };
 
         let children = SerializedArrayChildren {
             ser: self,
@@ -372,6 +383,34 @@ impl SerializedArray {
         }
 
         Ok(decoded)
+    }
+
+    fn decode_foreign(
+        &self,
+        encoding_id: crate::array::ArrayId,
+        dtype: &DType,
+        len: usize,
+        ctx: &ReadContext,
+    ) -> VortexResult<ArrayRef> {
+        let children = (0..self.nchildren())
+            .map(|idx| {
+                let child = self.child(idx);
+                let child_encoding_idx = child.flatbuffer().encoding();
+                let child_encoding_id = ctx
+                    .resolve(child_encoding_idx)
+                    .ok_or_else(|| vortex_err!("Unknown encoding index: {}", child_encoding_idx))?;
+                child.decode_foreign(child_encoding_id, dtype, len, ctx)
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        new_foreign_array(
+            encoding_id,
+            dtype.clone(),
+            len,
+            self.metadata().to_vec(),
+            self.collect_buffers()?.into_owned(),
+            children,
+        )
     }
 
     /// Returns the array encoding.
@@ -660,5 +699,103 @@ impl TryFrom<BufferHandle> for SerializedArray {
 
     fn try_from(value: BufferHandle) -> Result<Self, Self::Error> {
         Self::try_from(value.try_to_host_sync()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use flatbuffers::FlatBufferBuilder;
+    use vortex_session::VortexSession;
+    use vortex_session::registry::ReadContext;
+
+    use super::SerializeOptions;
+    use super::SerializedArray;
+    use crate::ArrayContext;
+    use crate::array::ArrayId;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::flatbuffers as fba;
+    use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+
+    #[test]
+    fn unknown_array_encoding_allow_unknown() {
+        let mut fbb = FlatBufferBuilder::new();
+
+        let child_metadata = fbb.create_vector(&[9u8]);
+        let child = fba::ArrayNode::create(
+            &mut fbb,
+            &fba::ArrayNodeArgs {
+                encoding: 1,
+                metadata: Some(child_metadata),
+                children: None,
+                buffers: None,
+                stats: None,
+            },
+        );
+
+        let children = fbb.create_vector(&[child]);
+        let metadata = fbb.create_vector(&[1u8, 2, 3]);
+        let root = fba::ArrayNode::create(
+            &mut fbb,
+            &fba::ArrayNodeArgs {
+                encoding: 0,
+                metadata: Some(metadata),
+                children: Some(children),
+                buffers: None,
+                stats: None,
+            },
+        );
+        let array = fba::Array::create(
+            &mut fbb,
+            &fba::ArrayArgs {
+                root: Some(root),
+                buffers: None,
+            },
+        );
+        fbb.finish_minimal(array);
+        let (buf, start) = fbb.collapse();
+        let tree = vortex_buffer::ByteBuffer::from(buf).slice(start..);
+
+        let ser = SerializedArray::from_array_tree(tree).unwrap();
+        let ctx = ReadContext::new([
+            ArrayId::new_ref("vortex.test.foreign_array"),
+            ArrayId::new_ref("vortex.test.foreign_child"),
+        ]);
+        let session = VortexSession::empty()
+            .with::<ArraySession>()
+            .allow_unknown();
+
+        let decoded = ser
+            .decode(&DType::Variant(Nullability::Nullable), 5, &ctx, &session)
+            .unwrap();
+        assert_eq!(decoded.encoding_id().as_ref(), "vortex.test.foreign_array");
+        assert_eq!(decoded.nchildren(), 1);
+        assert_eq!(
+            decoded.nth_child(0).unwrap().encoding_id().as_ref(),
+            "vortex.test.foreign_child"
+        );
+        assert_eq!(decoded.metadata(&SESSION).unwrap().unwrap(), vec![1, 2, 3]);
+        assert_eq!(
+            decoded
+                .nth_child(0)
+                .unwrap()
+                .metadata(&SESSION)
+                .unwrap()
+                .unwrap(),
+            vec![9]
+        );
+
+        let serialized = decoded
+            .serialize(
+                &ArrayContext::default(),
+                &SESSION,
+                &SerializeOptions::default(),
+            )
+            .unwrap();
+        assert!(!serialized.is_empty());
     }
 }

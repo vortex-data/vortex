@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
@@ -52,10 +54,14 @@ impl ZstdBuffers {
         Array::try_from_parts(ArrayParts::new(ZstdBuffers, dtype, len, data))
     }
 
-    pub fn compress(array: &ArrayRef, level: i32) -> VortexResult<ZstdBuffersArray> {
+    pub fn compress(
+        array: &ArrayRef,
+        level: i32,
+        session: &VortexSession,
+    ) -> VortexResult<ZstdBuffersArray> {
         let encoding_id = array.encoding_id();
         let metadata = array
-            .metadata()?
+            .metadata(session)?
             .ok_or_else(|| vortex_err!("Array does not support serialization"))?;
         let buffer_handles = array.buffer_handles();
         let children = array.children();
@@ -134,6 +140,12 @@ pub struct ZstdBuffersData {
     compressed_buffers: Vec<BufferHandle>,
     uncompressed_sizes: Vec<u64>,
     buffer_alignments: Vec<u32>,
+}
+
+impl Display for ZstdBuffersData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "inner_encoding: {}", self.inner_encoding_id)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -386,7 +398,10 @@ impl VTable for ZstdBuffers {
         format!("child_{idx}")
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             ZstdBuffersMetadata {
                 inner_encoding_id: array.inner_encoding_id.to_string(),
@@ -527,7 +542,7 @@ mod tests {
     #[case::empty_primitive(make_empty_primitive_array())]
     #[case::inlined_varbinview(make_inlined_varbinview_array())]
     fn test_roundtrip(#[case] input: ArrayRef) -> VortexResult<()> {
-        let compressed = ZstdBuffers::compress(&input, 3)?;
+        let compressed = ZstdBuffers::compress(&input, 3, &LEGACY_SESSION)?;
 
         assert_eq!(compressed.len(), input.len());
         assert_eq!(compressed.dtype(), input.dtype());
@@ -544,7 +559,7 @@ mod tests {
         let input = make_primitive_array();
         input.statistics().set(Stat::Min, Precision::exact(0i32));
 
-        let compressed = ZstdBuffers::compress(&input, 3)?;
+        let compressed = ZstdBuffers::compress(&input, 3, &LEGACY_SESSION)?;
 
         assert!(compressed.statistics().get(Stat::Min).is_some());
         Ok(())
@@ -553,7 +568,7 @@ mod tests {
     #[test]
     fn test_validity_delegates_for_nullable_input() -> VortexResult<()> {
         let input = make_nullable_primitive_array();
-        let compressed = ZstdBuffers::compress(&input, 3)?.into_array();
+        let compressed = ZstdBuffers::compress(&input, 3, &LEGACY_SESSION)?.into_array();
 
         assert_eq!(compressed.all_valid()?, input.all_valid()?);
         assert_eq!(compressed.all_invalid()?, input.all_invalid()?);

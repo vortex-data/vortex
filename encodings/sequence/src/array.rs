@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -66,6 +68,12 @@ pub(super) const SLOT_NAMES: [&str; 0] = [];
 pub struct SequenceData {
     base: PValue,
     multiplier: PValue,
+}
+
+impl Display for SequenceData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "base: {}, multiplier: {}", self.base, self.multiplier)
+    }
 }
 
 pub struct SequenceDataParts {
@@ -248,7 +256,10 @@ impl VTable for Sequence {
         vortex_panic!("SequenceArray buffer_name index {idx} out of bounds")
     }
 
-    fn serialize(array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         let metadata = SequenceMetadata {
             base: Some((&array.base()).into()),
             multiplier: Some((&array.multiplier()).into()),

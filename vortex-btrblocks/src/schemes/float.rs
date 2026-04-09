@@ -29,6 +29,8 @@ use crate::CompressorContext;
 use crate::Scheme;
 use crate::SchemeExt;
 use crate::compress_patches;
+use crate::schemes::rle_ancestor_exclusions;
+use crate::schemes::rle_descendant_exclusions;
 
 /// ALP (Adaptive Lossless floating-Point) encoding.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -55,7 +57,9 @@ pub use vortex_compressor::builtins::FloatDictScheme;
 pub use vortex_compressor::builtins::is_float_primitive;
 pub use vortex_compressor::stats::FloatStats;
 
-pub use crate::schemes::rle::RLE_FLOAT_SCHEME;
+/// RLE scheme for float arrays.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct FloatRLEScheme;
 
 impl Scheme for ALPScheme {
     fn scheme_name(&self) -> &'static str {
@@ -269,6 +273,55 @@ impl Scheme for PcoScheme {
     }
 }
 
+impl Scheme for FloatRLEScheme {
+    fn scheme_name(&self) -> &'static str {
+        "vortex.float.rle"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        is_float_primitive(canonical)
+    }
+
+    /// Children: values=0, indices=1, offsets=2.
+    fn num_children(&self) -> usize {
+        3
+    }
+
+    fn descendant_exclusions(&self) -> Vec<DescendantExclusion> {
+        rle_descendant_exclusions()
+    }
+
+    fn ancestor_exclusions(&self) -> Vec<vortex_compressor::scheme::AncestorExclusion> {
+        rle_ancestor_exclusions()
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        data: &mut ArrayAndStats,
+        ctx: CompressorContext,
+    ) -> CompressionEstimate {
+        // RLE is only useful when we cascade it with another encoding.
+        if ctx.finished_cascading() {
+            return CompressionEstimate::Skip;
+        }
+
+        if data.float_stats().average_run_length() < super::integer::RUN_LENGTH_THRESHOLD {
+            return CompressionEstimate::Skip;
+        }
+
+        CompressionEstimate::Sample
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &mut ArrayAndStats,
+        ctx: CompressorContext,
+    ) -> VortexResult<ArrayRef> {
+        super::integer::rle_compress(self, compressor, data, ctx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter;
@@ -288,7 +341,7 @@ mod tests {
     use vortex_fastlanes::RLE;
 
     use crate::BtrBlocksCompressor;
-    use crate::schemes::rle::RLE_FLOAT_SCHEME;
+    use crate::schemes::float::FloatRLEScheme;
 
     #[test]
     fn test_empty() -> VortexResult<()> {
@@ -330,7 +383,7 @@ mod tests {
 
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
 
-        let compressor = CascadingCompressor::new(vec![&RLE_FLOAT_SCHEME]);
+        let compressor = CascadingCompressor::new(vec![&FloatRLEScheme]);
         let compressed = compressor.compress(&array.into_array())?;
         assert!(compressed.is::<RLE>());
 

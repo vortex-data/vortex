@@ -13,6 +13,13 @@
 * you can try running
   `cargo fix --lib --allow-dirty --allow-staged && cargo clippy --fix --lib --allow-dirty --allow-staged` to
   automatically many fix minor errors.
+* when iterating on CI failures, fetch only failed job logs first (`gh run view <run-id> --job <job-id> --log-failed`)
+  and run narrow local repro commands for the affected crate/tests before running workspace-wide checks.
+* if `gh` commands fail with `error connecting to api.github.com` in sandbox, immediately rerun with escalated network
+  permissions instead of retrying in sandbox.
+* if cargo fails with `sccache: error: Operation not permitted`, rerun the command with `RUSTC_WRAPPER=` so rustc runs
+  directly.
+* run docs doctests from the docs directory (`make -C docs doctest`) so the correct Sphinx Makefile target is used.
 
 ## Architecture
 

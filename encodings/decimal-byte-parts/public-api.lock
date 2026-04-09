@@ -40,7 +40,7 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::nbuffers(_array: vortex_arra
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::serialize(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_decimal_byte_parts::DecimalByteParts::serialize(array: vortex_array::array::view::ArrayView<'_, Self>, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::slot_name(_array: vortex_array::array::view::ArrayView<'_, Self>, idx: usize) -> alloc::string::String
 
@@ -91,6 +91,10 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsData::clone(&self) -> vortex_d
 impl core::fmt::Debug for vortex_decimal_byte_parts::DecimalBytePartsData
 
 pub fn vortex_decimal_byte_parts::DecimalBytePartsData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_decimal_byte_parts::DecimalBytePartsData
+
+pub fn vortex_decimal_byte_parts::DecimalBytePartsData::fmt(&self, _f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl vortex_array::hash::ArrayEq for vortex_decimal_byte_parts::DecimalBytePartsData
 

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hasher;
-
 use itertools::Itertools;
 use kernel::PARENT_KERNELS;
 use vortex_error::VortexExpect;
@@ -11,16 +9,14 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::ArrayEq;
-use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayView;
+use crate::array::EmptyArrayData;
 use crate::array::VTable;
 use crate::array::child_to_validity;
-use crate::arrays::struct_::StructData;
 use crate::arrays::struct_::array::FIELDS_OFFSET;
 use crate::arrays::struct_::array::VALIDITY_SLOT;
 use crate::arrays::struct_::array::make_struct_slots;
@@ -33,24 +29,13 @@ mod kernel;
 mod operations;
 mod validity;
 
-use crate::Precision;
 use crate::array::ArrayId;
 
 /// A [`Struct`]-encoded Vortex array.
 pub type StructArray = Array<Struct>;
 
-impl ArrayHash for StructData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
-}
-
-impl ArrayEq for StructData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
-        true
-    }
-}
-
 impl VTable for Struct {
-    type ArrayData = StructData;
+    type ArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -65,7 +50,7 @@ impl VTable for Struct {
 
     fn validate(
         &self,
-        _data: &StructData,
+        _data: &EmptyArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -131,7 +116,10 @@ impl VTable for Struct {
         vortex_panic!("StructArray buffer_name index {idx} out of bounds")
     }
 
-    fn serialize(_array: ArrayView<'_, Self>) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(
+        _array: ArrayView<'_, Self>,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(vec![]))
     }
 
@@ -180,7 +168,7 @@ impl VTable for Struct {
 
         let slots = make_struct_slots(&field_children, &validity, len);
         Ok(
-            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, StructData)
+            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
                 .with_slots(slots),
         )
     }

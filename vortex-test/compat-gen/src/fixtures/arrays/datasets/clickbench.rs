@@ -3,6 +3,7 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use bytes::Bytes;
@@ -95,7 +96,7 @@ fn sample_and_write(source_bytes: &[u8], dest: &std::path::Path) -> VortexResult
     let source_bytes = Bytes::copy_from_slice(source_bytes);
     let builder = ParquetRecordBatchReaderBuilder::try_new(source_bytes.clone())
         .map_err(|e| vortex_err!("failed to open source parquet: {e}"))?;
-    let metadata = builder.metadata().clone();
+    let metadata = Arc::clone(builder.metadata());
 
     let total_rows: usize = metadata
         .row_groups()

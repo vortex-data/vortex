@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -97,7 +99,7 @@ impl FooterSerializer {
             &FooterFlatBufferWriter {
                 ctx: self.footer.array_read_ctx.clone(),
                 layout_ctx: ReadContext::new(layout_ctx.to_ids()),
-                segment_specs: self.footer.segments.clone(),
+                segment_specs: Arc::clone(&self.footer.segments),
             },
         )?;
         buffers.push(buffer);
