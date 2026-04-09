@@ -9,15 +9,19 @@ use std::ops::Range;
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_error::VortexError;
-use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -35,10 +39,6 @@ use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::ToCanonical;
 
 /// One patch index offset is stored for each chunk.
 /// This allows for constant time patch index lookups.
@@ -1092,19 +1092,19 @@ fn take_indices_with_search_fn<
 
 #[cfg(test)]
 mod test {
-    use vortex_buffer::buffer;
     use vortex_buffer::BufferMut;
+    use vortex_buffer::buffer;
     use vortex_mask::Mask;
 
+    use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::assert_arrays_eq;
     use crate::patches::Patches;
     use crate::patches::PrimitiveArray;
     use crate::search_sorted::SearchResult;
     use crate::validity::Validity;
-    use crate::IntoArray;
-    use crate::ToCanonical;
-    use crate::VortexSessionExecute;
-    use crate::LEGACY_SESSION;
 
     #[test]
     fn test_filter() {
