@@ -21,12 +21,10 @@ use vortex_array::arrays::dict::DictArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::encodings::turboquant::MAX_BIT_WIDTH;
@@ -38,6 +36,7 @@ use crate::scalar_fns::l2_denorm::validate_l2_normalized_rows;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfOptions;
 use crate::scalar_fns::sorf_transform::SorfTransform;
+use crate::utils::cast_to_f32;
 use crate::vector::AnyVector;
 
 /// Configuration for TurboQuant encoding.
@@ -58,40 +57,6 @@ impl Default for TurboQuantConfig {
             seed: Some(42),
             num_rounds: 3,
         }
-    }
-}
-
-/// Extract elements from a FixedSizeListArray as a flat f32 PrimitiveArray for quantization.
-///
-/// All quantization (rotation, centroid lookup) happens in f32. f16 is upcast; f64 is truncated.
-fn extract_f32_elements(
-    fsl: &FixedSizeListArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<PrimitiveArray> {
-    let elements = fsl.elements();
-    let primitive = elements.clone().execute::<PrimitiveArray>(ctx)?;
-    let ptype = primitive.ptype();
-
-    match ptype {
-        PType::F16 => Ok(primitive
-            .as_slice::<half::f16>()
-            .iter()
-            .map(|&v| f32::from(v))
-            .collect()),
-        PType::F32 => Ok(primitive),
-        PType::F64 => Ok(primitive
-            .as_slice::<f64>()
-            .iter()
-            .map(|&v| {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "TurboQuant quantization operates in f32, so f64 inputs are intentionally downcast"
-                )]
-                let v = v as f32;
-                v
-            })
-            .collect()),
-        _ => vortex_bail!("TurboQuant requires float elements, got {ptype:?}"),
     }
 }
 
@@ -123,7 +88,8 @@ fn turboquant_quantize_core(
     let padded_dim_u32 =
         u32::try_from(padded_dim).vortex_expect("padded_dim stays representable as u32");
 
-    let f32_elements = extract_f32_elements(fsl, ctx)?;
+    let elements_prim: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
+    let f32_elements = cast_to_f32(elements_prim)?;
 
     let centroids = get_centroids(padded_dim_u32, bit_width)?;
     let boundaries = compute_centroid_boundaries(&centroids);
@@ -132,7 +98,7 @@ fn turboquant_quantize_core(
     let mut padded = vec![0.0f32; padded_dim];
     let mut rotated = vec![0.0f32; padded_dim];
 
-    let f32_slice = f32_elements.as_slice::<f32>();
+    let f32_slice = f32_elements.as_slice();
     for row in 0..num_rows {
         let x = &f32_slice[row * dimension..(row + 1) * dimension];
 
@@ -213,7 +179,7 @@ pub fn turboquant_encode(
         "TurboQuant input must be non-nullable (normalize first via L2Denorm), got {ext_dtype}",
     );
 
-    validate_l2_normalized_rows(ext.as_ref().clone(), ctx)?;
+    validate_l2_normalized_rows(ext.as_ref(), ctx)?;
 
     // SAFETY: We just validated that the input is non-nullable and all rows are unit-norm.
     unsafe { turboquant_encode_unchecked(ext, config, ctx) }

@@ -499,10 +499,7 @@ mod tests {
         let normalized = tensor_array(shape, normalized_elements)?;
         let norms = PrimitiveArray::from_iter(norms.iter().copied()).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        Ok(
-            L2Denorm::try_new_array(&ApproxOptions::Exact, normalized, norms, len, &mut ctx)?
-                .into_array(),
-        )
+        Ok(L2Denorm::try_new_array(normalized, norms, len, &mut ctx)?.into_array())
     }
 
     #[test]
@@ -570,9 +567,7 @@ mod tests {
         let normalized_r = tensor_array(&[2], &[0.6, 0.8, 1.0, 0.0])?;
         let norms_r = PrimitiveArray::from_option_iter([Some(5.0f64), None]).into_array();
         let mut ctx = SESSION.create_execution_ctx();
-        let rhs =
-            L2Denorm::try_new_array(&ApproxOptions::Exact, normalized_r, norms_r, 2, &mut ctx)?
-                .into_array();
+        let rhs = L2Denorm::try_new_array(normalized_r, norms_r, 2, &mut ctx)?.into_array();
 
         let scalar_fn = ScalarFn::new(CosineSimilarity, ApproxOptions::Exact).erased();
         let result = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 2)?;

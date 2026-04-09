@@ -8,7 +8,10 @@
 //!
 //! ```text
 //! ScalarFnArray(L2Denorm, [
-//!     ScalarFnArray(SorfTransform, [FSL(Dict(codes, centroids))]),
+//!     ScalarFnArray(
+//!         SorfTransform,
+//!         FSL(Dict(codes, centroids))
+//!     ),
 //!     norms
 //! ])
 //! ```
@@ -33,9 +36,8 @@ use vortex_error::VortexResult;
 
 use crate::encodings::turboquant::MAX_CENTROIDS;
 use crate::encodings::turboquant::TurboQuantConfig;
+use crate::encodings::turboquant::tq_validate_vector_dtype;
 use crate::encodings::turboquant::turboquant_encode_unchecked;
-use crate::encodings::turboquant::validate_vector_dtype;
-use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 
@@ -45,6 +47,7 @@ use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 /// algorithm with MSE-optimal encoding.
 ///
 /// Register this scheme with the compressor builder via `with_scheme`:
+///
 /// ```ignore
 /// use vortex_btrblocks::BtrBlocksCompressorBuilder;
 /// use vortex_tensor::encodings::turboquant::TurboQuantScheme;
@@ -68,7 +71,7 @@ impl Scheme for TurboQuantScheme {
             return false;
         };
 
-        validate_vector_dtype(ext.dtype()).is_ok()
+        tq_validate_vector_dtype(ext.dtype()).is_ok()
     }
 
     fn expected_compression_ratio(
@@ -80,7 +83,7 @@ impl Scheme for TurboQuantScheme {
         let dtype = data.array().dtype();
 
         let vector_metadata =
-            validate_vector_dtype(dtype).vortex_expect("invalid dtype for TurboQuant");
+            tq_validate_vector_dtype(dtype).vortex_expect("invalid dtype for TurboQuant");
         let element_ptype = vector_metadata.element_ptype();
         let bit_width: u8 = element_ptype
             .bit_width()
@@ -105,31 +108,30 @@ impl Scheme for TurboQuantScheme {
         let mut ctx = compressor.execution_ctx();
 
         // 1. Normalize: produces L2Denorm(normalized_vectors, norms).
-        let l2_denorm =
-            normalize_as_l2_denorm(&ApproxOptions::Exact, ext_array.as_ref().clone(), &mut ctx)?;
+        let l2_denorm = normalize_as_l2_denorm(ext_array.as_ref().clone(), &mut ctx)?;
         let normalized = l2_denorm.child_at(0).clone();
         let norms = l2_denorm.child_at(1).clone();
         let num_rows = l2_denorm.len();
 
-        // 2. Quantize the normalized child → SorfTransform(FSL(Dict)).
+        // 2. Quantize the normalized child: SorfTransform(FSL(Dict)).
         let normalized_ext = normalized
             .as_opt::<Extension>()
             .vortex_expect("normalized child should be an Extension array");
+
         let config = TurboQuantConfig::default();
         // SAFETY: We just normalized the input via `normalize_as_l2_denorm`, so all rows are
         // guaranteed to be unit-norm (or zero for originally-null rows).
         let sorf_dict = unsafe { turboquant_encode_unchecked(normalized_ext, &config, &mut ctx)? };
 
-        // 3. Wrap in L2Denorm: the SorfTransform is the "normalized" child.
+        // 3. Wrap back in L2Denorm: the SorfTransform is the "normalized" child.
         // SAFETY: TurboQuant is a lossy approximation of the normalized child, so we intentionally
         // bypass the strict normalized-row validation when reattaching the stored norms.
-        Ok(unsafe {
-            L2Denorm::new_array_unchecked(&ApproxOptions::Exact, sorf_dict, norms, num_rows)
-        }?
-        .into_array())
+        Ok(unsafe { L2Denorm::new_array_unchecked(sorf_dict, norms, num_rows) }?.into_array())
     }
 }
 
+// TODO(connor): If we ever add scheme vtables with metadata, we would need to pass in the config as
+// a parameter here.
 /// Estimate the compression ratio for TurboQuant MSE encoding with the default config.
 fn estimate_compression_ratio(bits_per_element: u8, dimensions: u32, num_vectors: usize) -> f64 {
     let config = TurboQuantConfig::default();

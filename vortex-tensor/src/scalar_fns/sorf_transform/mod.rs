@@ -40,7 +40,7 @@ mod vtable;
 ///
 /// Applies the inverse structured Walsh-Hadamard orthogonal transform to an FSL child,
 /// truncates from padded dimension to the original dimension, casts to the target element
-/// type, and wraps in a [`Vector`] extension array.
+/// type, and wraps in a [`Vector`](crate::vector::Vector) extension array.
 #[derive(Clone)]
 pub struct SorfTransform;
 

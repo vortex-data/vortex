@@ -38,7 +38,6 @@ use vortex_session::VortexSession;
 
 use crate::encodings::turboquant::TurboQuantConfig;
 use crate::encodings::turboquant::turboquant_encode_unchecked;
-use crate::scalar_fns::ApproxOptions;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 use crate::vector::Vector;
@@ -91,7 +90,7 @@ fn normalize_and_encode(
     config: &TurboQuantConfig,
     ctx: &mut vortex_array::ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let l2_denorm = normalize_as_l2_denorm(&ApproxOptions::Exact, ext.as_ref().clone(), ctx)?;
+    let l2_denorm = normalize_as_l2_denorm(ext.as_ref().clone(), ctx)?;
     let normalized = l2_denorm.child_at(0).clone();
     let norms = l2_denorm.child_at(1).clone();
     let num_rows = l2_denorm.len();
@@ -102,10 +101,7 @@ fn normalize_and_encode(
     // SAFETY: We just normalized the input via `normalize_as_l2_denorm`.
     let tq = unsafe { turboquant_encode_unchecked(normalized_ext, config, ctx)? };
 
-    Ok(
-        unsafe { L2Denorm::new_array_unchecked(&ApproxOptions::Exact, tq, norms, num_rows) }?
-            .into_array(),
-    )
+    Ok(unsafe { L2Denorm::new_array_unchecked(tq, norms, num_rows) }?.into_array())
 }
 
 /// Unwrap an L2Denorm ScalarFnArray into (sorf_child, norms_child).

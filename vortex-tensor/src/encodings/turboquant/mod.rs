@@ -104,7 +104,6 @@
 //! use vortex_array::session::ArraySession;
 //! use vortex_session::VortexSession;
 //! use vortex_tensor::encodings::turboquant::{TurboQuantConfig, turboquant_encode_unchecked};
-//! use vortex_tensor::scalar_fns::ApproxOptions;
 //! use vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 //! use vortex_tensor::vector::Vector;
 //!
@@ -126,9 +125,7 @@
 //! // Normalize, then quantize the normalized child at 2 bits per coordinate.
 //! let session = VortexSession::empty().with::<ArraySession>();
 //! let mut ctx = session.create_execution_ctx();
-//! let l2_denorm = normalize_as_l2_denorm(
-//!     &ApproxOptions::Exact, ext.into_array(), &mut ctx,
-//! ).unwrap();
+//! let l2_denorm = normalize_as_l2_denorm(ext.into_array(), &mut ctx).unwrap();
 //! let normalized = l2_denorm.child_at(0).clone();
 //!
 //! let normalized_ext = normalized.as_opt::<Extension>().unwrap();
@@ -175,7 +172,7 @@ use crate::vector::VectorMatcherMetadata;
 /// dimension >= [`MIN_DIMENSION`].
 ///
 /// Returns the validated vector metadata on success.
-pub fn validate_vector_dtype(dtype: &DType) -> VortexResult<VectorMatcherMetadata> {
+pub fn tq_validate_vector_dtype(dtype: &DType) -> VortexResult<VectorMatcherMetadata> {
     let vector_metadata = dtype
         .as_extension_opt()
         .and_then(|ext| ext.metadata_opt::<AnyVector>())

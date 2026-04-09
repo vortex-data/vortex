@@ -11,6 +11,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use super::*;
+use crate::scalar_fns::ApproxOptions;
 
 /// Encode a nullable Vector array and verify roundtrip preserves validity and non-null values.
 #[test]

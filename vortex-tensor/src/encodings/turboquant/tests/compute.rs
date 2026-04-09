@@ -9,6 +9,7 @@ use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_error::VortexResult;
 
 use super::*;
+use crate::scalar_fns::ApproxOptions;
 
 #[test]
 fn slice_preserves_data() -> VortexResult<()> {

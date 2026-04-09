@@ -19,7 +19,6 @@ use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::expr::Expression;
 use vortex_array::extension::EmptyMetadata;
@@ -40,6 +39,7 @@ use vortex_error::vortex_ensure_eq;
 use super::SorfOptions;
 use super::SorfTransform;
 use super::rotation::SorfMatrix;
+use crate::utils::cast_to_f32;
 use crate::vector::Vector;
 
 impl ScalarFnVTable for SorfTransform {
@@ -132,9 +132,9 @@ impl ScalarFnVTable for SorfTransform {
         let padded_dim =
             usize::try_from(child_fsl.list_size()).vortex_expect("list_size fits usize");
 
-        // Get flat f32 elements from the executed FSL.
+        // Cast the executed elements to f32 for the SORF transform.
         let elements_prim: PrimitiveArray = child_fsl.elements().clone().execute(ctx)?;
-        let f32_elements = sorf_to_f32_slice(&elements_prim)?;
+        let f32_elements = cast_to_f32(elements_prim)?;
 
         // Reconstruct the orthogonal transform matrix from the seed.
         let rotation = SorfMatrix::try_new(options.seed, dim, options.num_rounds as usize)?;
@@ -175,41 +175,6 @@ impl ScalarFnVTable for SorfTransform {
 /// inherent `f16::from_f32()`, f32 is identity, f64 is lossless widening.
 fn float_from_f32<T: Float + FromPrimitive>(v: f32) -> T {
     FromPrimitive::from_f32(v).vortex_expect("f32-to-float conversion is infallible")
-}
-
-/// Cast executed primitive elements to an owned `Vec<f32>` for the SORF transform.
-///
-/// [`SorfMatrix`] operates exclusively on f32 buffers, so all input types must be cast to f32
-/// before the transform can be applied.
-///
-/// - f16: losslessly widened to f32.
-/// - f32: identity (zero-copy into a new vec).
-/// - f64: truncated to f32 precision. Values outside f32 range become +/- infinity. This is
-///   acceptable because the SORF transform is documented as f32-only; callers that supply f64
-///   input are opting in to the precision loss.
-fn sorf_to_f32_slice(prim: &PrimitiveArray) -> VortexResult<Vec<f32>> {
-    match prim.ptype() {
-        PType::F16 => Ok(prim
-            .as_slice::<half::f16>()
-            .iter()
-            .map(|&v| f32::from(v)) // Upcast.
-            .collect()),
-        PType::F32 => Ok(prim.as_slice::<f32>().to_vec()),
-        PType::F64 => Ok(prim
-            .as_slice::<f64>()
-            .iter()
-            .map(|&v| {
-                #[expect(
-                    clippy::cast_possible_truncation,
-                    reason = "f64 values outside f32 range become infinity, which is acceptable \
-                              because the SORF transform operates in f32"
-                )]
-                let v = v as f32;
-                v
-            })
-            .collect()),
-        other => vortex_bail!("SorfTransform requires float elements, got {other:?}"),
-    }
 }
 
 /// Apply the inverse SORF transform on f32 data, truncate to the original dimension, cast each

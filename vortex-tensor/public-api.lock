@@ -60,11 +60,11 @@ pub const vortex_tensor::encodings::turboquant::MAX_CENTROIDS: usize
 
 pub const vortex_tensor::encodings::turboquant::MIN_DIMENSION: u32
 
+pub fn vortex_tensor::encodings::turboquant::tq_validate_vector_dtype(dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_tensor::vector::VectorMatcherMetadata>
+
 pub fn vortex_tensor::encodings::turboquant::turboquant_encode(ext: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::extension::vtable::Extension>, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
 pub unsafe fn vortex_tensor::encodings::turboquant::turboquant_encode_unchecked(ext: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::extension::vtable::Extension>, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_tensor::encodings::turboquant::validate_vector_dtype(dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_tensor::vector::VectorMatcherMetadata>
 
 pub mod vortex_tensor::fixed_shape
 
@@ -312,11 +312,11 @@ pub struct vortex_tensor::scalar_fns::l2_denorm::L2Denorm
 
 impl vortex_tensor::scalar_fns::l2_denorm::L2Denorm
 
-pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::new(options: &vortex_tensor::scalar_fns::ApproxOptions) -> vortex_array::scalar_fn::typed::ScalarFn<vortex_tensor::scalar_fns::l2_denorm::L2Denorm>
+pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::new() -> vortex_array::scalar_fn::typed::ScalarFn<vortex_tensor::scalar_fns::l2_denorm::L2Denorm>
 
-pub unsafe fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::new_array_unchecked(options: &vortex_tensor::scalar_fns::ApproxOptions, normalized: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+pub unsafe fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::new_array_unchecked(normalized: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, len: usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
-pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::try_new_array(options: &vortex_tensor::scalar_fns::ApproxOptions, normalized: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, len: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::try_new_array(normalized: vortex_array::array::erased::ArrayRef, norms: vortex_array::array::erased::ArrayRef, len: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
 impl core::clone::Clone for vortex_tensor::scalar_fns::l2_denorm::L2Denorm
 
@@ -324,7 +324,7 @@ pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::clone(&self) -> vortex_te
 
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_tensor::scalar_fns::l2_denorm::L2Denorm
 
-pub type vortex_tensor::scalar_fns::l2_denorm::L2Denorm::Options = vortex_tensor::scalar_fns::ApproxOptions
+pub type vortex_tensor::scalar_fns::l2_denorm::L2Denorm::Options = vortex_array::scalar_fn::vtable::EmptyOptions
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::arity(&self, _options: &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
 
@@ -344,9 +344,9 @@ pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::return_dtype(&self, _opti
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::validity(&self, _options: &Self::Options, expression: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
 
-pub fn vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm(options: &vortex_tensor::scalar_fns::ApproxOptions, input: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+pub fn vortex_tensor::scalar_fns::l2_denorm::normalize_as_l2_denorm(input: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
-pub fn vortex_tensor::scalar_fns::l2_denorm::validate_l2_normalized_rows(input: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+pub fn vortex_tensor::scalar_fns::l2_denorm::validate_l2_normalized_rows(input: &vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub mod vortex_tensor::scalar_fns::l2_norm
 
