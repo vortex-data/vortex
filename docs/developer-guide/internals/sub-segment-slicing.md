@@ -11,47 +11,9 @@ Sub-segment slicing lets the IO layer read **only the byte ranges within a segme
 actually needed** for a given row range or filter mask. The key constraint: we can only afford
 **one IO round-trip per segment**, so we must determine all needed byte ranges before fetching.
 
-## Background: How Segments Pack Buffers
-
-A segment is a contiguous byte range in a file. Inside it, buffers are packed sequentially:
-
-```
-+-------------------------- segment ---------------------------+
-| [pad][buf 0][pad][buf 1][pad][buf 2]...[flatbuffer][u32 len] |
-+--------------------------------------------------------------+
-```
-
-The flatbuffer suffix (the "array tree") describes the encoding tree:
-
-```
-Array
-  root: ArrayNode
-    encoding: u16          <- which encoding (Primitive, BitPacked, Dict, ...)
-    metadata: [u8]         <- encoding-specific (bit_width, offset, ptype, ...)
-    buffers:  [u16]        <- indices into the global Buffer descriptor list
-    children: [ArrayNode]  <- recursive
-  buffers: [Buffer]        <- global list: { padding, alignment_exponent, length }
-```
-
-Each `ArrayNode.buffers[i]` is an index into `Array.buffers`. The padding and length fields
-let us compute the **byte offset of every buffer within the segment** without reading any
-buffer data.
-
-When `FLAT_LAYOUT_INLINE_ARRAY_NODE` is enabled, the flatbuffer metadata is stored in layout
-metadata rather than in the segment, so the segment contains only data buffers and the
-metadata is available before any IO happens.
-
 ## Background: SliceReduce
 
-`SliceReduce` is the existing per-encoding trait for metadata-only slicing:
-
-```rust
-pub trait SliceReduce: VTable {
-    fn slice(array: ArrayView<'_, Self>, range: Range<usize>)
-        -> VortexResult<Option<ArrayRef>>;
-}
-```
-
+`SliceReduce` is the existing per-encoding trait for metadata-only slicing.
 Encodings implement this to push slices down through their structure:
 
 - **Primitive**: `buffer_handle().slice_typed::<T>(range)` -- byte-range slice on values buffer
