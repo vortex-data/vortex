@@ -255,39 +255,35 @@ impl VTable for Patched {
         let array = require_child!(array, array.patch_values(), VALUES_SLOT => Primitive);
 
         let len = array.len();
-        let (data, mut slots) = match array.try_into_parts() {
-            Ok(parts) => (parts.data, parts.slots),
+
+        fn take_slot(slots: &mut [Option<ArrayRef>], idx: usize) -> ArrayRef {
+            slots[idx].take().vortex_expect("slot must be present")
+        }
+
+        fn downcast_slot(slot: ArrayRef) -> PrimitiveArray {
+            slot.try_downcast::<Primitive>()
+                .ok()
+                .vortex_expect("slot must be primitive")
+        }
+
+        let (n_lanes, offset, inner, lane_offsets, indices, values) = match array.try_into_parts() {
+            Ok(mut parts) => {
+                let PatchedData { n_lanes, offset } = parts.data;
+                let inner = downcast_slot(take_slot(&mut parts.slots, INNER_SLOT));
+                let lane_offsets = downcast_slot(take_slot(&mut parts.slots, LANE_OFFSETS_SLOT));
+                let indices = downcast_slot(take_slot(&mut parts.slots, INDICES_SLOT));
+                let values = downcast_slot(take_slot(&mut parts.slots, VALUES_SLOT));
+                (n_lanes, offset, inner, lane_offsets, indices, values)
+            }
             Err(array) => {
-                // Arc is shared, clone the fields out.
-                (array.data().clone(), array.slots().to_vec())
+                let PatchedData { n_lanes, offset } = array.data().clone();
+                let inner = downcast_slot(array.base_array().clone());
+                let lane_offsets = downcast_slot(array.lane_offsets().clone());
+                let indices = downcast_slot(array.patch_indices().clone());
+                let values = downcast_slot(array.patch_values().clone());
+                (n_lanes, offset, inner, lane_offsets, indices, values)
             }
         };
-        let PatchedData { n_lanes, offset } = data;
-
-        let inner = slots[INNER_SLOT]
-            .take()
-            .vortex_expect("inner slot")
-            .try_downcast::<Primitive>()
-            .ok()
-            .vortex_expect("inner must be primitive");
-        let lane_offsets = slots[LANE_OFFSETS_SLOT]
-            .take()
-            .vortex_expect("lane_offsets slot")
-            .try_downcast::<Primitive>()
-            .ok()
-            .vortex_expect("lane_offsets must be primitive");
-        let indices = slots[INDICES_SLOT]
-            .take()
-            .vortex_expect("indices slot")
-            .try_downcast::<Primitive>()
-            .ok()
-            .vortex_expect("indices must be primitive");
-        let values = slots[VALUES_SLOT]
-            .take()
-            .vortex_expect("values slot")
-            .try_downcast::<Primitive>()
-            .ok()
-            .vortex_expect("values must be primitive");
 
         let PrimitiveDataParts {
             buffer,
