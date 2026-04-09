@@ -110,6 +110,10 @@ pub struct vortex_session::VortexSession(_)
 
 impl vortex_session::VortexSession
 
+pub fn vortex_session::VortexSession::allow_unknown(self) -> Self
+
+pub fn vortex_session::VortexSession::allows_unknown(&self) -> bool
+
 pub fn vortex_session::VortexSession::empty() -> Self
 
 pub fn vortex_session::VortexSession::with<V: vortex_session::SessionVar + core::default::Default>(self) -> Self

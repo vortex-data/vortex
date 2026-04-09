@@ -317,10 +317,12 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
 
 mod private {
     use super::*;
+    use crate::layouts::foreign::ForeignLayout;
 
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for LayoutAdapter<V> {}
+    impl Sealed for ForeignLayout {}
 }
 
 #[cfg(test)]
