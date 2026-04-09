@@ -87,7 +87,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PatchedArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrays::patched::PatchedArrayExt;
+    use vortex_array::arrays::patched::PatchedArraySlotsExt;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
@@ -147,7 +147,7 @@ mod tests {
             .map_err(|a| vortex_err!("Expected Patched, got {}", a.encoding_id()))?;
 
         let inner_alp: ALPArray = patched
-            .base_array()
+            .inner()
             .clone()
             .try_downcast()
             .map_err(|a| vortex_err!("Expected inner ALP, got {}", a.encoding_id()))?;
