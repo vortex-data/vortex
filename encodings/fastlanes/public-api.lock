@@ -248,34 +248,6 @@ pub vortex_fastlanes::BitPackedDataParts::patches: core::option::Option<vortex_a
 
 pub vortex_fastlanes::BitPackedDataParts::validity: vortex_array::validity::Validity
 
-pub struct vortex_fastlanes::BitPackedSlots
-
-pub vortex_fastlanes::BitPackedSlots::patch_chunk_offsets: core::option::Option<vortex_array::array::erased::ArrayRef>
-
-pub vortex_fastlanes::BitPackedSlots::patch_indices: core::option::Option<vortex_array::array::erased::ArrayRef>
-
-pub vortex_fastlanes::BitPackedSlots::patch_values: core::option::Option<vortex_array::array::erased::ArrayRef>
-
-pub vortex_fastlanes::BitPackedSlots::validity_child: core::option::Option<vortex_array::array::erased::ArrayRef>
-
-impl vortex_fastlanes::BitPackedSlots
-
-pub const vortex_fastlanes::BitPackedSlots::COUNT: usize
-
-pub const vortex_fastlanes::BitPackedSlots::NAMES: [&'static str; 4]
-
-pub const vortex_fastlanes::BitPackedSlots::PATCH_CHUNK_OFFSETS: usize
-
-pub const vortex_fastlanes::BitPackedSlots::PATCH_INDICES: usize
-
-pub const vortex_fastlanes::BitPackedSlots::PATCH_VALUES: usize
-
-pub const vortex_fastlanes::BitPackedSlots::VALIDITY_CHILD: usize
-
-pub fn vortex_fastlanes::BitPackedSlots::from_slots(slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> Self
-
-pub fn vortex_fastlanes::BitPackedSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>
-
 pub struct vortex_fastlanes::Delta
 
 impl vortex_fastlanes::Delta
@@ -570,7 +542,9 @@ impl vortex_array::hash::ArrayHash for vortex_fastlanes::RLEData
 
 pub fn vortex_fastlanes::RLEData::array_hash<H: core::hash::Hasher>(&self, state: &mut H, _precision: vortex_array::hash::Precision)
 
-pub trait vortex_fastlanes::BitPackedArrayExt: vortex_fastlanes::BitPackedArraySlotsExt
+pub static vortex_fastlanes::USE_EXPERIMENTAL_PATCHES: std::sync::lazy_lock::LazyLock<bool>
+
+pub trait vortex_fastlanes::BitPackedArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::BitPacked>
 
 pub fn vortex_fastlanes::BitPackedArrayExt::bit_width(&self) -> u8
 
@@ -580,11 +554,19 @@ pub fn vortex_fastlanes::BitPackedArrayExt::packed(&self) -> &vortex_array::buff
 
 pub fn vortex_fastlanes::BitPackedArrayExt::packed_slice<T: vortex_array::dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(&self) -> &[T]
 
+pub fn vortex_fastlanes::BitPackedArrayExt::patch_chunk_offsets(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_fastlanes::BitPackedArrayExt::patch_indices(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_fastlanes::BitPackedArrayExt::patch_values(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
 pub fn vortex_fastlanes::BitPackedArrayExt::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
 
 pub fn vortex_fastlanes::BitPackedArrayExt::unpacked_chunks<T: vortex_fastlanes::unpack_iter::BitPacked>(&self) -> vortex_error::VortexResult<vortex_fastlanes::unpack_iter::BitUnpackedChunks<T>>
 
 pub fn vortex_fastlanes::BitPackedArrayExt::validity(&self) -> vortex_array::validity::Validity
+
+pub fn vortex_fastlanes::BitPackedArrayExt::validity_child(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
 
 pub fn vortex_fastlanes::BitPackedArrayExt::validity_mask(&self) -> vortex_mask::Mask
 
@@ -598,37 +580,21 @@ pub fn T::packed(&self) -> &vortex_array::buffer::BufferHandle
 
 pub fn T::packed_slice<T: vortex_array::dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(&self) -> &[T]
 
-pub fn T::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
-
-pub fn T::unpacked_chunks<T: vortex_fastlanes::unpack_iter::BitPacked>(&self) -> vortex_error::VortexResult<vortex_fastlanes::unpack_iter::BitUnpackedChunks<T>>
-
-pub fn T::validity(&self) -> vortex_array::validity::Validity
-
-pub fn T::validity_mask(&self) -> vortex_mask::Mask
-
-pub trait vortex_fastlanes::BitPackedArraySlotsExt: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::BitPacked>
-
-pub fn vortex_fastlanes::BitPackedArraySlotsExt::patch_chunk_offsets(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_fastlanes::BitPackedArraySlotsExt::patch_indices(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_fastlanes::BitPackedArraySlotsExt::patch_values(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_fastlanes::BitPackedArraySlotsExt::slots_view(&self) -> vortex_fastlanes::bitpacking::array::BitPackedSlotsView<'_>
-
-pub fn vortex_fastlanes::BitPackedArraySlotsExt::validity_child(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
-
-impl<T: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::BitPacked>> vortex_fastlanes::BitPackedArraySlotsExt for T
-
 pub fn T::patch_chunk_offsets(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
 
 pub fn T::patch_indices(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
 
 pub fn T::patch_values(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
 
-pub fn T::slots_view(&self) -> vortex_fastlanes::bitpacking::array::BitPackedSlotsView<'_>
+pub fn T::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+
+pub fn T::unpacked_chunks<T: vortex_fastlanes::unpack_iter::BitPacked>(&self) -> vortex_error::VortexResult<vortex_fastlanes::unpack_iter::BitUnpackedChunks<T>>
+
+pub fn T::validity(&self) -> vortex_array::validity::Validity
 
 pub fn T::validity_child(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::validity_mask(&self) -> vortex_mask::Mask
 
 pub trait vortex_fastlanes::FoRArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::FoR>
 

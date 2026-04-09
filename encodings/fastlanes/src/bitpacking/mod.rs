@@ -13,6 +13,9 @@ pub use array::unpack_iter;
 
 pub(crate) mod compute;
 
+mod plugin;
 mod vtable;
+
+pub(crate) use plugin::BitPackedPatchedPlugin;
 pub use vtable::BitPacked;
 pub use vtable::BitPackedArray;

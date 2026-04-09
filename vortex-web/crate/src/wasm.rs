@@ -18,7 +18,6 @@ use futures::FutureExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use serde::Serialize;
-use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
@@ -36,8 +35,6 @@ use vortex::file::VERSION;
 use vortex::file::VortexFile;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
-use vortex::io::runtime::wasm::WasmRuntime;
-use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutChildType;
 use vortex::layout::LayoutRef;
 use vortex::layout::layouts::flat::Flat;
@@ -46,6 +43,8 @@ use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
+
+use crate::SESSION;
 
 /// Initialize the WASM module (sets up panic hook for better error messages).
 #[wasm_bindgen(start)]
@@ -125,7 +124,6 @@ impl VortexReadAt for BlobReadAt {
 /// The `File` (a `Blob`) is read lazily — only the footer is read at open time.
 #[wasm_bindgen]
 pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, JsValue> {
-    let session = VortexSession::default().with_handle(WasmRuntime::handle());
     let blob: &web_sys::Blob = file.as_ref();
     let file_size = blob.size() as usize;
     let reader = Arc::new(BlobReadAt {
@@ -133,7 +131,7 @@ pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, J
         size: file_size as u64,
     });
 
-    let vxf = session
+    let vxf = SESSION
         .open_options()
         .open(reader)
         .await
@@ -144,7 +142,7 @@ pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, J
 
     Ok(VortexFileHandle {
         vxf,
-        session,
+        session: SESSION.clone(),
         file_size,
         array_read_ctx,
     })

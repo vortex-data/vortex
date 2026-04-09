@@ -128,8 +128,10 @@ impl dyn LayoutEncoding + '_ {
 
 mod private {
     use super::*;
+    use crate::layouts::foreign::ForeignLayoutEncoding;
 
     pub trait Sealed {}
 
     impl<V: VTable> Sealed for LayoutEncodingAdapter<V> {}
+    impl Sealed for ForeignLayoutEncoding {}
 }
