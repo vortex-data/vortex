@@ -111,8 +111,12 @@ pub fn patch_chunk<T, I, C>(
     // Use the same logic as patches slice implementation for calculating patch ranges.
     let patches_start_idx =
         (chunk_offsets_slice[chunk_idx].as_() - base_offset).saturating_sub(offset_within_chunk);
+    // Clamp: chunk_offsets are sliced at chunk granularity but patches at element
+    // granularity, so the next chunk offset may exceed the actual patches length.
     let patches_end_idx = if chunk_idx + 1 < chunk_offsets_slice.len() {
-        chunk_offsets_slice[chunk_idx + 1].as_() - base_offset - offset_within_chunk
+        (chunk_offsets_slice[chunk_idx + 1].as_() - base_offset)
+            .saturating_sub(offset_within_chunk)
+            .min(patches_indices.len())
     } else {
         patches_indices.len()
     };
@@ -134,6 +138,37 @@ mod tests {
     use crate::ToCanonical;
     use crate::assert_arrays_eq;
     use crate::validity::Validity;
+
+    /// Regression: patch_chunk must not OOB when chunk_offsets (chunk granularity)
+    /// reference more patches than patches_indices (element granularity) contains.
+    #[test]
+    fn patch_chunk_no_oob_on_mid_chunk_slice() {
+        let mut decoded_values = vec![0.0f64; PATCH_CHUNK_SIZE];
+        // 10 patches, but chunk_offsets claim 15 exist past offset adjustment.
+        let patches_indices: Vec<u64> = (0..10)
+            .map(|i| (PATCH_CHUNK_SIZE as u64) + i * 10)
+            .collect();
+        let patches_values: Vec<f64> = (0..10).map(|i| (i + 1) as f64 * 100.0).collect();
+        // chunk_offsets [5, 12, 20]: for chunk_idx=1 with offset_within_chunk=3,
+        // unclamped end = (20-5)-3 = 12, which exceeds patches len of 10.
+        let chunk_offsets: Vec<u32> = vec![5, 12, 20];
+
+        patch_chunk(
+            &mut decoded_values,
+            &patches_indices,
+            &patches_values,
+            0,
+            &chunk_offsets,
+            1,
+            3,
+        );
+
+        // Spot-check: patch index 4 (first in range) should be applied.
+        assert_ne!(
+            decoded_values[patches_indices[4] as usize - PATCH_CHUNK_SIZE],
+            0.0
+        );
+    }
 
     #[test]
     fn patch_sliced() {
