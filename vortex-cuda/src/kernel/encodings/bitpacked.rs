@@ -23,12 +23,14 @@ use vortex::encodings::fastlanes::unpack_iter::BitPacked as BitPackedUnpack;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
+use vortex_error::vortex_bail;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 use crate::kernel::patches::gpu::GPUPatches;
+use crate::kernel::patches::types::DevicePatches;
 use crate::kernel::patches::types::transpose_patches;
 
 /// CUDA decoder for bit-packed arrays.
@@ -53,7 +55,7 @@ impl CudaExecute for BitPackedExecutor {
             Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected BitPackedArray"))?;
 
         match_each_integer_ptype!(array.ptype(array.dtype()), |A| {
-            decode_bitpacked::<A>(array, A::default(), ctx).await
+            decode_bitpacked::<A>(array, A::default(), None, ctx).await
         })
     }
 }
@@ -90,6 +92,7 @@ unsafe impl DeviceRepr for GPUPatches {}
 pub(crate) async fn decode_bitpacked<A>(
     array: BitPackedArray,
     reference: A,
+    device_patches: Option<DevicePatches>,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
 where
@@ -101,7 +104,7 @@ where
         bit_width,
         len,
         packed,
-        patches,
+        patches: interior_patches,
         validity,
     } = BitPacked::into_parts(array);
 
@@ -122,11 +125,14 @@ where
     let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, ctx)?;
     let config = bitpacked_cuda_launch_config(output_width, len)?;
 
-    // We hold this here to keep the device buffers alive.
-    let device_patches = if let Some(patches) = patches {
-        Some(transpose_patches(&patches, ctx).await?)
-    } else {
-        None
+    // Execute the patch kind to get device patches
+    let device_patches = match (interior_patches, device_patches) {
+        (None, None) => None,
+        (Some(patches), None) => Some(transpose_patches(&patches, ctx).await?),
+        (None, Some(device_patches)) => Some(device_patches),
+        (Some(_), Some(_)) => {
+            vortex_bail!("Cannot execute bitpacked array with interior and exterior patches")
+        }
     };
 
     let patches_arg = if let Some(p) = &device_patches {

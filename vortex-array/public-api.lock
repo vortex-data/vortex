@@ -3368,6 +3368,10 @@ pub struct vortex_array::arrays::patched::Patched
 
 impl vortex_array::arrays::patched::Patched
 
+pub const vortex_array::arrays::patched::Patched::ID: vortex_array::ArrayId
+
+impl vortex_array::arrays::patched::Patched
+
 pub fn vortex_array::arrays::patched::Patched::from_array_and_patches(inner: vortex_array::ArrayRef, patches: &vortex_array::patches::Patches, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::Array<vortex_array::arrays::patched::Patched>>
 
 impl core::clone::Clone for vortex_array::arrays::patched::Patched
@@ -3583,6 +3587,8 @@ pub fn T::patch_indices(&self) -> &vortex_array::ArrayRef
 pub fn T::patch_values(&self) -> &vortex_array::ArrayRef
 
 pub fn T::slots_view(&self) -> vortex_array::arrays::patched::PatchedSlotsView<'_>
+
+pub fn vortex_array::arrays::patched::apply_patches_primitive<V: vortex_array::dtype::NativePType>(output: &mut [V], offset: usize, len: usize, n_lanes: usize, lane_offsets: &[u32], indices: &[u16], values: &[V])
 
 pub type vortex_array::arrays::patched::PatchedArray = vortex_array::Array<vortex_array::arrays::patched::Patched>
 
@@ -6215,6 +6221,10 @@ impl vortex_array::scalar_fn::fns::mask::MaskReduce for vortex_array::arrays::nu
 pub fn vortex_array::arrays::null::Null::mask(array: vortex_array::ArrayView<'_, vortex_array::arrays::null::Null>, _mask: &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub struct vortex_array::arrays::Patched
+
+impl vortex_array::arrays::patched::Patched
+
+pub const vortex_array::arrays::patched::Patched::ID: vortex_array::ArrayId
 
 impl vortex_array::arrays::patched::Patched
 

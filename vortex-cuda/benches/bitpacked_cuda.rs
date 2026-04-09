@@ -19,12 +19,17 @@ use criterion::Criterion;
 use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
+use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::Patched;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity::NonNullable;
 use vortex::buffer::Buffer;
 use vortex::dtype::NativePType;
+use vortex::encodings::fastlanes::BitPacked as BitPackedEncoding;
 use vortex::encodings::fastlanes::BitPackedArray;
+use vortex::encodings::fastlanes::BitPackedArrayExt;
 use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked;
 use vortex::error::VortexExpect;
@@ -39,8 +44,7 @@ use crate::common::TimedLaunchStrategy;
 const N_ROWS: usize = 100_000_000;
 
 /// Patch frequencies to benchmark (as fractions)
-const PATCH_FREQUENCIES: &[(f64, &str)] =
-    &[(0.001, "0.1%"), (0.01, "1%"), (0.05, "5%"), (0.10, "10%")];
+const PATCH_FREQUENCIES: &[(f64, &str)] = &[(0.01, "1%"), (0.10, "10%")];
 
 /// Create a bit-packed array with the given bit width
 fn make_bitpacked_array<T>(bit_width: u8, len: usize) -> BitPackedArray
@@ -61,14 +65,20 @@ where
         .vortex_expect("failed to create BitPacked array")
 }
 
-/// Create a bit-packed array with the given bit width and patch frequency.
+/// Create a `Patched` array wrapping a patch-free `BitPacked` array with the given
+/// bit width and patch frequency.
 ///
 /// `patch_frequency` is a fraction (0.0 to 1.0) indicating what proportion of values
 /// should exceed the bit width and become patches.
 ///
 /// This function uses bit_width=6 internally since patch values need to exceed
 /// the bit width but still fit in u8 for the From<u8> trait bound.
-fn make_bitpacked_array_with_patches<T>(len: usize, patch_frequency: f64) -> BitPackedArray
+///
+/// The bit-packed array initially produced by `BitPackedData::encode` carries its
+/// patches inline. We extract those patches and re-wrap the patch-free `BitPacked`
+/// in a `Patched` so the CUDA executor dispatches through `PatchedExecutor` (which
+/// fuses patching with bit-unpacking).
+fn make_bitpacked_array_with_patches<T>(len: usize, patch_frequency: f64) -> ArrayRef
 where
     T: NativePType + Add<Output = T> + From<u8>,
 {
@@ -97,8 +107,33 @@ where
         .collect();
 
     let primitive_array = PrimitiveArray::new(Buffer::from(values), NonNullable).into_array();
-    BitPackedData::encode(&primitive_array, bit_width)
-        .vortex_expect("failed to create BitPacked array with patches")
+    let bitpacked = BitPackedData::encode(&primitive_array, bit_width)
+        .vortex_expect("failed to create BitPacked array with patches");
+
+    let patches = bitpacked
+        .patches()
+        .vortex_expect("expected patches at non-zero patch frequency");
+
+    let bitpacked_without_patches = BitPackedEncoding::try_new(
+        bitpacked.packed().clone(),
+        bitpacked.dtype().as_ptype(),
+        BitPackedArrayExt::validity(&bitpacked),
+        None,
+        bitpacked.bit_width(),
+        bitpacked.len(),
+        bitpacked.offset(),
+    )
+    .vortex_expect("failed to rebuild patch-free BitPacked")
+    .into_array();
+
+    let session = VortexSession::empty();
+    Patched::from_array_and_patches(
+        bitpacked_without_patches,
+        &patches,
+        &mut session.create_execution_ctx(),
+    )
+    .vortex_expect("failed to wrap BitPacked in Patched")
+    .into_array()
 }
 
 /// Generic benchmark function for a specific type and bit width
@@ -160,6 +195,7 @@ where
 
     for &(patch_freq, patch_label) in PATCH_FREQUENCIES {
         let array = make_bitpacked_array_with_patches::<T>(N_ROWS, patch_freq);
+        assert!(array.is::<Patched>());
 
         group.bench_with_input(
             BenchmarkId::new("bitunpack_patched", patch_label),

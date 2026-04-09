@@ -57,6 +57,11 @@ pub type PatchedArray = Array<Patched>;
 #[derive(Clone, Debug)]
 pub struct Patched;
 
+impl Patched {
+    /// The array ID for Patched arrays.
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.patched");
+}
+
 impl ValidityChild<Patched> for Patched {
     fn validity_child(array: ArrayView<'_, Patched>) -> ArrayRef {
         array.inner().clone()
@@ -99,7 +104,7 @@ impl VTable for Patched {
     type ValidityVTable = ValidityVTableFromChild;
 
     fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.patched")
+        Self::ID
     }
 
     fn validate(
@@ -318,7 +323,12 @@ impl VTable for Patched {
 }
 
 /// Apply patches on top of the existing value types.
-fn apply_patches_primitive<V: NativePType>(
+///
+/// This function is used to overwrite values in the output buffer with patch values
+/// at the specified indices. It handles the chunked layout where patches are organized
+/// by lanes within 1024-element chunks.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_patches_primitive<V: NativePType>(
     output: &mut [V],
     offset: usize,
     len: usize,
